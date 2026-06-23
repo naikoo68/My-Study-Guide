@@ -10,15 +10,27 @@ export const authService = {
   forgotPassword: (email) => api.post("/auth/forgot-password", { email }, { auth: false }),
 };
 
-// ---- Subjects / sessions / questions ----
+// ---- Subjects / topics / sessions / questions ----
 export const contentService = {
+  // public reads
   subjects: () => api.get("/subjects"),
-  sessions: (subjectId) => api.get(`/subjects/${subjectId}/sessions`),
+  topics: (subjectId) => api.get(`/subjects/${subjectId}/topics`),
+  sessions: (topicId) => api.get(`/topics/${topicId}/sessions`),
   questions: (sessionId) => api.get(`/sessions/${sessionId}/questions`),
   allQuestions: () => api.get("/questions"),
-  // admin
+  // subjects (admin)
   createSubject: (data) => api.post("/subjects", data),
+  updateSubject: (id, data) => api.put(`/subjects/${id}`, data),
   deleteSubject: (id) => api.del(`/subjects/${id}`),
+  // topics (admin)
+  createTopic: (data) => api.post("/topics", data),
+  updateTopic: (id, data) => api.put(`/topics/${id}`, data),
+  deleteTopic: (id) => api.del(`/topics/${id}`),
+  // sessions (admin)
+  createSession: (data) => api.post("/sessions", data),
+  updateSession: (id, data) => api.put(`/sessions/${id}`, data),
+  deleteSession: (id) => api.del(`/sessions/${id}`),
+  // questions (admin)
   createQuestion: (data) => api.post("/questions", data),
   updateQuestion: (id, data) => api.put(`/questions/${id}`, data),
   deleteQuestion: (id) => api.del(`/questions/${id}`),
@@ -39,6 +51,7 @@ export const testService = {
   submit: (id, answers, timeTaken) => api.post(`/tests/${id}/submit`, { answers, timeTaken }),
   // admin
   create: (data) => api.post("/tests", data),
+  update: (id, data) => api.put(`/tests/${id}`, data),
   togglePublish: (id) => api.patch(`/tests/${id}/publish`),
   remove: (id) => api.del(`/tests/${id}`),
 };

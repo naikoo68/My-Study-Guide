@@ -1,17 +1,16 @@
 import mongoose from "mongoose";
 
-// A session/chapter within a topic.
+// A topic groups sessions within a subject.
 // Hierarchy: Subject → Topic → Session → Questions
-const sessionSchema = new mongoose.Schema(
+const topicSchema = new mongoose.Schema(
   {
     subject: { type: mongoose.Schema.Types.ObjectId, ref: "Subject", required: true },
-    topic: { type: mongoose.Schema.Types.ObjectId, ref: "Topic" },
     title: { type: String, required: true, trim: true },
     index: { type: Number, default: 1 },
-    difficulty: { type: String, enum: ["Easy", "Medium", "Hard"], default: "Medium" },
+    description: { type: String },
     isActive: { type: Boolean, default: true },
   },
   { timestamps: true }
 );
 
-export default mongoose.model("Session", sessionSchema);
+export default mongoose.model("Topic", topicSchema);

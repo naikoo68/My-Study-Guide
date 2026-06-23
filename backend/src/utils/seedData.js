@@ -3,6 +3,7 @@
 // hosts like Render's free tier where shell access isn't available).
 import User from "../models/User.js";
 import Subject from "../models/Subject.js";
+import Topic from "../models/Topic.js";
 import Session from "../models/Session.js";
 import Question from "../models/Question.js";
 import TestSeries from "../models/TestSeries.js";
@@ -43,6 +44,22 @@ const SESSION_TITLES = {
 
 const DIFFICULTIES = ["Easy", "Medium", "Hard"];
 
+// Two topics per subject; the subject's sessions are split between them.
+const TOPIC_NAMES = {
+  Physics: ["Mechanics", "Modern Physics"],
+  Chemistry: ["Physical Chemistry", "Organic & Inorganic"],
+  Biology: ["Botany", "Zoology"],
+  Mathematics: ["Algebra & Calculus", "Geometry & Statistics"],
+  Economics: ["Microeconomics", "Macroeconomics"],
+  Accountancy: ["Basic Accounting", "Company Accounts"],
+  "Business Studies": ["Management", "Marketing & Environment"],
+  History: ["Ancient & Medieval", "Modern World"],
+  Geography: ["Physical Geography", "Human Geography"],
+  "Political Science": ["Political Theory", "Indian Government"],
+  English: ["Language & Grammar", "Literature & Writing"],
+  "Computer Science": ["Programming & Data", "Systems & Networks"],
+};
+
 const CURATED = {
   "Units & Measurements": [
     { text: "Which of the following is a base SI unit?", options: ["Newton", "Kilogram", "Watt", "Pascal"], correct: 1, topic: "SI Units", explanation: "Kilogram is a base SI unit of mass. The others are derived units." },
@@ -75,6 +92,7 @@ export async function seedDatabase({ reset = false } = {}) {
     await Promise.all([
       User.deleteMany({}),
       Subject.deleteMany({}),
+      Topic.deleteMany({}),
       Session.deleteMany({}),
       Question.deleteMany({}),
       TestSeries.deleteMany({}),
@@ -100,17 +118,37 @@ export async function seedDatabase({ reset = false } = {}) {
   for (const s of SUBJECTS) {
     const subject = await Subject.create({ ...s, slug: slugify(s.name) });
     const titles = SESSION_TITLES[s.name] || [];
+    const topicNames = TOPIC_NAMES[s.name] || ["Core Concepts", "Advanced Topics"];
     createdQuestionsBySubject[s.name] = [];
-    for (let i = 0; i < titles.length; i++) {
-      const session = await Session.create({
+
+    // Split the subject's sessions across its two topics.
+    const mid = Math.ceil(titles.length / 2);
+    const groups = [titles.slice(0, mid), titles.slice(mid)];
+
+    for (let t = 0; t < topicNames.length; t++) {
+      const groupTitles = groups[t] || [];
+      if (!groupTitles.length) continue;
+      const topic = await Topic.create({
         subject: subject._id,
-        title: titles[i],
-        index: i + 1,
-        difficulty: DIFFICULTIES[i % 3],
+        title: topicNames[t],
+        index: t + 1,
       });
-      const qs = buildQuestions(titles[i]).map((q) => ({ ...q, subject: subject._id, session: session._id }));
-      const created = await Question.insertMany(qs);
-      createdQuestionsBySubject[s.name].push(...created);
+      for (let i = 0; i < groupTitles.length; i++) {
+        const session = await Session.create({
+          subject: subject._id,
+          topic: topic._id,
+          title: groupTitles[i],
+          index: i + 1,
+          difficulty: DIFFICULTIES[i % 3],
+        });
+        const qs = buildQuestions(groupTitles[i]).map((q) => ({
+          ...q,
+          subject: subject._id,
+          session: session._id,
+        }));
+        const created = await Question.insertMany(qs);
+        createdQuestionsBySubject[s.name].push(...created);
+      }
     }
   }
 

@@ -20,12 +20,12 @@ import StatCard from "../../components/ui/StatCard";
 
 export default function QuizResult() {
   const { state } = useLocation();
-  const { subjectId, sessionId } = useParams();
+  const { subjectId, topicId, sessionId } = useParams();
   const [showReview, setShowReview] = useState(false);
 
   if (!state) {
     // Direct visit without a submission — redirect back.
-    return <Navigate to={`/quiz/${subjectId}`} replace />;
+    return <Navigate to={`/quiz/${subjectId}/${topicId}`} replace />;
   }
 
   const {
@@ -156,10 +156,10 @@ export default function QuizResult() {
           {showReview ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           {showReview ? "Hide" : "Review"} Answers
         </button>
-        <Link to={`/quiz/${subjectId}/${sessionId}`} className="btn-outline">
+        <Link to={`/quiz/${subjectId}/${topicId}/${sessionId}`} className="btn-outline">
           <RefreshCw className="h-4 w-4" /> Retake Quiz
         </Link>
-        <Link to={`/quiz/${subjectId}`} className="btn-ghost">
+        <Link to={`/quiz/${subjectId}/${topicId}`} className="btn-ghost">
           Back to Sessions
         </Link>
       </div>

@@ -76,7 +76,7 @@ export default function QuizHome() {
                   </p>
                   <div className="mt-4 flex items-center justify-between">
                     <span className="badge bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                      {s.chapters} sessions
+                      {s.topics} topics
                     </span>
                     <span className="flex items-center gap-1 text-sm font-semibold text-brand-600 transition group-hover:gap-2 dark:text-brand-400">
                       Start Learning <ArrowRight className="h-4 w-4" />

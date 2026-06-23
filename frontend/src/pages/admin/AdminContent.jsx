@@ -1,333 +1,319 @@
-import { useEffect, useState } from "react";
-import { Plus, Trash2, Image as ImageIcon, X, Search } from "lucide-react";
+import { useEffect, useState, useCallback } from "react";
+import { Plus, Pencil, Trash2, X, ChevronRight, FolderOpen, Layers, BookOpen, HelpCircle, Image as ImageIcon } from "lucide-react";
 import { contentService } from "../../services";
 import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 
-const tabs = ["Subjects", "Questions"];
+const COLORS = [
+  "from-blue-500 to-indigo-600",
+  "from-emerald-500 to-teal-600",
+  "from-violet-500 to-purple-600",
+  "from-amber-500 to-orange-600",
+  "from-rose-500 to-pink-600",
+  "from-cyan-500 to-teal-600",
+];
 
-const blankQuestion = {
-  subject: "",
-  text: "",
-  options: ["", "", "", ""],
-  correct: 0,
-  difficulty: "Easy",
-  explanation: "",
-  status: "published",
-};
+const emptyQuestion = { text: "", options: ["", "", "", ""], correct: 0, difficulty: "Easy", explanation: "", status: "published", image: "" };
 
 export default function AdminContent() {
-  const [tab, setTab] = useState("Questions");
-  const [subjects, setSubjects] = useState([]);
-  const [questions, setQuestions] = useState([]);
+  // Drill-down context
+  const [view, setView] = useState("subjects"); // subjects | topics | sessions | questions
+  const [subject, setSubject] = useState(null);
+  const [topic, setTopic] = useState(null);
+  const [session, setSession] = useState(null);
+
+  const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [modal, setModal] = useState(null); // 'question' | 'subject'
-  const [form, setForm] = useState(blankQuestion);
-  const [subjectName, setSubjectName] = useState("");
-  const [search, setSearch] = useState("");
+  const [modal, setModal] = useState(null); // { type, mode, data }
   const [saving, setSaving] = useState(false);
 
-  const load = () => {
+  const loaders = {
+    subjects: () => contentService.subjects(),
+    topics: () => contentService.topics(subject._id),
+    sessions: () => contentService.sessions(topic._id),
+    questions: () => contentService.questions(session._id),
+  };
+
+  const load = useCallback((which) => {
     setLoading(true);
     setError("");
-    Promise.all([contentService.subjects(), contentService.allQuestions()])
-      .then(([subs, qs]) => {
-        setSubjects(subs);
-        setQuestions(qs);
-      })
+    loaders[which]()
+      .then(setItems)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subject, topic, session]);
 
-  useEffect(load, []);
+  useEffect(() => { load(view); /* eslint-disable-next-line */ }, [view]);
 
-  const openAddQuestion = () => {
-    setForm({ ...blankQuestion, subject: subjects[0]?._id || "" });
-    setModal("question");
-  };
+  // Navigation
+  const openSubject = (s) => { setSubject(s); setTopic(null); setSession(null); setView("topics"); };
+  const openTopic = (t) => { setTopic(t); setSession(null); setView("sessions"); };
+  const openSession = (s) => { setSession(s); setView("questions"); };
+  const goTo = (level) => setView(level);
 
-  const saveQuestion = async (e) => {
-    e.preventDefault();
+  // ---- Save handlers ----
+  const save = async (form) => {
     setSaving(true);
+    setError("");
     try {
-      const created = await contentService.createQuestion(form);
-      const subj = subjects.find((s) => s._id === form.subject);
-      setQuestions((qs) => [{ ...created, subject: subj?.name || "—", session: "—" }, ...qs]);
+      const { type, mode, data } = modal;
+      if (type === "subject") {
+        if (mode === "add") await contentService.createSubject(form);
+        else await contentService.updateSubject(data._id, form);
+      } else if (type === "topic") {
+        if (mode === "add") await contentService.createTopic({ ...form, subject: subject._id });
+        else await contentService.updateTopic(data._id, form);
+      } else if (type === "session") {
+        if (mode === "add") await contentService.createSession({ ...form, subject: subject._id, topic: topic._id });
+        else await contentService.updateSession(data._id, form);
+      } else if (type === "question") {
+        if (mode === "add") await contentService.createQuestion({ ...form, subject: subject._id, session: session._id });
+        else await contentService.updateQuestion(data._id, form);
+      }
       setModal(null);
-    } catch (err) {
-      setError(err.message);
+      load(view);
+    } catch (e) {
+      setError(e.message);
     } finally {
       setSaving(false);
     }
   };
 
-  const deleteQuestion = async (id) => {
+  const remove = async (type, id, label) => {
+    if (!window.confirm(`Delete "${label}"? This also removes everything inside it.`)) return;
     try {
-      await contentService.deleteQuestion(id);
-      setQuestions((qs) => qs.filter((q) => q._id !== id));
+      if (type === "subject") await contentService.deleteSubject(id);
+      else if (type === "topic") await contentService.deleteTopic(id);
+      else if (type === "session") await contentService.deleteSession(id);
+      else if (type === "question") await contentService.deleteQuestion(id);
+      load(view);
     } catch (e) {
       setError(e.message);
     }
   };
 
-  const createSubject = async (e) => {
-    e.preventDefault();
-    setSaving(true);
-    try {
-      const created = await contentService.createSubject({ name: subjectName });
-      setSubjects((s) => [...s, { ...created, chapters: 0 }]);
-      setModal(null);
-      setSubjectName("");
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const deleteSubject = async (id) => {
-    try {
-      await contentService.deleteSubject(id);
-      setSubjects((s) => s.filter((x) => x._id !== id));
-    } catch (e) {
-      setError(e.message);
-    }
-  };
-
-  const filteredQ = questions.filter(
-    (q) =>
-      q.text.toLowerCase().includes(search.toLowerCase()) ||
-      (q.subject || "").toLowerCase().includes(search.toLowerCase())
+  // ---- Breadcrumb ----
+  const Crumb = () => (
+    <nav className="flex flex-wrap items-center gap-1 text-sm">
+      <button onClick={() => goTo("subjects")} className={`rounded px-2 py-1 font-medium ${view === "subjects" ? "text-brand-600" : "text-slate-500 hover:text-brand-600"}`}>Subjects</button>
+      {subject && view !== "subjects" && (<>
+        <ChevronRight className="h-4 w-4 text-slate-400" />
+        <button onClick={() => goTo("topics")} className={`rounded px-2 py-1 font-medium ${view === "topics" ? "text-brand-600" : "text-slate-500 hover:text-brand-600"}`}>{subject.name}</button>
+      </>)}
+      {topic && (view === "sessions" || view === "questions") && (<>
+        <ChevronRight className="h-4 w-4 text-slate-400" />
+        <button onClick={() => goTo("sessions")} className={`rounded px-2 py-1 font-medium ${view === "sessions" ? "text-brand-600" : "text-slate-500 hover:text-brand-600"}`}>{topic.title}</button>
+      </>)}
+      {session && view === "questions" && (<>
+        <ChevronRight className="h-4 w-4 text-slate-400" />
+        <span className="rounded px-2 py-1 font-medium text-brand-600">{session.title}</span>
+      </>)}
+    </nav>
   );
 
+  const headings = {
+    subjects: { title: "Subjects", add: "Add Subject", icon: FolderOpen },
+    topics: { title: `Topics in ${subject?.name || ""}`, add: "Add Topic", icon: Layers },
+    sessions: { title: `Sessions in ${topic?.title || ""}`, add: "Add Session", icon: BookOpen },
+    questions: { title: `Questions in ${session?.title || ""}`, add: "Add Question", icon: HelpCircle },
+  };
+  const H = headings[view];
+
+  const openAdd = () => setModal({ type: view.slice(0, -1), mode: "add", data: view === "question" ? emptyQuestion : {} });
+  const openEdit = (item) => setModal({ type: view.slice(0, -1), mode: "edit", data: item });
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-extrabold">Content Management</h1>
-          <p className="text-slate-500 dark:text-slate-400">Manage subjects and questions.</p>
+          <p className="text-slate-500 dark:text-slate-400">Subject → Topic → Session → Questions. Add, edit or delete at any level.</p>
         </div>
-        <div className="flex gap-2">
-          {tab === "Questions" ? (
-            <button onClick={openAddQuestion} className="btn-primary" disabled={!subjects.length}>
-              <Plus className="h-4 w-4" /> Add Question
-            </button>
-          ) : (
-            <button onClick={() => setModal("subject")} className="btn-primary">
-              <Plus className="h-4 w-4" /> Add Subject
-            </button>
-          )}
-        </div>
+        <button onClick={openAdd} className="btn-primary">
+          <Plus className="h-4 w-4" /> {H.add}
+        </button>
       </div>
 
-      <div className="flex gap-2">
-        {tabs.map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
-              tab === t
-                ? "bg-brand-600 text-white"
-                : "bg-white text-slate-600 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-700"
-            }`}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
+      <div className="card px-4 py-3"><Crumb /></div>
 
       {loading ? (
-        <Loading label="Loading content..." />
+        <Loading label={`Loading ${view}...`} />
       ) : error ? (
-        <ErrorState message={error} onRetry={load} />
-      ) : tab === "Subjects" ? (
-        <div className="card overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-left text-slate-500 dark:bg-slate-800/60">
-              <tr>
-                <th className="px-5 py-3 font-semibold">Subject</th>
-                <th className="px-5 py-3 font-semibold">Sessions</th>
-                <th className="px-5 py-3 text-right font-semibold">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {subjects.map((s) => (
-                <tr key={s._id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                  <td className="px-5 py-3 font-medium">{s.name}</td>
-                  <td className="px-5 py-3">{s.chapters ?? 0} sessions</td>
-                  <td className="px-5 py-3">
-                    <div className="flex justify-end gap-2">
-                      <button onClick={() => deleteSubject(s._id)} className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30">
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ErrorState message={error} onRetry={() => load(view)} />
+      ) : items.length === 0 ? (
+        <EmptyState message={`No ${view} yet. Click "${H.add}".`} />
       ) : (
-        <>
-          <div className="relative max-w-sm">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search questions..." className="input pl-9" />
-          </div>
-          {filteredQ.length === 0 ? (
-            <EmptyState message="No questions found." />
-          ) : (
-            <div className="card overflow-x-auto">
-              <table className="w-full min-w-[640px] text-sm">
-                <thead className="bg-slate-50 text-left text-slate-500 dark:bg-slate-800/60">
-                  <tr>
-                    <th className="px-5 py-3 font-semibold">Question</th>
-                    <th className="px-5 py-3 font-semibold">Subject</th>
-                    <th className="px-5 py-3 font-semibold">Difficulty</th>
-                    <th className="px-5 py-3 font-semibold">Status</th>
-                    <th className="px-5 py-3 text-right font-semibold">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {filteredQ.map((q) => (
-                    <tr key={q._id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                      <td className="max-w-xs px-5 py-3">
-                        <p className="truncate font-medium">{q.text}</p>
-                        <p className="text-xs text-slate-400">{q.session}</p>
-                      </td>
-                      <td className="px-5 py-3">{q.subject}</td>
-                      <td className="px-5 py-3"><Badge variant={q.difficulty}>{q.difficulty}</Badge></td>
-                      <td className="px-5 py-3">
-                        <Badge variant={q.status === "published" ? "brand" : "neutral"}>{q.status}</Badge>
-                      </td>
-                      <td className="px-5 py-3">
-                        <div className="flex justify-end gap-2">
-                          <button onClick={() => deleteQuestion(q._id)} className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30">
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        <div className="space-y-3">
+          {items.map((item) => (
+            <div key={item._id} className="card flex items-center justify-between gap-3 p-4">
+              <div className="min-w-0 flex-1">
+                {view === "questions" ? (
+                  <>
+                    <p className="truncate font-medium">{item.text}</p>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <Badge variant={item.difficulty}>{item.difficulty}</Badge>
+                      <Badge variant={item.status === "published" ? "brand" : "neutral"}>{item.status}</Badge>
+                      <span className="text-xs text-slate-400">Correct: {String.fromCharCode(65 + item.correct)}</span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <H.icon className="h-5 w-5 text-brand-500" />
+                      <p className="font-semibold">{item.name || item.title}</p>
+                    </div>
+                    <p className="mt-0.5 text-xs text-slate-400">
+                      {view === "subjects" && `${item.topics ?? 0} topics`}
+                      {view === "topics" && `${item.sessions ?? 0} sessions`}
+                      {view === "sessions" && `${item.questions ?? 0} questions · ${item.difficulty}`}
+                    </p>
+                  </>
+                )}
+              </div>
+              <div className="flex flex-shrink-0 items-center gap-1">
+                {view !== "questions" && (
+                  <button
+                    onClick={() => (view === "subjects" ? openSubject(item) : view === "topics" ? openTopic(item) : openSession(item))}
+                    className="btn-outline py-2"
+                  >
+                    Manage <ChevronRight className="h-4 w-4" />
+                  </button>
+                )}
+                <button onClick={() => openEdit(item)} title="Edit" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30">
+                  <Pencil className="h-4 w-4" />
+                </button>
+                <button onClick={() => remove(view.slice(0, -1), item._id, item.name || item.title || "this question")} title="Delete" className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30">
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
             </div>
-          )}
-        </>
+          ))}
+        </div>
       )}
 
-      {/* Question modal */}
-      {modal === "question" && (
-        <Modal title="Add Question" onClose={() => setModal(null)}>
-          <form onSubmit={saveQuestion} className="space-y-4">
-            <div>
-              <label className="mb-1.5 block text-sm font-medium">Subject</label>
-              <select value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} className="input" required>
-                {subjects.map((s) => (
-                  <option key={s._id} value={s._id}>{s.name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="mb-1.5 block text-sm font-medium">Question Text</label>
-              <textarea required rows={2} value={form.text} onChange={(e) => setForm({ ...form, text: e.target.value })} className="input resize-none" placeholder="Enter the question..." />
-            </div>
-
-            <div>
-              <label className="mb-1.5 block text-sm font-medium">Image URL (optional)</label>
-              <div className="flex items-center gap-2 rounded-xl border border-slate-300 px-3 dark:border-slate-700">
-                <ImageIcon className="h-4 w-4 text-slate-400" />
-                <input
-                  value={form.image || ""}
-                  onChange={(e) => setForm({ ...form, image: e.target.value })}
-                  className="w-full bg-transparent py-2.5 text-sm focus:outline-none"
-                  placeholder="https://res.cloudinary.com/..."
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="mb-1.5 block text-sm font-medium">Options (select the correct one)</label>
-              <div className="space-y-2">
-                {form.options.map((opt, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <input type="radio" name="correct" checked={form.correct === i} onChange={() => setForm({ ...form, correct: i })} className="h-4 w-4 text-brand-600" />
-                    <input
-                      required
-                      value={opt}
-                      onChange={(e) => {
-                        const opts = [...form.options];
-                        opts[i] = e.target.value;
-                        setForm({ ...form, options: opts });
-                      }}
-                      className="input"
-                      placeholder={`Option ${String.fromCharCode(65 + i)}`}
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className="mb-1.5 block text-sm font-medium">Difficulty</label>
-                <select value={form.difficulty} onChange={(e) => setForm({ ...form, difficulty: e.target.value })} className="input">
-                  <option>Easy</option><option>Medium</option><option>Hard</option>
-                </select>
-              </div>
-              <div>
-                <label className="mb-1.5 block text-sm font-medium">Status</label>
-                <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="input">
-                  <option value="published">Published</option>
-                  <option value="draft">Draft</option>
-                </select>
-              </div>
-            </div>
-
-            <div>
-              <label className="mb-1.5 block text-sm font-medium">Explanation / Solution</label>
-              <textarea rows={2} value={form.explanation} onChange={(e) => setForm({ ...form, explanation: e.target.value })} className="input resize-none" placeholder="Explain the correct answer..." />
-            </div>
-
-            <div className="flex justify-end gap-3 pt-2">
-              <button type="button" onClick={() => setModal(null)} className="btn-outline">Cancel</button>
-              <button type="submit" disabled={saving} className="btn-primary">{saving ? "Saving..." : "Save Question"}</button>
-            </div>
-          </form>
-        </Modal>
-      )}
-
-      {/* Subject modal */}
-      {modal === "subject" && (
-        <Modal title="Add Subject" onClose={() => setModal(null)}>
-          <form onSubmit={createSubject} className="space-y-4">
-            <div>
-              <label className="mb-1.5 block text-sm font-medium">Subject Name</label>
-              <input required value={subjectName} onChange={(e) => setSubjectName(e.target.value)} className="input" placeholder="e.g. Statistics" />
-            </div>
-            <div className="flex justify-end gap-3 pt-2">
-              <button type="button" onClick={() => setModal(null)} className="btn-outline">Cancel</button>
-              <button type="submit" disabled={saving} className="btn-primary">{saving ? "Saving..." : "Create"}</button>
-            </div>
-          </form>
-        </Modal>
+      {modal && (
+        <FormModal
+          modal={modal}
+          saving={saving}
+          onClose={() => setModal(null)}
+          onSave={save}
+        />
       )}
     </div>
   );
 }
 
-function Modal({ title, onClose, children }) {
+/* ---------------- Form modal (adapts to subject/topic/session/question) ---------------- */
+function FormModal({ modal, saving, onClose, onSave }) {
+  const { type, mode, data } = modal;
+  const [form, setForm] = useState(() => {
+    if (type === "subject") return { name: data.name || "", description: data.description || "", icon: data.icon || "BookOpen", color: data.color || COLORS[0] };
+    if (type === "topic") return { title: data.title || "", description: data.description || "", index: data.index || 1 };
+    if (type === "session") return { title: data.title || "", difficulty: data.difficulty || "Medium", index: data.index || 1 };
+    return { text: data.text || "", options: data.options ? [...data.options] : ["", "", "", ""], correct: data.correct ?? 0, difficulty: data.difficulty || "Easy", explanation: data.explanation || "", status: data.status || "published", image: data.image || "" };
+  });
+
+  const titleMap = { subject: "Subject", topic: "Topic", session: "Session", question: "Question" };
+  const submit = (e) => { e.preventDefault(); onSave(form); };
+
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4">
-      <div className="my-8 w-full max-w-lg animate-scale-in card p-6">
+      <form onSubmit={submit} className="my-8 w-full max-w-lg animate-scale-in card p-6">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-bold">{title}</h3>
-          <button onClick={onClose} className="rounded-lg p-1 hover:bg-slate-100 dark:hover:bg-slate-800">
-            <X className="h-5 w-5" />
-          </button>
+          <h3 className="text-lg font-bold">{mode === "add" ? "Add" : "Edit"} {titleMap[type]}</h3>
+          <button type="button" onClick={onClose}><X className="h-5 w-5" /></button>
         </div>
-        {children}
-      </div>
+
+        <div className="space-y-4">
+          {type === "subject" && (
+            <>
+              <Field label="Name"><input required className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Physics" /></Field>
+              <Field label="Description"><textarea rows={2} className="input resize-none" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></Field>
+              <Field label="Icon name (lucide)"><input className="input" value={form.icon} onChange={(e) => setForm({ ...form, icon: e.target.value })} placeholder="e.g. Atom, FlaskConical, BookOpen" /></Field>
+              <Field label="Colour">
+                <div className="flex flex-wrap gap-2">
+                  {COLORS.map((c) => (
+                    <button type="button" key={c} onClick={() => setForm({ ...form, color: c })} className={`h-9 w-14 rounded-lg bg-gradient-to-br ${c} ${form.color === c ? "ring-2 ring-offset-2 ring-slate-800 dark:ring-white dark:ring-offset-slate-900" : ""}`} />
+                  ))}
+                </div>
+              </Field>
+            </>
+          )}
+
+          {type === "topic" && (
+            <>
+              <Field label="Topic Title"><input required className="input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. Mechanics" /></Field>
+              <Field label="Description"><textarea rows={2} className="input resize-none" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></Field>
+              <Field label="Order (index)"><input type="number" className="input" value={form.index} onChange={(e) => setForm({ ...form, index: +e.target.value })} /></Field>
+            </>
+          )}
+
+          {type === "session" && (
+            <>
+              <Field label="Session Title"><input required className="input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. Laws of Motion" /></Field>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Difficulty">
+                  <select className="input" value={form.difficulty} onChange={(e) => setForm({ ...form, difficulty: e.target.value })}>
+                    <option>Easy</option><option>Medium</option><option>Hard</option>
+                  </select>
+                </Field>
+                <Field label="Order (index)"><input type="number" className="input" value={form.index} onChange={(e) => setForm({ ...form, index: +e.target.value })} /></Field>
+              </div>
+            </>
+          )}
+
+          {type === "question" && (
+            <>
+              <Field label="Question Text"><textarea required rows={2} className="input resize-none" value={form.text} onChange={(e) => setForm({ ...form, text: e.target.value })} /></Field>
+              <Field label="Image URL (optional)">
+                <div className="flex items-center gap-2 rounded-xl border border-slate-300 px-3 dark:border-slate-700">
+                  <ImageIcon className="h-4 w-4 text-slate-400" />
+                  <input className="w-full bg-transparent py-2.5 text-sm focus:outline-none" value={form.image} onChange={(e) => setForm({ ...form, image: e.target.value })} placeholder="https://res.cloudinary.com/..." />
+                </div>
+              </Field>
+              <Field label="Options (select the correct one)">
+                <div className="space-y-2">
+                  {form.options.map((opt, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <input type="radio" name="correct" checked={form.correct === i} onChange={() => setForm({ ...form, correct: i })} className="h-4 w-4 text-brand-600" />
+                      <input required className="input" value={opt} onChange={(e) => { const o = [...form.options]; o[i] = e.target.value; setForm({ ...form, options: o }); }} placeholder={`Option ${String.fromCharCode(65 + i)}`} />
+                    </div>
+                  ))}
+                </div>
+              </Field>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Difficulty">
+                  <select className="input" value={form.difficulty} onChange={(e) => setForm({ ...form, difficulty: e.target.value })}>
+                    <option>Easy</option><option>Medium</option><option>Hard</option>
+                  </select>
+                </Field>
+                <Field label="Status">
+                  <select className="input" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+                    <option value="published">Published</option><option value="draft">Draft</option>
+                  </select>
+                </Field>
+              </div>
+              <Field label="Explanation / Solution"><textarea rows={2} className="input resize-none" value={form.explanation} onChange={(e) => setForm({ ...form, explanation: e.target.value })} /></Field>
+            </>
+          )}
+        </div>
+
+        <div className="mt-6 flex justify-end gap-3">
+          <button type="button" onClick={onClose} className="btn-outline">Cancel</button>
+          <button type="submit" disabled={saving} className="btn-primary">{saving ? "Saving..." : "Save"}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function Field({ label, children }) {
+  return (
+    <div>
+      <label className="mb-1.5 block text-sm font-medium">{label}</label>
+      {children}
     </div>
   );
 }

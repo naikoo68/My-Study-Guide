@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Trash2, Eye, EyeOff, X, CalendarClock } from "lucide-react";
+import { Plus, Pencil, Trash2, Eye, EyeOff, X, CalendarClock } from "lucide-react";
 import { testService } from "../../services";
 import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
@@ -12,6 +12,7 @@ export default function AdminTests() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [modal, setModal] = useState(false);
+  const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(blank);
   const [saving, setSaving] = useState(false);
 
@@ -27,6 +28,26 @@ export default function AdminTests() {
 
   useEffect(load, []);
 
+  const openCreate = () => {
+    setForm(blank);
+    setEditing(null);
+    setModal(true);
+  };
+
+  const openEdit = (t) => {
+    setForm({
+      name: t.name,
+      category: t.category,
+      marks: t.marks,
+      duration: t.duration,
+      difficulty: t.difficulty || "Medium",
+      status: t.status,
+      schedule: t.schedule ? new Date(t.schedule).toISOString().slice(0, 10) : "",
+    });
+    setEditing(t);
+    setModal(true);
+  };
+
   const togglePublish = async (t) => {
     try {
       const res = await testService.togglePublish(t._id);
@@ -37,6 +58,7 @@ export default function AdminTests() {
   };
 
   const remove = async (id) => {
+    if (!window.confirm("Delete this test series?")) return;
     try {
       await testService.remove(id);
       setTests((list) => list.filter((x) => x._id !== id));
@@ -51,10 +73,16 @@ export default function AdminTests() {
     try {
       const payload = { ...form };
       if (!payload.schedule) delete payload.schedule;
-      const created = await testService.create(payload);
-      setTests((list) => [{ ...created, questionCount: 0 }, ...list]);
+      if (editing) {
+        const updated = await testService.update(editing._id, payload);
+        setTests((list) => list.map((x) => (x._id === editing._id ? { ...x, ...updated, questionCount: x.questionCount } : x)));
+      } else {
+        const created = await testService.create(payload);
+        setTests((list) => [{ ...created, questionCount: 0 }, ...list]);
+      }
       setModal(false);
       setForm(blank);
+      setEditing(null);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -71,7 +99,7 @@ export default function AdminTests() {
           <h1 className="text-2xl font-extrabold">Test Series Management</h1>
           <p className="text-slate-500 dark:text-slate-400">Create, schedule and publish tests.</p>
         </div>
-        <button onClick={() => setModal(true)} className="btn-primary">
+        <button onClick={openCreate} className="btn-primary">
           <Plus className="h-4 w-4" /> Create Test
         </button>
       </div>
@@ -114,6 +142,9 @@ export default function AdminTests() {
                       >
                         {t.status === "published" ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </button>
+                      <button onClick={() => openEdit(t)} title="Edit" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30">
+                        <Pencil className="h-4 w-4" />
+                      </button>
                       <button onClick={() => remove(t._id)} className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30">
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -130,7 +161,7 @@ export default function AdminTests() {
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4">
           <div className="my-8 w-full max-w-lg animate-scale-in card p-6">
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-bold">Create Test Series</h3>
+              <h3 className="text-lg font-bold">{editing ? "Edit Test Series" : "Create Test Series"}</h3>
               <button onClick={() => setModal(false)}><X className="h-5 w-5" /></button>
             </div>
             <form onSubmit={save} className="space-y-4">
@@ -184,7 +215,7 @@ export default function AdminTests() {
               </p>
               <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={() => setModal(false)} className="btn-outline">Cancel</button>
-                <button type="submit" disabled={saving} className="btn-primary">{saving ? "Creating..." : "Create"}</button>
+                <button type="submit" disabled={saving} className="btn-primary">{saving ? "Saving..." : editing ? "Save Changes" : "Create"}</button>
               </div>
             </form>
           </div>

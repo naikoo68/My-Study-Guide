@@ -1,32 +1,35 @@
 import Subject from "../models/Subject.js";
+import Topic from "../models/Topic.js";
 import Session from "../models/Session.js";
 import Question from "../models/Question.js";
 
 const slugify = (s) =>
   s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
-/* ---------------- Subjects ---------------- */
-
-// GET /api/subjects  — includes a session count for each subject
-export async function listSubjects(req, res) {
-  const subjects = await Subject.find({ isActive: true }).sort("name").lean();
-  const counts = await Session.aggregate([
-    { $group: { _id: "$subject", count: { $sum: 1 } } },
+async function countMap(Model, matchIds, field) {
+  const rows = await Model.aggregate([
+    { $match: { [field]: { $in: matchIds } } },
+    { $group: { _id: `$${field}`, count: { $sum: 1 } } },
   ]);
-  const countMap = Object.fromEntries(counts.map((c) => [String(c._id), c.count]));
-  res.json(
-    subjects.map((s) => ({ ...s, chapters: countMap[String(s._id)] || 0 }))
-  );
+  return Object.fromEntries(rows.map((r) => [String(r._id), r.count]));
 }
 
-// POST /api/subjects  (admin)
+/* ---------------- Subjects ---------------- */
+
+// GET /api/subjects — includes topic count per subject
+export async function listSubjects(req, res) {
+  const subjects = await Subject.find({ isActive: true }).sort("name").lean();
+  const topics = await Topic.aggregate([{ $group: { _id: "$subject", count: { $sum: 1 } } }]);
+  const tMap = Object.fromEntries(topics.map((t) => [String(t._id), t.count]));
+  res.json(subjects.map((s) => ({ ...s, topics: tMap[String(s._id)] || 0 })));
+}
+
 export async function createSubject(req, res) {
   const { name } = req.body;
   const subject = await Subject.create({ ...req.body, slug: slugify(name) });
   res.status(201).json(subject);
 }
 
-// PUT /api/subjects/:id  (admin)
 export async function updateSubject(req, res) {
   const data = { ...req.body };
   if (data.name) data.slug = slugify(data.name);
@@ -35,43 +38,76 @@ export async function updateSubject(req, res) {
   res.json(subject);
 }
 
-// DELETE /api/subjects/:id  (admin)
+// Cascade delete: subject → its topics → sessions → questions
 export async function deleteSubject(req, res) {
-  await Subject.findByIdAndDelete(req.params.id);
-  res.json({ message: "Subject deleted" });
+  const id = req.params.id;
+  const topicIds = (await Topic.find({ subject: id }).select("_id")).map((t) => t._id);
+  const sessionIds = (await Session.find({ subject: id }).select("_id")).map((s) => s._id);
+  await Promise.all([
+    Question.deleteMany({ session: { $in: sessionIds } }),
+    Session.deleteMany({ subject: id }),
+    Topic.deleteMany({ subject: id }),
+    Subject.findByIdAndDelete(id),
+  ]);
+  res.json({ message: "Subject and all its topics, sessions and questions deleted", topics: topicIds.length });
+}
+
+/* ---------------- Topics ---------------- */
+
+// GET /api/subjects/:subjectId/topics — includes session count per topic
+export async function listTopics(req, res) {
+  const topics = await Topic.find({ subject: req.params.subjectId }).sort("index").lean();
+  const sMap = await countMap(Session, topics.map((t) => t._id), "topic");
+  res.json(topics.map((t) => ({ ...t, sessions: sMap[String(t._id)] || 0 })));
+}
+
+export async function createTopic(req, res) {
+  const topic = await Topic.create(req.body);
+  res.status(201).json(topic);
+}
+
+export async function updateTopic(req, res) {
+  const topic = await Topic.findByIdAndUpdate(req.params.id, req.body, { new: true });
+  if (!topic) return res.status(404).json({ message: "Topic not found" });
+  res.json(topic);
+}
+
+// Cascade delete: topic → sessions → questions
+export async function deleteTopic(req, res) {
+  const id = req.params.id;
+  const sessionIds = (await Session.find({ topic: id }).select("_id")).map((s) => s._id);
+  await Promise.all([
+    Question.deleteMany({ session: { $in: sessionIds } }),
+    Session.deleteMany({ topic: id }),
+    Topic.findByIdAndDelete(id),
+  ]);
+  res.json({ message: "Topic and its sessions and questions deleted" });
 }
 
 /* ---------------- Sessions ---------------- */
 
-// GET /api/subjects/:subjectId/sessions — includes a question count per session
+// GET /api/topics/:topicId/sessions — includes question count per session
 export async function listSessions(req, res) {
-  const sessions = await Session.find({ subject: req.params.subjectId }).sort("index").lean();
-  const counts = await Question.aggregate([
-    { $match: { session: { $in: sessions.map((s) => s._id) } } },
-    { $group: { _id: "$session", count: { $sum: 1 } } },
-  ]);
-  const countMap = Object.fromEntries(counts.map((c) => [String(c._id), c.count]));
-  res.json(
-    sessions.map((s) => ({ ...s, questions: countMap[String(s._id)] || 0 }))
-  );
+  const sessions = await Session.find({ topic: req.params.topicId }).sort("index").lean();
+  const qMap = await countMap(Question, sessions.map((s) => s._id), "session");
+  res.json(sessions.map((s) => ({ ...s, questions: qMap[String(s._id)] || 0 })));
 }
 
-// POST /api/sessions  (admin)
 export async function createSession(req, res) {
   const session = await Session.create(req.body);
   res.status(201).json(session);
 }
 
-// PUT /api/sessions/:id  (admin)
 export async function updateSession(req, res) {
   const session = await Session.findByIdAndUpdate(req.params.id, req.body, { new: true });
   res.json(session);
 }
 
-// DELETE /api/sessions/:id  (admin)
+// Cascade delete: session → questions
 export async function deleteSession(req, res) {
+  await Question.deleteMany({ session: req.params.id });
   await Session.findByIdAndDelete(req.params.id);
-  res.json({ message: "Session deleted" });
+  res.json({ message: "Session and its questions deleted" });
 }
 
 /* ---------------- Questions ---------------- */
@@ -105,13 +141,11 @@ export async function listAllQuestions(req, res) {
   );
 }
 
-// POST /api/questions  (admin)
 export async function createQuestion(req, res) {
   const question = await Question.create(req.body);
   res.status(201).json(question);
 }
 
-// POST /api/questions/bulk  (admin) — accepts an array of questions (parsed from CSV/Excel)
 export async function bulkCreateQuestions(req, res) {
   const { questions } = req.body;
   if (!Array.isArray(questions) || !questions.length) {
@@ -121,13 +155,11 @@ export async function bulkCreateQuestions(req, res) {
   res.status(201).json({ inserted: created.length });
 }
 
-// PUT /api/questions/:id  (admin)
 export async function updateQuestion(req, res) {
   const question = await Question.findByIdAndUpdate(req.params.id, req.body, { new: true });
   res.json(question);
 }
 
-// DELETE /api/questions/:id  (admin)
 export async function deleteQuestion(req, res) {
   await Question.findByIdAndDelete(req.params.id);
   res.json({ message: "Question deleted" });

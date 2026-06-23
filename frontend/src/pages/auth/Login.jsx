@@ -87,9 +87,10 @@ export default function Login() {
         </button>
       </form>
 
-      <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-center text-xs text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
-        Demo: <b>student@myprepmart.com</b> / <b>student123</b>
-      </p>
+      <div className="mt-4 space-y-1 rounded-lg bg-slate-50 px-3 py-2.5 text-center text-xs text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
+        <p>Student demo: <b>student@myprepmart.com</b> / <b>student123</b></p>
+        <p>Admin demo: <b>admin@myprepmart.com</b> / <b>admin123</b> (use <a href="/admin/login" className="text-brand-600 underline">admin login</a>)</p>
+      </div>
 
       <div className="my-5 flex items-center gap-3 text-xs text-slate-400">
         <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" /> OR

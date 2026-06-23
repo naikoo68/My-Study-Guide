@@ -11,7 +11,8 @@ import Dashboard from "./pages/Dashboard";
 import NotFound from "./pages/NotFound";
 
 import QuizHome from "./pages/quiz/QuizHome";
-import SubjectSessions from "./pages/quiz/SubjectSessions";
+import SubjectTopics from "./pages/quiz/SubjectTopics";
+import TopicSessions from "./pages/quiz/TopicSessions";
 import QuizPlay from "./pages/quiz/QuizPlay";
 import QuizResult from "./pages/quiz/QuizResult";
 
@@ -39,9 +40,10 @@ const router = createBrowserRouter([
       { path: "/contact", element: <Contact /> },
 
       { path: "/quiz", element: <QuizHome /> },
-      { path: "/quiz/:subjectId", element: <SubjectSessions /> },
-      { path: "/quiz/:subjectId/:sessionId", element: <QuizPlay /> },
-      { path: "/quiz/:subjectId/:sessionId/result", element: <QuizResult /> },
+      { path: "/quiz/:subjectId", element: <SubjectTopics /> },
+      { path: "/quiz/:subjectId/:topicId", element: <TopicSessions /> },
+      { path: "/quiz/:subjectId/:topicId/:sessionId", element: <QuizPlay /> },
+      { path: "/quiz/:subjectId/:topicId/:sessionId/result", element: <QuizResult /> },
 
       { path: "/test-series", element: <TestSeries /> },
 

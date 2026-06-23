@@ -21,7 +21,7 @@ import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState"
 const optionLabels = ["A", "B", "C", "D"];
 
 export default function QuizPlay() {
-  const { subjectId, sessionId } = useParams();
+  const { subjectId, topicId, sessionId } = useParams();
   const navigate = useNavigate();
   const storageKey = `mpm-quiz-${sessionId}`;
 
@@ -133,8 +133,8 @@ export default function QuizPlay() {
     }
 
     localStorage.removeItem(storageKey);
-    navigate(`/quiz/${subjectId}/${sessionId}/result`, { state: result });
-  }, [answers, questions, seconds, subjectId, sessionId, subjectName, navigate, storageKey]);
+    navigate(`/quiz/${subjectId}/${topicId}/${sessionId}/result`, { state: result });
+  }, [answers, questions, seconds, subjectId, topicId, sessionId, subjectName, navigate, storageKey]);
 
   if (loading) return <div className="container-page"><Loading label="Loading quiz..." /></div>;
   if (error) return <div className="container-page"><ErrorState message={error} onRetry={load} /></div>;
@@ -196,7 +196,7 @@ export default function QuizPlay() {
   return (
     <div className="container-page py-6">
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <button onClick={() => navigate(`/quiz/${subjectId}`)} className="btn-ghost -ml-2">
+        <button onClick={() => navigate(`/quiz/${subjectId}/${topicId}`)} className="btn-ghost -ml-2">
           <ChevronLeft className="h-4 w-4" /> Exit
         </button>
         <div className="flex items-center gap-3">
