@@ -14,6 +14,8 @@ const contactSchema = new mongoose.Schema(
 const settingsSchema = new mongoose.Schema(
   {
     key: { type: String, default: "site", unique: true },
+    // One-time migration flag: existing test series were made private-by-default.
+    testsPrivatized: { type: Boolean, default: false },
     siteName: { type: String, default: "My Study Guide" },
     tagline: { type: String, default: "Prepare Smart, Achieve More." },
     logoUrl: { type: String, default: "" }, // image URL or base64 data URI
