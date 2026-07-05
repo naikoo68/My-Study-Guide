@@ -2,8 +2,9 @@ import mongoose from "mongoose";
 
 // A question is either:
 //  - "mcq":      4 options + a correct index
-//  - "matching": pairs of left/right items the student must match
-// Text/options/pairs may contain LaTeX between $...$ for equation rendering.
+//  - "matching": two columns (A & B) shown to the student, plus answer options
+//                (sequence strings like "1-III, 2-I…") with a correct index
+// Text/options/columns may contain LaTeX between $...$ for equation rendering.
 const questionSchema = new mongoose.Schema(
   {
     subject: { type: mongoose.Schema.Types.ObjectId, ref: "Subject", required: true },
@@ -24,13 +25,12 @@ const questionSchema = new mongoose.Schema(
         message: "A multiple-choice question must have exactly 4 options",
       },
     },
-    correct: { type: Number, min: 0, max: 3 },
+    correct: { type: Number, min: 0 }, // index of the correct option (both types)
 
-    // Matching fields
-    pairs: {
-      type: [{ left: String, right: String, _id: false }],
-      default: undefined,
-    },
+    // Matching fields: two columns shown to the student; the answer is still
+    // one of the `options` above (each option is a sequence like "1-III, 2-I…").
+    columnA: { type: [String], default: undefined },
+    columnB: { type: [String], default: undefined },
 
     difficulty: { type: String, enum: ["Easy", "Medium", "Hard"], default: "Medium" },
     topic: { type: String },

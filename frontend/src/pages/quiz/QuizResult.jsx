@@ -19,6 +19,13 @@ import {
 import StatCard from "../../components/ui/StatCard";
 import MathText from "../../components/ui/MathText";
 
+function toRomanLite(n) {
+  const m = [["X", 10], ["IX", 9], ["V", 5], ["IV", 4], ["I", 1]];
+  let r = "";
+  for (const [s, v] of m) while (n >= v) { r += s; n -= v; }
+  return r;
+}
+
 export default function QuizResult() {
   const { state } = useLocation();
   const { subjectId, topicId, sessionId } = useParams();
@@ -177,50 +184,46 @@ export default function QuizResult() {
                 <div className="flex-1">
                   <p className="font-semibold"><MathText>{r.text}</MathText></p>
 
-                  {r.type === "matching" ? (
-                    <div className="mt-3 space-y-2">
-                      {(r.pairs || []).map((p, k) => {
-                        const chosen = r.chosen?.[k];
-                        const ok = chosen === p.right;
-                        return (
-                          <div key={k} className={`flex flex-wrap items-center gap-2 rounded-lg px-3 py-2 text-sm ${ok ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" : "bg-rose-50 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300"}`}>
-                            {ok ? <CheckCircle2 className="h-4 w-4 flex-shrink-0" /> : <XCircle className="h-4 w-4 flex-shrink-0" />}
-                            <span className="font-medium"><MathText>{p.left}</MathText></span>
-                            <span className="text-slate-400">→</span>
-                            <span><MathText>{chosen || "—"}</MathText></span>
-                            {!ok && (
-                              <span className="text-xs text-emerald-600 dark:text-emerald-400">
-                                (correct: <MathText>{p.right}</MathText>)
-                              </span>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="mt-3 space-y-2">
-                      {r.options.map((opt, idx) => {
-                        const isCorrect = idx === r.correct;
-                        const isChosen = idx === r.chosen;
-                        let cls = "flex items-center gap-2 rounded-lg px-3 py-2 text-sm ";
-                        if (isCorrect) cls += "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300";
-                        else if (isChosen) cls += "bg-rose-50 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300";
-                        else cls += "text-slate-500 dark:text-slate-400";
-                        return (
-                          <div key={idx} className={cls}>
-                            {isCorrect ? (
-                              <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
-                            ) : isChosen ? (
-                              <XCircle className="h-4 w-4 flex-shrink-0" />
-                            ) : (
-                              <span className="h-4 w-4" />
-                            )}
-                            <MathText>{opt}</MathText>
-                          </div>
-                        );
-                      })}
+                  {r.type === "matching" && (
+                    <div className="mt-3 grid grid-cols-2 gap-3">
+                      <div className="rounded-lg border border-slate-200 p-2 dark:border-slate-700">
+                        <p className="mb-1 text-xs font-semibold uppercase text-brand-600 dark:text-brand-400">Column A</p>
+                        {(r.columnA || []).map((item, k) => (
+                          <div key={k} className="flex items-start gap-1.5 text-sm"><span className="font-bold text-brand-700 dark:text-brand-300">{k + 1}.</span> <MathText>{item}</MathText></div>
+                        ))}
+                      </div>
+                      <div className="rounded-lg border border-slate-200 p-2 dark:border-slate-700">
+                        <p className="mb-1 text-xs font-semibold uppercase text-accent-600 dark:text-accent-400">Column B</p>
+                        {(r.columnB || []).map((item, k) => (
+                          <div key={k} className="flex items-start gap-1.5 text-sm"><span className="font-bold text-accent-700 dark:text-accent-300">{toRomanLite(k + 1)}.</span> <MathText>{item}</MathText></div>
+                        ))}
+                      </div>
                     </div>
                   )}
+
+                  <div className="mt-3 space-y-2">
+                    {r.options.map((opt, idx) => {
+                      const isCorrect = idx === r.correct;
+                      const isChosen = idx === r.chosen;
+                      let cls = "flex items-center gap-2 rounded-lg px-3 py-2 text-sm ";
+                      if (isCorrect) cls += "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300";
+                      else if (isChosen) cls += "bg-rose-50 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300";
+                      else cls += "text-slate-500 dark:text-slate-400";
+                      return (
+                        <div key={idx} className={cls}>
+                          {isCorrect ? (
+                            <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
+                          ) : isChosen ? (
+                            <XCircle className="h-4 w-4 flex-shrink-0" />
+                          ) : (
+                            <span className="h-4 w-4" />
+                          )}
+                          {r.type === "matching" && <span className="font-bold">({String.fromCharCode(97 + idx)})</span>}
+                          <MathText>{opt}</MathText>
+                        </div>
+                      );
+                    })}
+                  </div>
 
                   {r.chosen === null && (
                     <p className="mt-2 text-xs font-medium text-slate-400">Not attempted</p>

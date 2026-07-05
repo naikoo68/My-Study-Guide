@@ -25,25 +25,9 @@ import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState"
 const optionLabels = ["A", "B", "C", "D"];
 
 // Works for both question types.
+// Both question types are answered by picking one option index.
 function isQuestionCorrect(q, ans) {
-  if (ans === undefined || ans === null) return false;
-  if (q.type === "matching") {
-    return Array.isArray(q.pairs) && q.pairs.length > 0 && q.pairs.every((p, k) => ans[k] === p.right);
-  }
-  return ans === q.correct;
-}
-
-// Deterministic shuffle so the matching dropdowns stay stable across re-renders.
-function hashStr(str) {
-  let h = 0;
-  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
-  return h;
-}
-function stableShuffle(arr, seed) {
-  return arr
-    .map((v, i) => ({ v, k: hashStr(`${seed}_${i}_${v}`) }))
-    .sort((a, b) => a.k - b.k)
-    .map((x) => x.v);
+  return ans !== undefined && ans !== null && ans === q.correct;
 }
 
 function toRoman(num) {
@@ -51,38 +35,6 @@ function toRoman(num) {
   let r = "";
   for (const [s, v] of map) while (num >= v) { r += s; num -= v; }
   return r;
-}
-const arrEq = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
-const mapEq = (a, b) => !!a && !!b && Object.keys(b).every((k) => a[k] === b[k]);
-function factorial(n) { let r = 1; for (let i = 2; i <= n; i++) r *= i; return r; }
-
-// Builds a "match the columns" question from the correct pairs:
-//  - Column A = the left items (numbered 1..n)
-//  - Column B = the right items, shuffled (Roman numerals I..n)
-//  - four answer choices (a–d), each a full matching sequence, one correct.
-// Everything is deterministic (seeded by the question id) so it's stable.
-function buildMatching(q) {
-  const seed = String(q._id || q.text || "m");
-  const colB = stableShuffle(q.pairs.map((p) => p.right), seed); // Column B order
-  const n = q.pairs.length;
-  const idxs = Array.from({ length: n }, (_, i) => i);
-  const correctSeq = q.pairs.map((p) => colB.indexOf(p.right)); // left i → Column B index
-
-  const seqs = [correctSeq];
-  const maxChoices = Math.min(4, factorial(n));
-  let attempt = 0;
-  while (seqs.length < maxChoices && attempt < 80) {
-    const perm = stableShuffle(idxs, `${seed}_d${attempt}`);
-    if (!seqs.some((s) => arrEq(s, perm))) seqs.push(perm);
-    attempt++;
-  }
-  const ordered = stableShuffle(seqs, `${seed}_choices`);
-  const choices = ordered.map((seq) => ({
-    seq,
-    mapping: Object.fromEntries(seq.map((bIdx, i) => [i, colB[bIdx]])),
-    label: seq.map((bIdx, i) => `${i + 1}–${toRoman(bIdx + 1)}`).join(",  "),
-  }));
-  return { colB, choices, correctSeq };
 }
 
 const TIMER_OPTIONS = [
@@ -213,7 +165,8 @@ export default function QuizPlay() {
         text: qq.text,
         options: qq.options,
         correct: qq.correct,
-        pairs: qq.pairs,
+        columnA: qq.columnA,
+        columnB: qq.columnB,
         chosen: answers[i] ?? null,
         topic: qq.topic,
         explanation: qq.explanation,
@@ -290,9 +243,7 @@ export default function QuizPlay() {
   const locked = answers[current] !== undefined || !!timedOut[current];
   const wasTimedOut = !!timedOut[current] && answers[current] === undefined;
 
-  // Matching question data (columns + answer choices), generated from the pairs.
   const isMatching = q.type === "matching";
-  const matching = isMatching ? buildMatching(q) : null;
 
   const selectOption = (idx) => {
     if (locked) return;
@@ -398,89 +349,55 @@ export default function QuizPlay() {
             <MathText>{q.text}</MathText>
           </h2>
 
-          {isMatching ? (
-            <div className="mt-5 space-y-5">
-              <p className="text-sm text-slate-500 dark:text-slate-400">
-                Match <b>Column A</b> (1–{q.pairs.length}) with <b>Column B</b> (I–{toRoman(q.pairs.length)}), then choose the correct sequence below.
-              </p>
-
-              {/* The two columns */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-brand-600 dark:text-brand-400">Column A</p>
-                  <div className="space-y-2">
-                    {q.pairs.map((p, i) => (
-                      <div key={i} className="flex items-start gap-2 text-sm">
-                        <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-brand-100 text-xs font-bold text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">{i + 1}</span>
-                        <MathText>{p.left}</MathText>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-accent-600 dark:text-accent-400">Column B</p>
-                  <div className="space-y-2">
-                    {matching.colB.map((r, ri) => (
-                      <div key={ri} className="flex items-start gap-2 text-sm">
-                        <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-accent-100 text-xs font-bold text-accent-700 dark:bg-accent-900/40 dark:text-accent-300">{toRoman(ri + 1)}</span>
-                        <MathText>{r}</MathText>
-                      </div>
-                    ))}
-                  </div>
+          {/* Matching questions show the two columns above the answer options */}
+          {isMatching && (
+            <div className="mt-4 grid grid-cols-2 gap-4">
+              <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-brand-600 dark:text-brand-400">Column A</p>
+                <div className="space-y-2">
+                  {(q.columnA || []).map((item, i) => (
+                    <div key={i} className="flex items-start gap-2 text-sm">
+                      <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-brand-100 text-xs font-bold text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">{i + 1}</span>
+                      <MathText>{item}</MathText>
+                    </div>
+                  ))}
                 </div>
               </div>
-
-              {/* Four answer-sequence choices (a–d) */}
-              <div className="space-y-3">
-                {matching.choices.map((ch, ci) => {
-                  const choiceCorrect = arrEq(ch.seq, matching.correctSeq);
-                  const chosen = mapEq(answers[current], ch.mapping);
-                  let cls = "flex w-full items-center gap-3 rounded-xl border-2 px-4 py-3 text-left text-sm font-medium transition ";
-                  if (!locked) cls += "border-slate-200 bg-white hover:border-brand-400 hover:bg-brand-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-brand-600 dark:hover:bg-slate-800";
-                  else if (choiceCorrect) cls += "border-emerald-500 bg-emerald-50 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200";
-                  else if (chosen) cls += "border-rose-500 bg-rose-50 text-rose-800 dark:bg-rose-900/30 dark:text-rose-200";
-                  else cls += "border-slate-200 bg-white opacity-60 dark:border-slate-700 dark:bg-slate-900";
-                  return (
-                    <button
-                      key={ci}
-                      type="button"
-                      disabled={locked}
-                      onClick={() => !locked && setAnswers((a) => ({ ...a, [current]: ch.mapping }))}
-                      className={cls}
-                    >
-                      <span className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border text-xs font-bold ${locked && choiceCorrect ? "border-emerald-500 bg-emerald-500 text-white" : locked && chosen ? "border-rose-500 bg-rose-500 text-white" : "border-slate-300 dark:border-slate-600"}`}>
-                        ({String.fromCharCode(97 + ci)})
-                      </span>
-                      <span className="flex-1 tracking-wide">{ch.label}</span>
-                      {locked && choiceCorrect && <CheckCircle2 className="h-5 w-5 text-emerald-500" />}
-                      {locked && chosen && !choiceCorrect && <XCircle className="h-5 w-5 text-rose-500" />}
-                    </button>
-                  );
-                })}
+              <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-accent-600 dark:text-accent-400">Column B</p>
+                <div className="space-y-2">
+                  {(q.columnB || []).map((item, i) => (
+                    <div key={i} className="flex items-start gap-2 text-sm">
+                      <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-accent-100 text-xs font-bold text-accent-700 dark:bg-accent-900/40 dark:text-accent-300">{toRoman(i + 1)}</span>
+                      <MathText>{item}</MathText>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="mt-5 space-y-3">
-              {q.options.map((opt, idx) => (
-                <button key={idx} onClick={() => selectOption(idx)} disabled={locked} className={optionClass(idx)}>
-                  <span
-                    className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border text-xs font-bold ${
-                      locked && idx === q.correct
-                        ? "border-emerald-500 bg-emerald-500 text-white"
-                        : locked && idx === answers[current]
-                        ? "border-rose-500 bg-rose-500 text-white"
-                        : "border-slate-300 dark:border-slate-600"
-                    }`}
-                  >
-                    {optionLabels[idx]}
-                  </span>
-                  <span className="flex-1"><MathText>{opt}</MathText></span>
-                  {locked && idx === q.correct && <CheckCircle2 className="h-5 w-5 text-emerald-500" />}
-                  {locked && idx === answers[current] && idx !== q.correct && <XCircle className="h-5 w-5 text-rose-500" />}
-                </button>
-              ))}
             </div>
           )}
+
+          <div className="mt-5 space-y-3">
+            {isMatching && <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Choose the correct matching sequence:</p>}
+            {q.options.map((opt, idx) => (
+              <button key={idx} onClick={() => selectOption(idx)} disabled={locked} className={optionClass(idx)}>
+                <span
+                  className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border text-xs font-bold ${
+                    locked && idx === q.correct
+                      ? "border-emerald-500 bg-emerald-500 text-white"
+                      : locked && idx === answers[current]
+                      ? "border-rose-500 bg-rose-500 text-white"
+                      : "border-slate-300 dark:border-slate-600"
+                  }`}
+                >
+                  {isMatching ? `(${String.fromCharCode(97 + idx)})` : optionLabels[idx]}
+                </span>
+                <span className="flex-1"><MathText>{opt}</MathText></span>
+                {locked && idx === q.correct && <CheckCircle2 className="h-5 w-5 text-emerald-500" />}
+                {locked && idx === answers[current] && idx !== q.correct && <XCircle className="h-5 w-5 text-rose-500" />}
+              </button>
+            ))}
+          </div>
 
           {wasTimedOut && (
             <div className="mt-4 flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700 dark:border-rose-900/50 dark:bg-rose-900/20 dark:text-rose-300">

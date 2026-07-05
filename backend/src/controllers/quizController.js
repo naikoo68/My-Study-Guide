@@ -11,21 +11,16 @@ export async function submitQuiz(req, res) {
     return res.status(404).json({ message: "No questions for this session" });
   }
 
-  const gradeMatching = (q, ans) =>
-    ans && typeof ans === "object" && Array.isArray(q.pairs) && q.pairs.length > 0 &&
-    q.pairs.every((p, k) => ans[k] === p.right);
-
   let correct = 0;
   const weak = new Set();
   const responses = questions.map((q) => {
     const ans = answers[q._id];
     const provided = ans !== undefined && ans !== null;
-    const isCorrect = q.type === "matching" ? gradeMatching(q, ans) : ans === q.correct;
+    // Both MCQ and matching are answered by picking one option index.
+    const isCorrect = provided && ans === q.correct;
     if (isCorrect) correct += 1;
     else if (provided) weak.add(q.topic || "General");
-    // Store option index for MCQ; matching answers aren't a single index.
-    const chosen = q.type === "matching" ? null : provided ? ans : null;
-    return { question: q._id, chosen, isCorrect };
+    return { question: q._id, chosen: provided ? ans : null, isCorrect };
   });
 
   const attempted = Object.keys(answers).length;
