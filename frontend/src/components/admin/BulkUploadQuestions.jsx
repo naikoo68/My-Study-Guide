@@ -30,24 +30,59 @@ function correctIndex(v) {
   return 0;
 }
 
+const asDifficulty = (d) => (["Easy", "Medium", "Hard"].includes(d) ? d : "Medium");
+const splitList = (s) => String(s || "").split("|").map((x) => x.trim()).filter(Boolean);
+
 // Turns pasted CSV text into question objects + a list of skipped-row errors.
+// Supports two row shapes:
+//   MCQ (default):  Question, OptionA, OptionB, OptionC, OptionD, Correct, Difficulty, Explanation
+//   Matching:       matching, Question, ColumnA, ColumnB, OptionA, OptionB, OptionC, OptionD, Correct, Difficulty, Explanation
+// For matching, ColumnA / ColumnB are pipe-separated lists, e.g. "Newton|Bohr|Curie".
 export function parseQuestionsCsv(text) {
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   const rows = [];
   const errors = [];
   lines.forEach((line, idx) => {
     const cells = parseCsvLine(line);
+    const first = (cells[0] || "").toLowerCase();
+
     // Skip an optional header row.
-    if (idx === 0 && /^(text|question)$/i.test(cells[0] || "")) return;
-    if (cells.length < 5) { errors.push(`Line ${idx + 1}: needs a question + 4 options`); return; }
-    const [qtext, a, b, c, d, correct, difficulty, explanation] = cells;
+    if (idx === 0 && /^(type|text|question)$/i.test(first)) return;
+
+    // ---- Matching row ----
+    if (first === "matching") {
+      const [, qtext, colA, colB, a, b, c, d, correct, difficulty, explanation] = cells;
+      const columnA = splitList(colA);
+      const columnB = splitList(colB);
+      if (!qtext || columnA.length < 2 || columnB.length < 2 || !a || !b || !c || !d) {
+        errors.push(`Line ${idx + 1}: matching needs a question, ColumnA & ColumnB (2+ items each, pipe-separated) and 4 options`);
+        return;
+      }
+      rows.push({
+        type: "matching",
+        text: qtext,
+        columnA,
+        columnB,
+        options: [a, b, c, d],
+        correct: correctIndex(correct),
+        difficulty: asDifficulty(difficulty),
+        explanation: explanation || "",
+        status: "published",
+      });
+      return;
+    }
+
+    // ---- MCQ row (optionally prefixed with "mcq") ----
+    const cols = first === "mcq" ? cells.slice(1) : cells;
+    if (cols.length < 5) { errors.push(`Line ${idx + 1}: needs a question + 4 options`); return; }
+    const [qtext, a, b, c, d, correct, difficulty, explanation] = cols;
     if (!qtext || !a || !b || !c || !d) { errors.push(`Line ${idx + 1}: empty question or option`); return; }
     rows.push({
       type: "mcq",
       text: qtext,
       options: [a, b, c, d],
       correct: correctIndex(correct),
-      difficulty: ["Easy", "Medium", "Hard"].includes(difficulty) ? difficulty : "Medium",
+      difficulty: asDifficulty(difficulty),
       explanation: explanation || "",
       status: "published",
     });
@@ -58,7 +93,8 @@ export function parseQuestionsCsv(text) {
 const TEMPLATE =
   "Question,Option A,Option B,Option C,Option D,Correct,Difficulty,Explanation\n" +
   '"What is 2+2?",3,4,5,6,B,Easy,"2+2 equals 4"\n' +
-  '"Speed of light (m/s)?","3x10^8","1x10^6","3x10^6","9x10^8",A,Medium,';
+  '"Speed of light (m/s)?","3x10^8","1x10^6","3x10^6","9x10^8",A,Medium,\n' +
+  'matching,"Match the scientist to the discovery","Newton|Einstein|Bohr|Curie","Relativity|Gravity|Atom model|Radioactivity","1-II, 2-I, 3-III, 4-IV","1-I, 2-II, 3-III, 4-IV","1-III, 2-IV, 3-I, 4-II","1-IV, 2-III, 3-II, 4-I",A,Medium,"Newton-Gravity, Einstein-Relativity, Bohr-Atom, Curie-Radioactivity"';
 
 // Reusable bulk-upload modal. `onUpload(questions)` should return a promise
 // (e.g. resolving to { inserted }). Used for both quizzes and test series.
@@ -106,12 +142,16 @@ export default function BulkUploadQuestions({ open, onClose, onUpload, title = "
         <div className="mb-4 rounded-xl bg-slate-50 p-4 text-sm dark:bg-slate-800/60">
           <p className="font-semibold">CSV format (one question per line):</p>
           <p className="mt-1 text-slate-500 dark:text-slate-400">
-            <code>Question, Option A, Option B, Option C, Option D, Correct, Difficulty, Explanation</code>
+            <b>MCQ:</b> <code>Question, Option A, Option B, Option C, Option D, Correct, Difficulty, Explanation</code>
+          </p>
+          <p className="mt-1 text-slate-500 dark:text-slate-400">
+            <b>Matching:</b> start the line with <code>matching</code>, then <code>Question, ColumnA, ColumnB, Option A, Option B, Option C, Option D, Correct, Difficulty, Explanation</code>
           </p>
           <ul className="mt-2 list-disc space-y-0.5 pl-5 text-xs text-slate-500 dark:text-slate-400">
-            <li><b>Correct</b>: A/B/C/D (or 1–4).</li>
-            <li><b>Difficulty</b> &amp; <b>Explanation</b> are optional.</li>
-            <li>Wrap any value containing a comma in "double quotes".</li>
+            <li><b>Correct</b>: A/B/C/D (or 1–4) — the correct answer option.</li>
+            <li><b>Matching ColumnA / ColumnB</b>: separate items with a pipe <code>|</code>, e.g. <code>"Newton|Bohr|Curie"</code>. Column A shows as 1,2,3… and Column B as I,II,III…</li>
+            <li>Each matching <b>option</b> is a sequence like <code>1-III, 2-I, 3-IV, 4-II</code>.</li>
+            <li><b>Difficulty</b> &amp; <b>Explanation</b> are optional. Wrap any value containing a comma in "double quotes".</li>
             <li>Tip: build it in Excel/Google Sheets, then <b>Save/Download as CSV</b> and upload the file below.</li>
           </ul>
           <button
