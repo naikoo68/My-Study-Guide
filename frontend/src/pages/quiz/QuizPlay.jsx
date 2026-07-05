@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ChevronLeft,
@@ -15,6 +15,8 @@ import {
   X,
   Hourglass,
   Play,
+  Maximize,
+  Minimize,
 } from "lucide-react";
 import { contentService, quizService } from "../../services";
 import ProgressBar from "../../components/ui/ProgressBar";
@@ -73,6 +75,19 @@ export default function QuizPlay() {
   const [qTime, setQTime] = useState(saved.qTime ?? 0); // remaining for current question
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const containerRef = useRef(null);
+
+  // Full-screen mode (same behaviour as the test interface).
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) containerRef.current?.requestFullscreen?.().catch(() => {});
+    else document.exitFullscreen?.().catch(() => {});
+  };
+  useEffect(() => {
+    const onChange = () => setFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
 
   const isTimed = typeof timerMode === "number";
   const started = timerMode !== null;
@@ -306,7 +321,7 @@ export default function QuizPlay() {
   );
 
   return (
-    <div className="container-page py-6">
+    <div ref={containerRef} className={`container-page py-6 ${fullscreen ? "min-h-screen overflow-y-auto bg-slate-50 dark:bg-slate-950" : ""}`}>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <button onClick={() => navigate(`/quiz/${subjectId}/${topicId}`)} className="btn-ghost -ml-2">
           <ChevronLeft className="h-4 w-4" /> Exit
@@ -324,6 +339,9 @@ export default function QuizPlay() {
           <span className="flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2 font-semibold text-white">
             <Clock className="h-4 w-4" /> {mmss}
           </span>
+          <button onClick={toggleFullscreen} title={fullscreen ? "Exit full screen" : "Full screen"} className="btn-outline px-3">
+            {fullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
+          </button>
           <button onClick={() => setPaletteOpen(true)} className="btn-outline lg:hidden">
             <Grid3x3 className="h-4 w-4" /> Palette
           </button>
