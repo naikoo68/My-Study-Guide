@@ -17,19 +17,12 @@ import { notFound, errorHandler } from "./middleware/error.js";
 
 const app = express();
 
-// Allow one or more comma-separated origins via CLIENT_URL; reflect any if unset.
-const allowedOrigins = (process.env.CLIENT_URL || "")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
-
-// Security & parsing
+// Security & parsing.
+// Auth is stateless (JWT in the Authorization header, no cookies), so we can
+// safely reflect any origin — this avoids CORS problems no matter which Vercel
+// URL (production, preview or branch) the site is opened from.
 app.use(helmet());
-app.use(
-  cors({
-    origin: allowedOrigins.length ? allowedOrigins : true,
-  })
-);
+app.use(cors({ origin: true }));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 if (process.env.NODE_ENV !== "test") app.use(morgan("dev"));
