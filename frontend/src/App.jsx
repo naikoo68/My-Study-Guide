@@ -1,65 +1,72 @@
+import { lazy, Suspense } from "react";
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import { ThemeProvider } from "./context/ThemeContext";
 import { SettingsProvider } from "./context/SettingsContext";
 import { AuthProvider } from "./context/AuthContext";
 import ProtectedRoute from "./components/auth/ProtectedRoute";
-
 import Layout from "./components/layout/Layout";
-import Home from "./pages/Home";
-import About from "./pages/About";
-import Contact from "./pages/Contact";
-import Dashboard from "./pages/Dashboard";
-import NotFound from "./pages/NotFound";
+import { Loading } from "./components/ui/AsyncState";
 
-import QuizHome from "./pages/quiz/QuizHome";
-import SubjectTopics from "./pages/quiz/SubjectTopics";
-import TopicSessions from "./pages/quiz/TopicSessions";
-import QuizPlay from "./pages/quiz/QuizPlay";
-import QuizResult from "./pages/quiz/QuizResult";
+// Pages are loaded on demand (code-splitting) so the first visit only downloads
+// the code it actually needs, instead of the whole app in one large bundle.
+const Home = lazy(() => import("./pages/Home"));
+const About = lazy(() => import("./pages/About"));
+const Contact = lazy(() => import("./pages/Contact"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 
-import TestSeries from "./pages/testseries/TestSeries";
-import TestAttempt from "./pages/testseries/TestAttempt";
+const QuizHome = lazy(() => import("./pages/quiz/QuizHome"));
+const SubjectTopics = lazy(() => import("./pages/quiz/SubjectTopics"));
+const TopicSessions = lazy(() => import("./pages/quiz/TopicSessions"));
+const QuizPlay = lazy(() => import("./pages/quiz/QuizPlay"));
+const QuizResult = lazy(() => import("./pages/quiz/QuizResult"));
 
-import Login from "./pages/auth/Login";
-import Register from "./pages/auth/Register";
-import ForgotPassword from "./pages/auth/ForgotPassword";
+const TestSeries = lazy(() => import("./pages/testseries/TestSeries"));
+const TestAttempt = lazy(() => import("./pages/testseries/TestAttempt"));
 
-import AdminLogin from "./pages/admin/AdminLogin";
-import AdminLayout from "./pages/admin/AdminLayout";
-import AdminDashboard from "./pages/admin/AdminDashboard";
-import AdminContent from "./pages/admin/AdminContent";
-import AdminTests from "./pages/admin/AdminTests";
-import AdminUsers from "./pages/admin/AdminUsers";
-import AdminMessages from "./pages/admin/AdminMessages";
-import AdminCustomization from "./pages/admin/AdminCustomization";
+const Login = lazy(() => import("./pages/auth/Login"));
+const Register = lazy(() => import("./pages/auth/Register"));
+const ForgotPassword = lazy(() => import("./pages/auth/ForgotPassword"));
+
+const AdminLogin = lazy(() => import("./pages/admin/AdminLogin"));
+const AdminLayout = lazy(() => import("./pages/admin/AdminLayout"));
+const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
+const AdminContent = lazy(() => import("./pages/admin/AdminContent"));
+const AdminTests = lazy(() => import("./pages/admin/AdminTests"));
+const AdminUsers = lazy(() => import("./pages/admin/AdminUsers"));
+const AdminMessages = lazy(() => import("./pages/admin/AdminMessages"));
+const AdminCustomization = lazy(() => import("./pages/admin/AdminCustomization"));
+
+// Wraps a lazily-loaded page in a Suspense boundary with a loading fallback.
+const S = (Comp) => (
+  <Suspense fallback={<div className="container-page"><Loading label="Loading…" /></div>}>
+    <Comp />
+  </Suspense>
+);
 
 const router = createBrowserRouter([
   {
     element: <Layout />,
     children: [
-      { path: "/", element: <Home /> },
-      { path: "/about", element: <About /> },
-      { path: "/contact", element: <Contact /> },
+      { path: "/", element: S(Home) },
+      { path: "/about", element: S(About) },
+      { path: "/contact", element: S(Contact) },
 
-      { path: "/quiz", element: <QuizHome /> },
-      { path: "/quiz/:subjectId", element: <SubjectTopics /> },
-      { path: "/quiz/:subjectId/:topicId", element: <TopicSessions /> },
-      { path: "/quiz/:subjectId/:topicId/:sessionId", element: <QuizPlay /> },
-      { path: "/quiz/:subjectId/:topicId/:sessionId/result", element: <QuizResult /> },
+      { path: "/quiz", element: S(QuizHome) },
+      { path: "/quiz/:subjectId", element: S(SubjectTopics) },
+      { path: "/quiz/:subjectId/:topicId", element: S(TopicSessions) },
+      { path: "/quiz/:subjectId/:topicId/:sessionId", element: S(QuizPlay) },
+      { path: "/quiz/:subjectId/:topicId/:sessionId/result", element: S(QuizResult) },
 
-      { path: "/test-series", element: <TestSeries /> },
+      { path: "/test-series", element: S(TestSeries) },
 
-      { path: "/login", element: <Login /> },
-      { path: "/register", element: <Register /> },
-      { path: "/forgot-password", element: <ForgotPassword /> },
+      { path: "/login", element: S(Login) },
+      { path: "/register", element: S(Register) },
+      { path: "/forgot-password", element: S(ForgotPassword) },
 
       {
         path: "/dashboard",
-        element: (
-          <ProtectedRoute>
-            <Dashboard />
-          </ProtectedRoute>
-        ),
+        element: <ProtectedRoute>{S(Dashboard)}</ProtectedRoute>,
       },
     ],
   },
@@ -67,33 +74,29 @@ const router = createBrowserRouter([
   // Full-screen test interface (outside main layout)
   {
     path: "/test-series/:testId/attempt",
-    element: (
-      <ProtectedRoute>
-        <TestAttempt />
-      </ProtectedRoute>
-    ),
+    element: <ProtectedRoute>{S(TestAttempt)}</ProtectedRoute>,
   },
 
   // Admin (separate shell)
-  { path: "/admin/login", element: <AdminLogin /> },
+  { path: "/admin/login", element: S(AdminLogin) },
   {
     path: "/admin",
     element: (
       <ProtectedRoute role="admin">
-        <AdminLayout />
+        {S(AdminLayout)}
       </ProtectedRoute>
     ),
     children: [
-      { index: true, element: <AdminDashboard /> },
-      { path: "content", element: <AdminContent /> },
-      { path: "tests", element: <AdminTests /> },
-      { path: "users", element: <AdminUsers /> },
-      { path: "messages", element: <AdminMessages /> },
-      { path: "customization", element: <AdminCustomization /> },
+      { index: true, element: S(AdminDashboard) },
+      { path: "content", element: S(AdminContent) },
+      { path: "tests", element: S(AdminTests) },
+      { path: "users", element: S(AdminUsers) },
+      { path: "messages", element: S(AdminMessages) },
+      { path: "customization", element: S(AdminCustomization) },
     ],
   },
 
-  { path: "*", element: <NotFound /> },
+  { path: "*", element: S(NotFound) },
 ]);
 
 export default function App() {
