@@ -28,8 +28,16 @@ export async function sendMail({ to, subject, text, html, replyTo }) {
     return false;
   }
   const from = process.env.SMTP_FROM || process.env.SMTP_USER;
-  await t.sendMail({ from, to, subject, text, html, replyTo });
-  return true;
+  try {
+    await t.sendMail({ from, to, subject, text, html, replyTo });
+    return true;
+  } catch (err) {
+    // Log the real SMTP failure (e.g. bad App Password) so it shows in the
+    // Render logs, but never crash the request — the caller falls back to
+    // showing the code on screen.
+    console.error("✉  SMTP send FAILED:", err.message);
+    return false;
+  }
 }
 
 export function isMailConfigured() {

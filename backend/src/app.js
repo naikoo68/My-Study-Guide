@@ -15,6 +15,7 @@ import setupRoutes from "./routes/setupRoutes.js";
 import settingsRoutes from "./routes/settingsRoutes.js";
 import messageRoutes from "./routes/messageRoutes.js";
 import { notFound, errorHandler } from "./middleware/error.js";
+import { isMailConfigured } from "./config/mailer.js";
 
 const app = express();
 
@@ -31,8 +32,11 @@ if (process.env.NODE_ENV !== "test") app.use(morgan("dev"));
 // Rate limit auth endpoints
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 50 });
 
-// Health check
-app.get("/api/health", (req, res) => res.json({ status: "ok", service: "my-prep-mart-api" }));
+// Health check — also reports whether email (SMTP) is configured so you can
+// verify your Render settings by visiting /api/health in a browser.
+app.get("/api/health", (req, res) =>
+  res.json({ status: "ok", service: "my-prep-mart-api", mailConfigured: isMailConfigured() })
+);
 
 // Routes
 app.use("/api/auth", authLimiter, authRoutes);
