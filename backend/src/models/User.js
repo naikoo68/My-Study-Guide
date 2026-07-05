@@ -15,6 +15,10 @@ const userSchema = new mongoose.Schema(
     // Temporary accounts (created by an admin) expire at this time. When null
     // the account never expires. After expiry the user can no longer log in.
     expiresAt: { type: Date, default: null },
+    // Content access. Quizzes are available to everyone by default; an admin
+    // can revoke quiz access for a specific user. Test-series access is stored
+    // per test on the TestSeries model.
+    quizAccess: { type: Boolean, default: true },
     emailVerificationToken: String,
     otpHash: { type: String, select: false },
     otpExpires: { type: Date, select: false },

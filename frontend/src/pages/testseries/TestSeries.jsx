@@ -112,6 +112,13 @@ export default function TestSeries() {
                 </span>
               </div>
 
+              {t.validUntil && (
+                <p className="mt-3 flex items-center gap-1.5 rounded-lg bg-accent-50 px-3 py-1.5 text-xs font-medium text-accent-700 dark:bg-accent-900/30 dark:text-accent-300">
+                  <Clock className="h-3.5 w-3.5" /> Access valid until{" "}
+                  {new Date(t.validUntil).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })}
+                </p>
+              )}
+
               {user ? (
                 <Link to={`/test-series/${t._id}/attempt`} className="btn-primary mt-5 w-full">
                   <Play className="h-4 w-4" /> Start Test

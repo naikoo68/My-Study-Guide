@@ -1,5 +1,7 @@
 import crypto from "crypto";
 import User from "../models/User.js";
+import TestSeries from "../models/TestSeries.js";
+import { findAccessEntry } from "../utils/accessControl.js";
 
 const norm = (e) => String(e || "").toLowerCase().trim();
 
@@ -107,6 +109,65 @@ export async function updatePlan(req, res) {
     { new: true }
   ).select("-password");
   res.json(user);
+}
+
+// GET /api/users/:id/access  (admin) — what content this user can access
+export async function getUserAccess(req, res) {
+  const user = await User.findById(req.params.id).select("name email quizAccess");
+  if (!user) return res.status(404).json({ message: "User not found" });
+
+  const tests = await TestSeries.find().select("name category access").sort("name").lean();
+  res.json({
+    userId: user._id,
+    name: user.name,
+    email: user.email,
+    quizAccess: user.quizAccess !== false, // quizzes default ON for everyone
+    tests: tests.map((t) => {
+      const entry = findAccessEntry(t, user._id);
+      return {
+        _id: t._id,
+        name: t.name,
+        category: t.category,
+        visible: entry ? entry.visible : true,
+        validUntil: entry?.validUntil || null,
+      };
+    }),
+  });
+}
+
+// PUT /api/users/:id/access  (admin) — set quiz access + per-test access for a user
+export async function updateUserAccess(req, res) {
+  const user = await User.findById(req.params.id);
+  if (!user) return res.status(404).json({ message: "User not found" });
+
+  if (typeof req.body.quizAccess === "boolean") {
+    user.quizAccess = req.body.quizAccess;
+    await user.save();
+  }
+
+  // Apply per-test access for this single user across the affected tests.
+  if (Array.isArray(req.body.tests)) {
+    for (const t of req.body.tests) {
+      if (!t || !t._id) continue;
+      const test = await TestSeries.findById(t._id);
+      if (!test) continue;
+      const others = (test.access || []).filter((a) => String(a.user) !== String(user._id));
+      const isDefault = t.visible !== false && !t.validUntil;
+      if (isDefault) {
+        test.access = others; // remove entry — back to default (visible)
+      } else {
+        others.push({
+          user: user._id,
+          visible: t.visible !== false,
+          validUntil: t.validUntil ? new Date(t.validUntil) : null,
+        });
+        test.access = others;
+      }
+      await test.save();
+    }
+  }
+
+  res.json({ message: "Access updated", quizAccess: user.quizAccess });
 }
 
 // POST /api/users/:id/reset-password  (admin) — issue reset token

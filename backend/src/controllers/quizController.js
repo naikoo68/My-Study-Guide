@@ -5,6 +5,12 @@ import Attempt from "../models/Attempt.js";
 // POST /api/quiz/:sessionId/submit  (auth optional — records attempt if logged in)
 // Body: { answers: { questionId: optionIndex }, timeTaken }
 export async function submitQuiz(req, res) {
+  // Quizzes are open to everyone by default, but an admin can revoke a specific
+  // logged-in user's quiz access.
+  if (req.user && req.user.quizAccess === false) {
+    return res.status(403).json({ message: "Quiz access has been disabled for your account." });
+  }
+
   const { answers = {}, timeTaken = 0 } = req.body;
   const questions = await Question.find({ session: req.params.sessionId });
   if (!questions.length) {

@@ -56,6 +56,8 @@ export const testService = {
   update: (id, data) => api.put(`/tests/${id}`, data),
   togglePublish: (id) => api.patch(`/tests/${id}/publish`),
   remove: (id) => api.del(`/tests/${id}`),
+  getAccess: (id) => api.get(`/tests/${id}/access`),
+  updateAccess: (id, data) => api.put(`/tests/${id}/access`, data),
 };
 
 // ---- Dashboard / analytics ----
@@ -89,4 +91,6 @@ export const userService = {
   toggleStatus: (id) => api.patch(`/users/${id}/status`),
   updatePlan: (id, plan) => api.patch(`/users/${id}/plan`, { plan }),
   resetPassword: (id) => api.post(`/users/${id}/reset-password`),
+  getAccess: (id) => api.get(`/users/${id}/access`),
+  updateAccess: (id, data) => api.put(`/users/${id}/access`, data),
 };

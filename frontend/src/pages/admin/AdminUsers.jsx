@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Search, Ban, CheckCircle2, KeyRound, Crown, UserPlus, Pencil, Trash2, X, Clock, AlarmClock } from "lucide-react";
+import { Search, Ban, CheckCircle2, KeyRound, Crown, UserPlus, Pencil, Trash2, X, Clock, AlarmClock, ListChecks, BookOpen } from "lucide-react";
 import { userService } from "../../services";
 import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState } from "../../components/ui/AsyncState";
@@ -45,6 +45,47 @@ export default function AdminUsers() {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(blankUser);
   const [saving, setSaving] = useState(false);
+
+  // "Manage access" panel state
+  const [accessUser, setAccessUser] = useState(null); // the user whose access is open
+  const [access, setAccess] = useState(null); // { quizAccess, tests: [...] }
+  const [accessLoading, setAccessLoading] = useState(false);
+  const [accessSaving, setAccessSaving] = useState(false);
+
+  const openAccess = async (u) => {
+    setAccessUser(u);
+    setAccess(null);
+    setAccessLoading(true);
+    try {
+      const data = await userService.getAccess(u._id);
+      setAccess(data);
+    } catch (e) {
+      flash(e.message);
+      setAccessUser(null);
+    } finally {
+      setAccessLoading(false);
+    }
+  };
+
+  const saveAccess = async () => {
+    if (!access) return;
+    setAccessSaving(true);
+    try {
+      await userService.updateAccess(accessUser._id, {
+        quizAccess: access.quizAccess,
+        tests: access.tests.map((t) => ({ _id: t._id, visible: t.visible, validUntil: t.validUntil })),
+      });
+      // Reflect temp/test changes in the row's expiry is not needed; just refresh count
+      setUsers((list) => list.map((x) => (x._id === accessUser._id ? { ...x, quizAccess: access.quizAccess } : x)));
+      flash("Access updated.");
+      setAccessUser(null);
+      setAccess(null);
+    } catch (e) {
+      flash(e.message);
+    } finally {
+      setAccessSaving(false);
+    }
+  };
 
   const openAdd = () => { setForm(blankUser); setEditing(null); setError(""); setModal(true); };
   const openEdit = (u) => {
@@ -244,6 +285,9 @@ export default function AdminUsers() {
                     </td>
                     <td className="px-5 py-3">
                       <div className="flex justify-end gap-2">
+                        <button onClick={() => openAccess(u)} title="Manage content access" className="rounded-lg p-2 text-accent-600 hover:bg-accent-50 dark:hover:bg-accent-900/30">
+                          <ListChecks className="h-4 w-4" />
+                        </button>
                         <button onClick={() => openEdit(u)} title="Edit" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30">
                           <Pencil className="h-4 w-4" />
                         </button>
@@ -365,6 +409,90 @@ export default function AdminUsers() {
               <button type="submit" disabled={saving} className="btn-primary">{saving ? "Saving..." : editing ? "Save Changes" : "Create User"}</button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Manage content access modal */}
+      {accessUser && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4">
+          <div className="my-8 w-full max-w-lg animate-scale-in card p-6">
+            <div className="mb-1 flex items-center justify-between">
+              <h3 className="text-lg font-bold">Content Access</h3>
+              <button type="button" onClick={() => setAccessUser(null)}><X className="h-5 w-5" /></button>
+            </div>
+            <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">{accessUser.name} · {accessUser.email}</p>
+
+            {accessLoading || !access ? (
+              <Loading label="Loading access..." />
+            ) : (
+              <div className="space-y-5">
+                {/* Quiz access */}
+                <div className="flex items-center justify-between rounded-xl border border-slate-200 p-4 dark:border-slate-700">
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300"><BookOpen className="h-5 w-5" /></span>
+                    <div>
+                      <p className="font-medium">Quizzes</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">On by default for every user.</p>
+                    </div>
+                  </div>
+                  <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
+                    <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={access.quizAccess} onChange={(e) => setAccess({ ...access, quizAccess: e.target.checked })} />
+                    {access.quizAccess ? "Enabled" : "Disabled"}
+                  </label>
+                </div>
+
+                {/* Test series access */}
+                <div>
+                  <p className="mb-2 text-sm font-semibold">Test Series ({access.tests.length})</p>
+                  {access.tests.length === 0 ? (
+                    <p className="rounded-lg bg-slate-50 px-3 py-3 text-sm text-slate-500 dark:bg-slate-800 dark:text-slate-400">No test series created yet.</p>
+                  ) : (
+                    <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                      {access.tests.map((t, i) => (
+                        <div key={t._id} className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium">{t.name}</p>
+                              <p className="text-xs text-slate-400">{t.category}</p>
+                            </div>
+                            <label className="inline-flex flex-shrink-0 cursor-pointer items-center gap-2 text-xs font-medium">
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4 accent-accent-600"
+                                checked={t.visible}
+                                onChange={(e) => setAccess({ ...access, tests: access.tests.map((x, xi) => xi === i ? { ...x, visible: e.target.checked } : x) })}
+                              />
+                              {t.visible ? "Visible" : "Hidden"}
+                            </label>
+                          </div>
+                          {t.visible && (
+                            <div className="mt-2 flex items-center gap-2">
+                              <span className="text-xs text-slate-500 dark:text-slate-400">Valid until</span>
+                              <input
+                                type="date"
+                                className="input h-8 py-1 text-xs"
+                                value={t.validUntil ? new Date(t.validUntil).toISOString().slice(0, 10) : ""}
+                                onChange={(e) => setAccess({ ...access, tests: access.tests.map((x, xi) => xi === i ? { ...x, validUntil: e.target.value ? new Date(e.target.value).toISOString() : null } : x) })}
+                              />
+                              {t.validUntil && (
+                                <button type="button" onClick={() => setAccess({ ...access, tests: access.tests.map((x, xi) => xi === i ? { ...x, validUntil: null } : x) })} className="text-xs text-slate-400 hover:text-rose-600">clear</button>
+                              )}
+                              <span className="text-xs text-slate-400">{t.validUntil ? "" : "(no limit)"}</span>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex justify-end gap-3">
+                  <button type="button" onClick={() => setAccessUser(null)} className="btn-outline">Cancel</button>
+                  <button type="button" onClick={saveAccess} disabled={accessSaving} className="btn-primary">{accessSaving ? "Saving..." : "Save Access"}</button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
