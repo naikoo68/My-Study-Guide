@@ -16,10 +16,10 @@ const testSeriesSchema = new mongoose.Schema(
     schedule: { type: Date },
     status: { type: String, enum: ["draft", "scheduled", "published"], default: "draft" },
     attempts: { type: Number, default: 0 },
-    // Per-user access control. When visibleToAll is true, any user without an
-    // explicit entry can see this test. An entry can hide the test from a user
-    // (visible:false) or grant time-limited access (validUntil).
-    visibleToAll: { type: Boolean, default: true },
+    // Per-user access control. Test series are PRIVATE by default: a new
+    // student sees a test only if visibleToAll is turned on, or they have an
+    // explicit access entry (visible:true, optionally time-limited).
+    visibleToAll: { type: Boolean, default: false },
     access: [
       {
         user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },

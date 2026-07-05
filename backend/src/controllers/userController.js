@@ -116,7 +116,7 @@ export async function getUserAccess(req, res) {
   const user = await User.findById(req.params.id).select("name email quizAccess");
   if (!user) return res.status(404).json({ message: "User not found" });
 
-  const tests = await TestSeries.find().select("name category access").sort("name").lean();
+  const tests = await TestSeries.find().select("name category access visibleToAll").sort("name").lean();
   res.json({
     userId: user._id,
     name: user.name,
@@ -128,7 +128,7 @@ export async function getUserAccess(req, res) {
         _id: t._id,
         name: t.name,
         category: t.category,
-        visible: entry ? entry.visible : true,
+        visible: entry ? entry.visible : t.visibleToAll === true,
         validUntil: entry?.validUntil || null,
       };
     }),
@@ -152,9 +152,11 @@ export async function updateUserAccess(req, res) {
       const test = await TestSeries.findById(t._id);
       if (!test) continue;
       const others = (test.access || []).filter((a) => String(a.user) !== String(user._id));
-      const isDefault = t.visible !== false && !t.validUntil;
+      const wantVisible = t.visible !== false;
+      // "Default" depends on whether this test is public or private.
+      const isDefault = wantVisible === (test.visibleToAll === true) && !t.validUntil;
       if (isDefault) {
-        test.access = others; // remove entry — back to default (visible)
+        test.access = others; // remove entry — back to the test's default
       } else {
         others.push({
           user: user._id,

@@ -15,6 +15,6 @@ export function isTestVisibleToUser(test, userId) {
     if (entry.validUntil && new Date(entry.validUntil).getTime() < Date.now()) return false;
     return true;
   }
-  // No explicit entry: fall back to the test's public flag.
-  return test.visibleToAll !== false;
+  // No explicit entry: hidden by default unless the test is marked public.
+  return test.visibleToAll === true;
 }

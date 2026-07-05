@@ -61,15 +61,15 @@ export async function getTestAccess(req, res) {
   res.json({
     testId: test._id,
     name: test.name,
-    visibleToAll: test.visibleToAll !== false,
+    visibleToAll: test.visibleToAll === true,
     users: users.map((u) => {
       const entry = byUser.get(String(u._id));
       return {
         _id: u._id,
         name: u.name,
         email: u.email,
-        // Default to visible when there's no explicit entry.
-        visible: entry ? entry.visible : true,
+        // No entry → follows the test default (hidden unless visibleToAll).
+        visible: entry ? entry.visible : test.visibleToAll === true,
         validUntil: entry?.validUntil || null,
       };
     }),
@@ -82,17 +82,20 @@ export async function updateTestAccess(req, res) {
   if (!test) return res.status(404).json({ message: "Test not found" });
 
   if (typeof req.body.visibleToAll === "boolean") test.visibleToAll = req.body.visibleToAll;
+  const globalVisible = test.visibleToAll === true;
 
   if (Array.isArray(req.body.users)) {
-    // Store an entry only when it differs from the default (visible + no expiry),
-    // keeping the access array compact.
+    // Keep only entries that DIFFER from the test's default state (to stay
+    // compact). When the test is private, that means storing the granted
+    // users; when public, storing the hidden ones. Time-limits are always kept.
     test.access = req.body.users
-      .filter((u) => u && u.user && (u.visible === false || u.validUntil))
+      .filter((u) => u && u.user)
       .map((u) => ({
         user: u.user,
         visible: u.visible !== false,
         validUntil: u.validUntil ? new Date(u.validUntil) : null,
-      }));
+      }))
+      .filter((e) => !(e.visible === globalVisible && !e.validUntil));
   }
 
   await test.save();
