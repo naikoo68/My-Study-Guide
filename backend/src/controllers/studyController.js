@@ -84,13 +84,25 @@ export async function deleteSmClass(req, res) {
 }
 
 /* ---------------- Files ---------------- */
+
+// Ensure a link is absolute (a link pasted without http:// is otherwise treated
+// as a path on our own site, giving "This site can't be reached").
+function normalizeUrl(u) {
+  const s = String(u || "").trim();
+  if (!s) return s;
+  if (/^https?:\/\//i.test(s) || s.startsWith("data:")) return s;
+  return `https://${s}`;
+}
+
 export async function listSmFiles(req, res) {
   res.json(await SmFile.find({ smClass: req.params.classId }).sort("order createdAt").lean());
 }
 export async function createSmFile(req, res) {
+  if (req.body.url) req.body.url = normalizeUrl(req.body.url);
   res.status(201).json(await SmFile.create(req.body));
 }
 export async function updateSmFile(req, res) {
+  if (req.body.url) req.body.url = normalizeUrl(req.body.url);
   const f = await SmFile.findByIdAndUpdate(req.params.id, req.body, { new: true });
   if (!f) return res.status(404).json({ message: "File not found" });
   res.json(f);

@@ -4,6 +4,14 @@ import { ChevronLeft, FileText, Download, ExternalLink } from "lucide-react";
 import { studyService } from "../../services";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 
+// Make sure a link is absolute so it opens correctly (a link saved without
+// http:// would otherwise be treated as a path on our own site).
+const safeUrl = (u) => {
+  const s = String(u || "").trim();
+  if (!s) return "#";
+  return /^https?:\/\//i.test(s) || s.startsWith("data:") ? s : `https://${s}`;
+};
+
 export default function StudyFiles() {
   const { institutionId, subjectId, classId } = useParams();
   const [cls, setCls] = useState(null);
@@ -52,8 +60,8 @@ export default function StudyFiles() {
                 </div>
               </div>
               <div className="flex flex-shrink-0 gap-2">
-                <a href={f.url} target="_blank" rel="noreferrer" className="btn-outline py-2"><ExternalLink className="h-4 w-4" /> View</a>
-                <a href={f.url} download target="_blank" rel="noreferrer" className="btn-primary py-2"><Download className="h-4 w-4" /> Download</a>
+                <a href={safeUrl(f.url)} target="_blank" rel="noreferrer" className="btn-outline py-2"><ExternalLink className="h-4 w-4" /> View</a>
+                <a href={safeUrl(f.url)} download target="_blank" rel="noreferrer" className="btn-primary py-2"><Download className="h-4 w-4" /> Download</a>
               </div>
             </div>
           ))}
