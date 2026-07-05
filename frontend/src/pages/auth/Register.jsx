@@ -36,6 +36,7 @@ export default function Register() {
           devOtp={otpStep.devOtp}
           emailSent={otpStep.emailSent}
           onVerified={() => navigate("/dashboard")}
+          onLater={() => navigate("/login")}
         />
       </AuthShell>
     );

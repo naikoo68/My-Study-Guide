@@ -4,7 +4,7 @@ import { useAuth } from "../../context/AuthContext";
 
 // Reusable 6-digit OTP verification step. Used after registration and when an
 // unverified user tries to log in.
-export default function OtpVerify({ email, devOtp: initialDevOtp, emailSent, autoResend = false, onVerified }) {
+export default function OtpVerify({ email, devOtp: initialDevOtp, emailSent, autoResend = false, onVerified, onLater }) {
   const { verifyOtp, resendOtp } = useAuth();
   const [otp, setOtp] = useState("");
   const [busy, setBusy] = useState(false);
@@ -111,6 +111,17 @@ export default function OtpVerify({ email, devOtp: initialDevOtp, emailSent, aut
       <button onClick={resend} className="mt-4 flex w-full items-center justify-center gap-2 text-sm font-medium text-brand-600 hover:underline dark:text-brand-400">
         <RefreshCw className="h-4 w-4" /> Resend code
       </button>
+
+      {onLater && (
+        <div className="mt-5 border-t border-slate-200 pt-4 text-center dark:border-slate-700">
+          <button onClick={onLater} className="text-sm font-medium text-slate-500 hover:text-slate-700 hover:underline dark:text-slate-400 dark:hover:text-slate-200">
+            I'll verify later
+          </button>
+          <p className="mt-1 text-xs text-slate-400">
+            Your account is created. You can verify anytime — you'll be asked for the code next time you log in.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
