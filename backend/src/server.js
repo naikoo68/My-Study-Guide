@@ -2,6 +2,7 @@ import "dotenv/config";
 import app from "./app.js";
 import connectDB from "./config/db.js";
 import { seedIfEmpty } from "./utils/seedData.js";
+import { ensureAdminFromEnv } from "./utils/ensureAdmin.js";
 
 const PORT = process.env.PORT || 5000;
 
@@ -21,7 +22,11 @@ async function start() {
       .then((seeded) => {
         if (seeded) console.log("✔ Database was empty — seeded sample data (admin@myprepmart.com / admin123).");
       })
-      .catch((err) => console.error("Auto-seed skipped:", err.message));
+      .catch((err) => console.error("Auto-seed skipped:", err.message))
+      // After seeding, ensure the env-configured admin exists (create/recover).
+      .finally(() => ensureAdminFromEnv().catch((e) => console.error("ensureAdmin skipped:", e.message)));
+  } else {
+    ensureAdminFromEnv().catch((e) => console.error("ensureAdmin skipped:", e.message));
   }
 }
 
