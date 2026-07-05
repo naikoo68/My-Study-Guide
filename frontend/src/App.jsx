@@ -22,7 +22,9 @@ const SessionQuizzes = lazy(() => import("./pages/quiz/SessionQuizzes"));
 const QuizPlay = lazy(() => import("./pages/quiz/QuizPlay"));
 const QuizResult = lazy(() => import("./pages/quiz/QuizResult"));
 
-const TestSeries = lazy(() => import("./pages/testseries/TestSeries"));
+const TestExams = lazy(() => import("./pages/testseries/TestExams"));
+const ExamPosts = lazy(() => import("./pages/testseries/ExamPosts"));
+const PostTests = lazy(() => import("./pages/testseries/PostTests"));
 const TestAttempt = lazy(() => import("./pages/testseries/TestAttempt"));
 
 const Login = lazy(() => import("./pages/auth/Login"));
@@ -60,7 +62,9 @@ const router = createBrowserRouter([
       { path: "/quiz/:subjectId/:topicId/:sessionId/:quizId", element: S(QuizPlay) },
       { path: "/quiz/:subjectId/:topicId/:sessionId/:quizId/result", element: S(QuizResult) },
 
-      { path: "/test-series", element: S(TestSeries) },
+      { path: "/test-series", element: S(TestExams) },
+      { path: "/test-series/:examId", element: S(ExamPosts) },
+      { path: "/test-series/:examId/:postId", element: S(PostTests) },
 
       { path: "/login", element: S(Login) },
       { path: "/register", element: S(Register) },
@@ -75,7 +79,7 @@ const router = createBrowserRouter([
 
   // Full-screen test interface (outside main layout)
   {
-    path: "/test-series/:testId/attempt",
+    path: "/test-series/attempt/:testId",
     element: <ProtectedRoute>{S(TestAttempt)}</ProtectedRoute>,
   },
 

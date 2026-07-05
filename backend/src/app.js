@@ -14,6 +14,7 @@ import uploadRoutes from "./routes/uploadRoutes.js";
 import setupRoutes from "./routes/setupRoutes.js";
 import settingsRoutes from "./routes/settingsRoutes.js";
 import messageRoutes from "./routes/messageRoutes.js";
+import examRoutes from "./routes/examRoutes.js";
 import { notFound, errorHandler } from "./middleware/error.js";
 import { isMailConfigured, verifyMail } from "./config/mailer.js";
 
@@ -53,6 +54,7 @@ app.use("/api/upload", uploadRoutes);
 app.use("/api/setup", setupRoutes); // one-time bootstrap (auto-disabled after first admin)
 app.use("/api/settings", settingsRoutes); // site branding & theme (public read, admin write)
 app.use("/api/messages", messageRoutes); // contact-form inbox
+app.use("/api", examRoutes); // /exams, /exams/:id/posts, /posts
 
 // Errors
 app.use(notFound);

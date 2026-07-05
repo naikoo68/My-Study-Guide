@@ -6,9 +6,11 @@ import { isTestVisibleToUser, findAccessEntry } from "../utils/accessControl.js"
 
 // GET /api/tests  — list published tests visible to the requesting user
 export async function listTests(req, res) {
-  const { category } = req.query;
+  const { category, post, exam } = req.query;
   const filter = { status: "published" };
   if (category && category !== "All") filter.category = category;
+  if (post) filter.post = post;
+  if (exam) filter.exam = exam;
   const tests = await TestSeries.find(filter).sort("-createdAt").lean();
   const enrolled = new Set((req.user?.enrolledTests || []).map(String));
   const userId = req.user?._id;
@@ -31,7 +33,9 @@ export async function listTests(req, res) {
 
 // GET /api/tests/admin/all  (admin) — every test regardless of status
 export async function listAllTests(req, res) {
-  const tests = await TestSeries.find().sort("-createdAt").lean();
+  const filter = {};
+  if (req.query.post) filter.post = req.query.post;
+  const tests = await TestSeries.find(filter).sort("-createdAt").lean();
   res.json(tests.map((t) => ({ ...t, questionCount: t.questions?.length || 0, questions: undefined })));
 }
 

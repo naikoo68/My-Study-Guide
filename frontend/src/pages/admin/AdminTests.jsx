@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, Eye, EyeOff, X, CalendarClock, Users, Search, Upload, HelpCircle } from "lucide-react";
-import { testService, contentService } from "../../services";
+import { Plus, Pencil, Trash2, Eye, EyeOff, X, CalendarClock, Users, Search, Upload, HelpCircle, ChevronRight, GraduationCap, Briefcase } from "lucide-react";
+import { testService, contentService, examService } from "../../services";
 import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 import BulkUploadQuestions from "../../components/admin/BulkUploadQuestions";
@@ -10,6 +10,17 @@ const blank = { name: "", category: "Full-Length", marks: 100, duration: 60, sch
 const categories = ["Full-Length", "Subject-wise", "Chapter-wise", "Previous Year"];
 
 export default function AdminTests() {
+  // Drill-down: exams → posts → tests
+  const [view, setView] = useState("exams"); // exams | posts | tests
+  const [exam, setExam] = useState(null);
+  const [post, setPost] = useState(null);
+  const [list, setList] = useState([]); // exams or posts at the current level
+
+  // Exam/Post add-edit modal
+  const [epModal, setEpModal] = useState(null); // { type: "exam"|"post", mode, data }
+  const [epForm, setEpForm] = useState({ name: "", description: "", order: 1 });
+  const [epSaving, setEpSaving] = useState(false);
+
   const [tests, setTests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -114,14 +125,63 @@ export default function AdminTests() {
   const load = () => {
     setLoading(true);
     setError("");
-    testService
-      .adminList()
-      .then(setTests)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+    const req =
+      view === "exams"
+        ? examService.exams().then(setList)
+        : view === "posts"
+        ? examService.posts(exam._id).then(setList)
+        : testService.adminList(post?._id).then(setTests);
+    req.catch((e) => setError(e.message)).finally(() => setLoading(false));
   };
 
-  useEffect(load, []);
+  // Reload whenever the drill-down level changes.
+  useEffect(load, [view]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Navigation
+  const openExam = (e) => { setExam(e); setPost(null); setView("posts"); };
+  const openPost = (p) => { setPost(p); setView("tests"); };
+  const goTo = (level) => setView(level);
+
+  // Exam / Post add-edit
+  const openEpAdd = () => {
+    setEpForm({ name: "", description: "", order: 1 });
+    setEpModal({ type: view === "exams" ? "exam" : "post", mode: "add" });
+  };
+  const openEpEdit = (item) => {
+    setEpForm({ name: item.name, description: item.description || "", order: item.order || 1 });
+    setEpModal({ type: view === "exams" ? "exam" : "post", mode: "edit", data: item });
+  };
+  const saveEp = async (e) => {
+    e.preventDefault();
+    setEpSaving(true);
+    try {
+      const { type, mode, data } = epModal;
+      if (type === "exam") {
+        if (mode === "add") await examService.createExam(epForm);
+        else await examService.updateExam(data._id, epForm);
+      } else {
+        if (mode === "add") await examService.createPost({ ...epForm, exam: exam._id });
+        else await examService.updatePost(data._id, epForm);
+      }
+      setEpModal(null);
+      load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setEpSaving(false);
+    }
+  };
+  const removeEp = async (item) => {
+    const isExam = view === "exams";
+    if (!window.confirm(`Delete "${item.name}"? ${isExam ? "Its posts are removed and its tests detached." : "Its tests are detached."}`)) return;
+    try {
+      if (isExam) await examService.deleteExam(item._id);
+      else await examService.deletePost(item._id);
+      setList((l) => l.filter((x) => x._id !== item._id));
+    } catch (e) {
+      setError(e.message);
+    }
+  };
 
   const openCreate = () => {
     setForm(blank);
@@ -170,10 +230,11 @@ export default function AdminTests() {
       if (!payload.schedule) delete payload.schedule;
       if (editing) {
         const updated = await testService.update(editing._id, payload);
-        setTests((list) => list.map((x) => (x._id === editing._id ? { ...x, ...updated, questionCount: x.questionCount } : x)));
+        setTests((prev) => prev.map((x) => (x._id === editing._id ? { ...x, ...updated, questionCount: x.questionCount } : x)));
       } else {
-        const created = await testService.create(payload);
-        setTests((list) => [{ ...created, questionCount: 0 }, ...list]);
+        // New tests belong to the current exam + post.
+        const created = await testService.create({ ...payload, exam: exam?._id, post: post?._id });
+        setTests((prev) => [{ ...created, questionCount: 0 }, ...prev]);
       }
       setModal(false);
       setForm(blank);
@@ -192,19 +253,61 @@ export default function AdminTests() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-extrabold">Test Series Management</h1>
-          <p className="text-slate-500 dark:text-slate-400">Create, schedule and publish tests.</p>
+          <p className="text-slate-500 dark:text-slate-400">Exam → Post → Category → Tests. Manage each level here.</p>
         </div>
-        <button onClick={openCreate} className="btn-primary">
-          <Plus className="h-4 w-4" /> Create Test
-        </button>
+        {view === "tests" ? (
+          <button onClick={openCreate} className="btn-primary"><Plus className="h-4 w-4" /> Create Test</button>
+        ) : (
+          <button onClick={openEpAdd} className="btn-primary"><Plus className="h-4 w-4" /> {view === "exams" ? "Add Exam" : "Add Post"}</button>
+        )}
+      </div>
+
+      {/* Breadcrumb */}
+      <div className="card px-4 py-3">
+        <nav className="flex flex-wrap items-center gap-1 text-sm">
+          <button onClick={() => goTo("exams")} className={`rounded px-2 py-1 font-medium ${view === "exams" ? "text-brand-600" : "text-slate-500 hover:text-brand-600"}`}>Exams</button>
+          {exam && view !== "exams" && (<>
+            <ChevronRight className="h-4 w-4 text-slate-400" />
+            <button onClick={() => goTo("posts")} className={`rounded px-2 py-1 font-medium ${view === "posts" ? "text-brand-600" : "text-slate-500 hover:text-brand-600"}`}>{exam.name}</button>
+          </>)}
+          {post && view === "tests" && (<>
+            <ChevronRight className="h-4 w-4 text-slate-400" />
+            <span className="rounded px-2 py-1 font-medium text-brand-600">{post.name}</span>
+          </>)}
+        </nav>
       </div>
 
       {loading ? (
-        <Loading label="Loading tests..." />
+        <Loading label={`Loading ${view}...`} />
       ) : error ? (
         <ErrorState message={error} onRetry={load} />
+      ) : view !== "tests" ? (
+        list.length === 0 ? (
+          <EmptyState message={view === "exams" ? 'No exams yet. Click "Add Exam".' : 'No posts yet. Click "Add Post".'} />
+        ) : (
+          <div className="space-y-3">
+            {list.map((item) => (
+              <div key={item._id} className="card flex items-center justify-between gap-3 p-4">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-brand-100 text-brand-600 dark:bg-brand-900/40 dark:text-brand-300">
+                    {view === "exams" ? <GraduationCap className="h-5 w-5" /> : <Briefcase className="h-5 w-5" />}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="font-semibold">{item.name}</p>
+                    <p className="text-xs text-slate-400">{view === "exams" ? `${item.posts ?? 0} posts` : `${item.tests ?? 0} tests`}</p>
+                  </div>
+                </div>
+                <div className="flex flex-shrink-0 items-center gap-1">
+                  <button onClick={() => (view === "exams" ? openExam(item) : openPost(item))} className="btn-outline py-2">Manage <ChevronRight className="h-4 w-4" /></button>
+                  <button onClick={() => openEpEdit(item)} title="Edit" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30"><Pencil className="h-4 w-4" /></button>
+                  <button onClick={() => removeEp(item)} title="Delete" className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30"><Trash2 className="h-4 w-4" /></button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
       ) : tests.length === 0 ? (
-        <EmptyState message="No test series yet. Create your first test." />
+        <EmptyState message="No tests in this post yet. Click Create Test, or use Bulk Upload after creating one." />
       ) : (
         <div className="card overflow-x-auto">
           <table className="w-full min-w-[720px] text-sm">
@@ -258,6 +361,36 @@ export default function AdminTests() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Add / edit Exam or Post */}
+      {epModal && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4">
+          <form onSubmit={saveEp} className="my-8 w-full max-w-md animate-scale-in card p-6">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-bold">{epModal.mode === "add" ? "Add" : "Edit"} {epModal.type === "exam" ? "Exam" : "Post"}</h3>
+              <button type="button" onClick={() => setEpModal(null)}><X className="h-5 w-5" /></button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium">{epModal.type === "exam" ? "Exam name" : "Post name"}</label>
+                <input required className="input" value={epForm.name} onChange={(e) => setEpForm({ ...epForm, name: e.target.value })} placeholder={epModal.type === "exam" ? "e.g. JKSSB" : "e.g. Finance Account Assistant"} />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium">Description (optional)</label>
+                <textarea rows={2} className="input resize-none" value={epForm.description} onChange={(e) => setEpForm({ ...epForm, description: e.target.value })} />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium">Order</label>
+                <input type="number" className="input" value={epForm.order} onChange={(e) => setEpForm({ ...epForm, order: +e.target.value })} />
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <button type="button" onClick={() => setEpModal(null)} className="btn-outline">Cancel</button>
+              <button type="submit" disabled={epSaving} className="btn-primary">{epSaving ? "Saving..." : "Save"}</button>
+            </div>
+          </form>
         </div>
       )}
 
@@ -315,7 +448,7 @@ export default function AdminTests() {
                 </div>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Tip: add questions to this test from the Content section after creating it.
+                Tip: after creating, use the <b>Manage questions</b> or <b>Bulk upload</b> button on the test row to add questions.
               </p>
               <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={() => setModal(false)} className="btn-outline">Cancel</button>

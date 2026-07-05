@@ -134,7 +134,7 @@ export default function Dashboard() {
                     </div>
                     <div className="flex items-center gap-3">
                       <Badge variant={t.difficulty}>{t.difficulty}</Badge>
-                      <Link to={`/test-series/${t._id}/attempt`} className="btn-primary py-2">
+                      <Link to={`/test-series/attempt/${t._id}`} className="btn-primary py-2">
                         Start <ArrowRight className="h-4 w-4" />
                       </Link>
                     </div>

@@ -54,8 +54,16 @@ export const quizService = {
 
 // ---- Test series ----
 export const testService = {
-  list: (category) => api.get(`/tests${category && category !== "All" ? `?category=${encodeURIComponent(category)}` : ""}`),
-  adminList: () => api.get("/tests/admin/all"),
+  // list accepts { post, category, exam } filters
+  list: (params = {}) => {
+    const q = new URLSearchParams();
+    if (params.post) q.set("post", params.post);
+    if (params.exam) q.set("exam", params.exam);
+    if (params.category && params.category !== "All") q.set("category", params.category);
+    const s = q.toString();
+    return api.get(`/tests${s ? `?${s}` : ""}`);
+  },
+  adminList: (postId) => api.get(`/tests/admin/all${postId ? `?post=${postId}` : ""}`),
   get: (id) => api.get(`/tests/${id}`),
   submit: (id, answers, timeTaken) => api.post(`/tests/${id}/submit`, { answers, timeTaken }),
   // admin
@@ -91,6 +99,18 @@ export const messageService = {
   unreadCount: () => api.get("/messages/unread-count"),
   toggleRead: (id, read) => api.patch(`/messages/${id}/read`, { read }),
   remove: (id) => api.del(`/messages/${id}`),
+};
+
+// ---- Exams & Posts (test-series hierarchy) ----
+export const examService = {
+  exams: () => api.get("/exams"),
+  posts: (examId) => api.get(`/exams/${examId}/posts`),
+  createExam: (data) => api.post("/exams", data),
+  updateExam: (id, data) => api.put(`/exams/${id}`, data),
+  deleteExam: (id) => api.del(`/exams/${id}`),
+  createPost: (data) => api.post("/posts", data),
+  updatePost: (id, data) => api.put(`/posts/${id}`, data),
+  deletePost: (id) => api.del(`/posts/${id}`),
 };
 
 // ---- Users (admin) ----

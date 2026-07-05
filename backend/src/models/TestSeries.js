@@ -3,6 +3,9 @@ import mongoose from "mongoose";
 const testSeriesSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
+    // Hierarchy: Exam → Post → Category → Test.
+    exam: { type: mongoose.Schema.Types.ObjectId, ref: "Exam" },
+    post: { type: mongoose.Schema.Types.ObjectId, ref: "ExamPost" },
     category: {
       type: String,
       enum: ["Full-Length", "Subject-wise", "Chapter-wise", "Previous Year"],
