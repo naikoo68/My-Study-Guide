@@ -100,7 +100,9 @@ export async function seedDatabase({ reset = false } = {}) {
     ]);
   }
 
-  await User.create({ name: "Admin", email: "admin@myprepmart.com", password: "admin123", role: "admin", isEmailVerified: true });
+  const adminEmail = (process.env.ADMIN_EMAIL || "admin@myprepmart.com").toLowerCase().trim();
+  const adminPassword = process.env.ADMIN_PASSWORD || "admin123";
+  await User.create({ name: "Admin", email: adminEmail, password: adminPassword, role: "admin", isEmailVerified: true });
   const student = await User.create({ name: "Demo Student", email: "student@myprepmart.com", password: "student123", isEmailVerified: true, streak: 7, plan: "Premium" });
 
   const extraNames = ["Aarav Sharma", "Diya Patel", "Vihaan Gupta", "Ananya Reddy", "Kabir Singh"];
@@ -190,7 +192,7 @@ export async function seedDatabase({ reset = false } = {}) {
     day += 3;
   }
 
-  return { admin: "admin@myprepmart.com / admin123", student: "student@myprepmart.com / student123" };
+  return { admin: `${adminEmail} / ${adminPassword}`, student: "student@myprepmart.com / student123" };
 }
 
 // Seeds only if the database has no users yet (safe to call on every boot).

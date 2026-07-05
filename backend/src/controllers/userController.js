@@ -1,6 +1,8 @@
 import crypto from "crypto";
 import User from "../models/User.js";
 
+const norm = (e) => String(e || "").toLowerCase().trim();
+
 // GET /api/users  (admin) — with optional search & pagination
 export async function listUsers(req, res) {
   const { search = "", page = 1, limit = 20 } = req.query;
@@ -29,6 +31,32 @@ export async function createUser(req, res) {
   const obj = user.toObject();
   delete obj.password;
   res.status(201).json(obj);
+}
+
+// PUT /api/users/:id  (admin) — edit name, email, role, plan and optionally password
+export async function updateUser(req, res) {
+  const user = await User.findById(req.params.id).select("+password");
+  if (!user) return res.status(404).json({ message: "User not found" });
+
+  const { name, role, plan, password } = req.body;
+
+  if (req.body.email) {
+    const email = norm(req.body.email);
+    if (email !== user.email) {
+      const exists = await User.findOne({ email });
+      if (exists) return res.status(409).json({ message: "That email is already in use" });
+      user.email = email;
+    }
+  }
+  if (name) user.name = name;
+  if (role) user.role = role;
+  if (plan) user.plan = plan;
+  if (password) user.password = password; // re-hashed by the model's pre-save hook
+
+  await user.save();
+  const obj = user.toObject();
+  delete obj.password;
+  res.json(obj);
 }
 
 // DELETE /api/users/:id  (admin)

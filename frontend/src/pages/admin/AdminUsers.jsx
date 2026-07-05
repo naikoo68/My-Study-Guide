@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Search, Ban, CheckCircle2, KeyRound, Crown, UserPlus, Trash2, X } from "lucide-react";
+import { Search, Ban, CheckCircle2, KeyRound, Crown, UserPlus, Pencil, Trash2, X } from "lucide-react";
 import { userService } from "../../services";
 import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState } from "../../components/ui/AsyncState";
@@ -13,8 +13,17 @@ export default function AdminUsers() {
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
   const [modal, setModal] = useState(false);
+  const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(blankUser);
   const [saving, setSaving] = useState(false);
+
+  const openAdd = () => { setForm(blankUser); setEditing(null); setError(""); setModal(true); };
+  const openEdit = (u) => {
+    setForm({ name: u.name, email: u.email, password: "", role: u.role, plan: u.plan });
+    setEditing(u);
+    setError("");
+    setModal(true);
+  };
 
   const load = () => {
     setLoading(true);
@@ -62,16 +71,25 @@ export default function AdminUsers() {
     }
   };
 
-  const addUser = async (e) => {
+  const saveUser = async (e) => {
     e.preventDefault();
     setSaving(true);
     setError("");
     try {
-      const created = await userService.create(form);
-      setUsers((list) => [created, ...list]);
+      if (editing) {
+        const payload = { name: form.name, email: form.email, role: form.role, plan: form.plan };
+        if (form.password) payload.password = form.password; // only change if provided
+        const updated = await userService.update(editing._id, payload);
+        setUsers((list) => list.map((x) => (x._id === editing._id ? { ...x, ...updated } : x)));
+        flash("User updated.");
+      } else {
+        const created = await userService.create(form);
+        setUsers((list) => [created, ...list]);
+        flash("User created.");
+      }
       setModal(false);
       setForm(blankUser);
-      flash("User created.");
+      setEditing(null);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -96,7 +114,7 @@ export default function AdminUsers() {
             Add, delete, block/unblock, reset passwords and manage subscriptions.
           </p>
         </div>
-        <button onClick={() => { setForm(blankUser); setError(""); setModal(true); }} className="btn-primary">
+        <button onClick={openAdd} className="btn-primary">
           <UserPlus className="h-4 w-4" /> Add User
         </button>
       </div>
@@ -163,6 +181,9 @@ export default function AdminUsers() {
                     </td>
                     <td className="px-5 py-3">
                       <div className="flex justify-end gap-2">
+                        <button onClick={() => openEdit(u)} title="Edit" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30">
+                          <Pencil className="h-4 w-4" />
+                        </button>
                         <button onClick={() => resetPassword(u)} title="Reset password" className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700">
                           <KeyRound className="h-4 w-4" />
                         </button>
@@ -186,12 +207,12 @@ export default function AdminUsers() {
         </>
       )}
 
-      {/* Add user modal */}
+      {/* Add / edit user modal */}
       {modal && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4">
-          <form onSubmit={addUser} className="my-8 w-full max-w-md animate-scale-in card p-6">
+          <form onSubmit={saveUser} className="my-8 w-full max-w-md animate-scale-in card p-6">
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-bold">Add User</h3>
+              <h3 className="text-lg font-bold">{editing ? "Edit User" : "Add User"}</h3>
               <button type="button" onClick={() => setModal(false)}><X className="h-5 w-5" /></button>
             </div>
             {error && <div className="mb-3 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">{error}</div>}
@@ -202,11 +223,13 @@ export default function AdminUsers() {
               </div>
               <div>
                 <label className="mb-1.5 block text-sm font-medium">Email</label>
-                <input required type="email" className="input" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="jane@example.com" />
+                <input required type="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} className="input" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="jane@example.com" />
               </div>
               <div>
-                <label className="mb-1.5 block text-sm font-medium">Password</label>
-                <input required minLength={6} className="input" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="At least 6 characters" />
+                <label className="mb-1.5 block text-sm font-medium">
+                  {editing ? "New Password (leave blank to keep current)" : "Password"}
+                </label>
+                <input required={!editing} minLength={6} className="input" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder={editing ? "Leave blank to keep unchanged" : "At least 6 characters"} />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -226,7 +249,7 @@ export default function AdminUsers() {
             </div>
             <div className="mt-6 flex justify-end gap-3">
               <button type="button" onClick={() => setModal(false)} className="btn-outline">Cancel</button>
-              <button type="submit" disabled={saving} className="btn-primary">{saving ? "Creating..." : "Create User"}</button>
+              <button type="submit" disabled={saving} className="btn-primary">{saving ? "Saving..." : editing ? "Save Changes" : "Create User"}</button>
             </div>
           </form>
         </div>
