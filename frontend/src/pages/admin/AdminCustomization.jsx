@@ -19,11 +19,10 @@ const DEFAULTS = {
   accentColor: "#f97316",
   fontFamily: "Inter",
   socialLinks: [
-    { platform: "facebook", url: "#" },
-    { platform: "twitter", url: "#" },
-    { platform: "instagram", url: "#" },
-    { platform: "linkedin", url: "#" },
-    { platform: "youtube", url: "#" },
+    { platform: "facebook", url: "" },
+    { platform: "instagram", url: "" },
+    { platform: "whatsapp", url: "" },
+    { platform: "youtube", url: "" },
   ],
   contacts: [
     { type: "email", value: "hello@mystudyguide.com" },

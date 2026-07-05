@@ -20,6 +20,17 @@ export async function updateSettings(req, res) {
   ];
   const update = {};
   for (const k of allowed) if (k in req.body) update[k] = req.body[k];
+
+  // Make social links absolute so a link pasted without http:// still works.
+  if (Array.isArray(update.socialLinks)) {
+    update.socialLinks = update.socialLinks
+      .filter((s) => s && s.url && s.url.trim() && s.url.trim() !== "#")
+      .map((s) => {
+        const u = s.url.trim();
+        return { platform: s.platform, url: /^https?:\/\//i.test(u) ? u : `https://${u}` };
+      });
+  }
+
   const s = await Settings.findOneAndUpdate({ key: "site" }, update, {
     new: true,
     upsert: true,

@@ -35,11 +35,10 @@ const settingsSchema = new mongoose.Schema(
     socialLinks: {
       type: [socialSchema],
       default: () => [
-        { platform: "facebook", url: "#" },
-        { platform: "twitter", url: "#" },
-        { platform: "instagram", url: "#" },
-        { platform: "linkedin", url: "#" },
-        { platform: "youtube", url: "#" },
+        { platform: "facebook", url: "" },
+        { platform: "instagram", url: "" },
+        { platform: "whatsapp", url: "" },
+        { platform: "youtube", url: "" },
       ],
     },
     contacts: {
