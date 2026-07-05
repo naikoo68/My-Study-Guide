@@ -69,6 +69,15 @@ export const settingsService = {
   update: (data) => api.put("/settings", data),
 };
 
+// ---- Contact messages ----
+export const messageService = {
+  send: (data) => api.post("/messages", data, { auth: false }),
+  list: () => api.get("/messages"),
+  unreadCount: () => api.get("/messages/unread-count"),
+  toggleRead: (id, read) => api.patch(`/messages/${id}/read`, { read }),
+  remove: (id) => api.del(`/messages/${id}`),
+};
+
 // ---- Users (admin) ----
 export const userService = {
   list: (search = "") => api.get(`/users${search ? `?search=${encodeURIComponent(search)}` : ""}`),

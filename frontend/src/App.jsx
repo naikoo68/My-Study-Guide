@@ -30,6 +30,7 @@ import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminContent from "./pages/admin/AdminContent";
 import AdminTests from "./pages/admin/AdminTests";
 import AdminUsers from "./pages/admin/AdminUsers";
+import AdminMessages from "./pages/admin/AdminMessages";
 import AdminCustomization from "./pages/admin/AdminCustomization";
 
 const router = createBrowserRouter([
@@ -87,6 +88,7 @@ const router = createBrowserRouter([
       { path: "content", element: <AdminContent /> },
       { path: "tests", element: <AdminTests /> },
       { path: "users", element: <AdminUsers /> },
+      { path: "messages", element: <AdminMessages /> },
       { path: "customization", element: <AdminCustomization /> },
     ],
   },

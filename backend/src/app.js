@@ -13,6 +13,7 @@ import quizRoutes from "./routes/quizRoutes.js";
 import uploadRoutes from "./routes/uploadRoutes.js";
 import setupRoutes from "./routes/setupRoutes.js";
 import settingsRoutes from "./routes/settingsRoutes.js";
+import messageRoutes from "./routes/messageRoutes.js";
 import { notFound, errorHandler } from "./middleware/error.js";
 
 const app = express();
@@ -43,6 +44,7 @@ app.use("/api", analyticsRoutes); // /admin/analytics, /me/dashboard, /leaderboa
 app.use("/api/upload", uploadRoutes);
 app.use("/api/setup", setupRoutes); // one-time bootstrap (auto-disabled after first admin)
 app.use("/api/settings", settingsRoutes); // site branding & theme (public read, admin write)
+app.use("/api/messages", messageRoutes); // contact-form inbox
 
 // Errors
 app.use(notFound);

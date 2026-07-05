@@ -1,10 +1,11 @@
-import { useState } from "react";
-import { NavLink, Outlet, useNavigate, Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { NavLink, Outlet, useNavigate, Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
   BookCopy,
   FileStack,
   Users,
+  Mail,
   Palette,
   GraduationCap,
   LogOut,
@@ -17,21 +18,37 @@ import {
 import { useTheme } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
 import { useSettings } from "../../context/SettingsContext";
+import { messageService } from "../../services";
 
 const nav = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/admin/content", label: "Content", icon: BookCopy },
   { to: "/admin/tests", label: "Test Series", icon: FileStack },
   { to: "/admin/users", label: "Users", icon: Users },
+  { to: "/admin/messages", label: "Messages", icon: Mail },
   { to: "/admin/customization", label: "Customization", icon: Palette },
 ];
 
 export default function AdminLayout() {
   const [open, setOpen] = useState(false);
+  const [unread, setUnread] = useState(0);
   const { theme, toggleTheme } = useTheme();
   const { user, logout } = useAuth();
   const { settings } = useSettings();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Keep the unread-messages badge fresh
+  useEffect(() => {
+    let active = true;
+    messageService
+      .unreadCount()
+      .then((r) => active && setUnread(r.unread || 0))
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [location.pathname]);
 
   const handleLogout = () => {
     logout();
@@ -69,7 +86,13 @@ export default function AdminLayout() {
               }`
             }
           >
-            <n.icon className="h-5 w-5" /> {n.label}
+            <n.icon className="h-5 w-5" />
+            <span className="flex-1">{n.label}</span>
+            {n.to === "/admin/messages" && unread > 0 && (
+              <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-accent-500 px-1.5 text-xs font-bold text-white">
+                {unread}
+              </span>
+            )}
           </NavLink>
         ))}
       </nav>

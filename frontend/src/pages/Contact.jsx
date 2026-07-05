@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Mail, Phone, MapPin, Send, CheckCircle2 } from "lucide-react";
+import { Mail, Phone, MapPin, Send, CheckCircle2, Loader2, AlertCircle } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
+import { messageService } from "../services";
 
 const ICONS = { email: Mail, phone: Phone, address: MapPin };
 const LABELS = { email: "Email", phone: "Phone", address: "Address" };
@@ -8,6 +9,9 @@ const LABELS = { email: "Email", phone: "Phone", address: "Address" };
 export default function Contact() {
   const { settings } = useSettings();
   const [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [form, setForm] = useState({ name: "", email: "", subject: "", message: "" });
 
   const info = (settings.contacts || []).map((c) => ({
     icon: ICONS[c.type] || Mail,
@@ -15,9 +19,20 @@ export default function Contact() {
     value: c.value,
   }));
 
-  const handleSubmit = (e) => {
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    setSent(true);
+    setBusy(true);
+    setError("");
+    try {
+      await messageService.send(form);
+      setSent(true);
+    } catch (err) {
+      setError(err.message || "Could not send your message. Please try again.");
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -56,26 +71,32 @@ export default function Contact() {
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
+              {error && (
+                <div className="flex items-center gap-2 rounded-xl bg-rose-50 px-3 py-2.5 text-sm text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">
+                  <AlertCircle className="h-4 w-4 flex-shrink-0" /> {error}
+                </div>
+              )}
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                   <label className="mb-1.5 block text-sm font-medium">Full Name</label>
-                  <input required className="input" placeholder="Your name" />
+                  <input required className="input" placeholder="Your name" value={form.name} onChange={(e) => set("name", e.target.value)} />
                 </div>
                 <div>
                   <label className="mb-1.5 block text-sm font-medium">Email</label>
-                  <input required type="email" className="input" placeholder="you@example.com" />
+                  <input required type="email" className="input" placeholder="you@example.com" value={form.email} onChange={(e) => set("email", e.target.value)} />
                 </div>
               </div>
               <div>
                 <label className="mb-1.5 block text-sm font-medium">Subject</label>
-                <input required className="input" placeholder="How can we help?" />
+                <input required className="input" placeholder="How can we help?" value={form.subject} onChange={(e) => set("subject", e.target.value)} />
               </div>
               <div>
                 <label className="mb-1.5 block text-sm font-medium">Message</label>
-                <textarea required rows={5} className="input resize-none" placeholder="Write your message..." />
+                <textarea required rows={5} className="input resize-none" placeholder="Write your message..." value={form.message} onChange={(e) => set("message", e.target.value)} />
               </div>
-              <button type="submit" className="btn-primary w-full sm:w-auto">
-                <Send className="h-4 w-4" /> Send Message
+              <button type="submit" disabled={busy} className="btn-primary w-full sm:w-auto">
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                {busy ? "Sending..." : "Send Message"}
               </button>
             </form>
           )}
