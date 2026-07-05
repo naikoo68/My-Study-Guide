@@ -43,3 +43,17 @@ export async function sendMail({ to, subject, text, html, replyTo }) {
 export function isMailConfigured() {
   return !!getTransporter();
 }
+
+// Verifies the SMTP connection & credentials WITHOUT sending an email.
+// Used by the /api/health/mail diagnostic endpoint to surface the real reason
+// (e.g. a bad App Password) when email delivery fails.
+export async function verifyMail() {
+  const t = getTransporter();
+  if (!t) return { configured: false, ok: false, reason: "SMTP env vars not set" };
+  try {
+    await t.verify();
+    return { configured: true, ok: true };
+  } catch (err) {
+    return { configured: true, ok: false, error: err.message };
+  }
+}

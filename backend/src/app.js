@@ -15,7 +15,7 @@ import setupRoutes from "./routes/setupRoutes.js";
 import settingsRoutes from "./routes/settingsRoutes.js";
 import messageRoutes from "./routes/messageRoutes.js";
 import { notFound, errorHandler } from "./middleware/error.js";
-import { isMailConfigured } from "./config/mailer.js";
+import { isMailConfigured, verifyMail } from "./config/mailer.js";
 
 const app = express();
 
@@ -37,6 +37,10 @@ const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 50 });
 app.get("/api/health", (req, res) =>
   res.json({ status: "ok", service: "my-prep-mart-api", mailConfigured: isMailConfigured() })
 );
+
+// Diagnostic: tests the SMTP login (does NOT send an email) and returns the
+// real error if it fails. Safe to remove later.
+app.get("/api/health/mail", async (req, res) => res.json(await verifyMail()));
 
 // Routes
 app.use("/api/auth", authLimiter, authRoutes);
