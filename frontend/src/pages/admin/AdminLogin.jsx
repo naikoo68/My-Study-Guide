@@ -56,6 +56,9 @@ export default function AdminLogin() {
               <input
                 required
                 type="email"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
                 className="input pl-9"

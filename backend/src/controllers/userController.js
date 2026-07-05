@@ -18,7 +18,8 @@ export async function listUsers(req, res) {
 
 // POST /api/users  (admin) — create a new user
 export async function createUser(req, res) {
-  const { name, email, password, role = "student", plan = "Free" } = req.body;
+  const { name, password, role = "student", plan = "Free" } = req.body;
+  const email = String(req.body.email || "").toLowerCase().trim();
   if (!name || !email || !password) {
     return res.status(400).json({ message: "Name, email and password are required" });
   }

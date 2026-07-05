@@ -2,6 +2,10 @@ import crypto from "crypto";
 import User from "../models/User.js";
 import generateToken from "../utils/generateToken.js";
 
+// Normalise emails so case/whitespace never causes a login mismatch
+// (phone keyboards often auto-capitalise the first letter).
+const norm = (e) => String(e || "").toLowerCase().trim();
+
 const sanitize = (u) => ({
   id: u._id,
   name: u.name,
@@ -15,7 +19,8 @@ const sanitize = (u) => ({
 
 // POST /api/auth/register
 export async function register(req, res) {
-  const { name, email, password } = req.body;
+  const { name, password } = req.body;
+  const email = norm(req.body.email);
   if (!name || !email || !password) {
     return res.status(400).json({ message: "All fields are required" });
   }
@@ -35,7 +40,8 @@ export async function register(req, res) {
 
 // POST /api/auth/login
 export async function login(req, res) {
-  const { email, password } = req.body;
+  const { password } = req.body;
+  const email = norm(req.body.email);
   const user = await User.findOne({ email }).select("+password");
   if (!user || !(await user.comparePassword(password))) {
     return res.status(401).json({ message: "Invalid email or password" });
@@ -48,7 +54,8 @@ export async function login(req, res) {
 
 // POST /api/auth/google  (verify Google token client-side or via google-auth-library)
 export async function googleLogin(req, res) {
-  const { email, name, googleId, avatar } = req.body;
+  const { name, googleId, avatar } = req.body;
+  const email = norm(req.body.email);
   if (!email) return res.status(400).json({ message: "Missing Google profile" });
   let user = await User.findOne({ email });
   if (!user) {
@@ -69,7 +76,7 @@ export async function verifyEmail(req, res) {
 
 // POST /api/auth/forgot-password
 export async function forgotPassword(req, res) {
-  const user = await User.findOne({ email: req.body.email });
+  const user = await User.findOne({ email: norm(req.body.email) });
   // Always return success to avoid leaking which emails exist.
   if (user) {
     user.resetPasswordToken = crypto.randomBytes(20).toString("hex");
