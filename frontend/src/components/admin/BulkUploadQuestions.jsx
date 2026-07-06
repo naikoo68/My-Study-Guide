@@ -1,25 +1,31 @@
 import { useState } from "react";
 import { X, Upload, FileText, CheckCircle2, AlertTriangle } from "lucide-react";
 
-// Parse a single CSV line, respecting double-quoted fields (so commas and
-// quotes can appear inside a question or option).
-function parseCsvLine(line) {
-  const out = [];
-  let cur = "";
+// Full CSV parser that respects double-quoted fields — which may contain
+// commas AND line breaks (e.g. a multi-line "Consider the following
+// statements…" question). Returns an array of records (each an array of cells).
+function parseCsvRecords(text) {
+  const rows = [];
+  let row = [];
+  let field = "";
   let inQ = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
     if (inQ) {
       if (c === '"') {
-        if (line[i + 1] === '"') { cur += '"'; i++; }
+        if (text[i + 1] === '"') { field += '"'; i++; } // escaped quote ""
         else inQ = false;
-      } else cur += c;
+      } else field += c;
     } else if (c === '"') inQ = true;
-    else if (c === ",") { out.push(cur); cur = ""; }
-    else cur += c;
+    else if (c === ",") { row.push(field); field = ""; }
+    else if (c === "\r") { /* ignore */ }
+    else if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
+    else field += c;
   }
-  out.push(cur);
-  return out.map((s) => s.trim());
+  row.push(field);
+  rows.push(row);
+  // Keep only records that have some content; trim each cell.
+  return rows.filter((r) => r.some((f) => String(f).trim() !== "")).map((r) => r.map((f) => f.trim()));
 }
 
 function correctIndex(v) {
@@ -39,11 +45,10 @@ const splitList = (s) => String(s || "").split("|").map((x) => x.trim()).filter(
 //   Matching:       matching, Question, ColumnA, ColumnB, OptionA, OptionB, OptionC, OptionD, Correct, Difficulty, Explanation
 // For matching, ColumnA / ColumnB are pipe-separated lists, e.g. "Newton|Bohr|Curie".
 export function parseQuestionsCsv(text) {
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const records = parseCsvRecords(text);
   const rows = [];
   const errors = [];
-  lines.forEach((line, idx) => {
-    const cells = parseCsvLine(line);
+  records.forEach((cells, idx) => {
     const first = (cells[0] || "").toLowerCase();
 
     // Skip an optional header row.
@@ -55,7 +60,7 @@ export function parseQuestionsCsv(text) {
       const columnA = splitList(colA);
       const columnB = splitList(colB);
       if (!qtext || columnA.length < 2 || columnB.length < 2 || !a || !b || !c || !d) {
-        errors.push(`Line ${idx + 1}: matching needs a question, ColumnA & ColumnB (2+ items each, pipe-separated) and 4 options`);
+        errors.push(`Row ${idx + 1}: matching needs a question, ColumnA & ColumnB (2+ items each, pipe-separated) and 4 options`);
         return;
       }
       rows.push({
@@ -74,9 +79,9 @@ export function parseQuestionsCsv(text) {
 
     // ---- MCQ row (optionally prefixed with "mcq") ----
     const cols = first === "mcq" ? cells.slice(1) : cells;
-    if (cols.length < 5) { errors.push(`Line ${idx + 1}: needs a question + 4 options`); return; }
+    if (cols.length < 5) { errors.push(`Row ${idx + 1}: needs a question + 4 options`); return; }
     const [qtext, a, b, c, d, correct, difficulty, explanation] = cols;
-    if (!qtext || !a || !b || !c || !d) { errors.push(`Line ${idx + 1}: empty question or option`); return; }
+    if (!qtext || !a || !b || !c || !d) { errors.push(`Row ${idx + 1}: empty question or option`); return; }
     rows.push({
       type: "mcq",
       text: qtext,
