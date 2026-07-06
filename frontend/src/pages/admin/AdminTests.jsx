@@ -330,7 +330,14 @@ export default function AdminTests() {
                   <td className="px-5 py-3">{t.questionCount}</td>
                   <td className="px-5 py-3">{t.marks}</td>
                   <td className="px-5 py-3">{t.duration} min</td>
-                  <td className="px-5 py-3"><Badge variant={statusVariant(t.status)}>{t.status}</Badge></td>
+                  <td className="px-5 py-3">
+                    <div className="flex flex-col items-start gap-1">
+                      <Badge variant={statusVariant(t.status)}>{t.status}</Badge>
+                      <span className={`text-[10px] font-semibold ${t.visibleToAll ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>
+                        {t.visibleToAll ? "Visible to all" : "Restricted"}
+                      </span>
+                    </div>
+                  </td>
                   <td className="px-5 py-3">
                     <div className="flex justify-end gap-2">
                       <button
