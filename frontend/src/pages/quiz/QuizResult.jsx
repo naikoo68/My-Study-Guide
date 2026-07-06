@@ -197,6 +197,7 @@ export default function QuizResult() {
                       questionText={r.text}
                       source={source || `${subjectName || "Quiz"} (Quiz)`}
                       details={`Correct: ${optLetter(r.correct)}${r.chosen != null ? `, Chosen: ${optLetter(r.chosen)}` : ", Not attempted"}`}
+                      question={r}
                       className="inline-flex flex-shrink-0 items-center gap-1 text-xs font-medium text-slate-500 hover:text-brand-600 dark:text-slate-400"
                     />
                   </div>

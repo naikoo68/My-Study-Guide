@@ -389,7 +389,7 @@ export default function QuizPlay() {
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <Badge variant={q.difficulty}>{q.difficulty}</Badge>
             <div className="flex items-center gap-4">
-              <FeedbackButton context="question" questionText={q.text} questionNumber={current + 1} source={crumb || subjectName || "Quiz"} label="Feedback" />
+              <FeedbackButton context="question" questionText={q.text} questionNumber={current + 1} source={crumb || subjectName || "Quiz"} question={{ ...q, chosen: answers[current] ?? null }} label="Feedback" />
               <button
                 onClick={toggleBookmark}
                 className={`flex items-center gap-1.5 text-sm font-medium transition ${

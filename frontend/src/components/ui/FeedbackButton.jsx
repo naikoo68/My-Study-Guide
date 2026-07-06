@@ -5,7 +5,7 @@ import { useAuth } from "../../context/AuthContext";
 
 // Reusable feedback button + modal. Used per-question (context="question") and
 // on the result screens (context="quiz" | "test").
-export default function FeedbackButton({ context = "question", questionText = "", source = "", questionNumber, details = "", label = "Feedback", className = "" }) {
+export default function FeedbackButton({ context = "question", questionText = "", source = "", questionNumber, details = "", question = null, label = "Feedback", className = "" }) {
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState("");
@@ -22,7 +22,7 @@ export default function FeedbackButton({ context = "question", questionText = ""
     setBusy(true);
     setError("");
     try {
-      await feedbackService.send({ context, message, rating: rating || undefined, questionText, source, questionNumber, details, name: user ? undefined : name, email: user ? undefined : email });
+      await feedbackService.send({ context, message, rating: rating || undefined, questionText, source, questionNumber, details, question, name: user ? undefined : name, email: user ? undefined : email });
       setDone(true);
       setMessage("");
       setRating(0);
