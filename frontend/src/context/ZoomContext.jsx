@@ -3,7 +3,8 @@ import { createContext, useContext, useEffect, useState, useCallback } from "rea
 const ZoomContext = createContext();
 const MIN = 0.5;
 const MAX = 2;
-const KEY = "msg-zoom";
+const DEFAULT = 0.8; // default page zoom (80%)
+const KEY = "msg-zoom-v2"; // bumped so everyone picks up the new default
 
 // Site-wide zoom. The chosen level is applied to the whole document and
 // remembered across pages/reloads. Full-screen quiz/test screens apply the
@@ -12,7 +13,7 @@ const KEY = "msg-zoom";
 export function ZoomProvider({ children }) {
   const [zoom, setZoomState] = useState(() => {
     const v = parseFloat(localStorage.getItem(KEY));
-    return v >= MIN && v <= MAX ? v : 1;
+    return v >= MIN && v <= MAX ? v : DEFAULT;
   });
 
   useEffect(() => {
@@ -27,7 +28,7 @@ export function ZoomProvider({ children }) {
   const setZoom = useCallback((v) => setZoomState(clamp(v)), []);
   const zoomIn = useCallback(() => setZoomState((z) => clamp(z + 0.1)), []);
   const zoomOut = useCallback(() => setZoomState((z) => clamp(z - 0.1)), []);
-  const resetZoom = useCallback(() => setZoomState(1), []);
+  const resetZoom = useCallback(() => setZoomState(DEFAULT), []);
 
   return (
     <ZoomContext.Provider value={{ zoom, zoomIn, zoomOut, setZoom, resetZoom, MIN, MAX }}>
