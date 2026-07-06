@@ -486,7 +486,16 @@ export default function AdminTests() {
                     <p className="text-sm font-medium">Visible to everyone by default</p>
                     <p className="text-xs text-slate-500 dark:text-slate-400">When off, only users marked visible below can see this test.</p>
                   </div>
-                  <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={access.visibleToAll} onChange={(e) => setAccess({ ...access, visibleToAll: e.target.checked })} />
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-brand-600"
+                    checked={access.visibleToAll}
+                    onChange={(e) => {
+                      const on = e.target.checked;
+                      // Reflect the master toggle on every user row (select / deselect all).
+                      setAccess({ ...access, visibleToAll: on, users: access.users.map((u) => ({ ...u, visible: on })) });
+                    }}
+                  />
                 </label>
 
                 {access.users.length === 0 ? (
