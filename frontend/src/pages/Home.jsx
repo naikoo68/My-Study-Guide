@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   BookMarked,
@@ -14,6 +15,8 @@ import {
   Star,
 } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
+import { useAuth } from "../context/AuthContext";
+import { analyticsService } from "../services";
 
 // Icons applied by position to the editable stats from Customization.
 const STAT_ICONS = [Users, ListChecks, Layers];
@@ -59,11 +62,59 @@ const steps = [
 
 export default function Home() {
   const { settings } = useSettings();
+  const { user } = useAuth();
   const stats = (settings.aboutStats?.length ? settings.aboutStats : []).map((s, i) => ({
     icon: STAT_ICONS[i % STAT_ICONS.length],
     label: s.label,
     value: s.value,
   }));
+
+  // Live progress card for a logged-in student (from their real attempts + rank).
+  const [live, setLive] = useState(null);
+  useEffect(() => {
+    if (!user) { setLive(null); return; }
+    Promise.all([analyticsService.dashboard(), analyticsService.leaderboard().catch(() => [])])
+      .then(([d, board]) => {
+        const me = board.find((b) => b.isCurrentUser);
+        const recent = d.recentScores || [];
+        const best = recent.reduce((m, r) => Math.max(m, r.percentile || 0), 0);
+        setLive({
+          label: recent[0]?.name ? `Recent: ${recent[0].name}` : "Your Progress",
+          accuracy: d.stats?.avgPercentile || 0,
+          best,
+          last: recent[0]?.percentile || 0,
+          rank: me?.rank || null,
+          quizzes: me?.quizzes || 0,
+          tests: me?.tests || 0,
+        });
+      })
+      .catch(() => {});
+  }, [user]);
+
+  const bars = live
+    ? [
+        { l: "Average Accuracy", v: live.accuracy, c: "bg-emerald-500" },
+        { l: "Best Recent Score", v: live.best, c: "bg-brand-600" },
+        { l: "Last Score", v: live.last, c: "bg-accent-500" },
+      ]
+    : [
+        { l: "Quiz Accuracy", v: 86, c: "bg-emerald-500" },
+        { l: "Syllabus Covered", v: 64, c: "bg-brand-600" },
+        { l: "Mock Tests Done", v: 42, c: "bg-accent-500" },
+      ];
+  const miniStats = live
+    ? [
+        { v: live.rank ? `#${live.rank}` : "—", l: "Rank" },
+        { v: live.quizzes, l: "Quizzes" },
+        { v: live.tests, l: "Tests" },
+      ]
+    : [
+        { v: "#5", l: "Rank" },
+        { v: "7", l: "Day streak" },
+        { v: "9,380", l: "Points" },
+      ];
+  const progressTitle = live ? live.label : "Physics · Motion";
+  const progressSubtitle = live ? "Live · from your activity" : "Today's Progress";
 
   return (
     <div>
@@ -110,19 +161,15 @@ export default function Home() {
             <div className="card p-6 shadow-soft">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-slate-500 dark:text-slate-400">Today's Progress</p>
-                  <p className="text-2xl font-bold">Physics · Motion</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">{progressSubtitle}</p>
+                  <p className="text-2xl font-bold">{progressTitle}</p>
                 </div>
                 <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-brand-600 to-accent-500 text-white">
                   <Zap className="h-6 w-6" />
                 </span>
               </div>
               <div className="mt-5 space-y-4">
-                {[
-                  { l: "Quiz Accuracy", v: 86, c: "bg-emerald-500" },
-                  { l: "Syllabus Covered", v: 64, c: "bg-brand-600" },
-                  { l: "Mock Tests Done", v: 42, c: "bg-accent-500" },
-                ].map((b) => (
+                {bars.map((b) => (
                   <div key={b.l}>
                     <div className="mb-1 flex justify-between text-sm">
                       <span className="text-slate-600 dark:text-slate-300">{b.l}</span>
@@ -135,11 +182,7 @@ export default function Home() {
                 ))}
               </div>
               <div className="mt-5 grid grid-cols-3 gap-3 text-center">
-                {[
-                  { v: "#5", l: "Rank" },
-                  { v: "7", l: "Day streak" },
-                  { v: "9,380", l: "Points" },
-                ].map((s) => (
+                {miniStats.map((s) => (
                   <div key={s.l} className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60">
                     <p className="text-lg font-bold text-brand-600 dark:text-brand-400">{s.v}</p>
                     <p className="text-xs text-slate-500 dark:text-slate-400">{s.l}</p>
