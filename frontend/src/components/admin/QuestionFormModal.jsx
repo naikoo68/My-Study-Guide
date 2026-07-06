@@ -13,6 +13,7 @@ export const emptyQuestion = {
   type: "mcq",
   text: "",
   options: ["", "", "", ""],
+  optionExplanations: ["", "", "", ""],
   correct: 0,
   columnA: ["", "", "", ""],
   columnB: ["", "", "", ""],
@@ -40,6 +41,7 @@ export default function QuestionFormModal({ question, saving, onClose, onSave })
     type: data.type || "mcq",
     text: data.text || "",
     options: data.options && data.options.length ? [...data.options] : ["", "", "", ""],
+    optionExplanations: data.optionExplanations && data.optionExplanations.length ? [...data.optionExplanations] : ["", "", "", ""],
     correct: data.correct ?? 0,
     columnA: data.columnA && data.columnA.length ? [...data.columnA] : ["", "", "", ""],
     columnB: data.columnB && data.columnB.length ? [...data.columnB] : ["", "", "", ""],
@@ -57,6 +59,7 @@ export default function QuestionFormModal({ question, saving, onClose, onSave })
       image: form.image,
       difficulty: form.difficulty,
       explanation: form.explanation,
+      optionExplanations: (form.optionExplanations || []).map((x) => (x || "").trim()),
       status: form.status,
     };
     const payload =
@@ -133,14 +136,23 @@ export default function QuestionFormModal({ question, saving, onClose, onSave })
             {form.type === "matching" && (
               <p className="mb-2 text-xs text-slate-400">Write each option as a sequence, e.g. <b>1-III, 2-I, 3-IV, 4-II</b>. Tick the correct one.</p>
             )}
-            <div className="space-y-2">
+            <div className="space-y-2.5">
               {form.options.map((opt, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <input type="radio" name="correct" checked={form.correct === i} onChange={() => setForm({ ...form, correct: i })} className="h-4 w-4 text-brand-600" />
-                  <input required className="input" value={opt} onChange={(e) => { const o = [...form.options]; o[i] = e.target.value; setForm({ ...form, options: o }); }} placeholder={form.type === "matching" ? `Option ${String.fromCharCode(97 + i)}  (e.g. 1-III, 2-I, 3-IV, 4-II)` : `Option ${String.fromCharCode(65 + i)}`} />
+                <div key={i} className="rounded-xl border border-slate-200 p-2 dark:border-slate-700">
+                  <div className="flex items-center gap-2">
+                    <input type="radio" name="correct" checked={form.correct === i} onChange={() => setForm({ ...form, correct: i })} className="h-4 w-4 text-brand-600" />
+                    <input required className="input" value={opt} onChange={(e) => { const o = [...form.options]; o[i] = e.target.value; setForm({ ...form, options: o }); }} placeholder={form.type === "matching" ? `Option ${String.fromCharCode(97 + i)}  (e.g. 1-III, 2-I, 3-IV, 4-II)` : `Option ${String.fromCharCode(65 + i)}`} />
+                  </div>
+                  <input
+                    className="input mt-1.5 border-dashed py-2 text-xs"
+                    value={form.optionExplanations[i] || ""}
+                    onChange={(e) => { const o = [...form.optionExplanations]; o[i] = e.target.value; setForm({ ...form, optionExplanations: o }); }}
+                    placeholder={`Brief explanation: why (${String.fromCharCode(65 + i)}) is ${form.correct === i ? "correct" : "wrong"} (optional)`}
+                  />
                 </div>
               ))}
             </div>
+            <p className="mt-1.5 text-xs text-slate-400">The per-option notes show under each option after the student answers. Use the main "Explanation" box below for a detailed explanation of the correct answer.</p>
           </Field>
 
           <div className="grid grid-cols-2 gap-4">
@@ -155,7 +167,7 @@ export default function QuestionFormModal({ question, saving, onClose, onSave })
               </select>
             </Field>
           </div>
-          <Field label="Explanation / Solution"><textarea rows={2} className="input resize-none" value={form.explanation} onChange={(e) => setForm({ ...form, explanation: e.target.value })} /></Field>
+          <Field label="Explanation / Solution (detailed — explains the correct answer)"><textarea rows={3} className="input resize-none" value={form.explanation} onChange={(e) => setForm({ ...form, explanation: e.target.value })} placeholder="Explain in detail why the correct option is right…" /></Field>
         </div>
 
         <div className="mt-6 flex justify-end gap-3">

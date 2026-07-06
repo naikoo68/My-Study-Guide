@@ -141,6 +141,15 @@ export const feedbackService = {
   remove: (id) => api.del(`/feedback/${id}`),
 };
 
+// ---- Notice board (scrolling ticker) ----
+export const noticeService = {
+  list: () => api.get("/notices", { auth: false }), // active notices (public)
+  listAll: () => api.get("/notices/all"), // admin
+  create: (data) => api.post("/notices", data),
+  update: (id, data) => api.put(`/notices/${id}`, data),
+  remove: (id) => api.del(`/notices/${id}`),
+};
+
 // ---- File upload (Cloudinary) ----
 export const uploadService = {
   file: (file) => {

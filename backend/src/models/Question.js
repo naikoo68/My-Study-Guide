@@ -36,7 +36,10 @@ const questionSchema = new mongoose.Schema(
 
     difficulty: { type: String, enum: ["Easy", "Medium", "Hard"], default: "Medium" },
     topic: { type: String },
-    explanation: { type: String },
+    explanation: { type: String }, // detailed explanation of the correct answer
+    // Optional brief explanation for each option (parallel to `options`), shown
+    // after answering so the student learns why each choice is right/wrong.
+    optionExplanations: { type: [String], default: undefined },
     status: { type: String, enum: ["draft", "published"], default: "draft" },
   },
   { timestamps: true }

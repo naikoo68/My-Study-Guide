@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Trash2, Check, Star, X, CheckCircle2, XCircle, ChevronRight } from "lucide-react";
-import { feedbackService } from "../../services";
+import { Trash2, Check, Star, X, CheckCircle2, XCircle, ChevronRight, Pencil } from "lucide-react";
+import { feedbackService, contentService } from "../../services";
 import Badge from "../../components/ui/Badge";
 import MathText from "../../components/ui/MathText";
+import QuestionFormModal from "../../components/admin/QuestionFormModal";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 
 const toRoman = (n) => ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"][n] || n + 1;
@@ -12,6 +13,9 @@ export default function AdminFeedback() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState(null);
+  const [editing, setEditing] = useState(false); // edit the referenced question
+  const [savingQ, setSavingQ] = useState(false);
+  const [savedQ, setSavedQ] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -39,6 +43,25 @@ export default function AdminFeedback() {
       setItems((l) => l.filter((x) => x._id !== f._id));
       if (selected?._id === f._id) setSelected(null);
     } catch (e) { setError(e.message); }
+  };
+
+  const saveQuestion = async (payload) => {
+    if (!selected?.questionId) return;
+    setSavingQ(true);
+    try {
+      await contentService.updateQuestion(selected.questionId, payload);
+      // Reflect the edit in the open snapshot so the admin sees it immediately.
+      const updatedSnap = { ...(selected.question || {}), ...payload };
+      setSelected((s) => ({ ...s, question: updatedSnap, questionText: payload.text }));
+      setItems((l) => l.map((x) => (x._id === selected._id ? { ...x, question: updatedSnap, questionText: payload.text } : x)));
+      setEditing(false);
+      setSavedQ(true);
+      setTimeout(() => setSavedQ(false), 2500);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSavingQ(false);
+    }
   };
 
   const ctxVariant = (c) => (c === "question" ? "accent" : "brand");
@@ -120,7 +143,17 @@ export default function AdminFeedback() {
             {/* The full question */}
             {(selected.question || selected.questionText) && (
               <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-700">
-                <p className="mb-2 text-xs font-semibold uppercase text-slate-400">Question</p>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <p className="text-xs font-semibold uppercase text-slate-400">Question</p>
+                  {selected.questionId && (
+                    <button onClick={() => setEditing(true)} className="inline-flex items-center gap-1 rounded-lg bg-brand-50 px-2.5 py-1 text-xs font-semibold text-brand-700 hover:bg-brand-100 dark:bg-brand-900/30 dark:text-brand-300">
+                      <Pencil className="h-3.5 w-3.5" /> Edit question
+                    </button>
+                  )}
+                </div>
+                {savedQ && (
+                  <p className="mb-2 rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">Question updated successfully.</p>
+                )}
                 <p className="font-semibold"><MathText>{selected.question?.text || selected.questionText}</MathText></p>
 
                 {selected.question?.type === "matching" && (
@@ -169,13 +202,26 @@ export default function AdminFeedback() {
               </div>
             )}
 
-            <div className="mt-6 flex justify-end gap-3">
+            <div className="mt-6 flex flex-wrap justify-end gap-3">
+              {selected.questionId && (
+                <button onClick={() => setEditing(true)} className="btn-outline text-brand-600"><Pencil className="h-4 w-4" /> Edit question</button>
+              )}
               <button onClick={() => toggleRead(selected)} className="btn-outline"><Check className="h-4 w-4" /> Mark {selected.read ? "unread" : "read"}</button>
               <button onClick={() => remove(selected)} className="btn-outline text-rose-600"><Trash2 className="h-4 w-4" /> Delete</button>
               <button onClick={() => setSelected(null)} className="btn-primary">Close</button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* Edit the question referenced by this feedback */}
+      {editing && selected && (
+        <QuestionFormModal
+          question={selected.question || { text: selected.questionText }}
+          saving={savingQ}
+          onClose={() => setEditing(false)}
+          onSave={saveQuestion}
+        />
       )}
     </div>
   );

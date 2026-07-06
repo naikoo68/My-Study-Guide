@@ -42,7 +42,7 @@ export async function listAllTests(req, res) {
 // GET /api/tests/:id  (questions without correct answers for taking the test)
 export async function getTest(req, res) {
   const test = await TestSeries.findById(req.params.id)
-    .populate({ path: "questions", select: "-correct -explanation" })
+    .populate({ path: "questions", select: "-correct -explanation -optionExplanations" })
     .populate("exam", "name")
     .populate("post", "name");
   if (!test) return res.status(404).json({ message: "Test not found" });
@@ -163,6 +163,7 @@ export async function submitTest(req, res) {
       columnB: q.columnB,
       correct: q.correct,
       explanation: q.explanation,
+      optionExplanations: q.optionExplanations,
       chosen: provided ? raw : null,
       isCorrect,
     };

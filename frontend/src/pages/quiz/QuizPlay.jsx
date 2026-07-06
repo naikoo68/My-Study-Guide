@@ -205,9 +205,11 @@ export default function QuizPlay() {
         ),
       ],
       review: questions.map((qq, i) => ({
+        _id: qq._id,
         type: qq.type || "mcq",
         text: qq.text,
         options: qq.options,
+        optionExplanations: qq.optionExplanations,
         correct: qq.correct,
         columnA: qq.columnA,
         columnB: qq.columnB,
@@ -437,24 +439,34 @@ export default function QuizPlay() {
 
           <div className="mt-5 space-y-3">
             {isMatching && <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Choose the correct matching sequence:</p>}
-            {(q.options || []).map((opt, idx) => (
-              <button key={idx} onClick={() => selectOption(idx)} disabled={locked} className={optionClass(idx)}>
-                <span
-                  className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border text-xs font-bold ${
-                    locked && idx === q.correct
-                      ? "border-emerald-500 bg-emerald-500 text-white"
-                      : locked && idx === answers[current]
-                      ? "border-rose-500 bg-rose-500 text-white"
-                      : "border-slate-300 dark:border-slate-600"
-                  }`}
-                >
-                  {isMatching ? `(${String.fromCharCode(97 + idx)})` : optionLabels[idx]}
-                </span>
-                <span className="flex-1"><MathText>{opt}</MathText></span>
-                {locked && idx === q.correct && <CheckCircle2 className="h-5 w-5 text-emerald-500" />}
-                {locked && idx === answers[current] && idx !== q.correct && <XCircle className="h-5 w-5 text-rose-500" />}
-              </button>
-            ))}
+            {(q.options || []).map((opt, idx) => {
+              const optExp = q.optionExplanations?.[idx];
+              return (
+                <div key={idx}>
+                  <button onClick={() => selectOption(idx)} disabled={locked} className={optionClass(idx)}>
+                    <span
+                      className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border text-xs font-bold ${
+                        locked && idx === q.correct
+                          ? "border-emerald-500 bg-emerald-500 text-white"
+                          : locked && idx === answers[current]
+                          ? "border-rose-500 bg-rose-500 text-white"
+                          : "border-slate-300 dark:border-slate-600"
+                      }`}
+                    >
+                      {isMatching ? `(${String.fromCharCode(97 + idx)})` : optionLabels[idx]}
+                    </span>
+                    <span className="flex-1"><MathText>{opt}</MathText></span>
+                    {locked && idx === q.correct && <CheckCircle2 className="h-5 w-5 text-emerald-500" />}
+                    {locked && idx === answers[current] && idx !== q.correct && <XCircle className="h-5 w-5 text-rose-500" />}
+                  </button>
+                  {locked && optExp && optExp.trim() && (
+                    <p className={`ml-9 mt-1 rounded-lg px-3 py-1.5 text-xs ${idx === q.correct ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300" : "bg-slate-50 text-slate-500 dark:bg-slate-800/60 dark:text-slate-400"}`}>
+                      <MathText>{optExp}</MathText>
+                    </p>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           {wasTimedOut && (

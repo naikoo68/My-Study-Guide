@@ -3,7 +3,7 @@ import { sendMail } from "../config/mailer.js";
 
 // POST /api/feedback — submit feedback (works for logged-in or guest users)
 export async function createFeedback(req, res) {
-  const { context = "question", message, rating, questionText = "", source = "", questionNumber, details = "", question = null } = req.body;
+  const { context = "question", message, rating, questionText = "", source = "", questionNumber, details = "", question = null, questionId = null } = req.body;
   if (!message || !message.trim()) {
     return res.status(400).json({ message: "Feedback message is required" });
   }
@@ -16,6 +16,7 @@ export async function createFeedback(req, res) {
     rating: rating || undefined,
     questionText,
     question,
+    questionId: questionId || question?._id || undefined,
     questionNumber,
     details,
     source,

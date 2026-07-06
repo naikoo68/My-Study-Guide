@@ -22,7 +22,7 @@ export default function FeedbackButton({ context = "question", questionText = ""
     setBusy(true);
     setError("");
     try {
-      await feedbackService.send({ context, message, rating: rating || undefined, questionText, source, questionNumber, details, question, name: user ? undefined : name, email: user ? undefined : email });
+      await feedbackService.send({ context, message, rating: rating || undefined, questionText, source, questionNumber, details, question, questionId: question?._id, name: user ? undefined : name, email: user ? undefined : email });
       setDone(true);
       setMessage("");
       setRating(0);

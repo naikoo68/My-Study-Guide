@@ -12,6 +12,7 @@ const feedbackSchema = new mongoose.Schema(
     questionText: { type: String, default: "" }, // snapshot of the question, if any
     // Full question snapshot { type, text, options, correct, columnA, columnB, explanation, chosen }
     question: { type: mongoose.Schema.Types.Mixed, default: null },
+    questionId: { type: mongoose.Schema.Types.ObjectId, ref: "Question" }, // for admin edit
     questionNumber: { type: Number }, // position in the quiz/test
     details: { type: String, default: "" }, // e.g. "Correct: A, Chosen: B"
     source: { type: String, default: "" }, // quiz/test name for context

@@ -45,14 +45,20 @@ export default function QuestionView({ q, index }) {
       <div className="mt-3 space-y-2">
         {(q.options || []).map((opt, idx) => {
           const isCorrect = idx === q.correct;
+          const optExp = q.optionExplanations?.[idx];
           const cls = `flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${
             isCorrect ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" : "text-slate-600 dark:text-slate-300"
           }`;
           return (
-            <div key={idx} className={cls}>
-              {isCorrect ? <CheckCircle2 className="h-4 w-4 flex-shrink-0" /> : <span className="h-4 w-4" />}
-              <span className="font-bold">({String.fromCharCode(97 + idx)})</span>
-              <MathText>{opt}</MathText>
+            <div key={idx}>
+              <div className={cls}>
+                {isCorrect ? <CheckCircle2 className="h-4 w-4 flex-shrink-0" /> : <span className="h-4 w-4" />}
+                <span className="font-bold">({String.fromCharCode(97 + idx)})</span>
+                <MathText>{opt}</MathText>
+              </div>
+              {optExp && optExp.trim() && (
+                <p className="ml-6 mt-0.5 text-xs text-slate-500 dark:text-slate-400"><MathText>{optExp}</MathText></p>
+              )}
             </div>
           );
         })}

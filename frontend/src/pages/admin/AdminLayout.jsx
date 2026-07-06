@@ -8,6 +8,7 @@ import {
   Users,
   Mail,
   MessageSquare,
+  Megaphone,
   Palette,
   GraduationCap,
   LogOut,
@@ -30,6 +31,7 @@ const nav = [
   { to: "/admin/users", label: "Users", icon: Users },
   { to: "/admin/feedback", label: "Feedback", icon: MessageSquare },
   { to: "/admin/messages", label: "Messages", icon: Mail },
+  { to: "/admin/notices", label: "Notice Board", icon: Megaphone },
   { to: "/admin/customization", label: "Customization", icon: Palette },
 ];
 

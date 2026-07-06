@@ -223,21 +223,27 @@ export default function QuizResult() {
                     {(r.options || []).map((opt, idx) => {
                       const isCorrect = idx === r.correct;
                       const isChosen = idx === r.chosen;
+                      const optExp = r.optionExplanations?.[idx];
                       let cls = "flex items-center gap-2 rounded-lg px-3 py-2 text-sm ";
                       if (isCorrect) cls += "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300";
                       else if (isChosen) cls += "bg-rose-50 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300";
                       else cls += "text-slate-500 dark:text-slate-400";
                       return (
-                        <div key={idx} className={cls}>
-                          {isCorrect ? (
-                            <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
-                          ) : isChosen ? (
-                            <XCircle className="h-4 w-4 flex-shrink-0" />
-                          ) : (
-                            <span className="h-4 w-4" />
+                        <div key={idx}>
+                          <div className={cls}>
+                            {isCorrect ? (
+                              <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
+                            ) : isChosen ? (
+                              <XCircle className="h-4 w-4 flex-shrink-0" />
+                            ) : (
+                              <span className="h-4 w-4" />
+                            )}
+                            {r.type === "matching" && <span className="font-bold">({String.fromCharCode(97 + idx)})</span>}
+                            <MathText>{opt}</MathText>
+                          </div>
+                          {optExp && optExp.trim() && (
+                            <p className="ml-6 mt-0.5 text-xs text-slate-500 dark:text-slate-400"><MathText>{optExp}</MathText></p>
                           )}
-                          {r.type === "matching" && <span className="font-bold">({String.fromCharCode(97 + idx)})</span>}
-                          <MathText>{opt}</MathText>
                         </div>
                       );
                     })}
