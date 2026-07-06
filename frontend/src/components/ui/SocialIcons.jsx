@@ -92,3 +92,16 @@ export const SOCIAL_ICONS = {
 };
 
 export const SOCIAL_PLATFORMS = ["facebook", "twitter", "instagram", "linkedin", "youtube", "whatsapp", "telegram", "website", "other"];
+
+// Brand background colours so icons look like phone app icons.
+export const SOCIAL_COLORS = {
+  facebook: "#1877F2",
+  twitter: "#000000",
+  instagram: "#E1306C",
+  linkedin: "#0A66C2",
+  youtube: "#FF0000",
+  whatsapp: "#25D366",
+  telegram: "#229ED9",
+  website: "#475569",
+  other: "#475569",
+};

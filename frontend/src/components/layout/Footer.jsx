@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { Mail } from "lucide-react";
 import { useSettings } from "../../context/SettingsContext";
 import Brand from "./Brand";
-import { SOCIAL_ICONS, Website } from "../ui/SocialIcons";
+import { SOCIAL_ICONS, SOCIAL_COLORS, Website } from "../ui/SocialIcons";
 
 const columns = [
   {
@@ -54,6 +54,7 @@ export default function Footer() {
               <div className="mt-5 flex flex-wrap gap-3">
                 {socialLinks.map((s, i) => {
                   const Icon = SOCIAL_ICONS[s.platform] || Website;
+                  const bg = SOCIAL_COLORS[s.platform] || SOCIAL_COLORS.other;
                   return (
                     <a
                       key={i}
@@ -61,9 +62,11 @@ export default function Footer() {
                       target="_blank"
                       rel="noreferrer"
                       aria-label={s.platform}
-                      className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 text-slate-500 transition hover:bg-brand-600 hover:text-white dark:bg-slate-800 dark:text-slate-400"
+                      title={s.platform}
+                      style={{ backgroundColor: bg }}
+                      className="flex h-12 w-12 items-center justify-center rounded-2xl text-white shadow-soft transition hover:-translate-y-0.5 hover:shadow-lg"
                     >
-                      <Icon className="h-4 w-4" />
+                      <Icon className="h-6 w-6" />
                     </a>
                   );
                 })}

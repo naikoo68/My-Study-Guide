@@ -116,7 +116,8 @@ export async function getUserAccess(req, res) {
   const user = await User.findById(req.params.id).select("name email quizAccess");
   if (!user) return res.status(404).json({ message: "User not found" });
 
-  const tests = await TestSeries.find().select("name category access visibleToAll").sort("name").lean();
+  // Only organized tests (assigned to a post) — hides old/orphaned leftovers.
+  const tests = await TestSeries.find({ post: { $ne: null } }).select("name category access visibleToAll").sort("name").lean();
   res.json({
     userId: user._id,
     name: user.name,
