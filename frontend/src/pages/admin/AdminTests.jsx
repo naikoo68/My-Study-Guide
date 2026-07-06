@@ -590,7 +590,11 @@ export default function AdminTests() {
         open={!!bulkTest}
         title={`Bulk Upload Questions${bulkTest ? ` — ${bulkTest.name}` : ""}`}
         onClose={() => setBulkTest(null)}
-        onUpload={async (questions) => {
+        onUpload={async (questions, opts = {}) => {
+          if (opts.replace) {
+            const existing = await testService.getQuestions(bulkTest._id);
+            for (const q of existing) await testService.deleteQuestion(bulkTest._id, q._id);
+          }
           const res = await contentService.bulkQuestions(questions, { testSeries: bulkTest._id });
           load(); // refresh question counts
           return res;

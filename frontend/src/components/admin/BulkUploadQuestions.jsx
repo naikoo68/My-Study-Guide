@@ -265,6 +265,7 @@ export default function BulkUploadQuestions({ open, onClose, onUpload, title = "
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  const [replace, setReplace] = useState(false); // remove existing questions first
 
   if (!open) return null;
 
@@ -280,12 +281,14 @@ export default function BulkUploadQuestions({ open, onClose, onUpload, title = "
 
   const submit = async () => {
     if (!rows.length) { setMsg("Nothing to upload — add at least one valid row."); return; }
+    if (replace && !window.confirm("This will permanently DELETE all existing questions here and replace them with the uploaded ones. Continue?")) return;
     setBusy(true);
     setMsg("");
     try {
-      const res = await onUpload(rows);
-      setMsg(`✓ Uploaded ${res?.inserted ?? rows.length} question(s).`);
+      const res = await onUpload(rows, { replace });
+      setMsg(`✓ ${replace ? "Replaced with" : "Uploaded"} ${res?.inserted ?? rows.length} question(s).`);
       setText("");
+      setReplace(false);
       setTimeout(onClose, 1000);
     } catch (e) {
       setMsg(e.message || "Upload failed");
@@ -363,12 +366,20 @@ export default function BulkUploadQuestions({ open, onClose, onUpload, title = "
           </div>
         )}
 
+        <label className={`mt-3 flex items-start gap-2 rounded-xl border p-3 text-sm ${replace ? "border-rose-300 bg-rose-50 dark:border-rose-800 dark:bg-rose-900/20" : "border-slate-200 dark:border-slate-700"}`}>
+          <input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} className="mt-0.5 h-4 w-4 accent-rose-600" />
+          <span>
+            <span className="font-semibold text-rose-700 dark:text-rose-300">Remove existing questions first (replace all)</span>
+            <span className="block text-xs text-slate-500 dark:text-slate-400">Deletes all current questions here, then uploads these. Leave unchecked to simply add to the existing ones.</span>
+          </span>
+        </label>
+
         {msg && <p className="mt-3 text-sm font-medium">{msg}</p>}
 
         <div className="mt-6 flex justify-end gap-3">
           <button type="button" onClick={onClose} className="btn-outline">Cancel</button>
-          <button type="button" onClick={submit} disabled={busy || !rows.length} className="btn-primary">
-            {busy ? "Uploading…" : `Upload ${rows.length || ""} Question(s)`}
+          <button type="button" onClick={submit} disabled={busy || !rows.length} className={replace ? "btn-primary bg-rose-600 hover:bg-rose-700" : "btn-primary"}>
+            {busy ? (replace ? "Replacing…" : "Uploading…") : `${replace ? "Replace with" : "Upload"} ${rows.length || ""} Question(s)`}
           </button>
         </div>
       </div>

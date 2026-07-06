@@ -312,7 +312,10 @@ export default function AdminContent() {
         open={bulkOpen}
         title={`Bulk Upload Questions${quiz ? ` — ${quiz.title}` : ""}`}
         onClose={() => setBulkOpen(false)}
-        onUpload={async (questions) => {
+        onUpload={async (questions, opts = {}) => {
+          if (opts.replace) {
+            for (const it of items) await contentService.deleteQuestion(it._id);
+          }
           const res = await contentService.bulkQuestions(questions, {
             subject: subject._id,
             session: session._id,
