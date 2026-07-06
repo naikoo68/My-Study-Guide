@@ -193,12 +193,12 @@ export default function AdminContent() {
         <EmptyState message={`No ${view} yet. Click "${H.add}".`} />
       ) : (
         <div className="space-y-3">
-          {items.map((item) => (
+          {items.map((item, i) => (
             <div key={item._id} className="card flex items-center justify-between gap-3 p-4">
               <div className="min-w-0 flex-1">
                 {view === "questions" ? (
                   <>
-                    <p className="truncate font-medium">{item.text}</p>
+                    <p className="truncate font-medium"><span className="text-slate-400">Q{i + 1}.</span> {item.text}</p>
                     <div className="mt-1 flex flex-wrap items-center gap-2">
                       <Badge variant={item.type === "matching" ? "accent" : "brand"}>
                         {item.type === "matching" ? "Matching" : "MCQ"}

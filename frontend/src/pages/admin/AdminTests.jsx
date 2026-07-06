@@ -606,10 +606,10 @@ export default function AdminTests() {
               <EmptyState message="No questions yet. Add one, or use Bulk Upload." />
             ) : (
               <div className="max-h-[55vh] space-y-2 overflow-y-auto pr-1">
-                {tq.map((item) => (
+                {tq.map((item, i) => (
                   <div key={item._id} className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{item.text}</p>
+                      <p className="truncate text-sm font-medium"><span className="text-slate-400">Q{i + 1}.</span> {item.text}</p>
                       <div className="mt-1 flex flex-wrap items-center gap-2">
                         <Badge variant={item.type === "matching" ? "accent" : "brand"}>{item.type === "matching" ? "Matching" : "MCQ"}</Badge>
                         <Badge variant={item.difficulty}>{item.difficulty}</Badge>
