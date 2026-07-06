@@ -345,7 +345,19 @@ export default function AdminContent() {
               <button onClick={() => setViewAll(false)}><X className="h-5 w-5" /></button>
             </div>
             <div className="max-h-[70vh] space-y-4 overflow-y-auto pr-1">
-              {items.map((it, i) => <QuestionView key={it._id} q={it} index={i + 1} />)}
+              {items.map((it, i) => (
+                <div key={it._id} className="relative rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                  <div className="absolute right-2 top-2 z-10 flex gap-1">
+                    <button onClick={() => { setViewAll(false); openEdit(it); }} title="Edit" className="rounded-lg bg-white p-1.5 text-brand-600 shadow hover:bg-brand-50 dark:bg-slate-800 dark:hover:bg-brand-900/30">
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                    <button onClick={() => remove("question", it._id, "this question")} title="Delete" className="rounded-lg bg-white p-1.5 text-rose-600 shadow hover:bg-rose-50 dark:bg-slate-800 dark:hover:bg-rose-900/30">
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <QuestionView q={it} index={i + 1} />
+                </div>
+              ))}
             </div>
           </div>
         </div>
