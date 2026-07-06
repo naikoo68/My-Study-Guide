@@ -295,11 +295,11 @@ export default function TestAttempt() {
   return (
     <div ref={containerRef} style={{ zoom: fullscreen ? zoom : undefined }} className="min-h-screen bg-slate-100 dark:bg-slate-950">
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
-          <h1 className="truncate text-sm font-bold sm:text-base">{test.name}</h1>
-          <div className="flex items-center gap-2">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2">
+          <h1 className="min-w-0 flex-1 truncate text-sm font-bold sm:text-base">{test.name}</h1>
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <span
-              className={`flex items-center gap-2 rounded-xl px-4 py-2 font-mono font-bold ${
+              className={`flex items-center gap-1.5 rounded-xl px-3 py-2 font-mono text-sm font-bold sm:px-4 sm:text-base ${
                 lowTime ? "animate-pulse bg-rose-500 text-white" : "bg-brand-600 text-white"
               }`}
             >

@@ -10,6 +10,7 @@ const columns = [
     links: [
       { label: "Quizzes", to: "/quiz" },
       { label: "Test Series", to: "/test-series" },
+      { label: "Study Material", to: "/study" },
       { label: "Dashboard", to: "/dashboard" },
       { label: "Leaderboard", to: "/dashboard" },
     ],

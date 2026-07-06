@@ -332,7 +332,7 @@ export default function QuizPlay() {
         <button onClick={() => navigate(`/quiz/${subjectId}/${topicId}`)} className="btn-ghost -ml-2">
           <ChevronLeft className="h-4 w-4" /> Exit
         </button>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {isTimed && !locked && (
             <span
               className={`flex items-center gap-2 rounded-xl px-4 py-2 font-bold tabular-nums text-white ${
