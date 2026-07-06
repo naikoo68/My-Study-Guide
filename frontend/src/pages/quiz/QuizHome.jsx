@@ -1,11 +1,13 @@
 import { Link } from "react-router-dom";
 import * as Icons from "lucide-react";
-import { ArrowRight, Search } from "lucide-react";
+import { ArrowRight, Search, Lock } from "lucide-react";
 import { useEffect, useState } from "react";
 import { contentService } from "../../services";
+import { useAuth } from "../../context/AuthContext";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 
 export default function QuizHome() {
+  const { user } = useAuth();
   const [query, setQuery] = useState("");
   const [subjects, setSubjects] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -26,6 +28,21 @@ export default function QuizHome() {
   const filtered = subjects.filter((s) =>
     s.name.toLowerCase().includes(query.toLowerCase())
   );
+
+  // Admin has disabled quiz access for this student.
+  if (user && user.quizAccess === false) {
+    return (
+      <div className="container-page py-20">
+        <div className="mx-auto max-w-md rounded-2xl border border-amber-200 bg-amber-50 p-8 text-center dark:border-amber-900/50 dark:bg-amber-900/20">
+          <Lock className="mx-auto h-10 w-10 text-amber-500" />
+          <h1 className="mt-4 text-xl font-extrabold">Quiz access disabled</h1>
+          <p className="mt-2 text-sm text-amber-800 dark:text-amber-200">
+            Quizzes have been turned off for your account. Please contact the administrator if you think this is a mistake.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="container-page py-12">

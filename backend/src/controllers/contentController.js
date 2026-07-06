@@ -145,6 +145,10 @@ export async function deleteQuiz(req, res) {
 
 // GET /api/quizzes/:quizId/questions — practice questions (with answers)
 export async function listQuizQuestions(req, res) {
+  // Block students whose quiz access was disabled by an admin.
+  if (req.user && req.user.role !== "admin" && req.user.quizAccess === false) {
+    return res.status(403).json({ message: "Quiz access has been disabled for your account." });
+  }
   const isAdmin = req.user?.role === "admin";
   const questions = await Question.find({
     quiz: req.params.quizId,

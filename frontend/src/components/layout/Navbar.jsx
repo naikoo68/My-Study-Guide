@@ -22,6 +22,8 @@ export default function Navbar() {
   const { zoom, zoomIn, zoomOut } = useZoom();
   const navigate = useNavigate();
   const isAdmin = user?.role === "admin";
+  // Hide the Quiz link when an admin has disabled quiz access for this student.
+  const visibleLinks = user && user.quizAccess === false ? links.filter((l) => l.to !== "/quiz") : links;
 
   const handleLogout = () => {
     logout();
@@ -44,7 +46,7 @@ export default function Navbar() {
         </div>
 
         <div className="hidden items-center gap-1 lg:flex">
-          {links.map((l) => (
+          {visibleLinks.map((l) => (
             <NavLink
               key={l.to}
               to={l.to}
@@ -108,7 +110,7 @@ export default function Navbar() {
       {open && (
         <div className="animate-fade-in border-t border-slate-200 bg-white px-4 py-3 lg:hidden dark:border-slate-800 dark:bg-slate-950">
           <div className="flex flex-col gap-1">
-            {links.map((l) => (
+            {visibleLinks.map((l) => (
               <NavLink
                 key={l.to}
                 to={l.to}

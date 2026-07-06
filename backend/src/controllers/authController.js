@@ -41,6 +41,7 @@ const sanitize = (u) => ({
   avatar: u.avatar,
   isEmailVerified: u.isEmailVerified,
   expiresAt: u.expiresAt,
+  quizAccess: u.quizAccess !== false,
   streak: u.streak,
 });
 
