@@ -24,6 +24,7 @@ import { contentService, quizService } from "../../services";
 import ProgressBar from "../../components/ui/ProgressBar";
 import Badge from "../../components/ui/Badge";
 import MathText from "../../components/ui/MathText";
+import StatementPairView from "../../components/ui/StatementPairView";
 import FeedbackButton from "../../components/ui/FeedbackButton";
 import { useZoom } from "../../context/ZoomContext";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
@@ -436,6 +437,9 @@ export default function QuizPlay() {
               </div>
             </div>
           )}
+
+          {/* Statement-based & pair questions render their numbered list here */}
+          <StatementPairView q={q} />
 
           <div className="mt-5 space-y-3">
             {isMatching && <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Choose the correct matching sequence:</p>}

@@ -64,16 +64,42 @@ export default function QuestionFormModal({ question, saving, onClose, onSave })
       optionExplanations: (form.optionExplanations || []).map((x, i) => (i === form.correct ? "" : (x || "").trim())),
       status: form.status,
     };
-    const payload =
-      form.type === "matching"
-        ? {
-            ...base,
-            columnA: (form.columnA || []).filter((x) => x.trim()),
-            columnB: (form.columnB || []).filter((x) => x.trim()),
-            options: form.options,
-            correct: form.correct,
-          }
-        : { ...base, options: form.options, correct: form.correct };
+    let payload;
+    if (form.type === "matching") {
+      payload = {
+        ...base,
+        columnA: (form.columnA || []).filter((x) => x.trim()),
+        columnB: (form.columnB || []).filter((x) => x.trim()),
+        options: form.options,
+        correct: form.correct,
+      };
+    } else if (form.type === "statement") {
+      payload = {
+        ...base,
+        columnA: (form.columnA || []).map((x) => (x || "").trim()).filter(Boolean),
+        columnB: [],
+        options: form.options,
+        correct: form.correct,
+      };
+    } else if (form.type === "pair") {
+      // Keep the two sides aligned: drop only rows where BOTH sides are empty.
+      const n = Math.max(form.columnA.length, form.columnB.length);
+      const rows = [];
+      for (let i = 0; i < n; i++) {
+        const a = (form.columnA[i] || "").trim();
+        const b = (form.columnB[i] || "").trim();
+        if (a || b) rows.push([a, b]);
+      }
+      payload = {
+        ...base,
+        columnA: rows.map((r) => r[0]),
+        columnB: rows.map((r) => r[1]),
+        options: form.options,
+        correct: form.correct,
+      };
+    } else {
+      payload = { ...base, options: form.options, correct: form.correct };
+    }
     onSave(payload);
   };
 
@@ -87,15 +113,36 @@ export default function QuestionFormModal({ question, saving, onClose, onSave })
 
         <div className="space-y-4">
           <Field label="Question Type">
-            <select className="input" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
+            <select
+              className="input"
+              value={form.type}
+              onChange={(e) => {
+                const type = e.target.value;
+                setForm((f) => {
+                  const next = { ...f, type };
+                  const optsEmpty = (f.options || []).every((o) => !o || !o.trim());
+                  // Seed helpful defaults when switching into a statement/pair type.
+                  if (type === "statement") {
+                    if (!f.text.trim()) next.text = "Consider the following statements:";
+                    if (optsEmpty) next.options = ["1 and 2 only", "2 and 3 only", "1 and 3 only", "1, 2 and 3"];
+                  } else if (type === "pair") {
+                    if (!f.text.trim()) next.text = "Consider the following pairs:";
+                    if (optsEmpty) next.options = ["Only one pair", "Only two pairs", "Only three pairs", "All four pairs"];
+                  }
+                  return next;
+                });
+              }}
+            >
               <option value="mcq">Multiple Choice (4 options)</option>
               <option value="matching">Matching (left ↔ right)</option>
+              <option value="statement">Statement-based (numbered statements)</option>
+              <option value="pair">Pair-matching (how many pairs correct)</option>
             </select>
           </Field>
 
-          <Field label="Question Text">
-            <textarea required rows={2} className="input resize-none" value={form.text} onChange={(e) => setForm({ ...form, text: e.target.value })} placeholder="Use $...$ for equations, e.g. Solve $x^2+2x-3=0$" />
-            <p className="mt-1 text-xs text-slate-400">Tip: wrap maths in dollar signs to render equations.</p>
+          <Field label={form.type === "statement" || form.type === "pair" ? "Intro / directive line" : "Question Text"}>
+            <textarea required rows={2} className="input resize-none" value={form.text} onChange={(e) => setForm({ ...form, text: e.target.value })} placeholder={form.type === "statement" ? "Consider the following statements:" : form.type === "pair" ? "Consider the following pairs (Item — Description):" : "Use $...$ for equations, e.g. Solve $x^2+2x-3=0$"} />
+            <p className="mt-1 text-xs text-slate-400">{form.type === "statement" || form.type === "pair" ? "The numbered list you add below appears under this line, followed by the closing question automatically." : "Tip: wrap maths in dollar signs to render equations."}</p>
           </Field>
 
           <Field label="Image URL (optional)">
@@ -104,6 +151,38 @@ export default function QuestionFormModal({ question, saving, onClose, onSave })
               <input className="w-full bg-transparent py-2.5 text-sm focus:outline-none" value={form.image} onChange={(e) => setForm({ ...form, image: e.target.value })} placeholder="https://res.cloudinary.com/..." />
             </div>
           </Field>
+
+          {form.type === "statement" && (
+            <Field label="Statements (shown numbered 1, 2, 3…)">
+              <div className="space-y-2">
+                {form.columnA.map((item, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-brand-100 text-xs font-bold text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">{i + 1}</span>
+                    <input className="input" value={item} onChange={(e) => setForm({ ...form, columnA: form.columnA.map((x, xi) => (xi === i ? e.target.value : x)) })} placeholder={`Statement ${i + 1}`} />
+                    <button type="button" onClick={() => setForm({ ...form, columnA: form.columnA.filter((_, xi) => xi !== i) })} className="flex-shrink-0 rounded-lg p-2 text-rose-600 hover:bg-rose-50 disabled:opacity-40 dark:hover:bg-rose-900/30" disabled={form.columnA.length <= 2}><Trash2 className="h-4 w-4" /></button>
+                  </div>
+                ))}
+                <button type="button" onClick={() => setForm({ ...form, columnA: [...form.columnA, ""] })} className="btn-outline py-2"><Plus className="h-4 w-4" /> Add statement</button>
+              </div>
+            </Field>
+          )}
+
+          {form.type === "pair" && (
+            <Field label="Pairs (shown numbered 1, 2, 3… as Left — Right)">
+              <div className="space-y-2">
+                {form.columnA.map((left, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-brand-100 text-xs font-bold text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">{i + 1}</span>
+                    <input className="input" value={left} onChange={(e) => setForm((f) => ({ ...f, columnA: f.columnA.map((x, xi) => (xi === i ? e.target.value : x)) }))} placeholder="Left (e.g. Item)" />
+                    <span className="flex-shrink-0 text-slate-400">—</span>
+                    <input className="input" value={form.columnB[i] || ""} onChange={(e) => setForm((f) => { const cb = [...f.columnB]; while (cb.length < f.columnA.length) cb.push(""); cb[i] = e.target.value; return { ...f, columnB: cb }; })} placeholder="Right (e.g. Description)" />
+                    <button type="button" onClick={() => setForm((f) => ({ ...f, columnA: f.columnA.filter((_, xi) => xi !== i), columnB: f.columnB.filter((_, xi) => xi !== i) }))} className="flex-shrink-0 rounded-lg p-2 text-rose-600 hover:bg-rose-50 disabled:opacity-40 dark:hover:bg-rose-900/30" disabled={form.columnA.length <= 2}><Trash2 className="h-4 w-4" /></button>
+                  </div>
+                ))}
+                <button type="button" onClick={() => setForm({ ...form, columnA: [...form.columnA, ""], columnB: [...form.columnB, ""] })} className="btn-outline py-2"><Plus className="h-4 w-4" /> Add pair</button>
+              </div>
+            </Field>
+          )}
 
           {form.type === "matching" && (
             <>

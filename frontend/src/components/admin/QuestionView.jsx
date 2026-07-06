@@ -1,5 +1,6 @@
 import { CheckCircle2 } from "lucide-react";
 import MathText from "../ui/MathText";
+import StatementPairView from "../ui/StatementPairView";
 import Badge from "../ui/Badge";
 
 const toRoman = (n) => ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"][n] || n + 1;
@@ -14,7 +15,7 @@ export default function QuestionView({ q, index }) {
         {index != null && (
           <span className="flex h-6 w-6 items-center justify-center rounded-md bg-slate-100 text-xs font-bold dark:bg-slate-800">{index}</span>
         )}
-        <Badge variant={q.type === "matching" ? "accent" : "brand"}>{q.type === "matching" ? "Matching" : "MCQ"}</Badge>
+        <Badge variant={q.type === "matching" || q.type === "pair" ? "accent" : "brand"}>{{ matching: "Matching", statement: "Statement", pair: "Pair" }[q.type] || "MCQ"}</Badge>
         {q.difficulty && <Badge variant={q.difficulty}>{q.difficulty}</Badge>}
         {q.status && <Badge variant={q.status === "published" ? "brand" : "neutral"}>{q.status}</Badge>}
         {q.correct !== undefined && (
@@ -41,6 +42,8 @@ export default function QuestionView({ q, index }) {
           </div>
         </div>
       )}
+
+      <StatementPairView q={q} />
 
       <div className="mt-3 space-y-2">
         {(q.options || []).map((opt, idx) => {

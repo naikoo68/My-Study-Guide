@@ -12,7 +12,7 @@ const questionSchema = new mongoose.Schema(
     session: { type: mongoose.Schema.Types.ObjectId, ref: "Session" },
     quiz: { type: mongoose.Schema.Types.ObjectId, ref: "Quiz" },
     testSeries: { type: mongoose.Schema.Types.ObjectId, ref: "TestSeries" },
-    type: { type: String, enum: ["mcq", "matching"], default: "mcq" },
+    type: { type: String, enum: ["mcq", "matching", "statement", "pair"], default: "mcq" },
     text: { type: String, required: true },
     image: { type: String },
 

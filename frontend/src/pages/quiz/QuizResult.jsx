@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import StatCard from "../../components/ui/StatCard";
 import MathText from "../../components/ui/MathText";
+import StatementPairView from "../../components/ui/StatementPairView";
 import FeedbackButton from "../../components/ui/FeedbackButton";
 
 function toRomanLite(n) {
@@ -218,6 +219,8 @@ export default function QuizResult() {
                       </div>
                     </div>
                   )}
+
+                  <StatementPairView q={r} />
 
                   <div className="mt-3 space-y-2">
                     {(r.options || []).map((opt, idx) => {

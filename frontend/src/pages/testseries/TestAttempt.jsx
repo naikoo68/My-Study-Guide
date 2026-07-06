@@ -19,6 +19,7 @@ import {
 import { testService } from "../../services";
 import { Loading, ErrorState } from "../../components/ui/AsyncState";
 import MathText from "../../components/ui/MathText";
+import StatementPairView from "../../components/ui/StatementPairView";
 import FeedbackButton from "../../components/ui/FeedbackButton";
 import { useZoom } from "../../context/ZoomContext";
 
@@ -276,6 +277,8 @@ export default function TestAttempt() {
                     </div>
                   )}
 
+                  <StatementPairView q={r} />
+
                   <div className="mt-3 space-y-2">
                     {(r.options || []).map((opt, idx) => {
                       const isCorrect = idx === r.correct;
@@ -382,6 +385,9 @@ export default function TestAttempt() {
               </div>
             </div>
           )}
+
+          {/* Statement-based & pair questions render their numbered list here */}
+          <StatementPairView q={q} />
 
           <div className="mt-5 space-y-3">
             {q.type === "matching" && <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Choose the correct matching sequence:</p>}
