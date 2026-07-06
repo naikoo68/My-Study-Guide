@@ -56,7 +56,7 @@ export default function QuestionView({ q, index }) {
                 <span className="font-bold">({String.fromCharCode(97 + idx)})</span>
                 <MathText>{opt}</MathText>
               </div>
-              {optExp && optExp.trim() && (
+              {!isCorrect && optExp && optExp.trim() && (
                 <p className="ml-6 mt-0.5 text-xs text-slate-500 dark:text-slate-400"><MathText>{optExp}</MathText></p>
               )}
             </div>

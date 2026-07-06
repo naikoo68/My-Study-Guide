@@ -459,8 +459,10 @@ export default function QuizPlay() {
                     {locked && idx === q.correct && <CheckCircle2 className="h-5 w-5 text-emerald-500" />}
                     {locked && idx === answers[current] && idx !== q.correct && <XCircle className="h-5 w-5 text-rose-500" />}
                   </button>
-                  {locked && optExp && optExp.trim() && (
-                    <p className={`ml-9 mt-1 rounded-lg px-3 py-1.5 text-xs ${idx === q.correct ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300" : "bg-slate-50 text-slate-500 dark:bg-slate-800/60 dark:text-slate-400"}`}>
+                  {/* Brief note for the wrong option the student selected. The
+                      correct answer is explained in detail in the box below. */}
+                  {locked && idx === answers[current] && idx !== q.correct && optExp && optExp.trim() && (
+                    <p className="ml-9 mt-1 rounded-lg bg-rose-50 px-3 py-1.5 text-xs text-rose-600 dark:bg-rose-900/20 dark:text-rose-300">
                       <MathText>{optExp}</MathText>
                     </p>
                   )}
