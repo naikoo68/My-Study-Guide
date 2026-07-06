@@ -52,8 +52,8 @@ export default function TestAttempt() {
   const [remaining, setRemaining] = useState(0);
   const [fullscreen, setFullscreen] = useState(false);
   const [zoom, setZoom] = useState(1);
-  const zoomIn = () => setZoom((z) => Math.min(1.8, +(z + 0.1).toFixed(2)));
-  const zoomOut = () => setZoom((z) => Math.max(0.7, +(z - 0.1).toFixed(2)));
+  const zoomIn = () => setZoom((z) => Math.min(2, +(z + 0.1).toFixed(2)));
+  const zoomOut = () => setZoom((z) => Math.max(0.5, +(z - 0.1).toFixed(2)));
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [result, setResult] = useState(null);
   const [showReview, setShowReview] = useState(false);

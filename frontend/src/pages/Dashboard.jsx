@@ -192,13 +192,19 @@ export default function Dashboard() {
                     <span className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-200 text-xs font-bold dark:bg-slate-700">
                       {p.avatar}
                     </span>
-                    <span className="flex-1 truncate text-sm font-medium">{p.name}</span>
-                    <span className="text-sm font-semibold text-slate-500">{p.score}</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{p.name}</p>
+                      <p className="text-xs text-slate-400">{p.quizzes ?? 0} quizzes · {p.tests ?? 0} tests</p>
+                    </div>
+                    <span className="text-right text-sm font-semibold text-slate-500">
+                      {p.taken ?? 0}
+                      <span className="block text-[10px] font-normal text-slate-400">taken</span>
+                    </span>
                   </div>
                 ))}
               </div>
             ) : (
-              <EmptyState message="Leaderboard fills up as students attempt tests." />
+              <EmptyState message="Leaderboard fills up as students attempt quizzes & tests." />
             )}
           </div>
 

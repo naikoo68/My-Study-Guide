@@ -86,15 +86,26 @@ export async function studentDashboard(req, res) {
   });
 }
 
-// GET /api/leaderboard — top users by total score (frontend-ready)
+// GET /api/leaderboard — ranks registered students by activity
+// (quizzes + tests taken), with total score as the tie-breaker.
 export async function leaderboard(req, res) {
   const top = await Attempt.aggregate([
-    { $group: { _id: "$user", totalScore: { $sum: "$score" } } },
-    { $sort: { totalScore: -1 } },
-    { $limit: 10 },
+    {
+      $group: {
+        _id: "$user",
+        quizzes: { $sum: { $cond: [{ $eq: ["$type", "quiz"] }, 1, 0] } },
+        tests: { $sum: { $cond: [{ $eq: ["$type", "test"] }, 1, 0] } },
+        taken: { $sum: 1 },
+        totalScore: { $sum: "$score" },
+      },
+    },
+    // Only rank real registered students (exclude admins / deleted users).
     { $lookup: { from: "users", localField: "_id", foreignField: "_id", as: "user" } },
     { $unwind: "$user" },
-    { $project: { name: "$user.name", totalScore: 1 } },
+    { $match: { "user.role": "student" } },
+    { $sort: { taken: -1, totalScore: -1 } },
+    { $limit: 20 },
+    { $project: { name: "$user.name", quizzes: 1, tests: 1, taken: 1, totalScore: 1 } },
   ]);
 
   const currentId = req.user?._id?.toString();
@@ -102,8 +113,10 @@ export async function leaderboard(req, res) {
     rank: i + 1,
     name: row._id.toString() === currentId ? "You" : row.name,
     avatar: initials(row.name),
+    quizzes: row.quizzes,
+    tests: row.tests,
+    taken: row.taken,
     score: row.totalScore,
-    change: "same",
     isCurrentUser: row._id.toString() === currentId,
   }));
   res.json(rows);
