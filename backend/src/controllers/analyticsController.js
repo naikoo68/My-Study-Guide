@@ -174,6 +174,44 @@ export async function adminPerformance(req, res) {
   res.json({ users, attempts });
 }
 
+// GET /api/admin/performance/user/:userId  (admin) — one user's full history
+export async function userPerformanceDetail(req, res) {
+  const user = await User.findById(req.params.userId).select("name email createdAt");
+  if (!user) return res.status(404).json({ message: "User not found" });
+
+  const list = await Attempt.find({ user: req.params.userId })
+    .sort("-createdAt")
+    .populate("quiz", "title")
+    .populate("testSeries", "name")
+    .lean();
+
+  const attempts = list.map((a) => ({
+    _id: a._id,
+    type: a.type,
+    title: a.type === "test" ? a.testSeries?.name || "Test" : a.quiz?.title || "Quiz",
+    score: a.score,
+    percentage: a.percentage,
+    correct: a.correct,
+    incorrect: a.incorrect,
+    attempted: a.attempted,
+    total: a.total,
+    timeTaken: a.timeTaken,
+    createdAt: a.createdAt,
+  }));
+
+  const quizzes = attempts.filter((a) => a.type === "quiz").length;
+  const tests = attempts.filter((a) => a.type === "test").length;
+  const avgPct = attempts.length ? Math.round(attempts.reduce((s, a) => s + (a.percentage || 0), 0) / attempts.length) : 0;
+  const totalScore = attempts.reduce((s, a) => s + (a.score || 0), 0);
+  const best = attempts.reduce((m, a) => Math.max(m, a.percentage || 0), 0);
+
+  res.json({
+    user: { name: user.name, email: user.email, joined: user.createdAt },
+    summary: { quizzes, tests, taken: attempts.length, avgPct, totalScore, best },
+    attempts,
+  });
+}
+
 // DELETE /api/admin/performance/user/:userId  (admin) — clear one user's history
 export async function clearUserPerformance(req, res) {
   const { deletedCount } = await Attempt.deleteMany({ user: req.params.userId });

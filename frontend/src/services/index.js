@@ -92,6 +92,7 @@ export const analyticsService = {
   stats: () => api.get("/stats", { auth: false }),
   adminAnalytics: () => api.get("/admin/analytics"),
   performance: () => api.get("/admin/performance"),
+  userPerformance: (userId) => api.get(`/admin/performance/user/${userId}`),
   clearUserPerformance: (userId) => api.del(`/admin/performance/user/${userId}`),
   clearAllPerformance: () => api.del("/admin/performance"),
 };

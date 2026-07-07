@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Trophy, Trash2, RefreshCw, ListChecks, FileStack, Users, Medal } from "lucide-react";
+import { Trophy, Trash2, RefreshCw, ListChecks, FileStack, Users, Medal, X, Clock } from "lucide-react";
 import { analyticsService } from "../../services";
 import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
@@ -19,6 +19,18 @@ export default function AdminPerformance() {
   const [error, setError] = useState("");
   const [tab, setTab] = useState("combined");
   const [busy, setBusy] = useState(false);
+  const [detail, setDetail] = useState(null); // full performance of one user
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  const openDetail = (userId) => {
+    setDetail(null);
+    setDetailLoading(true);
+    analyticsService
+      .userPerformance(userId)
+      .then((d) => setDetail({ ...d, userId }))
+      .catch((e) => setError(e.message))
+      .finally(() => setDetailLoading(false));
+  };
 
   const load = () => {
     setLoading(true);
@@ -38,6 +50,7 @@ export default function AdminPerformance() {
     setBusy(true);
     try {
       await analyticsService.clearUserPerformance(u.userId);
+      setDetail(null);
       load();
     } catch (e) {
       setError(e.message);
@@ -118,7 +131,7 @@ export default function AdminPerformance() {
                   </thead>
                   <tbody>
                     {sorted.map((u, i) => (
-                      <tr key={u.userId} className="border-b border-slate-100 last:border-0 dark:border-slate-800/60">
+                      <tr key={u.userId} onClick={() => openDetail(u.userId)} className="cursor-pointer border-b border-slate-100 last:border-0 hover:bg-slate-50 dark:border-slate-800/60 dark:hover:bg-slate-800/40">
                         <td className="px-4 py-3">
                           <span className={`inline-flex items-center gap-1 font-bold ${rankColor(i)}`}>
                             {i < 3 ? <Medal className="h-4 w-4" /> : null}{i + 1}
@@ -134,7 +147,7 @@ export default function AdminPerformance() {
                         <td className="px-4 py-3 text-center font-semibold">{metricValue(u)} <span className="text-xs font-normal text-slate-400">({metricCount(u)})</span></td>
                         <td className="px-4 py-3 text-slate-500">{fmtDate(u.lastAt)}</td>
                         <td className="px-4 py-3 text-right">
-                          <button onClick={() => clearUser(u)} disabled={busy} title="Clear this user's history" className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30">
+                          <button onClick={(e) => { e.stopPropagation(); clearUser(u); }} disabled={busy} title="Clear this user's history" className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30">
                             <Trash2 className="h-4 w-4" />
                           </button>
                         </td>
@@ -158,7 +171,7 @@ export default function AdminPerformance() {
             ) : (
               <div className="max-h-[520px] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/60">
                 {data.attempts.map((a) => (
-                  <div key={a._id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+                  <div key={a._id} onClick={() => openDetail(a.userId)} className="flex cursor-pointer flex-wrap items-center justify-between gap-2 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/40">
                     <div className="min-w-0">
                       <p className="truncate font-medium">
                         {a.userName} <span className="text-slate-400">·</span>{" "}
@@ -177,6 +190,77 @@ export default function AdminPerformance() {
             )}
           </div>
         </>
+      )}
+
+      {/* Full performance of one user */}
+      {(detail || detailLoading) && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4" onClick={() => setDetail(null)}>
+          <div onClick={(e) => e.stopPropagation()} className="my-8 w-full max-w-2xl animate-scale-in card p-6">
+            {detailLoading || !detail ? (
+              <Loading label="Loading performance..." />
+            ) : (
+              <>
+                <div className="mb-4 flex items-start justify-between gap-2">
+                  <div>
+                    <h3 className="text-lg font-bold">{detail.user.name}</h3>
+                    <p className="text-xs text-slate-400">{detail.user.email}</p>
+                  </div>
+                  <button onClick={() => setDetail(null)}><X className="h-5 w-5" /></button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                  {[
+                    { label: "Quizzes", value: detail.summary.quizzes },
+                    { label: "Tests", value: detail.summary.tests },
+                    { label: "Taken", value: detail.summary.taken },
+                    { label: "Avg %", value: `${detail.summary.avgPct}%` },
+                    { label: "Best %", value: `${detail.summary.best}%` },
+                  ].map((s) => (
+                    <div key={s.label} className="rounded-xl border border-slate-200 p-3 text-center dark:border-slate-700">
+                      <p className="text-lg font-extrabold text-brand-600">{s.value}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">{s.label}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <p className="mt-4 mb-2 text-sm font-semibold">All attempts</p>
+                <div className="max-h-[46vh] overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700">
+                  {detail.attempts.length === 0 ? (
+                    <EmptyState message="No quiz or test attempts yet." />
+                  ) : (
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="sticky top-0 bg-slate-50 text-left text-xs uppercase text-slate-400 dark:bg-slate-800">
+                          <th className="px-3 py-2">Type</th>
+                          <th className="px-3 py-2">Title</th>
+                          <th className="px-3 py-2 text-center">Score</th>
+                          <th className="px-3 py-2 text-center">%</th>
+                          <th className="px-3 py-2">Date</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detail.attempts.map((a) => (
+                          <tr key={a._id} className="border-t border-slate-100 dark:border-slate-800/60">
+                            <td className="px-3 py-2"><Badge variant={a.type === "test" ? "accent" : "brand"}>{a.type === "test" ? "Test" : "Quiz"}</Badge></td>
+                            <td className="px-3 py-2">{a.title}</td>
+                            <td className="px-3 py-2 text-center">{a.correct ?? 0}/{a.total ?? 0}</td>
+                            <td className="px-3 py-2 text-center font-semibold">{a.percentage ?? 0}%</td>
+                            <td className="px-3 py-2 text-slate-500">{fmtDate(a.createdAt)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+
+                <div className="mt-6 flex flex-wrap justify-end gap-3">
+                  <button onClick={() => setDetail(null)} className="btn-outline">Close</button>
+                  <button onClick={() => clearUser({ userId: detail.userId, name: detail.user.name })} disabled={busy || !detail.attempts.length} className="btn-outline text-rose-600"><Trash2 className="h-4 w-4" /> Clear performance</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
