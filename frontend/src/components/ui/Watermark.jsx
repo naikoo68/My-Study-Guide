@@ -27,12 +27,20 @@ export default function Watermark() {
       const combo = (e.metaKey || e.ctrlKey) && e.shiftKey && ["s", "3", "4", "5"].includes(k);
       if (k === "printscreen" || combo) reveal();
     };
+    // Many screenshot tools (e.g. Win+Shift+S) blur/hide the page while active —
+    // revealing on blur/visibility helps the mark appear in those captures.
+    const onBlur = () => reveal();
+    const onVis = () => { if (document.hidden) reveal(); };
     window.addEventListener("keydown", onKey, true);
     window.addEventListener("keyup", onKey, true); // some OSes only fire PrintScreen on keyup
+    window.addEventListener("blur", onBlur);
+    document.addEventListener("visibilitychange", onVis);
     return () => {
       clearTimeout(timer);
       window.removeEventListener("keydown", onKey, true);
       window.removeEventListener("keyup", onKey, true);
+      window.removeEventListener("blur", onBlur);
+      document.removeEventListener("visibilitychange", onVis);
     };
   }, [enabled, mode]);
 

@@ -5,6 +5,7 @@ import { SettingsProvider } from "./context/SettingsContext";
 import { AuthProvider } from "./context/AuthContext";
 import { ZoomProvider } from "./context/ZoomContext";
 import ProtectedRoute from "./components/auth/ProtectedRoute";
+import ContentProtection from "./components/ui/ContentProtection";
 import Layout from "./components/layout/Layout";
 import { Loading } from "./components/ui/AsyncState";
 
@@ -128,6 +129,7 @@ export default function App() {
       <SettingsProvider>
         <AuthProvider>
           <ZoomProvider>
+            <ContentProtection />
             <RouterProvider router={router} />
           </ZoomProvider>
         </AuthProvider>

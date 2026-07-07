@@ -23,6 +23,7 @@ const DEFAULTS = {
   watermarkOpacity: 10,
   watermarkSize: 14,
   watermarkMode: "always",
+  restrictCopy: true,
   notifyOnNewContent: false,
   socialLinks: [],
   contacts: [],
