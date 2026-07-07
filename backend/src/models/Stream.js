@@ -1,16 +1,19 @@
 import mongoose from "mongoose";
 
-const subjectSchema = new mongoose.Schema(
+// Top level of the quiz hierarchy:
+//   Stream → Subject → Topic → Session → Quiz → Questions
+// A stream groups subjects (e.g. "JKSSB", "NEET", "SSC").
+const streamSchema = new mongoose.Schema(
   {
-    stream: { type: mongoose.Schema.Types.ObjectId, ref: "Stream" }, // parent stream
     name: { type: String, required: true, unique: true, trim: true },
     slug: { type: String, required: true, unique: true, lowercase: true },
-    icon: { type: String, default: "BookOpen" },
+    icon: { type: String, default: "GraduationCap" },
     color: { type: String, default: "from-blue-500 to-indigo-600" },
     description: { type: String },
+    order: { type: Number, default: 0 },
     isActive: { type: Boolean, default: true },
   },
   { timestamps: true }
 );
 
-export default mongoose.model("Subject", subjectSchema);
+export default mongoose.model("Stream", streamSchema);

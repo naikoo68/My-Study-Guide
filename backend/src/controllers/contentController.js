@@ -1,3 +1,4 @@
+import Stream from "../models/Stream.js";
 import Subject from "../models/Subject.js";
 import Topic from "../models/Topic.js";
 import Session from "../models/Session.js";
@@ -8,6 +9,56 @@ import { notifyNewContent } from "../utils/notify.js";
 
 const slugify = (s) =>
   s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+/* ---------------- Streams (top level) ---------------- */
+
+// GET /api/streams — includes subject count per stream
+export async function listStreams(req, res) {
+  const streams = await Stream.find({ isActive: true }).sort("order name").lean();
+  const subs = await Subject.aggregate([
+    { $match: { stream: { $ne: null } } },
+    { $group: { _id: "$stream", count: { $sum: 1 } } },
+  ]);
+  const map = Object.fromEntries(subs.map((s) => [String(s._id), s.count]));
+  res.json(streams.map((s) => ({ ...s, subjects: map[String(s._id)] || 0 })));
+}
+
+export async function createStream(req, res) {
+  const { name } = req.body;
+  const stream = await Stream.create({ ...req.body, slug: slugify(name) });
+  res.status(201).json(stream);
+}
+
+export async function updateStream(req, res) {
+  const data = { ...req.body };
+  if (data.name) data.slug = slugify(data.name);
+  const stream = await Stream.findByIdAndUpdate(req.params.id, data, { new: true });
+  if (!stream) return res.status(404).json({ message: "Stream not found" });
+  res.json(stream);
+}
+
+// Cascade delete: stream → its subjects → topics → sessions → quizzes → questions
+export async function deleteStream(req, res) {
+  const id = req.params.id;
+  const subjectIds = (await Subject.find({ stream: id }).select("_id")).map((s) => s._id);
+  await Promise.all([
+    Question.deleteMany({ subject: { $in: subjectIds } }),
+    Quiz.deleteMany({ subject: { $in: subjectIds } }),
+    Session.deleteMany({ subject: { $in: subjectIds } }),
+    Topic.deleteMany({ subject: { $in: subjectIds } }),
+    Subject.deleteMany({ stream: id }),
+    Stream.findByIdAndDelete(id),
+  ]);
+  res.json({ message: "Stream and all its subjects, topics, sessions, quizzes and questions deleted", subjects: subjectIds.length });
+}
+
+// GET /api/streams/:streamId/subjects — subjects in a stream, with topic counts
+export async function listStreamSubjects(req, res) {
+  const subjects = await Subject.find({ stream: req.params.streamId, isActive: true }).sort("name").lean();
+  const topics = await Topic.aggregate([{ $group: { _id: "$subject", count: { $sum: 1 } } }]);
+  const tMap = Object.fromEntries(topics.map((t) => [String(t._id), t.count]));
+  res.json(subjects.map((s) => ({ ...s, topics: tMap[String(s._id)] || 0 })));
+}
 
 async function countMap(Model, matchIds, field) {
   const rows = await Model.aggregate([

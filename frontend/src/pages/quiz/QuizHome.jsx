@@ -6,10 +6,11 @@ import { contentService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 
+// Top of the quiz hierarchy: pick a Stream (e.g. JKSSB) → then its subjects.
 export default function QuizHome() {
   const { user } = useAuth();
   const [query, setQuery] = useState("");
-  const [subjects, setSubjects] = useState([]);
+  const [streams, setStreams] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -17,17 +18,15 @@ export default function QuizHome() {
     setLoading(true);
     setError("");
     contentService
-      .subjects()
-      .then(setSubjects)
+      .streams()
+      .then(setStreams)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   };
 
   useEffect(load, []);
 
-  const filtered = subjects.filter((s) =>
-    s.name.toLowerCase().includes(query.toLowerCase())
-  );
+  const filtered = streams.filter((s) => s.name.toLowerCase().includes(query.toLowerCase()));
 
   // Admin has disabled quiz access for this student.
   if (user && user.quizAccess === false) {
@@ -48,9 +47,9 @@ export default function QuizHome() {
     <div className="container-page py-12">
       <div className="flex flex-col items-start justify-between gap-6 sm:flex-row sm:items-center">
         <div>
-          <h1 className="text-3xl font-extrabold sm:text-4xl">Choose a Subject</h1>
+          <h1 className="text-3xl font-extrabold sm:text-4xl">Choose a Stream</h1>
           <p className="mt-2 text-slate-600 dark:text-slate-300">
-            Pick a subject to explore chapter-wise quiz sessions.
+            Pick a stream to explore its subject-wise quizzes.
           </p>
         </div>
         <div className="relative w-full sm:w-72">
@@ -58,27 +57,27 @@ export default function QuizHome() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search subjects..."
+            placeholder="Search streams..."
             className="input pl-9"
           />
         </div>
       </div>
 
       {loading ? (
-        <Loading label="Loading subjects..." />
+        <Loading label="Loading streams..." />
       ) : error ? (
         <ErrorState message={error} onRetry={load} />
-      ) : subjects.length === 0 ? (
-        <EmptyState message="No subjects available yet. Add some from the admin panel." />
+      ) : streams.length === 0 ? (
+        <EmptyState message="No streams available yet. Add some from the admin panel." />
       ) : (
         <>
           <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {filtered.map((s, i) => {
-              const Icon = Icons[s.icon] || Icons.BookOpen;
+              const Icon = Icons[s.icon] || Icons.GraduationCap;
               return (
                 <Link
                   key={s._id}
-                  to={`/quiz/${s._id}`}
+                  to={`/quiz/stream/${s._id}`}
                   style={{ animationDelay: `${i * 40}ms` }}
                   className="card-hover group animate-fade-in-up p-6 opacity-0"
                 >
@@ -93,10 +92,10 @@ export default function QuizHome() {
                   </p>
                   <div className="mt-4 flex items-center justify-between">
                     <span className="badge bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                      {s.topics} topics
+                      {s.subjects} subjects
                     </span>
                     <span className="flex items-center gap-1 text-sm font-semibold text-brand-600 transition group-hover:gap-2 dark:text-brand-400">
-                      Start Learning <ArrowRight className="h-4 w-4" />
+                      Explore <ArrowRight className="h-4 w-4" />
                     </span>
                   </div>
                 </Link>
@@ -105,7 +104,7 @@ export default function QuizHome() {
           </div>
 
           {filtered.length === 0 && (
-            <p className="mt-16 text-center text-slate-500">No subjects match "{query}".</p>
+            <p className="mt-16 text-center text-slate-500">No streams match "{query}".</p>
           )}
         </>
       )}

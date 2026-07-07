@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { Plus, Pencil, Trash2, X, ChevronRight, FolderOpen, Layers, BookOpen, HelpCircle, ListChecks, Upload, Eye, Copy, Download } from "lucide-react";
+import { Plus, Pencil, Trash2, X, ChevronRight, FolderOpen, Layers, BookOpen, HelpCircle, ListChecks, Upload, Eye, Copy, Download, GraduationCap } from "lucide-react";
 import { contentService } from "../../services";
 import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
@@ -17,11 +17,12 @@ const COLORS = [
 ];
 
 // Singular type name for each drill-down level (used by the form modal).
-const VIEW_TYPE = { subjects: "subject", topics: "topic", sessions: "session", quizzes: "quiz", questions: "question" };
+const VIEW_TYPE = { streams: "stream", subjects: "subject", topics: "topic", sessions: "session", quizzes: "quiz", questions: "question" };
 
 export default function AdminContent() {
   // Drill-down context
-  const [view, setView] = useState("subjects"); // subjects | topics | sessions | quizzes | questions
+  const [view, setView] = useState("streams"); // streams | subjects | topics | sessions | quizzes | questions
+  const [stream, setStream] = useState(null);
   const [subject, setSubject] = useState(null);
   const [topic, setTopic] = useState(null);
   const [session, setSession] = useState(null);
@@ -53,7 +54,8 @@ export default function AdminContent() {
   };
 
   const loaders = {
-    subjects: () => contentService.subjects(),
+    streams: () => contentService.streams(),
+    subjects: () => contentService.subjectsByStream(stream._id),
     topics: () => contentService.topics(subject._id),
     sessions: () => contentService.sessions(topic._id),
     quizzes: () => contentService.quizzes(session._id),
@@ -68,11 +70,12 @@ export default function AdminContent() {
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subject, topic, session, quiz]);
+  }, [stream, subject, topic, session, quiz]);
 
   useEffect(() => { setSelected([]); load(view); /* eslint-disable-next-line */ }, [view]);
 
   // Navigation
+  const openStream = (s) => { setStream(s); setSubject(null); setTopic(null); setSession(null); setQuiz(null); setView("subjects"); };
   const openSubject = (s) => { setSubject(s); setTopic(null); setSession(null); setQuiz(null); setView("topics"); };
   const openTopic = (t) => { setTopic(t); setSession(null); setQuiz(null); setView("sessions"); };
   const openSession = (s) => { setSession(s); setQuiz(null); setView("quizzes"); };
@@ -85,8 +88,11 @@ export default function AdminContent() {
     setError("");
     try {
       const { type, mode, data } = modal;
-      if (type === "subject") {
-        if (mode === "add") await contentService.createSubject(form);
+      if (type === "stream") {
+        if (mode === "add") await contentService.createStream(form);
+        else await contentService.updateStream(data._id, form);
+      } else if (type === "subject") {
+        if (mode === "add") await contentService.createSubject({ ...form, stream: stream._id });
         else await contentService.updateSubject(data._id, form);
       } else if (type === "topic") {
         if (mode === "add") await contentService.createTopic({ ...form, subject: subject._id });
@@ -129,7 +135,8 @@ export default function AdminContent() {
   const remove = async (type, id, label) => {
     if (!window.confirm(`Delete "${label}"? This also removes everything inside it.`)) return;
     try {
-      if (type === "subject") await contentService.deleteSubject(id);
+      if (type === "stream") await contentService.deleteStream(id);
+      else if (type === "subject") await contentService.deleteSubject(id);
       else if (type === "topic") await contentService.deleteTopic(id);
       else if (type === "session") await contentService.deleteSession(id);
       else if (type === "quiz") await contentService.deleteQuiz(id);
@@ -143,12 +150,16 @@ export default function AdminContent() {
   // ---- Breadcrumb ----
   const Crumb = () => (
     <nav className="flex flex-wrap items-center gap-1 text-sm">
-      <button onClick={() => goTo("subjects")} className={`rounded px-2 py-1 font-medium ${view === "subjects" ? "text-brand-600" : "text-slate-500 hover:text-brand-600"}`}>Subjects</button>
-      {subject && view !== "subjects" && (<>
+      <button onClick={() => goTo("streams")} className={`rounded px-2 py-1 font-medium ${view === "streams" ? "text-brand-600" : "text-slate-500 hover:text-brand-600"}`}>Streams</button>
+      {stream && view !== "streams" && (<>
+        <ChevronRight className="h-4 w-4 text-slate-400" />
+        <button onClick={() => goTo("subjects")} className={`rounded px-2 py-1 font-medium ${view === "subjects" ? "text-brand-600" : "text-slate-500 hover:text-brand-600"}`}>{stream.name}</button>
+      </>)}
+      {subject && view !== "streams" && view !== "subjects" && (<>
         <ChevronRight className="h-4 w-4 text-slate-400" />
         <button onClick={() => goTo("topics")} className={`rounded px-2 py-1 font-medium ${view === "topics" ? "text-brand-600" : "text-slate-500 hover:text-brand-600"}`}>{subject.name}</button>
       </>)}
-      {topic && view !== "subjects" && view !== "topics" && (<>
+      {topic && (view === "sessions" || view === "quizzes" || view === "questions") && (<>
         <ChevronRight className="h-4 w-4 text-slate-400" />
         <button onClick={() => goTo("sessions")} className={`rounded px-2 py-1 font-medium ${view === "sessions" ? "text-brand-600" : "text-slate-500 hover:text-brand-600"}`}>{topic.title}</button>
       </>)}
@@ -164,7 +175,8 @@ export default function AdminContent() {
   );
 
   const headings = {
-    subjects: { title: "Subjects", add: "Add Subject", icon: FolderOpen },
+    streams: { title: "Streams", add: "Add Stream", icon: GraduationCap },
+    subjects: { title: `Subjects in ${stream?.name || ""}`, add: "Add Subject", icon: FolderOpen },
     topics: { title: `Topics in ${subject?.name || ""}`, add: "Add Topic", icon: Layers },
     sessions: { title: `Sessions in ${topic?.title || ""}`, add: "Add Session", icon: BookOpen },
     quizzes: { title: `Quizzes in ${session?.title || ""}`, add: "Add Quiz", icon: ListChecks },
@@ -204,7 +216,7 @@ export default function AdminContent() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-extrabold">Content Management</h1>
-          <p className="text-slate-500 dark:text-slate-400">Subject → Topic → Session → Questions. Add, edit or delete at any level.</p>
+          <p className="text-slate-500 dark:text-slate-400">Stream → Subject → Topic → Session → Quiz → Questions. Add, edit or delete at any level.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {view === "questions" && (
@@ -280,6 +292,7 @@ export default function AdminContent() {
                       <p className="font-semibold">{item.name || item.title}</p>
                     </div>
                     <p className="mt-0.5 text-xs text-slate-400">
+                      {view === "streams" && `${item.subjects ?? 0} subjects`}
                       {view === "subjects" && `${item.topics ?? 0} topics`}
                       {view === "topics" && `${item.sessions ?? 0} sessions`}
                       {view === "sessions" && `${item.quizzes ?? 0} quizzes · ${item.difficulty}`}
@@ -292,7 +305,9 @@ export default function AdminContent() {
                 {view !== "questions" && (
                   <button
                     onClick={() =>
-                      view === "subjects"
+                      view === "streams"
+                        ? openStream(item)
+                        : view === "subjects"
                         ? openSubject(item)
                         : view === "topics"
                         ? openTopic(item)
@@ -404,6 +419,7 @@ export default function AdminContent() {
 function FormModal({ modal, saving, onClose, onSave }) {
   const { type, mode, data } = modal;
   const [form, setForm] = useState(() => {
+    if (type === "stream") return { name: data.name || "", description: data.description || "", icon: data.icon || "GraduationCap", color: data.color || COLORS[0] };
     if (type === "subject") return { name: data.name || "", description: data.description || "", icon: data.icon || "BookOpen", color: data.color || COLORS[0] };
     if (type === "topic") return { title: data.title || "", description: data.description || "", index: data.index || 1 };
     if (type === "session") return { title: data.title || "", difficulty: data.difficulty || "Medium", index: data.index || 1 };
@@ -411,7 +427,7 @@ function FormModal({ modal, saving, onClose, onSave }) {
     return {};
   });
 
-  const titleMap = { subject: "Subject", topic: "Topic", session: "Session", quiz: "Quiz" };
+  const titleMap = { stream: "Stream", subject: "Subject", topic: "Topic", session: "Session", quiz: "Quiz" };
   const submit = (e) => { e.preventDefault(); onSave(form); };
 
   return (
@@ -423,9 +439,9 @@ function FormModal({ modal, saving, onClose, onSave }) {
         </div>
 
         <div className="space-y-4">
-          {type === "subject" && (
+          {(type === "stream" || type === "subject") && (
             <>
-              <Field label="Name"><input required className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Physics" /></Field>
+              <Field label="Name"><input required className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={type === "stream" ? "e.g. JKSSB" : "e.g. Physics"} /></Field>
               <Field label="Description"><textarea rows={2} className="input resize-none" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></Field>
               <Field label="Icon name (lucide)"><input className="input" value={form.icon} onChange={(e) => setForm({ ...form, icon: e.target.value })} placeholder="e.g. Atom, FlaskConical, BookOpen" /></Field>
               <Field label="Colour">

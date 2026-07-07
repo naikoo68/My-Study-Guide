@@ -15,6 +15,8 @@ export const authService = {
 // ---- Subjects / topics / sessions / questions ----
 export const contentService = {
   // public reads
+  streams: () => api.get("/streams"),
+  subjectsByStream: (streamId) => api.get(`/streams/${streamId}/subjects`),
   subjects: () => api.get("/subjects"),
   topics: (subjectId) => api.get(`/subjects/${subjectId}/topics`),
   sessions: (topicId) => api.get(`/topics/${topicId}/sessions`),
@@ -22,6 +24,10 @@ export const contentService = {
   quizQuestions: (quizId) => api.get(`/quizzes/${quizId}/questions`),
   questions: (sessionId) => api.get(`/sessions/${sessionId}/questions`),
   allQuestions: () => api.get("/questions"),
+  // streams (admin)
+  createStream: (data) => api.post("/streams", data),
+  updateStream: (id, data) => api.put(`/streams/${id}`, data),
+  deleteStream: (id) => api.del(`/streams/${id}`),
   // subjects (admin)
   createSubject: (data) => api.post("/subjects", data),
   updateSubject: (id, data) => api.put(`/subjects/${id}`, data),
@@ -85,6 +91,9 @@ export const analyticsService = {
   leaderboard: () => api.get("/leaderboard"),
   stats: () => api.get("/stats", { auth: false }),
   adminAnalytics: () => api.get("/admin/analytics"),
+  performance: () => api.get("/admin/performance"),
+  clearUserPerformance: (userId) => api.del(`/admin/performance/user/${userId}`),
+  clearAllPerformance: () => api.del("/admin/performance"),
 };
 
 // ---- Site settings (branding & theme) ----

@@ -107,6 +107,85 @@ export async function studentDashboard(req, res) {
   });
 }
 
+// GET /api/admin/performance  (admin) — who took what + rankings.
+// Returns per-user aggregates (for the ranking tables, sortable by combined /
+// quizzes / tests) plus the recent attempts feed (who took which quiz/test).
+export async function adminPerformance(req, res) {
+  const users = await Attempt.aggregate([
+    {
+      $group: {
+        _id: "$user",
+        quizzes: { $sum: { $cond: [{ $eq: ["$type", "quiz"] }, 1, 0] } },
+        tests: { $sum: { $cond: [{ $eq: ["$type", "test"] }, 1, 0] } },
+        taken: { $sum: 1 },
+        totalScore: { $sum: "$score" },
+        quizScore: { $sum: { $cond: [{ $eq: ["$type", "quiz"] }, "$score", 0] } },
+        testScore: { $sum: { $cond: [{ $eq: ["$type", "test"] }, "$score", 0] } },
+        avgPct: { $avg: "$percentage" },
+        lastAt: { $max: "$createdAt" },
+      },
+    },
+    { $lookup: { from: "users", localField: "_id", foreignField: "_id", as: "user" } },
+    { $unwind: "$user" },
+    { $match: { "user.role": "student" } },
+    { $sort: { taken: -1, totalScore: -1 } },
+    {
+      $project: {
+        _id: 0,
+        userId: "$_id",
+        name: "$user.name",
+        email: "$user.email",
+        quizzes: 1,
+        tests: 1,
+        taken: 1,
+        totalScore: 1,
+        quizScore: 1,
+        testScore: 1,
+        avgPct: { $round: ["$avgPct", 0] },
+        lastAt: 1,
+      },
+    },
+  ]);
+
+  const recent = await Attempt.find()
+    .sort("-createdAt")
+    .limit(300)
+    .populate("user", "name email role")
+    .populate("quiz", "title")
+    .populate("testSeries", "name")
+    .lean();
+
+  const attempts = recent
+    .filter((a) => a.user) // skip attempts whose user was deleted
+    .map((a) => ({
+      _id: a._id,
+      userId: a.user._id,
+      userName: a.user.name,
+      email: a.user.email,
+      type: a.type,
+      title: a.type === "test" ? a.testSeries?.name || "Test" : a.quiz?.title || "Quiz",
+      score: a.score,
+      percentage: a.percentage,
+      correct: a.correct,
+      total: a.total,
+      createdAt: a.createdAt,
+    }));
+
+  res.json({ users, attempts });
+}
+
+// DELETE /api/admin/performance/user/:userId  (admin) — clear one user's history
+export async function clearUserPerformance(req, res) {
+  const { deletedCount } = await Attempt.deleteMany({ user: req.params.userId });
+  res.json({ message: "User performance cleared", deleted: deletedCount });
+}
+
+// DELETE /api/admin/performance  (admin) — clear ALL attempt history
+export async function clearAllPerformance(req, res) {
+  const { deletedCount } = await Attempt.deleteMany({});
+  res.json({ message: "All performance cleared", deleted: deletedCount });
+}
+
 // GET /api/leaderboard — ranks registered students by activity
 // (quizzes + tests taken), with total score as the tie-breaker.
 export async function leaderboard(req, res) {

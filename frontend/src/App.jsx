@@ -18,6 +18,7 @@ const Dashboard = lazy(() => import("./pages/Dashboard"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const QuizHome = lazy(() => import("./pages/quiz/QuizHome"));
+const StreamSubjects = lazy(() => import("./pages/quiz/StreamSubjects"));
 const SubjectTopics = lazy(() => import("./pages/quiz/SubjectTopics"));
 const TopicSessions = lazy(() => import("./pages/quiz/TopicSessions"));
 const SessionQuizzes = lazy(() => import("./pages/quiz/SessionQuizzes"));
@@ -49,6 +50,7 @@ const AdminUsers = lazy(() => import("./pages/admin/AdminUsers"));
 const AdminMessages = lazy(() => import("./pages/admin/AdminMessages"));
 const AdminCustomization = lazy(() => import("./pages/admin/AdminCustomization"));
 const AdminNotices = lazy(() => import("./pages/admin/AdminNotices"));
+const AdminPerformance = lazy(() => import("./pages/admin/AdminPerformance"));
 
 // Wraps a lazily-loaded page in a Suspense boundary with a loading fallback.
 const S = (Comp) => (
@@ -66,6 +68,7 @@ const router = createBrowserRouter([
       { path: "/contact", element: S(Contact) },
 
       { path: "/quiz", element: S(QuizHome) },
+      { path: "/quiz/stream/:streamId", element: S(StreamSubjects) },
       { path: "/quiz/:subjectId", element: S(SubjectTopics) },
       { path: "/quiz/:subjectId/:topicId", element: S(TopicSessions) },
       { path: "/quiz/:subjectId/:topicId/:sessionId", element: S(SessionQuizzes) },
@@ -114,6 +117,7 @@ const router = createBrowserRouter([
       { path: "study", element: S(AdminStudyMaterial) },
       { path: "feedback", element: S(AdminFeedback) },
       { path: "users", element: S(AdminUsers) },
+      { path: "performance", element: S(AdminPerformance) },
       { path: "messages", element: S(AdminMessages) },
       { path: "notices", element: S(AdminNotices) },
       { path: "customization", element: S(AdminCustomization) },

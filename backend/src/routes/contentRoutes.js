@@ -1,5 +1,10 @@
 import { Router } from "express";
 import {
+  listStreams,
+  createStream,
+  updateStream,
+  deleteStream,
+  listStreamSubjects,
   listSubjects,
   createSubject,
   updateSubject,
@@ -28,6 +33,13 @@ import { protect, authorize, optionalAuth } from "../middleware/auth.js";
 
 const router = Router();
 const admin = [protect, authorize("admin")];
+
+// Streams (top level)
+router.get("/streams", listStreams);
+router.post("/streams", ...admin, createStream);
+router.put("/streams/:id", ...admin, updateStream);
+router.delete("/streams/:id", ...admin, deleteStream);
+router.get("/streams/:streamId/subjects", listStreamSubjects);
 
 // Subjects
 router.get("/subjects", listSubjects);
