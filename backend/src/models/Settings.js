@@ -16,7 +16,7 @@ const aboutValueSchema = new mongoose.Schema(
 );
 
 const aboutStatSchema = new mongoose.Schema(
-  { value: { type: String, default: "" }, label: { type: String, default: "" } },
+  { value: { type: String, default: "" }, label: { type: String, default: "" }, metric: { type: String, default: "" } },
   { _id: false }
 );
 

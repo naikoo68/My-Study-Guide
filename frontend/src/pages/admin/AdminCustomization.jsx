@@ -14,6 +14,7 @@ const STAT_METRICS = [
   { key: "questions", label: "Questions (live)" },
   { key: "subjects", label: "Subjects (live)" },
   { key: "topics", label: "Topics (live)" },
+  { key: "streams", label: "Streams (live)" },
   { key: "attempts", label: "Attempts (live)" },
 ];
 import { FONT_OPTIONS } from "../../lib/theme";

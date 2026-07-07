@@ -5,12 +5,13 @@ import Quiz from "../models/Quiz.js";
 import Question from "../models/Question.js";
 import Subject from "../models/Subject.js";
 import Topic from "../models/Topic.js";
+import Stream from "../models/Stream.js";
 
 // GET /api/stats — public, live counts for the Home/About statistics section.
 // Recomputed on every request, so it updates the moment a user registers or
 // content is added. Any of these keys can be bound to a stat row in admin.
 export async function publicStats(req, res) {
-  const [students, users, quizzes, tests, questions, subjects, topics, attempts] = await Promise.all([
+  const [students, users, quizzes, tests, questions, subjects, topics, streams, attempts] = await Promise.all([
     User.countDocuments({ role: "student" }),
     User.countDocuments(),
     Quiz.countDocuments(),
@@ -18,9 +19,12 @@ export async function publicStats(req, res) {
     Question.countDocuments(),
     Subject.countDocuments(),
     Topic.countDocuments(),
+    Stream.countDocuments(),
     Attempt.countDocuments(),
   ]);
-  res.json({ students, users, quizzes, tests, questions, subjects, topics, attempts });
+  // Never cache — always reflect the current counts.
+  res.set("Cache-Control", "no-store");
+  res.json({ students, users, quizzes, tests, questions, subjects, topics, streams, attempts });
 }
 
 const initials = (name = "") =>
