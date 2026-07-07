@@ -36,16 +36,33 @@ export default function ContentProtection() {
 
   useEffect(() => {
     if (!guardActive) { setCovered(false); return; }
+    let timer;
     const cover = () => setCovered(true);
     const uncover = () => setCovered(false);
     const onVis = () => setCovered(document.hidden);
+    // Briefly cover when a screenshot shortcut is detected (PrintScreen / snip combos).
+    const flashCover = () => {
+      setCovered(true);
+      clearTimeout(timer);
+      timer = setTimeout(() => { if (document.hasFocus()) setCovered(false); }, 1500);
+    };
+    const onKey = (e) => {
+      const k = (e.key || "").toLowerCase();
+      const combo = (e.metaKey || e.ctrlKey) && e.shiftKey && ["s", "3", "4", "5"].includes(k);
+      if (k === "printscreen" || combo) flashCover();
+    };
     window.addEventListener("blur", cover);
     window.addEventListener("focus", uncover);
     document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("keyup", onKey, true);
     return () => {
+      clearTimeout(timer);
       window.removeEventListener("blur", cover);
       window.removeEventListener("focus", uncover);
       document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("keyup", onKey, true);
     };
   }, [guardActive]);
 

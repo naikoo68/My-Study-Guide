@@ -71,14 +71,20 @@ export default function Home() {
   }, []);
 
   const fmt = (n) => Number(n || 0).toLocaleString("en-IN");
-  const labels = (settings.aboutStats?.length ? settings.aboutStats : []).map((s) => s.label);
-  const stats = realStats
-    ? [
-        { icon: STAT_ICONS[0], label: labels[0] || "Total Students", value: fmt(realStats.students) },
-        { icon: STAT_ICONS[1], label: labels[1] || "Total Quizzes", value: fmt(realStats.quizzes) },
-        { icon: STAT_ICONS[2], label: labels[2] || "Total Test Series", value: fmt(realStats.tests) },
-      ]
-    : [];
+  const manualStats = settings.aboutStats?.length ? settings.aboutStats : [];
+  const labels = manualStats.map((s) => s.label);
+  let stats = [];
+  if (settings.statsAuto === false) {
+    // Manual mode: use the admin-entered values.
+    stats = manualStats.map((s, i) => ({ icon: STAT_ICONS[i % STAT_ICONS.length], label: s.label, value: s.value }));
+  } else if (realStats) {
+    // Live mode: real counts.
+    stats = [
+      { icon: STAT_ICONS[0], label: labels[0] || "Total Students", value: fmt(realStats.students) },
+      { icon: STAT_ICONS[1], label: labels[1] || "Total Quizzes", value: fmt(realStats.quizzes) },
+      { icon: STAT_ICONS[2], label: labels[2] || "Total Test Series", value: fmt(realStats.tests) },
+    ];
+  }
 
   // Live progress card for a logged-in student (from their real attempts + rank).
   const [live, setLive] = useState(null);

@@ -48,6 +48,7 @@ const settingsSchema = new mongoose.Schema(
     watermarkMode: { type: String, default: "always" }, // "always" | "screenshot" (best-effort)
     restrictCopy: { type: Boolean, default: true }, // block copy/right-click/selection for students
     screenshotGuard: { type: Boolean, default: false }, // hide content when window loses focus (anti-screenshot, desktop best-effort)
+    statsAuto: { type: Boolean, default: true }, // true = live counts, false = manual aboutStats values
     // Email + notice-board announcement when a new quiz/test is added.
     notifyOnNewContent: { type: Boolean, default: false },
     socialLinks: {

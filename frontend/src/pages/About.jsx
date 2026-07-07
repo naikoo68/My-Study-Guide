@@ -17,14 +17,18 @@ export default function About() {
     analyticsService.stats().then(setRealStats).catch(() => {});
   }, []);
   const fmt = (n) => Number(n || 0).toLocaleString("en-IN");
-  const labels = (settings.aboutStats?.length ? settings.aboutStats : []).map((s) => s.label);
-  const stats = realStats
-    ? [
-        { label: labels[0] || "Total Students", value: fmt(realStats.students) },
-        { label: labels[1] || "Total Quizzes", value: fmt(realStats.quizzes) },
-        { label: labels[2] || "Total Test Series", value: fmt(realStats.tests) },
-      ]
-    : [];
+  const manualStats = settings.aboutStats?.length ? settings.aboutStats : [];
+  const labels = manualStats.map((s) => s.label);
+  let stats = [];
+  if (settings.statsAuto === false) {
+    stats = manualStats;
+  } else if (realStats) {
+    stats = [
+      { label: labels[0] || "Total Students", value: fmt(realStats.students) },
+      { label: labels[1] || "Total Quizzes", value: fmt(realStats.quizzes) },
+      { label: labels[2] || "Total Test Series", value: fmt(realStats.tests) },
+    ];
+  }
 
   return (
     <div className="container-page py-14">

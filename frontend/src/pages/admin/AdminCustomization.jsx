@@ -51,6 +51,7 @@ const DEFAULTS = {
     { title: "Our Vision", desc: "Become the most trusted self-study companion powered by data-driven learning." },
     { title: "Our Promise", desc: "Honest content, transparent analytics and relentless focus on student outcomes." },
   ],
+  statsAuto: true,
   aboutStats: [
     { value: "1,20,000+", label: "Total Students" },
     { value: "8,500+", label: "Total Quizzes" },
@@ -442,14 +443,24 @@ export default function AdminCustomization() {
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <label className="flex items-center gap-1.5 text-sm font-medium"><BarChart3 className="h-4 w-4" /> Statistics (shown on Home &amp; About)</label>
-                <button type="button" onClick={addStat} className="btn-outline py-1.5"><Plus className="h-4 w-4" /> Add</button>
+                {!form.statsAuto && <button type="button" onClick={addStat} className="btn-outline py-1.5"><Plus className="h-4 w-4" /> Add</button>}
               </div>
-              <div className="space-y-2">
+              <label className="mb-3 flex items-start gap-2 rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+                <input type="checkbox" checked={form.statsAuto} onChange={(e) => set("statsAuto", e.target.checked)} className="mt-0.5 h-4 w-4 accent-brand-600" />
+                <span>
+                  <span className="text-sm font-semibold">Automatic (live) statistics</span>
+                  <span className="block text-xs text-slate-500 dark:text-slate-400">On: values are the real live counts of students, quizzes &amp; test series (auto-updates). Off: use the manual values you enter below.</span>
+                </span>
+              </label>
+              {form.statsAuto ? (
+                <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">Live mode is on — the numbers update automatically. You can still rename the labels below (values are ignored while live).</p>
+              ) : null}
+              <div className="mt-2 space-y-2">
                 {form.aboutStats.map((s, i) => (
                   <div key={i} className="flex items-center gap-2">
-                    <input className="input w-40" value={s.value} onChange={(e) => updateStat(i, "value", e.target.value)} placeholder="Value (e.g. 1,20,000+)" />
+                    <input className="input w-40" value={s.value} onChange={(e) => updateStat(i, "value", e.target.value)} placeholder="Value (e.g. 1,20,000+)" disabled={form.statsAuto} />
                     <input className="input flex-1" value={s.label} onChange={(e) => updateStat(i, "label", e.target.value)} placeholder="Label (e.g. Students)" />
-                    <button type="button" onClick={() => removeStat(i)} className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30"><Trash2 className="h-4 w-4" /></button>
+                    {!form.statsAuto && <button type="button" onClick={() => removeStat(i)} className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30"><Trash2 className="h-4 w-4" /></button>}
                   </div>
                 ))}
               </div>
