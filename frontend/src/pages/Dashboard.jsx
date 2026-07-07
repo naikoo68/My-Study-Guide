@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Line } from "react-chartjs-2";
 import "../lib/chartSetup";
 import {
@@ -14,7 +14,7 @@ import {
   Crown,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
-import { analyticsService } from "../services";
+import { analyticsService, noticeService } from "../services";
 import StatCard from "../components/ui/StatCard";
 import Badge from "../components/ui/Badge";
 import ProgressBar from "../components/ui/ProgressBar";
@@ -22,18 +22,32 @@ import { Loading, ErrorState, EmptyState } from "../components/ui/AsyncState";
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [board, setBoard] = useState([]);
+  const [notices, setNotices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  // Follow a notice's link (internal → router, external → new tab).
+  const goNotice = (link) => {
+    if (!link) return;
+    if (/^https?:\/\//i.test(link)) window.open(link, "_blank", "noopener");
+    else navigate(link);
+  };
 
   const load = () => {
     setLoading(true);
     setError("");
-    Promise.all([analyticsService.dashboard(), analyticsService.leaderboard().catch(() => [])])
-      .then(([d, lb]) => {
+    Promise.all([
+      analyticsService.dashboard(),
+      analyticsService.leaderboard().catch(() => []),
+      noticeService.list().catch(() => []),
+    ])
+      .then(([d, lb, ns]) => {
         setData(d);
         setBoard(lb);
+        setNotices(Array.isArray(ns) ? ns : []);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -232,14 +246,39 @@ export default function Dashboard() {
             <h3 className="mb-4 flex items-center gap-2 font-bold">
               <Bell className="h-5 w-5 text-accent-500" /> Notifications
             </h3>
-            <div className="flex gap-3">
-              <span className="mt-1.5 h-2 w-2 flex-shrink-0 rounded-full bg-accent-500" />
-              <div>
-                <p className="text-sm font-semibold">Welcome to My Study Guide</p>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  Keep your {profile.streak}-day streak going — attempt a quiz today!
-                </p>
-              </div>
+            <div className="space-y-2.5">
+              {notices.length === 0 ? (
+                <div className="flex gap-3">
+                  <span className="mt-1.5 h-2 w-2 flex-shrink-0 rounded-full bg-accent-500" />
+                  <div>
+                    <p className="text-sm font-semibold">Welcome to My Study Guide</p>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                      Keep your {profile.streak}-day streak going — attempt a quiz today!
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                notices.slice(0, 6).map((n) => {
+                  const clickable = !!n.link;
+                  return (
+                    <div
+                      key={n._id}
+                      onClick={() => clickable && goNotice(n.link)}
+                      className={`flex gap-3 rounded-lg border border-slate-100 p-2.5 dark:border-slate-800 ${clickable ? "cursor-pointer transition hover:border-brand-400 hover:bg-brand-50/50 dark:hover:bg-brand-900/20" : ""}`}
+                    >
+                      <span className="mt-1.5 h-2 w-2 flex-shrink-0 rounded-full bg-accent-500" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{n.text}</p>
+                        {clickable && (
+                          <span className="mt-0.5 inline-flex items-center gap-1 text-xs font-semibold text-brand-600 dark:text-brand-400">
+                            {/^https?:\/\//i.test(n.link) ? "Open link" : "Go to it"} <ArrowRight className="h-3 w-3" />
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
         </div>

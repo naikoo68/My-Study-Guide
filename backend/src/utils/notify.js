@@ -10,7 +10,8 @@ import Exam from "../models/Exam.js";
 import ExamPost from "../models/ExamPost.js";
 import { sendMail } from "../config/mailer.js";
 
-// Build the full "Stream › Subject › Topic › Session › Quiz" breadcrumb.
+// Build the full "Stream › Subject › Topic › Session › Quiz" breadcrumb + a
+// deep link to the quiz itself.
 async function buildQuizPath(quiz) {
   const [subject, session] = await Promise.all([
     quiz.subject ? Subject.findById(quiz.subject).select("name stream").lean() : null,
@@ -20,16 +21,25 @@ async function buildQuizPath(quiz) {
     subject?.stream ? Stream.findById(subject.stream).select("name").lean() : null,
     session?.topic ? Topic.findById(session.topic).select("title").lean() : null,
   ]);
-  return [stream?.name, subject?.name, topic?.title, session?.title, quiz.title].filter(Boolean);
+  const parts = [stream?.name, subject?.name, topic?.title, session?.title, quiz.title].filter(Boolean);
+  // Quiz play route needs subject/topic/session/quiz ids.
+  let link = "/quiz";
+  if (quiz.subject && session?.topic && quiz.session && quiz._id) link = `/quiz/${quiz.subject}/${session.topic}/${quiz.session}/${quiz._id}`;
+  else if (quiz.subject) link = `/quiz/${quiz.subject}`;
+  return { parts, link };
 }
 
-// Build the full "Exam › Post › Category › Test" breadcrumb.
+// Build the full "Exam › Post › Category › Test" breadcrumb + a deep link.
 async function buildTestPath(test) {
   const [exam, post] = await Promise.all([
     test.exam ? Exam.findById(test.exam).select("name").lean() : null,
     test.post ? ExamPost.findById(test.post).select("name").lean() : null,
   ]);
-  return [exam?.name, post?.name, test.category, test.name].filter(Boolean);
+  const parts = [exam?.name, post?.name, test.category, test.name].filter(Boolean);
+  let link = "/test-series";
+  if (test.exam && test.post) link = `/test-series/${test.exam}/${test.post}`;
+  else if (test.exam) link = `/test-series/${test.exam}`;
+  return { parts, link };
 }
 
 // When a new quiz/test is added (and the admin enabled it in Notice Board
@@ -42,12 +52,12 @@ export async function notifyNewContent(kind, doc) {
 
     const siteName = settings.siteName || "My Study Guide";
     const label = kind === "test" ? "Test Series" : "Quiz";
-    const parts = kind === "test" ? await buildTestPath(doc) : await buildQuizPath(doc);
+    const { parts, link } = kind === "test" ? await buildTestPath(doc) : await buildQuizPath(doc);
     const fallback = (kind === "test" ? doc.name : doc.title) || label;
     const path = parts.length ? parts.join(" › ") : fallback;
 
-    // 1) Notice board entry — full path
-    await Notice.create({ text: `New ${label} added — ${path}`, active: true, order: 0 });
+    // 1) Notice board entry — full path + deep link to the quiz/test
+    await Notice.create({ text: `New ${label} added — ${path}`, link, active: true, order: 0 });
 
     // 2) Email all students — full path
     const users = await User.find({ role: "student" }).select("email").lean();
