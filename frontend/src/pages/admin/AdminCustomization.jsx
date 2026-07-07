@@ -1,9 +1,91 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
-  Palette, Type, ImagePlus, Save, RotateCcw, CheckCircle2, Eye,
-  Share2, Phone, Plus, Trash2, Upload, X, Info, BarChart3, PanelTop,
+  Palette, Type, ImagePlus, Save, RotateCcw, CheckCircle2, Eye, EyeOff,
+  Share2, Phone, Plus, Trash2, Upload, X, Info, BarChart3, PanelTop, GripVertical, LayoutList,
 } from "lucide-react";
 import { useSettings } from "../../context/SettingsContext";
+
+// Home-page sections (fixed set) that the admin can reorder / hide.
+const HOME_ORDER = ["hero", "stats", "quickAccess", "features", "howItWorks", "cta"];
+const HOME_SECTION_LABELS = {
+  hero: "Hero (tagline & progress card)",
+  stats: "Statistics",
+  quickAccess: "Quick Access (Quiz / Test / Study)",
+  features: "Features",
+  howItWorks: "How it works",
+  cta: "Call-to-action banner",
+};
+
+// Lightweight drag-to-reorder list that works with both mouse and touch
+// (pointer + touch events) — no external dependency, works on phones.
+function DragReorder({ items, onChange, renderRow }) {
+  const listRef = useRef(null);
+  const fromRef = useRef(null);
+  const overRef = useRef(null);
+  const [drag, setDrag] = useState({ from: null, over: null });
+
+  const computeOver = (y) => {
+    const rows = listRef.current?.querySelectorAll("[data-row]") || [];
+    for (let k = 0; k < rows.length; k++) {
+      const r = rows[k].getBoundingClientRect();
+      if (y < r.top + r.height / 2) return k;
+    }
+    return rows.length - 1;
+  };
+
+  const start = (i) => (e) => {
+    e.preventDefault();
+    fromRef.current = i;
+    overRef.current = i;
+    setDrag({ from: i, over: i });
+    const move = (ev) => {
+      const y = ev.touches ? ev.touches[0].clientY : ev.clientY;
+      const over = computeOver(y);
+      overRef.current = over;
+      setDrag((d) => ({ ...d, over }));
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("touchmove", move);
+      window.removeEventListener("touchend", up);
+      const from = fromRef.current;
+      const over = overRef.current;
+      if (from != null && over != null && from !== over) {
+        const next = [...items];
+        const [m] = next.splice(from, 1);
+        next.splice(over, 0, m);
+        onChange(next);
+      }
+      fromRef.current = null;
+      overRef.current = null;
+      setDrag({ from: null, over: null });
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("touchmove", move, { passive: false });
+    window.addEventListener("touchend", up);
+  };
+
+  return (
+    <div ref={listRef} className="space-y-2">
+      {items.map((item, i) => (
+        <div
+          key={item.key || i}
+          data-row
+          className={`flex items-center gap-3 rounded-xl border p-3 transition ${drag.from === i ? "opacity-50" : ""} ${
+            drag.over === i && drag.from !== null && drag.from !== i ? "border-brand-500 ring-1 ring-brand-400" : "border-slate-200 dark:border-slate-700"
+          }`}
+        >
+          <button type="button" onPointerDown={start(i)} title="Drag to reorder" className="cursor-grab touch-none text-slate-400 hover:text-slate-600 active:cursor-grabbing">
+            <GripVertical className="h-5 w-5" />
+          </button>
+          {renderRow(item, i)}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 // Live-count metrics an admin can bind a statistic row to.
 const STAT_METRICS = [
@@ -66,12 +148,20 @@ const DEFAULTS = {
     { title: "Our Promise", desc: "Honest content, transparent analytics and relentless focus on student outcomes." },
   ],
   statsAuto: true,
+  homeSections: HOME_ORDER.map((key) => ({ key, visible: true })),
   aboutStats: [
     { value: "1,20,000+", label: "Total Students" },
     { value: "8,500+", label: "Total Quizzes" },
     { value: "640+", label: "Total Test Series" },
   ],
 };
+
+// Merge saved home layout with the full known set (append missing, drop unknown).
+function normalizeHomeSections(saved) {
+  const list = Array.isArray(saved) ? saved.filter((s) => HOME_ORDER.includes(s.key)) : [];
+  const keys = list.map((s) => s.key);
+  return [...list, ...HOME_ORDER.filter((k) => !keys.includes(k)).map((k) => ({ key: k, visible: true }))];
+}
 
 export default function AdminCustomization() {
   const { settings, save } = useSettings();
@@ -82,6 +172,7 @@ export default function AdminCustomization() {
     contacts: settings.contacts?.length ? settings.contacts : DEFAULTS.contacts,
     aboutValues: settings.aboutValues?.length ? settings.aboutValues : DEFAULTS.aboutValues,
     aboutStats: settings.aboutStats?.length ? settings.aboutStats : DEFAULTS.aboutStats,
+    homeSections: normalizeHomeSections(settings.homeSections),
   });
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
@@ -107,6 +198,10 @@ export default function AdminCustomization() {
   const updateValue = (i, key, val) =>
     set("aboutValues", form.aboutValues.map((v, idx) => (idx === i ? { ...v, [key]: val } : v)));
   const removeValue = (i) => set("aboutValues", form.aboutValues.filter((_, idx) => idx !== i));
+
+  // ---- Home layout ----
+  const toggleSection = (i) =>
+    set("homeSections", form.homeSections.map((s, idx) => (idx === i ? { ...s, visible: s.visible === false ? true : false } : s)));
 
   // ---- About: stats ----
   const addStat = () => set("aboutStats", [...form.aboutStats, { value: "", label: "", metric: "students" }]);
@@ -328,6 +423,30 @@ export default function AdminCustomization() {
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Home page layout */}
+        <div className="card p-6 lg:col-span-2">
+          <h3 className="mb-1 flex items-center gap-2 font-bold"><LayoutList className="h-5 w-5 text-brand-600" /> Home Page Layout</h3>
+          <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">Drag the sections by the handle to reorder how the home page appears, and toggle any section on or off.</p>
+          <DragReorder
+            items={form.homeSections}
+            onChange={(next) => set("homeSections", next)}
+            renderRow={(s, i) => (
+              <div className="flex flex-1 items-center justify-between gap-2">
+                <span className="font-medium">{HOME_SECTION_LABELS[s.key] || s.key}</span>
+                <button
+                  type="button"
+                  onClick={() => toggleSection(i)}
+                  className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold ${
+                    s.visible === false ? "bg-slate-100 text-slate-500 dark:bg-slate-800" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                  }`}
+                >
+                  {s.visible === false ? <><EyeOff className="h-3.5 w-3.5" /> Hidden</> : <><Eye className="h-3.5 w-3.5" /> Visible</>}
+                </button>
+              </div>
+            )}
+          />
         </div>
 
         {/* Screenshot watermark */}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   BookMarked,
@@ -20,6 +20,9 @@ import { analyticsService } from "../services";
 
 // Icons applied by position to the editable stats from Customization.
 const STAT_ICONS = [Users, ListChecks, Layers];
+
+// Default order of home sections (used if none saved / for any missing keys).
+const DEFAULT_HOME_ORDER = ["hero", "stats", "quickAccess", "features", "howItWorks", "cta"];
 
 const features = [
   {
@@ -80,10 +83,8 @@ export default function Home() {
   const manualStats = settings.aboutStats?.length ? settings.aboutStats : [];
   let stats = [];
   if (settings.statsAuto === false) {
-    // Manual mode: use the admin-entered values.
     stats = manualStats.map((s, i) => ({ icon: STAT_ICONS[i % STAT_ICONS.length], label: s.label, value: s.value }));
   } else if (realStats) {
-    // Live mode: every row shows the real count of its chosen metric (auto-updates).
     const rows = manualStats.length ? manualStats : DEFAULT_ROWS;
     stats = rows.map((s, i) => {
       const key = s.metric || DEFAULT_KEYS[i] || "students";
@@ -138,9 +139,9 @@ export default function Home() {
   const progressTitle = live ? live.label : "Physics · Motion";
   const progressSubtitle = live ? "Live · from your activity" : "Today's Progress";
 
-  return (
-    <div>
-      {/* Hero */}
+  // Each home section as a keyed block, rendered in the admin-chosen order.
+  const blocks = {
+    hero: (
       <section className="relative overflow-hidden">
         <div className="absolute inset-0 -z-10 bg-gradient-to-b from-brand-50 via-white to-white dark:from-slate-900 dark:via-slate-950 dark:to-slate-950" />
         <div className="absolute -right-20 -top-20 -z-10 h-72 w-72 rounded-full bg-accent-300/30 blur-3xl dark:bg-accent-600/10" />
@@ -178,7 +179,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Hero visual */}
           <div className="relative animate-scale-in">
             <div className="card p-6 shadow-soft">
               <div className="flex items-center justify-between">
@@ -219,27 +219,28 @@ export default function Home() {
           </div>
         </div>
       </section>
+    ),
 
-      {/* Stats */}
-      {stats.length > 0 && (
-      <section className="container-page">
-        <div className="grid gap-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:grid-cols-3 dark:border-slate-800 dark:bg-slate-900">
-          {stats.map((s) => (
-            <div key={s.label} className="flex items-center justify-center gap-4 py-4">
-              <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-100 text-brand-600 dark:bg-brand-900/40 dark:text-brand-300">
-                <s.icon className="h-7 w-7" />
-              </span>
-              <div>
-                <p className="text-2xl font-extrabold sm:text-3xl">{s.value}</p>
-                <p className="text-sm text-slate-500 dark:text-slate-400">{s.label}</p>
+    stats:
+      stats.length > 0 ? (
+        <section className="container-page">
+          <div className="grid gap-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:grid-cols-3 dark:border-slate-800 dark:bg-slate-900">
+            {stats.map((s) => (
+              <div key={s.label} className="flex items-center justify-center gap-4 py-4">
+                <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-100 text-brand-600 dark:bg-brand-900/40 dark:text-brand-300">
+                  <s.icon className="h-7 w-7" />
+                </span>
+                <div>
+                  <p className="text-2xl font-extrabold sm:text-3xl">{s.value}</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">{s.label}</p>
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-      </section>
-      )}
+            ))}
+          </div>
+        </section>
+      ) : null,
 
-      {/* Quick access */}
+    quickAccess: (
       <section className="container-page pt-10">
         <div className="grid gap-4 sm:grid-cols-3">
           {[
@@ -260,8 +261,9 @@ export default function Home() {
           ))}
         </div>
       </section>
+    ),
 
-      {/* Features */}
+    features: (
       <section className="container-page py-20">
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="text-3xl font-extrabold sm:text-4xl">Everything you need to crack it</h2>
@@ -290,8 +292,9 @@ export default function Home() {
           </div>
         </div>
       </section>
+    ),
 
-      {/* How it works */}
+    howItWorks: (
       <section className="bg-slate-50 py-20 dark:bg-slate-900/40">
         <div className="container-page">
           <div className="mx-auto max-w-2xl text-center">
@@ -313,14 +316,15 @@ export default function Home() {
           </div>
         </div>
       </section>
+    ),
 
-      {/* CTA */}
+    cta: (
       <section className="container-page py-20">
         <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-brand-700 via-brand-600 to-accent-500 px-8 py-14 text-center text-white">
           <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
           <h2 className="text-3xl font-extrabold sm:text-4xl">Start your journey to the top rank</h2>
           <p className="mx-auto mt-3 max-w-xl text-white/90">
-            Join thousands of students preparing the smart way with My Study Guide.
+            Join thousands of students preparing the smart way with {settings.siteName}.
           </p>
           <div className="mt-7 flex flex-wrap justify-center gap-3">
             <Link to="/register" className="btn bg-white text-brand-700 hover:bg-slate-100">
@@ -332,6 +336,25 @@ export default function Home() {
           </div>
         </div>
       </section>
+    ),
+  };
+
+  // Resolve the render order: saved layout first, then any missing sections
+  // appended in their default position so nothing ever disappears.
+  const saved = Array.isArray(settings.homeSections) && settings.homeSections.length ? settings.homeSections : [];
+  const savedKeys = saved.map((s) => s.key);
+  const order = [
+    ...saved,
+    ...DEFAULT_HOME_ORDER.filter((k) => !savedKeys.includes(k)).map((k) => ({ key: k, visible: true })),
+  ];
+
+  return (
+    <div>
+      {order
+        .filter((s) => s.visible !== false && blocks[s.key])
+        .map((s) => (
+          <Fragment key={s.key}>{blocks[s.key]}</Fragment>
+        ))}
     </div>
   );
 }

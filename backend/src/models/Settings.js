@@ -20,6 +20,13 @@ const aboutStatSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// Ordered list of home-page sections with visibility (admin drag-to-reorder).
+const homeSectionSchema = new mongoose.Schema(
+  { key: { type: String }, visible: { type: Boolean, default: true } },
+  { _id: false }
+);
+const DEFAULT_HOME_SECTIONS = ["hero", "stats", "quickAccess", "features", "howItWorks", "cta"].map((key) => ({ key, visible: true }));
+
 // Singleton site-wide settings the admin can customise.
 const settingsSchema = new mongoose.Schema(
   {
@@ -83,6 +90,10 @@ const settingsSchema = new mongoose.Schema(
         { title: "Our Vision", desc: "Become the most trusted self-study companion powered by data-driven learning." },
         { title: "Our Promise", desc: "Honest content, transparent analytics and relentless focus on student outcomes." },
       ],
+    },
+    homeSections: {
+      type: [homeSectionSchema],
+      default: () => DEFAULT_HOME_SECTIONS,
     },
     aboutStats: {
       type: [aboutStatSchema],
