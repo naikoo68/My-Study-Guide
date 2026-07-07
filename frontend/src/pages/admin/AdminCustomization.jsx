@@ -4,6 +4,18 @@ import {
   Share2, Phone, Plus, Trash2, Upload, X, Info, BarChart3, PanelTop,
 } from "lucide-react";
 import { useSettings } from "../../context/SettingsContext";
+
+// Live-count metrics an admin can bind a statistic row to.
+const STAT_METRICS = [
+  { key: "students", label: "Students (live)" },
+  { key: "users", label: "All Users (live)" },
+  { key: "quizzes", label: "Quizzes (live)" },
+  { key: "tests", label: "Test Series (live)" },
+  { key: "questions", label: "Questions (live)" },
+  { key: "subjects", label: "Subjects (live)" },
+  { key: "topics", label: "Topics (live)" },
+  { key: "attempts", label: "Attempts (live)" },
+];
 import { FONT_OPTIONS } from "../../lib/theme";
 import { SOCIAL_PLATFORMS } from "../../components/ui/SocialIcons";
 
@@ -96,7 +108,7 @@ export default function AdminCustomization() {
   const removeValue = (i) => set("aboutValues", form.aboutValues.filter((_, idx) => idx !== i));
 
   // ---- About: stats ----
-  const addStat = () => set("aboutStats", [...form.aboutStats, { value: "", label: "" }]);
+  const addStat = () => set("aboutStats", [...form.aboutStats, { value: "", label: "", metric: "students" }]);
   const updateStat = (i, key, val) =>
     set("aboutStats", form.aboutStats.map((s, idx) => (idx === i ? { ...s, [key]: val } : s)));
   const removeStat = (i) => set("aboutStats", form.aboutStats.filter((_, idx) => idx !== i));
@@ -438,27 +450,31 @@ export default function AdminCustomization() {
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <label className="flex items-center gap-1.5 text-sm font-medium"><BarChart3 className="h-4 w-4" /> Statistics (shown on Home &amp; About)</label>
-                {!form.statsAuto && <button type="button" onClick={addStat} className="btn-outline py-1.5"><Plus className="h-4 w-4" /> Add</button>}
+                <button type="button" onClick={addStat} className="btn-outline py-1.5"><Plus className="h-4 w-4" /> Add</button>
               </div>
               <label className="mb-3 flex items-start gap-2 rounded-xl border border-slate-200 p-3 dark:border-slate-700">
                 <input type="checkbox" checked={form.statsAuto} onChange={(e) => set("statsAuto", e.target.checked)} className="mt-0.5 h-4 w-4 accent-brand-600" />
                 <span>
                   <span className="text-sm font-semibold">Automatic (live) statistics</span>
-                  <span className="block text-xs text-slate-500 dark:text-slate-400">On: values are the real live counts of students, quizzes &amp; test series (auto-updates). Off: use the manual values you enter below.</span>
+                  <span className="block text-xs text-slate-500 dark:text-slate-400">On: each row shows the real live count of the metric you pick (auto-updates). Off: use the manual values you enter.</span>
                 </span>
               </label>
-              {form.statsAuto ? (
-                <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">Live mode is on — the numbers update automatically. You can still rename the labels below (values are ignored while live).</p>
-              ) : null}
               <div className="mt-2 space-y-2">
                 {form.aboutStats.map((s, i) => (
                   <div key={i} className="flex items-center gap-2">
-                    <input className="input w-40" value={s.value} onChange={(e) => updateStat(i, "value", e.target.value)} placeholder="Value (e.g. 1,20,000+)" disabled={form.statsAuto} />
+                    {form.statsAuto ? (
+                      <select className="input w-44" value={s.metric || "students"} onChange={(e) => updateStat(i, "metric", e.target.value)}>
+                        {STAT_METRICS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
+                      </select>
+                    ) : (
+                      <input className="input w-40" value={s.value} onChange={(e) => updateStat(i, "value", e.target.value)} placeholder="Value (e.g. 1,20,000+)" />
+                    )}
                     <input className="input flex-1" value={s.label} onChange={(e) => updateStat(i, "label", e.target.value)} placeholder="Label (e.g. Students)" />
-                    {!form.statsAuto && <button type="button" onClick={() => removeStat(i)} className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30"><Trash2 className="h-4 w-4" /></button>}
+                    <button type="button" onClick={() => removeStat(i)} className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30"><Trash2 className="h-4 w-4" /></button>
                   </div>
                 ))}
               </div>
+              {form.statsAuto && <p className="mt-2 text-xs text-slate-400">Pick a metric per row and give it a label. Add as many as you like — every one updates automatically from the live database.</p>}
             </div>
           </div>
         </div>

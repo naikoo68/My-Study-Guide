@@ -71,19 +71,24 @@ export default function Home() {
   }, []);
 
   const fmt = (n) => Number(n || 0).toLocaleString("en-IN");
+  const DEFAULT_KEYS = ["students", "quizzes", "tests"];
+  const DEFAULT_ROWS = [
+    { label: "Total Students", metric: "students" },
+    { label: "Total Quizzes", metric: "quizzes" },
+    { label: "Total Test Series", metric: "tests" },
+  ];
   const manualStats = settings.aboutStats?.length ? settings.aboutStats : [];
-  const labels = manualStats.map((s) => s.label);
   let stats = [];
   if (settings.statsAuto === false) {
     // Manual mode: use the admin-entered values.
     stats = manualStats.map((s, i) => ({ icon: STAT_ICONS[i % STAT_ICONS.length], label: s.label, value: s.value }));
   } else if (realStats) {
-    // Live mode: real counts.
-    stats = [
-      { icon: STAT_ICONS[0], label: labels[0] || "Total Students", value: fmt(realStats.students) },
-      { icon: STAT_ICONS[1], label: labels[1] || "Total Quizzes", value: fmt(realStats.quizzes) },
-      { icon: STAT_ICONS[2], label: labels[2] || "Total Test Series", value: fmt(realStats.tests) },
-    ];
+    // Live mode: every row shows the real count of its chosen metric (auto-updates).
+    const rows = manualStats.length ? manualStats : DEFAULT_ROWS;
+    stats = rows.map((s, i) => {
+      const key = s.metric || DEFAULT_KEYS[i] || "students";
+      return { icon: STAT_ICONS[i % STAT_ICONS.length], label: s.label || DEFAULT_ROWS[i]?.label || "", value: fmt(realStats[key] ?? 0) };
+    });
   }
 
   // Live progress card for a logged-in student (from their real attempts + rank).

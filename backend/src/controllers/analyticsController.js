@@ -3,18 +3,24 @@ import TestSeries from "../models/TestSeries.js";
 import Attempt from "../models/Attempt.js";
 import Quiz from "../models/Quiz.js";
 import Question from "../models/Question.js";
+import Subject from "../models/Subject.js";
+import Topic from "../models/Topic.js";
 
 // GET /api/stats — public, live counts for the Home/About statistics section.
 // Recomputed on every request, so it updates the moment a user registers or
-// content is added.
+// content is added. Any of these keys can be bound to a stat row in admin.
 export async function publicStats(req, res) {
-  const [students, quizzes, tests, questions] = await Promise.all([
+  const [students, users, quizzes, tests, questions, subjects, topics, attempts] = await Promise.all([
     User.countDocuments({ role: "student" }),
+    User.countDocuments(),
     Quiz.countDocuments(),
     TestSeries.countDocuments(),
     Question.countDocuments(),
+    Subject.countDocuments(),
+    Topic.countDocuments(),
+    Attempt.countDocuments(),
   ]);
-  res.json({ students, quizzes, tests, questions });
+  res.json({ students, users, quizzes, tests, questions, subjects, topics, attempts });
 }
 
 const initials = (name = "") =>

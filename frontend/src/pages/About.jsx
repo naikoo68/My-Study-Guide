@@ -17,17 +17,22 @@ export default function About() {
     analyticsService.stats().then(setRealStats).catch(() => {});
   }, []);
   const fmt = (n) => Number(n || 0).toLocaleString("en-IN");
+  const DEFAULT_KEYS = ["students", "quizzes", "tests"];
+  const DEFAULT_ROWS = [
+    { label: "Total Students", metric: "students" },
+    { label: "Total Quizzes", metric: "quizzes" },
+    { label: "Total Test Series", metric: "tests" },
+  ];
   const manualStats = settings.aboutStats?.length ? settings.aboutStats : [];
-  const labels = manualStats.map((s) => s.label);
   let stats = [];
   if (settings.statsAuto === false) {
     stats = manualStats;
   } else if (realStats) {
-    stats = [
-      { label: labels[0] || "Total Students", value: fmt(realStats.students) },
-      { label: labels[1] || "Total Quizzes", value: fmt(realStats.quizzes) },
-      { label: labels[2] || "Total Test Series", value: fmt(realStats.tests) },
-    ];
+    const rows = manualStats.length ? manualStats : DEFAULT_ROWS;
+    stats = rows.map((s, i) => {
+      const key = s.metric || DEFAULT_KEYS[i] || "students";
+      return { label: s.label || DEFAULT_ROWS[i]?.label || "", value: fmt(realStats[key] ?? 0) };
+    });
   }
 
   return (
