@@ -27,6 +27,7 @@ import MathText from "../../components/ui/MathText";
 import StatementPairView from "../../components/ui/StatementPairView";
 import TableView from "../../components/ui/TableView";
 import AssertionReasonView from "../../components/ui/AssertionReasonView";
+import Watermark from "../../components/ui/Watermark";
 import FeedbackButton from "../../components/ui/FeedbackButton";
 import { useZoom } from "../../context/ZoomContext";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
@@ -354,6 +355,7 @@ export default function QuizPlay() {
 
   return (
     <div ref={containerRef} className={fullscreen ? "fixed inset-0 z-[60] overflow-y-auto bg-slate-50 px-4 py-6 dark:bg-slate-950" : "container-page py-6"}>
+      <Watermark />
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <button onClick={() => navigate(`/quiz/${subjectId}/${topicId}`)} className="btn-ghost -ml-2">
           <ChevronLeft className="h-4 w-4" /> Exit

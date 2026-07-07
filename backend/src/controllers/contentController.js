@@ -4,6 +4,7 @@ import Session from "../models/Session.js";
 import Quiz from "../models/Quiz.js";
 import Question from "../models/Question.js";
 import TestSeries from "../models/TestSeries.js";
+import { notifyNewContent } from "../utils/notify.js";
 
 const slugify = (s) =>
   s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -127,6 +128,7 @@ export async function listQuizzes(req, res) {
 
 export async function createQuiz(req, res) {
   const quiz = await Quiz.create(req.body);
+  notifyNewContent("quiz", quiz.title); // fire-and-forget (respects admin toggle)
   res.status(201).json(quiz);
 }
 

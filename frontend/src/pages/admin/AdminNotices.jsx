@@ -1,17 +1,21 @@
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, X, Megaphone, Eye, EyeOff } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Megaphone, Eye, EyeOff, BellRing } from "lucide-react";
 import { noticeService } from "../../services";
+import { useSettings } from "../../context/SettingsContext";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 
 const blank = { text: "", link: "", active: true, order: 0 };
 
 export default function AdminNotices() {
+  const { settings, save: saveSettings } = useSettings();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [modal, setModal] = useState(null); // { mode: "add"|"edit", data }
   const [form, setForm] = useState(blank);
   const [saving, setSaving] = useState(false);
+  const [notify, setNotify] = useState(false);
+  const [notifySaving, setNotifySaving] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -19,6 +23,21 @@ export default function AdminNotices() {
     noticeService.listAll().then(setItems).catch((e) => setError(e.message)).finally(() => setLoading(false));
   };
   useEffect(load, []);
+  useEffect(() => { setNotify(settings?.notifyOnNewContent === true); }, [settings?.notifyOnNewContent]);
+
+  const toggleNotify = async () => {
+    const next = !notify;
+    setNotify(next);
+    setNotifySaving(true);
+    try {
+      await saveSettings({ notifyOnNewContent: next });
+    } catch (e2) {
+      setError(e2.message);
+      setNotify(!next);
+    } finally {
+      setNotifySaving(false);
+    }
+  };
 
   const openAdd = () => {
     setForm(blank);
@@ -75,6 +94,26 @@ export default function AdminNotices() {
         </div>
         <button onClick={openAdd} className="btn-primary">
           <Plus className="h-4 w-4" /> Add Notice
+        </button>
+      </div>
+
+      {/* Auto-notify toggle */}
+      <div className="card flex flex-wrap items-center justify-between gap-3 p-4">
+        <div className="flex items-start gap-3">
+          <BellRing className="mt-0.5 h-5 w-5 flex-shrink-0 text-accent-500" />
+          <div>
+            <p className="font-semibold">Notify students about new content</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">When on, adding a new quiz or test series automatically posts a notice here and emails every registered student.</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={toggleNotify}
+          disabled={notifySaving}
+          className={`relative h-7 w-12 flex-shrink-0 rounded-full transition ${notify ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-600"}`}
+          aria-pressed={notify}
+        >
+          <span className={`absolute top-1 h-5 w-5 rounded-full bg-white transition-all ${notify ? "left-6" : "left-1"}`} />
         </button>
       </div>
 

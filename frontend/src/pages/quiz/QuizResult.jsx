@@ -21,6 +21,7 @@ import MathText from "../../components/ui/MathText";
 import StatementPairView from "../../components/ui/StatementPairView";
 import TableView from "../../components/ui/TableView";
 import AssertionReasonView from "../../components/ui/AssertionReasonView";
+import Watermark from "../../components/ui/Watermark";
 import FeedbackButton from "../../components/ui/FeedbackButton";
 
 function toRomanLite(n) {
@@ -99,6 +100,7 @@ export default function QuizResult() {
 
   return (
     <div className="container-page py-10">
+      <Watermark />
       {/* Header banner */}
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-brand-700 via-brand-600 to-accent-500 p-8 text-center text-white">
         <div className="absolute -right-8 -top-8 h-32 w-32 rounded-full bg-white/10 blur-2xl" />

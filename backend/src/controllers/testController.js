@@ -3,6 +3,7 @@ import Question from "../models/Question.js";
 import Attempt from "../models/Attempt.js";
 import User from "../models/User.js";
 import { isTestVisibleToUser, findAccessEntry } from "../utils/accessControl.js";
+import { notifyNewContent } from "../utils/notify.js";
 
 // GET /api/tests  — list published tests visible to the requesting user
 export async function listTests(req, res) {
@@ -109,6 +110,7 @@ export async function updateTestAccess(req, res) {
 // POST /api/tests  (admin)
 export async function createTest(req, res) {
   const test = await TestSeries.create(req.body);
+  notifyNewContent("test", test.name); // fire-and-forget (respects admin toggle)
   res.status(201).json(test);
 }
 

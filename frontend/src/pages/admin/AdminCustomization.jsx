@@ -25,6 +25,8 @@ const DEFAULTS = {
   navFontFamily: "",
   navTextTransform: "none",
   defaultZoom: 80,
+  watermarkEnabled: true,
+  watermarkText: "",
   socialLinks: [
     { platform: "facebook", url: "" },
     { platform: "instagram", url: "" },
@@ -304,6 +306,26 @@ export default function AdminCustomization() {
                 ))}
                 <span className="rounded-lg px-3 py-1.5 text-white" style={{ background: form.primaryColor, fontSize: `${form.navFontSize}px`, fontWeight: Number(form.navFontWeight) }}>Login</span>
               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Screenshot watermark */}
+        <div className="card p-6 lg:col-span-2">
+          <h3 className="mb-4 flex items-center gap-2 font-bold"><Info className="h-5 w-5 text-brand-600" /> Screenshot Watermark</h3>
+          <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">A faint tiled watermark is drawn over quiz &amp; test pages, so any screenshot a student takes carries your copyright mark.</p>
+          <div className="grid gap-5 sm:grid-cols-2">
+            <div>
+              <label className="mb-1.5 block text-sm font-medium">Watermark text</label>
+              <input className="input" value={form.watermarkText} onChange={(e) => set("watermarkText", e.target.value)} placeholder={`${form.siteName || "My Study Guide"} ©`} />
+              <p className="mt-1 text-xs text-slate-400">Leave blank to use "{form.siteName || "My Study Guide"} ©". The current year is appended automatically.</p>
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium">Show watermark</label>
+              <select className="input" value={form.watermarkEnabled ? "1" : "0"} onChange={(e) => set("watermarkEnabled", e.target.value === "1")}>
+                <option value="1">On</option>
+                <option value="0">Off</option>
+              </select>
             </div>
           </div>
         </div>

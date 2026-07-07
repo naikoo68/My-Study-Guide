@@ -17,6 +17,7 @@ export async function updateSettings(req, res) {
     "siteName", "tagline", "logoUrl", "primaryColor", "accentColor",
     "fontFamily", "socialLinks", "contacts",
     "navHeight", "navBrandSize", "navFontSize", "navFontWeight", "navFontFamily", "navTextTransform", "defaultZoom",
+    "watermarkEnabled", "watermarkText", "notifyOnNewContent",
     "aboutHeading", "aboutIntro", "aboutValues", "aboutStats",
   ];
   const update = {};

@@ -22,6 +22,7 @@ import MathText from "../../components/ui/MathText";
 import StatementPairView from "../../components/ui/StatementPairView";
 import TableView from "../../components/ui/TableView";
 import AssertionReasonView from "../../components/ui/AssertionReasonView";
+import Watermark from "../../components/ui/Watermark";
 import FeedbackButton from "../../components/ui/FeedbackButton";
 import { useZoom } from "../../context/ZoomContext";
 
@@ -205,6 +206,7 @@ export default function TestAttempt() {
     ];
     return (
       <div className="min-h-screen bg-slate-50 py-10 dark:bg-slate-950">
+        <Watermark />
         <div className="container-page">
           <div className="card p-8 text-center">
             <Trophy className="mx-auto h-14 w-14 text-accent-500" />
@@ -333,6 +335,7 @@ export default function TestAttempt() {
 
   return (
     <div ref={containerRef} className={`bg-slate-100 dark:bg-slate-950 ${fullscreen ? "fixed inset-0 z-[60] overflow-y-auto" : "min-h-screen"}`}>
+      <Watermark />
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2">
           <h1 className="min-w-0 flex-1 truncate text-sm font-bold sm:text-base">{test.name}</h1>

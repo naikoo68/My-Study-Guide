@@ -40,6 +40,11 @@ const settingsSchema = new mongoose.Schema(
     navFontFamily: { type: String, default: "" }, // "" = use site font
     navTextTransform: { type: String, default: "none" }, // none | uppercase | capitalize
     defaultZoom: { type: Number, default: 80 }, // default page zoom % for new visitors (50–200)
+    // Screenshot watermark shown over quiz/test question pages.
+    watermarkEnabled: { type: Boolean, default: true },
+    watermarkText: { type: String, default: "" }, // "" = use "<siteName> ©"
+    // Email + notice-board announcement when a new quiz/test is added.
+    notifyOnNewContent: { type: Boolean, default: false },
     socialLinks: {
       type: [socialSchema],
       default: () => [
