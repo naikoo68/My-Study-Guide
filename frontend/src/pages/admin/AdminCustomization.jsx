@@ -339,17 +339,17 @@ export default function AdminCustomization() {
               </select>
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-medium">When to show</label>
+              <label className="mb-1.5 block text-sm font-medium">Mode</label>
               <select className="input" value={form.watermarkMode} onChange={(e) => set("watermarkMode", e.target.value)}>
-                <option value="always">Always visible (reliable)</option>
-                <option value="screenshot">Only on screenshot attempt (best-effort)</option>
+                <option value="always">Always on (works on all devices)</option>
+                <option value="screenshot">Always on + stronger on desktop screenshot</option>
               </select>
-              <p className="mt-1 text-xs text-slate-400">"Screenshot" mode can't catch snipping tools or phone screenshots.</p>
+              <p className="mt-1 text-xs text-slate-400">The watermark is always present — phones can't notify the site of a screenshot, so it must stay on to be captured.</p>
             </div>
             <div>
               <label className="mb-1.5 block text-sm font-medium">Opacity: <span className="font-mono text-brand-600">{form.watermarkOpacity}%</span></label>
               <input type="range" min="2" max="60" step="1" value={form.watermarkOpacity} onChange={(e) => set("watermarkOpacity", Number(e.target.value))} className="w-full accent-brand-600" />
-              <p className="mt-1 text-xs text-slate-400">Lower = fainter on screen (still shows in screenshots).</p>
+              <p className="mt-1 text-xs text-slate-400">Raise this until it's visible on your theme (≈15–30% shows well on dark screens).</p>
             </div>
             <div>
               <label className="mb-1.5 block text-sm font-medium">Text size: <span className="font-mono text-brand-600">{form.watermarkSize}px</span></label>
