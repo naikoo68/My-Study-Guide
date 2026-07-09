@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, X, ChevronRight, GraduationCap, FolderOpen, ListChecks, FileStack, HelpCircle, Upload, Eye, Users, Copy, Search, Download } from "lucide-react";
+import { Plus, Pencil, Trash2, X, ChevronRight, GraduationCap, FolderOpen, ListChecks, FileStack, HelpCircle, Upload, Eye, Users, Copy, Search, Download, Sparkles } from "lucide-react";
 import { practiceService, testService, contentService } from "../../services";
 import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 import QuestionFormModal from "../../components/admin/QuestionFormModal";
 import BulkUploadQuestions, { questionsToCsv } from "../../components/admin/BulkUploadQuestions";
+import AiGenerate from "../../components/admin/AiGenerate";
 import QuestionView from "../../components/admin/QuestionView";
 
 const KINDS = [
@@ -31,6 +32,7 @@ export default function AdminPractice() {
   const [tqModal, setTqModal] = useState(null);
   const [tqSaving, setTqSaving] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
   const [viewQ, setViewQ] = useState(null);
   const [viewAll, setViewAll] = useState(false);
   const [selectedQ, setSelectedQ] = useState([]);
@@ -263,6 +265,7 @@ export default function AdminPractice() {
               {tq.length > 0 && <button onClick={copyCsv} className="btn-outline"><Copy className="h-4 w-4" /> Copy CSV{selectedQ.length ? ` (${selectedQ.length})` : ""}</button>}
               {tq.length > 0 && <button onClick={downloadCsv} className="btn-outline"><Download className="h-4 w-4" /> Download CSV{selectedQ.length ? ` (${selectedQ.length})` : ""}</button>}
               <button onClick={() => setBulkOpen(true)} className="btn-outline"><Upload className="h-4 w-4" /> Bulk Upload</button>
+              <button onClick={() => setAiOpen(true)} className="btn-outline text-brand-600"><Sparkles className="h-4 w-4" /> Generate with AI</button>
               <button onClick={() => setTqModal({ mode: "add", data: null })} className="btn-primary"><Plus className="h-4 w-4" /> Add Question</button>
             </div>
             {tqLoading ? <Loading /> : tq.length === 0 ? <EmptyState message="No questions yet." /> : (
@@ -360,6 +363,18 @@ export default function AdminPractice() {
             const existing = await testService.getQuestions(qItem._id);
             for (const q of existing) await testService.deleteQuestion(qItem._id, q._id);
           }
+          const res = await contentService.bulkQuestions(questions, { testSeries: qItem._id });
+          await reloadTq();
+          load("items");
+          return res;
+        }}
+      />
+
+      <AiGenerate
+        open={aiOpen}
+        title={`Generate with AI — ${qItem?.name || ""}`}
+        onClose={() => setAiOpen(false)}
+        onUpload={async (questions) => {
           const res = await contentService.bulkQuestions(questions, { testSeries: qItem._id });
           await reloadTq();
           load("items");

@@ -192,6 +192,12 @@ export const noticeService = {
   remove: (id) => api.del(`/notices/${id}`),
 };
 
+// ---- AI question generator (admin) ----
+export const aiService = {
+  status: () => api.get("/ai/status"),
+  generate: (data) => api.post("/ai/generate", data),
+};
+
 // ---- File upload (Cloudinary) ----
 export const uploadService = {
   file: (file) => {

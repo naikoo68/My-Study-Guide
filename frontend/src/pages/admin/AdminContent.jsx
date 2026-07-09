@@ -4,8 +4,10 @@ import { contentService } from "../../services";
 import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 import BulkUploadQuestions, { questionsToCsv } from "../../components/admin/BulkUploadQuestions";
+import AiGenerate from "../../components/admin/AiGenerate";
 import QuestionFormModal from "../../components/admin/QuestionFormModal";
 import QuestionView from "../../components/admin/QuestionView";
+import { Sparkles } from "lucide-react";
 
 const COLORS = [
   "from-blue-500 to-indigo-600",
@@ -33,6 +35,7 @@ export default function AdminContent() {
   const [error, setError] = useState("");
   const [modal, setModal] = useState(null); // { type, mode, data }
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [viewQ, setViewQ] = useState(null); // single question to preview
   const [viewAll, setViewAll] = useState(false); // preview all questions
@@ -227,6 +230,9 @@ export default function AdminContent() {
               <button onClick={() => setBulkOpen(true)} className="btn-outline">
                 <Upload className="h-4 w-4" /> Bulk Upload
               </button>
+              <button onClick={() => setAiOpen(true)} className="btn-outline text-brand-600">
+                <Sparkles className="h-4 w-4" /> Generate with AI
+              </button>
               <button onClick={() => copyCsv(selected.length ? items.filter((q) => selected.includes(q._id)) : items)} disabled={!items.length} className="btn-outline">
                 <Copy className="h-4 w-4" /> Copy CSV{selected.length ? ` (${selected.length})` : ""}
               </button>
@@ -362,6 +368,21 @@ export default function AdminContent() {
           if (opts.replace) {
             for (const it of items) await contentService.deleteQuestion(it._id);
           }
+          const res = await contentService.bulkQuestions(questions, {
+            subject: subject._id,
+            session: session._id,
+            quiz: quiz._id,
+          });
+          load("questions");
+          return res;
+        }}
+      />
+
+      <AiGenerate
+        open={aiOpen}
+        title={`Generate with AI${quiz ? ` — ${quiz.title}` : ""}`}
+        onClose={() => setAiOpen(false)}
+        onUpload={async (questions) => {
           const res = await contentService.bulkQuestions(questions, {
             subject: subject._id,
             session: session._id,
