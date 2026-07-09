@@ -179,7 +179,7 @@ function normalize(list) {
 // Body: { topic, count, difficulty, types:[], notes }
 // Returns { questions:[...] } — NOT saved; the admin previews then inserts.
 export async function generateQuestions(req, res) {
-  const key = process.env.AI_API_KEY;
+  const key = (process.env.AI_API_KEY || "").trim(); // trim stray spaces/newlines from env
   if (!key) {
     return res.status(400).json({
       message:
