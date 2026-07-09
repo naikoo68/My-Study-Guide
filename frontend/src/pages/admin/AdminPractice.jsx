@@ -282,15 +282,14 @@ export default function AdminPractice() {
                         <input type="checkbox" checked={selectedQ.includes(item._id)} onChange={() => toggleSelectQ(item._id)} className="mt-0.5 h-4 w-4 flex-shrink-0 accent-brand-600" />
                         <div className="min-w-0">
                           <p className="font-medium">Q{i + 1}. {item.text}</p>
-                          <div className="mt-1 flex flex-wrap gap-2">
-                            <Badge variant="brand">{item.type || "mcq"}</Badge>
+                          <div className="mt-1 flex flex-wrap items-center gap-2">
+                            <Badge variant={item.type === "matching" ? "accent" : "brand"}>{item.type === "matching" ? "Matching" : (item.type || "mcq") === "mcq" ? "MCQ" : item.type}</Badge>
                             {item.difficulty && <Badge variant={item.difficulty}>{item.difficulty}</Badge>}
+                            {item.status && <Badge variant={item.status === "published" ? "brand" : "neutral"}>{item.status}</Badge>}
+                            {item.correct != null && (
+                              <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">Correct: {String.fromCharCode(65 + item.correct)}</span>
+                            )}
                           </div>
-                          {Array.isArray(item.options) && item.correct != null && item.options[item.correct] != null && (
-                            <p className="mt-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                              Correct: {String.fromCharCode(65 + item.correct)} — {item.options[item.correct]}
-                            </p>
-                          )}
                         </div>
                       </div>
                       <div className="flex flex-shrink-0 gap-1">
