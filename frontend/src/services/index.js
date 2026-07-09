@@ -95,8 +95,8 @@ export const practiceService = {
   topics: (kind, subjectId) => api.get(`/practice/browse/${kind}/subjects/${subjectId}/topics`), // My Quiz
   items: (kind, subjectId) => api.get(`/practice/browse/${kind}/subjects/${subjectId}/items`), // My Test Series
   topicItems: (kind, topicId) => api.get(`/practice/browse/${kind}/topics/${topicId}/items`), // My Quiz
-  // admin — streams
-  adminStreams: () => api.get("/practice/streams"),
+  // admin — streams (kind-scoped so My Quiz & My Test Series stay separate)
+  adminStreams: (kind) => api.get(`/practice/streams${kind ? `?kind=${kind}` : ""}`),
   createStream: (data) => api.post("/practice/streams", data),
   updateStream: (id, data) => api.put(`/practice/streams/${id}`, data),
   deleteStream: (id) => api.del(`/practice/streams/${id}`),

@@ -14,7 +14,9 @@ const slugify = (s) => String(s || "").toLowerCase().trim().replace(/[^a-z0-9]+/
 
 /* ---------------- Streams (admin) ---------------- */
 export async function listStreams(req, res) {
-  const streams = await PracticeStream.find({ isActive: true }).sort("order name").lean();
+  const filter = { isActive: true };
+  if (req.query.kind) filter.kind = req.query.kind;
+  const streams = await PracticeStream.find(filter).sort("order name").lean();
   const subs = await PracticeSubject.aggregate([{ $group: { _id: "$stream", count: { $sum: 1 } } }]);
   const map = Object.fromEntries(subs.map((s) => [String(s._id), s.count]));
   res.json(streams.map((s) => ({ ...s, subjects: map[String(s._id)] || 0 })));
@@ -146,7 +148,7 @@ export async function browseStreams(req, res) {
     .select("practiceStream visibleToAll access")
     .lean();
   const ok = new Set(items.filter((t) => isTestVisibleToUser(t, req.user?._id)).map((t) => String(t.practiceStream)));
-  const streams = await PracticeStream.find({ isActive: true }).sort("order name").lean();
+  const streams = await PracticeStream.find({ isActive: true, kind: req.params.kind }).sort("order name").lean();
   res.json(streams.filter((s) => ok.has(String(s._id))));
 }
 export async function browseSubjects(req, res) {

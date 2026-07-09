@@ -42,7 +42,7 @@ export default function AdminPractice() {
     setLoading(true);
     setError("");
     const p =
-      which === "streams" ? practiceService.adminStreams()
+      which === "streams" ? practiceService.adminStreams(kind)
       : which === "subjects" ? practiceService.adminSubjects(stream._id)
       : which === "topics" ? practiceService.adminTopics(subject._id)
       : kind === "quiz" ? practiceService.adminTopicItems(topic._id)
@@ -62,7 +62,7 @@ export default function AdminPractice() {
     setSaving(true);
     try {
       const { type, mode, data } = modal;
-      if (type === "stream") mode === "add" ? await practiceService.createStream(form) : await practiceService.updateStream(data._id, form);
+      if (type === "stream") mode === "add" ? await practiceService.createStream({ ...form, kind }) : await practiceService.updateStream(data._id, form);
       else if (type === "subject") mode === "add" ? await practiceService.createSubject({ ...form, stream: stream._id }) : await practiceService.updateSubject(data._id, form);
       else if (type === "topic") mode === "add" ? await practiceService.createTopic({ ...form, subject: subject._id }) : await practiceService.updateTopic(data._id, form);
       else if (type === "item") {
