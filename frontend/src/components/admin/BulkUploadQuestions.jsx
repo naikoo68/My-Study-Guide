@@ -401,11 +401,16 @@ export default function BulkUploadQuestions({ open, onClose, onUpload, title = "
           </button>
         </div>
 
-        <div className="mb-3">
+        <div className="mb-3 flex flex-wrap gap-2">
           <label className="btn-outline cursor-pointer">
             <FileText className="h-4 w-4" /> Choose CSV file
             <input type="file" accept=".csv,text/csv,text/plain" className="hidden" onChange={onFile} />
           </label>
+          {text.trim() && (
+            <button type="button" onClick={() => { setText(""); setMsg(""); }} className="btn-outline">
+              <X className="h-4 w-4" /> Clear text
+            </button>
+          )}
         </div>
 
         <textarea
