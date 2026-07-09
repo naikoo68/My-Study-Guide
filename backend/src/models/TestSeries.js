@@ -18,6 +18,7 @@ const testSeriesSchema = new mongoose.Schema(
     practiceKind: { type: String, enum: ["quiz", "test"], default: "test" },
     practiceStream: { type: mongoose.Schema.Types.ObjectId, ref: "PracticeStream" },
     practiceSubject: { type: mongoose.Schema.Types.ObjectId, ref: "PracticeSubject" },
+    practiceTopic: { type: mongoose.Schema.Types.ObjectId, ref: "PracticeTopic" }, // My Quiz only
     duration: { type: Number, required: true }, // minutes
     marks: { type: Number, required: true },
     difficulty: { type: String, enum: ["Easy", "Medium", "Hard"], default: "Medium" },

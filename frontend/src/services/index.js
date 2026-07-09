@@ -92,7 +92,9 @@ export const practiceService = {
   // so students see items granted to them; guests see only public ones.
   streams: (kind) => api.get(`/practice/browse/${kind}/streams`),
   subjects: (kind, streamId) => api.get(`/practice/browse/${kind}/streams/${streamId}/subjects`),
-  items: (kind, subjectId) => api.get(`/practice/browse/${kind}/subjects/${subjectId}/items`),
+  topics: (kind, subjectId) => api.get(`/practice/browse/${kind}/subjects/${subjectId}/topics`), // My Quiz
+  items: (kind, subjectId) => api.get(`/practice/browse/${kind}/subjects/${subjectId}/items`), // My Test Series
+  topicItems: (kind, topicId) => api.get(`/practice/browse/${kind}/topics/${topicId}/items`), // My Quiz
   // admin — streams
   adminStreams: () => api.get("/practice/streams"),
   createStream: (data) => api.post("/practice/streams", data),
@@ -103,8 +105,14 @@ export const practiceService = {
   createSubject: (data) => api.post("/practice/subjects", data),
   updateSubject: (id, data) => api.put(`/practice/subjects/${id}`, data),
   deleteSubject: (id) => api.del(`/practice/subjects/${id}`),
+  // admin — topics (My Quiz)
+  adminTopics: (subjectId) => api.get(`/practice/subjects/${subjectId}/topics`),
+  createTopic: (data) => api.post("/practice/topics", data),
+  updateTopic: (id, data) => api.put(`/practice/topics/${id}`, data),
+  deleteTopic: (id) => api.del(`/practice/topics/${id}`),
   // admin — items (practice test-series)
   adminItems: (subjectId, kind) => api.get(`/practice/subjects/${subjectId}/items${kind ? `?kind=${kind}` : ""}`),
+  adminTopicItems: (topicId) => api.get(`/practice/topics/${topicId}/items`),
   createItem: (data) => api.post("/practice/items", data),
 };
 

@@ -14,9 +14,10 @@ const KINDS = [
 
 export default function AdminPractice() {
   const [kind, setKind] = useState("quiz");
-  const [view, setView] = useState("streams"); // streams | subjects | items
+  const [view, setView] = useState("streams"); // streams | subjects | topics | items
   const [stream, setStream] = useState(null);
   const [subject, setSubject] = useState(null);
+  const [topic, setTopic] = useState(null);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -43,13 +44,17 @@ export default function AdminPractice() {
     const p =
       which === "streams" ? practiceService.adminStreams()
       : which === "subjects" ? practiceService.adminSubjects(stream._id)
-      : practiceService.adminItems(subject._id, kind);
+      : which === "topics" ? practiceService.adminTopics(subject._id)
+      : kind === "quiz" ? practiceService.adminTopicItems(topic._id)
+      : practiceService.adminItems(subject._id, "test");
     p.then(setItems).catch((e) => setError(e.message)).finally(() => setLoading(false));
   };
   useEffect(() => { load(view); /* eslint-disable-next-line */ }, [view, kind]);
 
-  const openStream = (s) => { setStream(s); setSubject(null); setView("subjects"); };
-  const openSubject = (s) => { setSubject(s); setView("items"); };
+  const openStream = (s) => { setStream(s); setSubject(null); setTopic(null); setView("subjects"); };
+  // My Quiz drills into Topics; My Test Series goes straight to items.
+  const openSubject = (s) => { setSubject(s); setTopic(null); setView(kind === "quiz" ? "topics" : "items"); };
+  const openTopic = (t) => { setTopic(t); setView("items"); };
   const goTo = (v) => setView(v);
 
   // ---- Entity CRUD ----
@@ -59,8 +64,9 @@ export default function AdminPractice() {
       const { type, mode, data } = modal;
       if (type === "stream") mode === "add" ? await practiceService.createStream(form) : await practiceService.updateStream(data._id, form);
       else if (type === "subject") mode === "add" ? await practiceService.createSubject({ ...form, stream: stream._id }) : await practiceService.updateSubject(data._id, form);
+      else if (type === "topic") mode === "add" ? await practiceService.createTopic({ ...form, subject: subject._id }) : await practiceService.updateTopic(data._id, form);
       else if (type === "item") {
-        if (mode === "add") await practiceService.createItem({ ...form, practiceStream: stream._id, practiceSubject: subject._id, practiceKind: kind });
+        if (mode === "add") await practiceService.createItem({ ...form, practiceStream: stream._id, practiceSubject: subject._id, practiceTopic: topic?._id, practiceKind: kind });
         else await testService.update(data._id, form);
       }
       setModal(null);
@@ -72,6 +78,7 @@ export default function AdminPractice() {
     try {
       if (type === "stream") await practiceService.deleteStream(id);
       else if (type === "subject") await practiceService.deleteSubject(id);
+      else if (type === "topic") await practiceService.deleteTopic(id);
       else if (type === "item") await testService.remove(id);
       load(view);
     } catch (e) { setError(e.message); }
@@ -124,7 +131,10 @@ export default function AdminPractice() {
 
   const H = view === "streams" ? { title: "Streams", add: "Add Stream", icon: GraduationCap }
     : view === "subjects" ? { title: `Subjects in ${stream?.name || ""}`, add: "Add Subject", icon: FolderOpen }
-    : { title: `${KINDS.find((k) => k.key === kind)?.label} in ${subject?.name || ""}`, add: kind === "quiz" ? "Add Quiz" : "Add Test", icon: kind === "quiz" ? ListChecks : FileStack };
+    : view === "topics" ? { title: `Topics in ${subject?.name || ""}`, add: "Add Topic", icon: HelpCircle }
+    : { title: `${kind === "quiz" ? "Quizzes" : "Tests"} in ${(kind === "quiz" ? topic : subject)?.name || ""}`, add: kind === "quiz" ? "Add Quiz" : "Add Test", icon: kind === "quiz" ? ListChecks : FileStack };
+
+  const addType = view === "streams" ? "stream" : view === "subjects" ? "subject" : view === "topics" ? "topic" : "item";
 
   return (
     <div className="space-y-5">
@@ -138,7 +148,7 @@ export default function AdminPractice() {
         {KINDS.map((k) => (
           <button
             key={k.key}
-            onClick={() => { setKind(k.key); if (view === "items") load("items"); }}
+            onClick={() => { setKind(k.key); setStream(null); setSubject(null); setTopic(null); setView("streams"); }}
             className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold transition ${kind === k.key ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"}`}
           >
             <k.icon className="h-4 w-4" /> {k.label}
@@ -154,16 +164,20 @@ export default function AdminPractice() {
             <ChevronRight className="h-4 w-4 text-slate-400" />
             <button onClick={() => goTo("subjects")} className={`rounded px-2 py-1 font-medium ${view === "subjects" ? "text-brand-600" : "text-slate-500 hover:text-brand-600"}`}>{stream.name}</button>
           </>)}
-          {subject && view === "items" && (<>
+          {subject && (view === "topics" || view === "items") && (<>
             <ChevronRight className="h-4 w-4 text-slate-400" />
-            <span className="rounded px-2 py-1 font-medium text-brand-600">{subject.name}</span>
+            <button onClick={() => goTo(kind === "quiz" ? "topics" : "items")} className={`rounded px-2 py-1 font-medium ${view === "topics" ? "text-brand-600" : "text-slate-500 hover:text-brand-600"}`}>{subject.name}</button>
+          </>)}
+          {topic && view === "items" && kind === "quiz" && (<>
+            <ChevronRight className="h-4 w-4 text-slate-400" />
+            <span className="rounded px-2 py-1 font-medium text-brand-600">{topic.name}</span>
           </>)}
         </nav>
       </div>
 
       <div className="flex items-center justify-between gap-3">
         <h2 className="flex items-center gap-2 text-lg font-bold"><H.icon className="h-5 w-5 text-brand-600" /> {H.title}</h2>
-        <button onClick={() => setModal({ type: view === "streams" ? "stream" : view === "subjects" ? "subject" : "item", mode: "add", data: {} })} className="btn-primary">
+        <button onClick={() => setModal({ type: addType, mode: "add", data: {} })} className="btn-primary">
           <Plus className="h-4 w-4" /> {H.add}
         </button>
       </div>
@@ -176,21 +190,22 @@ export default function AdminPractice() {
             <div key={item._id} className="card p-4">
               <div className="flex items-start justify-between gap-2">
                 <button
-                  onClick={() => (view === "streams" ? openStream(item) : view === "subjects" ? openSubject(item) : openQuestions(item))}
+                  onClick={() => (view === "streams" ? openStream(item) : view === "subjects" ? openSubject(item) : view === "topics" ? openTopic(item) : openQuestions(item))}
                   className="min-w-0 flex-1 text-left"
                 >
                   <p className="font-bold">{item.name}</p>
                   <p className="mt-0.5 text-xs text-slate-400">
                     {view === "streams" && `${item.subjects ?? 0} subjects`}
-                    {view === "subjects" && `${item.items ?? 0} items`}
+                    {view === "subjects" && (kind === "quiz" ? "Open topics" : `${item.items ?? 0} tests`)}
+                    {view === "topics" && `${item.items ?? 0} quizzes`}
                     {view === "items" && `${item.questionCount ?? 0} questions · ${item.visibleToAll ? "Visible to all" : "Hidden by default"}`}
                   </p>
                 </button>
                 <div className="flex flex-shrink-0 gap-1">
                   {view !== "items" && (
-                    <button onClick={() => setModal({ type: view === "streams" ? "stream" : "subject", mode: "edit", data: item })} className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30"><Pencil className="h-4 w-4" /></button>
+                    <button onClick={() => setModal({ type: view === "streams" ? "stream" : view === "subjects" ? "subject" : "topic", mode: "edit", data: item })} className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30"><Pencil className="h-4 w-4" /></button>
                   )}
-                  <button onClick={() => remove(view === "streams" ? "stream" : view === "subjects" ? "subject" : "item", item._id, item.name)} className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30"><Trash2 className="h-4 w-4" /></button>
+                  <button onClick={() => remove(view === "streams" ? "stream" : view === "subjects" ? "subject" : view === "topics" ? "topic" : "item", item._id, item.name)} className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30"><Trash2 className="h-4 w-4" /></button>
                 </div>
               </div>
               {view === "items" && (
@@ -335,7 +350,7 @@ function EntityForm({ type, data, kind, saving, onClose, onSave }) {
       ? { name: data.name || "", duration: data.duration || 15, marks: data.marks || 0, difficulty: data.difficulty || "Medium" }
       : { name: data.name || "", description: data.description || "" }
   );
-  const title = type === "item" ? (kind === "quiz" ? "Quiz" : "Test") : type === "stream" ? "Stream" : "Subject";
+  const title = type === "item" ? (kind === "quiz" ? "Quiz" : "Test") : type === "stream" ? "Stream" : type === "topic" ? "Topic" : "Subject";
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4" onClick={onClose}>
       <form onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); onSave(form); }} className="my-8 w-full max-w-md animate-scale-in card p-6">

@@ -86,6 +86,7 @@ const router = createBrowserRouter([
       { path: "/practice/:kind", element: S(PracticeBrowse) },
       { path: "/practice/:kind/:streamId", element: S(PracticeBrowse) },
       { path: "/practice/:kind/:streamId/:subjectId", element: S(PracticeBrowse) },
+      { path: "/practice/:kind/:streamId/:subjectId/:topicId", element: S(PracticeBrowse) },
 
       { path: "/study", element: S(StudyHome) },
       { path: "/study/:institutionId", element: S(StudySubjects) },

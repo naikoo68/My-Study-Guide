@@ -13,32 +13,38 @@ const KIND_LABEL = { quiz: "My Quiz", test: "My Test Series" };
 //   /practice/:kind/:streamId               → subjects
 //   /practice/:kind/:streamId/:subjectId    → items (attempt via TestAttempt)
 export default function PracticeBrowse() {
-  const { kind, streamId, subjectId } = useParams();
+  const { kind, streamId, subjectId, topicId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const level = subjectId ? "items" : streamId ? "subjects" : "streams";
+  // My Quiz has an extra Topic level; My Test Series goes subject → items.
+  const level = topicId ? "items"
+    : subjectId ? (kind === "quiz" ? "topics" : "items")
+    : streamId ? "subjects"
+    : "streams";
 
   const load = () => {
     setLoading(true);
     setError("");
     const p =
-      level === "items" ? practiceService.items(kind, subjectId)
+      level === "items" ? (kind === "quiz" ? practiceService.topicItems(kind, topicId) : practiceService.items(kind, subjectId))
+      : level === "topics" ? practiceService.topics(kind, subjectId)
       : level === "subjects" ? practiceService.subjects(kind, streamId)
       : practiceService.streams(kind);
     p.then(setRows).catch((e) => setError(e.message)).finally(() => setLoading(false));
   };
-  useEffect(load, [kind, streamId, subjectId]);
+  useEffect(load, [kind, streamId, subjectId, topicId]);
 
   const back =
-    level === "items" ? `/practice/${kind}/${streamId}`
+    level === "items" ? (kind === "quiz" ? `/practice/${kind}/${streamId}/${subjectId}` : `/practice/${kind}/${streamId}`)
+    : level === "topics" ? `/practice/${kind}/${streamId}`
     : level === "subjects" ? `/practice/${kind}`
     : "/practice";
 
-  const title = level === "items" ? "Select one to start" : level === "subjects" ? "Choose a subject" : KIND_LABEL[kind] || "Practice";
+  const title = level === "items" ? "Select one to start" : level === "topics" ? "Choose a topic" : level === "subjects" ? "Choose a subject" : KIND_LABEL[kind] || "Practice";
 
   const openItem = (item) => {
     if (!user) return navigate("/login");
@@ -69,8 +75,10 @@ export default function PracticeBrowse() {
       ) : (
         <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {rows.map((s, i) => {
-            const Icon = Icons[s.icon] || (level === "streams" ? Icons.GraduationCap : Icons.BookOpen);
-            const to = level === "streams" ? `/practice/${kind}/${s._id}` : `/practice/${kind}/${streamId}/${s._id}`;
+            const Icon = Icons[s.icon] || (level === "streams" ? Icons.GraduationCap : level === "topics" ? Icons.Layers : Icons.BookOpen);
+            const to = level === "streams" ? `/practice/${kind}/${s._id}`
+              : level === "subjects" ? `/practice/${kind}/${streamId}/${s._id}`
+              : `/practice/${kind}/${streamId}/${subjectId}/${s._id}`;
             return (
               <Link key={s._id} to={to} style={{ animationDelay: `${i * 40}ms` }} className="card-hover group animate-fade-in-up p-6 opacity-0">
                 <div className={`flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br ${s.color || "from-violet-500 to-fuchsia-600"} text-white shadow-soft`}>
