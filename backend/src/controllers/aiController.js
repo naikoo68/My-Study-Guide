@@ -260,32 +260,110 @@ async function callProvider({ key, model, userPrompt, maxTokens }) {
   return { ok: true, content: extractContent(data) };
 }
 
-// Split a bucket plan into sub-plans that each total <= size.
-function chunkPlan(plan, size) {
-  const chunks = [];
-  let cur = [];
-  let curTotal = 0;
-  for (const b of plan) {
-    let remaining = b.count;
-    while (remaining > 0) {
-      const take = Math.min(remaining, size - curTotal);
-      if (take > 0) {
-        cur.push({ type: b.type, difficulty: b.difficulty, count: take });
-        curTotal += take;
-        remaining -= take;
-      }
-      if (curTotal >= size) { chunks.push(cur); cur = []; curTotal = 0; }
-    }
+// Take a sub-plan of up to `size` questions off the front of a bucket plan.
+function takeChunk(planArr, size) {
+  const chunk = [];
+  let tot = 0;
+  for (const b of planArr) {
+    if (tot >= size) break;
+    const take = Math.min(b.count, size - tot);
+    if (take > 0) { chunk.push({ type: b.type, difficulty: b.difficulty, count: take }); tot += take; }
   }
-  if (cur.length) chunks.push(cur);
-  return chunks;
+  return chunk;
+}
+
+// Given the target plan and what we've collected so far, return the buckets
+// still short (so the next chunk targets the gaps). Honours the distribution.
+function remainingPlan(planArr, collected) {
+  const have = {};
+  for (const q of collected) {
+    const k = `${q.type}|${q.difficulty}`;
+    have[k] = (have[k] || 0) + 1;
+  }
+  return planArr
+    .map((b) => {
+      const k = `${b.type}|${b.difficulty}`;
+      const used = Math.min(have[k] || 0, b.count);
+      have[k] = (have[k] || 0) - used;
+      return { ...b, count: b.count - used };
+    })
+    .filter((b) => b.count > 0);
+}
+
+/* ------------------------- Background generation jobs -------------------------
+   Big batches (up to 100 questions) are produced across many small provider
+   calls. Doing that inside one HTTP request risks proxy timeouts, so instead we
+   run the work in the background and let the client poll for progress.
+   NOTE: jobs are kept in memory — fine for a single backend instance. */
+const genJobs = new Map(); // id -> { status, questions, requested, error, model, updatedAt }
+
+function newJobId() {
+  return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+}
+function cleanupJobs() {
+  const cutoff = Date.now() - 20 * 60 * 1000; // 20 min
+  for (const [id, j] of genJobs) if (j.updatedAt < cutoff) genJobs.delete(id);
+}
+
+async function runGenerationJob(id, ctx) {
+  const { key, model, topic, notes, plan, count, difficulty, types, target } = ctx;
+  const job = genJobs.get(id);
+  const deadline = Date.now() + 4 * 60 * 1000; // 4-minute overall budget
+  const MAX_CALLS = Math.ceil(target / CHUNK_SIZE) + 5; // headroom for retries/top-ups
+  const collected = [];
+  let calls = 0;
+  let lastError = null;
+
+  const save = (patch) => {
+    Object.assign(job, patch, { updatedAt: Date.now() });
+  };
+
+  try {
+    while (collected.length < target && calls < MAX_CALLS && Date.now() < deadline) {
+      let prompt;
+      let n;
+      if (plan) {
+        const rem = remainingPlan(plan, collected);
+        if (!rem.length) break; // distribution satisfied
+        const chunk = takeChunk(rem, CHUNK_SIZE);
+        n = chunk.reduce((s, b) => s + b.count, 0);
+        prompt = buildUserPrompt({ topic, notes, plan: chunk });
+      } else {
+        n = Math.min(CHUNK_SIZE, target - collected.length);
+        prompt = buildUserPrompt({ topic, notes, count: n, difficulty, types });
+      }
+      calls += 1;
+      const maxTokens = Math.min(16000, 1500 + n * 700);
+      const r = await callProvider({ key, model, userPrompt: prompt, maxTokens });
+      if (!r.ok) { lastError = r; continue; }
+      const qs = normalize(parseQuestions(r.content));
+      for (const q of qs) {
+        if (collected.length >= target) break;
+        collected.push(q);
+      }
+      save({ questions: collected.slice() });
+    }
+
+    if (!collected.length) {
+      const msg = lastError
+        ? `AI provider error (${lastError.status}).${
+            lastError.status === 503 || lastError.status === 429
+              ? " The model is busy — try again shortly or pick a different model."
+              : ""
+          } ${(lastError.detail || "").slice(0, 200)}`
+        : "The AI did not return any usable questions. Try again, a simpler topic, or a different model.";
+      save({ status: "error", error: msg });
+    } else {
+      save({ status: "done", questions: collected });
+    }
+  } catch (err) {
+    save(collected.length ? { status: "done", questions: collected } : { status: "error", error: err?.message || "AI request failed." });
+  }
 }
 
 // POST /api/ai/generate  (admin)
 // Body: { topic, notes, model, plan:[{type,difficulty,count}] }  (or legacy { count, difficulty, types })
-// Large batches are generated in several smaller provider calls and combined,
-// so up to 100 questions can be produced reliably without token-limit truncation.
-// Returns { questions:[...] } — NOT saved; the admin previews then inserts.
+// Starts a background job and returns { jobId, requested }. Poll /api/ai/job/:id.
 export async function generateQuestions(req, res) {
   const key = (process.env.AI_API_KEY || "").trim();
   if (!key) {
@@ -301,9 +379,8 @@ export async function generateQuestions(req, res) {
   const notes = String(req.body?.notes || "").trim();
   const model = resolveModel(String(req.body?.model || "").trim());
 
-  // Explicit per-bucket plan [{ type, difficulty, count }] — sanitized and
-  // capped at MAX_TOTAL without dropping buckets. Falls back to the legacy
-  // count/difficulty/types path when no plan is provided.
+  // Explicit per-bucket plan — sanitized and capped at MAX_TOTAL. Falls back to
+  // the legacy count/difficulty/types path when no plan is provided.
   let plan = null;
   if (Array.isArray(req.body?.plan)) {
     plan = req.body.plan
@@ -327,52 +404,35 @@ export async function generateQuestions(req, res) {
     ? req.body.types.filter((t) => TYPES.includes(t))
     : [];
 
-  // Build the list of provider calls (chunks), each producing <= CHUNK_SIZE.
-  const jobs = [];
-  if (plan) {
-    for (const sub of chunkPlan(plan, CHUNK_SIZE)) {
-      const n = sub.reduce((s, b) => s + b.count, 0);
-      jobs.push({ n, prompt: buildUserPrompt({ topic, notes, plan: sub }) });
-    }
-  } else {
-    let remaining = count;
-    while (remaining > 0) {
-      const n = Math.min(CHUNK_SIZE, remaining);
-      jobs.push({ n, prompt: buildUserPrompt({ topic, notes, count: n, difficulty, types }) });
-      remaining -= n;
-    }
-  }
+  const target = plan ? plan.reduce((s, b) => s + b.count, 0) : count;
 
-  try {
-    const questions = [];
-    let lastError = null;
-    for (const job of jobs) {
-      const maxTokens = Math.min(16000, 1500 + job.n * 700);
-      const r = await callProvider({ key, model, userPrompt: job.prompt, maxTokens });
-      if (!r.ok) {
-        lastError = r;
-        continue; // best-effort: keep whatever other chunks succeed
-      }
-      questions.push(...normalize(parseQuestions(r.content)));
-    }
+  cleanupJobs();
+  const id = newJobId();
+  genJobs.set(id, {
+    status: "pending",
+    questions: [],
+    requested: target,
+    error: null,
+    model,
+    updatedAt: Date.now(),
+  });
 
-    if (!questions.length) {
-      if (lastError) {
-        const hint =
-          lastError.status === 503 || lastError.status === 429
-            ? " The AI model is busy right now — try again shortly, or pick a different model."
-            : "";
-        return res
-          .status(502)
-          .json({ message: `AI provider error (${lastError.status}).${hint} ${(lastError.detail || "").slice(0, 200)}` });
-      }
-      return res.status(422).json({
-        message:
-          "The AI replied but no questions could be read from its output. Try a lower count, a simpler topic, or a different model (e.g. gpt-4o-mini).",
-      });
-    }
-    res.json({ questions, model, requested: jobs.reduce((s, j) => s + j.n, 0) });
-  } catch (err) {
-    res.status(502).json({ message: err?.message || "AI request failed." });
-  }
+  // Fire-and-forget — the client polls /api/ai/job/:id for progress.
+  runGenerationJob(id, { key, model, topic, notes, plan, count, difficulty, types, target });
+
+  res.json({ jobId: id, requested: target, model });
+}
+
+// GET /api/ai/job/:id  (admin) — poll generation progress.
+export function jobStatus(req, res) {
+  const job = genJobs.get(req.params.id);
+  if (!job) return res.status(404).json({ message: "Job not found or expired." });
+  res.json({
+    status: job.status, // pending | done | error
+    count: job.questions.length,
+    requested: job.requested,
+    model: job.model,
+    error: job.error,
+    questions: job.status === "done" ? job.questions : undefined,
+  });
 }

@@ -197,7 +197,8 @@ export const noticeService = {
 // ---- AI question generator (admin) ----
 export const aiService = {
   status: () => api.get("/ai/status"),
-  generate: (data) => api.post("/ai/generate", data),
+  generate: (data) => api.post("/ai/generate", data), // returns { jobId, requested }
+  job: (id) => api.get(`/ai/job/${id}`), // poll: { status, count, requested, questions? }
 };
 
 // ---- File upload (Cloudinary) ----

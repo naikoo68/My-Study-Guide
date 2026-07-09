@@ -65,21 +65,40 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
     if (total > 100) { setMsg("Please keep the total to 100 questions or fewer per batch."); return; }
     setBusy(true);
     setPreview([]);
-    setMsg(total > 20 ? `Generating ${total} questions in the background — large batches can take up to a minute…` : "");
+    setMsg(`Starting generation of ${total} question(s)…`);
     try {
-      const res = await aiService.generate({
+      const { jobId, requested } = await aiService.generate({
         topic: topic.trim(),
         plan,
         notes: notes.trim(),
         model: model || undefined,
       });
-      const qs = res?.questions || [];
-      setPreview(qs);
-      setMsg(
-        qs.length
-          ? `✓ Generated ${qs.length} question(s)${res?.model ? ` with ${res.model}` : ""}. Review below, then Insert.`
-          : "No questions returned — try again."
-      );
+      if (!jobId) throw new Error("Could not start generation.");
+
+      // Poll the background job for progress until it finishes.
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      let done = false;
+      for (let i = 0; i < 150 && !done; i++) {
+        await sleep(2000);
+        let s;
+        try {
+          s = await aiService.job(jobId);
+        } catch {
+          continue; // transient poll hiccup — keep waiting
+        }
+        if (s.status === "done") {
+          const qs = s.questions || [];
+          setPreview(qs);
+          setMsg(`✓ Generated ${qs.length} of ${requested} question(s)${s.model ? ` with ${s.model}` : ""}. Review below, then Insert.`);
+          done = true;
+        } else if (s.status === "error") {
+          setMsg(s.error || "Generation failed.");
+          done = true;
+        } else {
+          setMsg(`Generating… ${s.count || 0} of ${requested} ready`);
+        }
+      }
+      if (!done) setMsg("Still generating — this is taking longer than expected. Please try a smaller batch.");
     } catch (e) {
       setMsg(e.message || "Generation failed.");
     } finally {
