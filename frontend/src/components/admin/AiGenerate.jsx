@@ -18,7 +18,8 @@ const LETTERS = ["A", "B", "C", "D"];
 // `onUpload(questions)` should return a promise (e.g. { inserted }). The AI
 // only PREVIEWS questions here — nothing is saved until the admin clicks Insert.
 export default function AiGenerate({ open, onClose, onUpload, title = "Generate Questions with AI" }) {
-  const [status, setStatus] = useState(null); // { enabled, model }
+  const [status, setStatus] = useState(null); // { enabled, model, models: [] }
+  const [model, setModel] = useState("");
   const [topic, setTopic] = useState("");
   const [count, setCount] = useState(5);
   const [difficulty, setDifficulty] = useState("Mixed");
@@ -33,7 +34,13 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
     if (!open) return;
     setMsg("");
     setPreview([]);
-    aiService.status().then(setStatus).catch(() => setStatus({ enabled: false }));
+    aiService
+      .status()
+      .then((s) => {
+        setStatus(s);
+        setModel(s?.model || (s?.models && s.models[0]) || "");
+      })
+      .catch(() => setStatus({ enabled: false }));
   }, [open]);
 
   if (!open) return null;
@@ -54,10 +61,15 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
         difficulty: difficulty === "Mixed" ? undefined : difficulty,
         types,
         notes: notes.trim(),
+        model: model || undefined,
       });
       const qs = res?.questions || [];
       setPreview(qs);
-      setMsg(qs.length ? `✓ Generated ${qs.length} question(s). Review below, then Insert.` : "No questions returned — try again.");
+      setMsg(
+        qs.length
+          ? `✓ Generated ${qs.length} question(s)${res?.model ? ` with ${res.model}` : ""}. Review below, then Insert.`
+          : "No questions returned — try again."
+      );
     } catch (e) {
       setMsg(e.message || "Generation failed.");
     } finally {
@@ -107,8 +119,18 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
             <div className="mb-3 rounded-xl bg-slate-50 p-3 text-xs text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
               Describe a topic and the AI drafts questions in your app's format. Nothing is saved
               until you review and click <b>Insert</b>.
-              {status?.model && <> Model: <code>{status.model}</code>.</>}
             </div>
+
+            {status?.models && status.models.length > 1 && (
+              <div className="mb-3">
+                <label className="mb-1 block text-sm font-semibold">AI model</label>
+                <select className="input" value={model} onChange={(e) => setModel(e.target.value)}>
+                  {status.models.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <label className="mb-1 block text-sm font-semibold">Topic / syllabus</label>
             <textarea

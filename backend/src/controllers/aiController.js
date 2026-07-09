@@ -2,20 +2,42 @@
 // (TokenLab, OpenAI, Groq, DeepSeek, …). Configure via server env vars:
 //   AI_API_KEY   — your provider key (required to enable the feature)
 //   AI_BASE_URL  — base URL, default https://api.tokenlab.sh/v1
-//   AI_MODEL     — model id, default gpt-4o-mini
+//   AI_MODEL     — one OR MANY model ids, comma-separated.
+//                  e.g. "gpt-4o-mini, llama-3.3-70b, deepseek-chat"
+//                  The first one is the default; the admin can pick any of
+//                  them per-generation from a dropdown in the UI.
 // The key lives ONLY on the server; the browser never sees it.
 
 const BASE_URL = () => (process.env.AI_BASE_URL || "https://api.tokenlab.sh/v1").replace(/\/$/, "");
-const MODEL = () => process.env.AI_MODEL || "gpt-4o-mini";
+
+// Parse AI_MODEL into a clean list of model ids. Falls back to gpt-4o-mini.
+function MODELS() {
+  const raw = process.env.AI_MODEL || "gpt-4o-mini";
+  const list = raw
+    .split(",")
+    .map((m) => m.trim())
+    .filter(Boolean);
+  return list.length ? list : ["gpt-4o-mini"];
+}
+const DEFAULT_MODEL = () => MODELS()[0];
+
+// If the client asked for a specific model, only honour it when it is one of
+// the configured models (prevents arbitrary model injection from the browser).
+function resolveModel(requested) {
+  const models = MODELS();
+  return models.includes(requested) ? requested : models[0];
+}
 
 const TYPES = ["mcq", "matching", "statement", "pair", "pairselect", "assertion", "table"];
 const DIFFS = ["Easy", "Medium", "Hard"];
 
-// GET /api/ai/status — lets the admin UI show/hide the "Generate with AI" button.
+// GET /api/ai/status — lets the admin UI show/hide the "Generate with AI"
+// button and populate the model dropdown.
 export function aiStatus(req, res) {
   res.json({
     enabled: !!process.env.AI_API_KEY,
-    model: MODEL(),
+    model: DEFAULT_MODEL(), // default / first configured model
+    models: MODELS(), // full list for the dropdown
     baseUrl: BASE_URL(),
   });
 }
@@ -157,9 +179,10 @@ export async function generateQuestions(req, res) {
     ? req.body.types.filter((t) => TYPES.includes(t))
     : [];
   const notes = String(req.body?.notes || "").trim();
+  const model = resolveModel(String(req.body?.model || "").trim());
 
   const payload = {
-    model: MODEL(),
+    model,
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: buildUserPrompt({ topic, count, difficulty, types, notes }) },
@@ -193,7 +216,7 @@ export async function generateQuestions(req, res) {
         message: "The AI returned no usable questions. Try rephrasing the topic or lowering the count.",
       });
     }
-    res.json({ questions, model: MODEL() });
+    res.json({ questions, model });
   } catch (err) {
     res.status(502).json({ message: err?.message || "AI request failed." });
   }
