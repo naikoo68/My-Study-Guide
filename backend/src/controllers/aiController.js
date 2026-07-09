@@ -214,20 +214,33 @@ export async function generateQuestions(req, res) {
   };
 
   try {
-    const resp = await fetch(`${BASE_URL()}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${key}`,
-      },
-      body: JSON.stringify(payload),
-    });
+    // Providers (esp. Gemini free tier) return transient 429/500/503 under
+    // load. Retry a few times with backoff before giving up.
+    const TRANSIENT = [429, 500, 502, 503, 504];
+    const WAITS = [1500, 3000, 6000, 9000]; // ms
+    let resp;
+    for (let attempt = 0; ; attempt++) {
+      resp = await fetch(`${BASE_URL()}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${key}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      if (resp.ok || !TRANSIENT.includes(resp.status) || attempt >= WAITS.length) break;
+      await new Promise((r) => setTimeout(r, WAITS[attempt]));
+    }
 
     if (!resp.ok) {
       const detail = await resp.text().catch(() => "");
+      const hint =
+        resp.status === 503 || resp.status === 429
+          ? " The AI model is busy right now — please try again in a moment, or pick a different model."
+          : "";
       return res
         .status(502)
-        .json({ message: `AI provider error (${resp.status}). ${detail.slice(0, 300)}` });
+        .json({ message: `AI provider error (${resp.status}).${hint} ${detail.slice(0, 200)}` });
     }
 
     const data = await resp.json();
