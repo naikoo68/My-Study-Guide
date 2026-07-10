@@ -38,6 +38,7 @@ export default function AdminPractice() {
   const [aiOpen, setAiOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [dupOpen, setDupOpen] = useState(false);
+  const [dupScope, setDupScope] = useState({ params: null, name: "" }); // duplicate-scan target
   const [viewQ, setViewQ] = useState(null);
   const [viewAll, setViewAll] = useState(false);
   const [selectedQ, setSelectedQ] = useState([]);
@@ -177,8 +178,15 @@ export default function AdminPractice() {
           <h1 className="text-2xl font-extrabold">Practice Quizzes</h1>
           <p className="text-slate-500 dark:text-slate-400">Hidden by default — grant access per student. Adding content here never notifies anyone.</p>
         </div>
-        <button onClick={() => setDupOpen(true)} className="btn-outline" title="Scan practice questions for duplicates">
-          <Files className="h-4 w-4" /> Find Duplicates
+        <button
+          onClick={() => {
+            setDupScope(subject ? { params: { practiceSubject: subject._id }, name: subject.name } : { params: null, name: "" });
+            setDupOpen(true);
+          }}
+          className="btn-outline"
+          title={subject ? `Scan duplicates in ${subject.name}` : "Scan practice questions for duplicates"}
+        >
+          <Files className="h-4 w-4" /> Find Duplicates{subject ? ` — ${subject.name}` : ""}
         </button>
       </div>
 
@@ -241,6 +249,15 @@ export default function AdminPractice() {
                   </p>
                 </button>
                 <div className="flex flex-shrink-0 gap-1">
+                  {view === "subjects" && (
+                    <button
+                      onClick={() => { setDupScope({ params: { practiceSubject: item._id }, name: item.name }); setDupOpen(true); }}
+                      title={`Find duplicates in ${item.name}`}
+                      className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30"
+                    >
+                      <Files className="h-4 w-4" />
+                    </button>
+                  )}
                   {view !== "items" && (
                     <button onClick={() => setModal({ type: view === "streams" ? "stream" : view === "subjects" ? "subject" : "topic", mode: "edit", data: item })} className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30"><Pencil className="h-4 w-4" /></button>
                   )}
@@ -251,6 +268,7 @@ export default function AdminPractice() {
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button onClick={() => openQuestions(item)} className="btn-outline py-1.5 text-xs"><HelpCircle className="h-3.5 w-3.5" /> Questions</button>
                   <button onClick={() => openAccess(item)} className="btn-outline py-1.5 text-xs"><Users className="h-3.5 w-3.5" /> Visibility</button>
+                  <button onClick={() => { setDupScope({ params: { testSeries: item._id }, name: item.name }); setDupOpen(true); }} className="btn-outline py-1.5 text-xs"><Files className="h-3.5 w-3.5" /> Duplicates</button>
                   <button onClick={() => setModal({ type: "item", mode: "edit", data: item })} className="btn-outline py-1.5 text-xs"><Pencil className="h-3.5 w-3.5" /> Edit</button>
                 </div>
               )}
@@ -409,6 +427,9 @@ export default function AdminPractice() {
         open={dupOpen}
         onClose={() => setDupOpen(false)}
         defaultCategory={kind === "quiz" ? "Practice Quiz" : "Practice Test"}
+        scope={dupScope.params}
+        scopeName={dupScope.name}
+        hideSubjectPicker
       />
 
       {/* Visibility modal */}

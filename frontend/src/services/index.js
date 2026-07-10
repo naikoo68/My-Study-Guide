@@ -50,8 +50,17 @@ export const contentService = {
   deleteQuestion: (id) => api.del(`/questions/${id}`),
   // bulk upload: context merged into each question (subject/session/quiz/testSeries)
   bulkQuestions: (questions, context) => api.post("/questions/bulk", { questions, context }),
-  // scan questions for full-question duplicates; pass a subjectId to scan only that subject
-  duplicates: (subjectId) => api.get(`/questions/duplicates${subjectId && subjectId !== "all" ? `?subject=${subjectId}` : ""}`),
+  // scan questions for full-question duplicates. Accepts a subjectId string
+  // (quiz subject) OR a params object { subject | practiceSubject | testSeries }.
+  duplicates: (params) => {
+    const p = typeof params === "string" ? { subject: params } : params || {};
+    const qs = new URLSearchParams();
+    if (p.subject && p.subject !== "all") qs.set("subject", p.subject);
+    if (p.practiceSubject) qs.set("practiceSubject", p.practiceSubject);
+    if (p.testSeries) qs.set("testSeries", p.testSeries);
+    const s = qs.toString();
+    return api.get(`/questions/duplicates${s ? `?${s}` : ""}`);
+  },
 };
 
 // ---- Quiz ----

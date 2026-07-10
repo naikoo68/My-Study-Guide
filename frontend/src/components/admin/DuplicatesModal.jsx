@@ -21,7 +21,20 @@ const CONTEXT_STYLE = {
 // Finds FULL-question duplicates (text + all options + type) scoped to each
 // container: Quiz per subject, Test Series per test, Practice per item. Lets
 // the admin view the full question and delete the extra copies.
-export default function DuplicatesModal({ open, onClose, defaultSubject = "all", defaultSubjectName = "", defaultCategory = "All" }) {
+// `scope` (optional) locks the scan to a fixed container and hides the subject
+// dropdown — used by Practice, e.g. { practiceSubject: id } or { testSeries: id }.
+// `scopeName` is shown in the banner. Without a scope, the quiz-subject dropdown
+// is shown (used by Content).
+export default function DuplicatesModal({
+  open,
+  onClose,
+  defaultSubject = "all",
+  defaultSubjectName = "",
+  defaultCategory = "All",
+  scope = null,
+  scopeName = "",
+  hideSubjectPicker = false,
+}) {
   const [data, setData] = useState(null); // { scanned, groups, extras, duplicates }
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -31,12 +44,12 @@ export default function DuplicatesModal({ open, onClose, defaultSubject = "all",
   const [subjects, setSubjects] = useState([]); // for the subject dropdown
   const [subjectId, setSubjectId] = useState(defaultSubject || "all"); // "all" or a subject _id
 
-  const scan = useCallback((sid) => {
+  const scan = useCallback((params) => {
     setLoading(true);
     setError("");
     setExpanded({});
     contentService
-      .duplicates(sid)
+      .duplicates(params)
       .then(setData)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -44,16 +57,22 @@ export default function DuplicatesModal({ open, onClose, defaultSubject = "all",
 
   useEffect(() => {
     if (!open) return;
+    setFilter(defaultCategory || "All");
+    if (scope) {
+      // Fixed scope (practice) — scan it directly, no subject dropdown.
+      scan(scope);
+      return;
+    }
     const sid = defaultSubject || "all";
     setSubjectId(sid);
-    setFilter(defaultCategory || "All");
     contentService.subjects().then(setSubjects).catch(() => setSubjects([]));
-    scan(sid);
-  }, [open, defaultSubject, defaultCategory, scan]);
+    scan({ subject: sid });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, defaultSubject, defaultCategory, JSON.stringify(scope), scan]);
 
   const onSubjectChange = (sid) => {
     setSubjectId(sid);
-    scan(sid);
+    scan({ subject: sid });
   };
 
   // Category tabs come from whatever categories actually have duplicates.
@@ -105,7 +124,7 @@ export default function DuplicatesModal({ open, onClose, defaultSubject = "all",
             <Files className="h-5 w-5 text-brand-600" /> Duplicate Questions
           </h3>
           <div className="flex items-center gap-2">
-            <button type="button" onClick={() => scan(subjectId)} disabled={loading} className="btn-outline px-3 py-1.5 text-sm">
+            <button type="button" onClick={() => scan(scope || { subject: subjectId })} disabled={loading} className="btn-outline px-3 py-1.5 text-sm">
               <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Rescan
             </button>
             <button type="button" onClick={onClose}><X className="h-5 w-5" /></button>
@@ -115,30 +134,32 @@ export default function DuplicatesModal({ open, onClose, defaultSubject = "all",
         {loading && !data ? (
           <Loading label="Scanning questions…" />
         ) : error ? (
-          <ErrorState message={error} onRetry={() => scan(subjectId)} />
+          <ErrorState message={error} onRetry={() => scan(scope || { subject: subjectId })} />
         ) : data ? (
           <>
             {/* Scope banner — makes it clear what's being scanned */}
-            {subjectId !== "all" && (
+            {(scope || subjectId !== "all") && (
               <div className="mb-3 rounded-lg bg-brand-50 px-3 py-2 text-sm font-semibold text-brand-700 dark:bg-brand-900/20 dark:text-brand-300">
-                Scanning duplicates only in: {defaultSubjectName || subjects.find((s) => s._id === subjectId)?.name || "this subject"}
+                Scanning duplicates only in: {scope ? scopeName || "this item" : defaultSubjectName || subjects.find((s) => s._id === subjectId)?.name || "this subject"}
               </div>
             )}
 
-            {/* Subject scope — scan only one subject (e.g. Biology) or all */}
-            <div className="mb-3 flex items-center gap-2">
-              <label className="text-sm font-semibold text-slate-600 dark:text-slate-300">Scan subject:</label>
-              <select
-                className="input max-w-xs py-1.5 text-sm"
-                value={subjectId}
-                onChange={(e) => onSubjectChange(e.target.value)}
-              >
-                <option value="all">All subjects (+ Test Series &amp; Practice)</option>
-                {subjects.map((s) => (
-                  <option key={s._id} value={s._id}>{s.name}</option>
-                ))}
-              </select>
-            </div>
+            {/* Subject picker (Content only) — scan one quiz subject or all */}
+            {!scope && !hideSubjectPicker && (
+              <div className="mb-3 flex items-center gap-2">
+                <label className="text-sm font-semibold text-slate-600 dark:text-slate-300">Scan subject:</label>
+                <select
+                  className="input max-w-xs py-1.5 text-sm"
+                  value={subjectId}
+                  onChange={(e) => onSubjectChange(e.target.value)}
+                >
+                  <option value="all">All subjects (+ Test Series &amp; Practice)</option>
+                  {subjects.map((s) => (
+                    <option key={s._id} value={s._id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div className="mb-3 flex flex-wrap gap-3 text-sm">
               <span className="rounded-lg bg-slate-100 px-3 py-1.5 dark:bg-slate-800">

@@ -319,11 +319,19 @@ function questionSignature(q) {
 // Returns groups (count > 1) with the full question (options + correct) so the
 // admin can view and confirm before deleting.
 export async function findDuplicates(req, res) {
-  // Optional ?subject=<id> restricts the scan to ONE subject's quiz questions
-  // (e.g. only Biology). Without it, everything is scanned.
-  const subjectFilter = req.query.subject && req.query.subject !== "all" ? { subject: req.query.subject } : {};
+  // Optional filters restrict the scan to one container:
+  //   ?subject=<id>          → one quiz subject (e.g. Economics)
+  //   ?practiceSubject=<id>  → all practice items under one practice subject
+  //   ?testSeries=<id>       → a single test-series / practice item
+  const filter = {};
+  if (req.query.subject && req.query.subject !== "all") filter.subject = req.query.subject;
+  if (req.query.testSeries) filter.testSeries = req.query.testSeries;
+  if (req.query.practiceSubject) {
+    const items = await TestSeries.find({ practiceSubject: req.query.practiceSubject }).select("_id").lean();
+    filter.testSeries = { $in: items.map((i) => i._id) };
+  }
 
-  const questions = await Question.find(subjectFilter)
+  const questions = await Question.find(filter)
     .select("text options correct type difficulty status subject quiz session testSeries createdAt assertion reason columnA columnB tableRows image")
     .populate("subject", "name")
     .populate("quiz", "title")
