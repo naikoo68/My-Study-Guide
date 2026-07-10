@@ -77,6 +77,7 @@ export default function PracticeQuizPlay() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null);
+  const [showReview, setShowReview] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const containerRef = useRef(null);
   const { zoom, zoomIn, zoomOut } = useZoom();
@@ -207,10 +208,86 @@ export default function PracticeQuizPlay() {
             ))}
           </div>
           <div className="mt-6 flex flex-wrap justify-center gap-3">
+            <button onClick={() => setShowReview((v) => !v)} className="btn-accent">
+              <Lightbulb className="h-4 w-4" /> {showReview ? "Hide Answers" : "Review Answers"}
+            </button>
             <button onClick={() => navigate(-1)} className="btn-primary">Back to Quizzes</button>
             <button onClick={() => navigate("/dashboard")} className="btn-outline">My Progress</button>
           </div>
         </div>
+
+        {/* Answer review */}
+        {showReview && (
+          <div className="mt-6 space-y-4">
+            <h2 className="text-lg font-bold">Review Answers</h2>
+            {questions.map((q, i) => {
+              const userAns = answers[i];
+              const answered = userAns !== undefined && userAns !== null;
+              const isCorrect = answered && userAns === q.correct;
+              return (
+                <div key={q._id || i} className="card p-5">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-sm font-semibold text-slate-500">Question {i + 1}</span>
+                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                      isCorrect ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                      : answered ? "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300"
+                      : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"}`}>
+                      {isCorrect ? "Correct" : answered ? "Incorrect" : "Not answered"}
+                    </span>
+                  </div>
+
+                  {q.image && <img src={q.image} alt="" className="mb-3 max-h-56 rounded-xl object-contain" />}
+                  <p className="font-semibold leading-relaxed"><MathText>{q.text}</MathText></p>
+
+                  {(Array.isArray(q.columnA) && q.columnA.length > 0) || (Array.isArray(q.columnB) && q.columnB.length > 0) ? (
+                    <div className="mt-3 grid grid-cols-2 gap-3">
+                      <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+                        <p className="mb-2 text-xs font-semibold uppercase text-brand-600 dark:text-brand-400">Column A</p>
+                        {(q.columnA || []).map((it, k) => <div key={k} className="flex gap-1.5 text-sm"><b>{k + 1}.</b> <MathText>{it}</MathText></div>)}
+                      </div>
+                      <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+                        <p className="mb-2 text-xs font-semibold uppercase text-accent-600 dark:text-accent-400">Column B</p>
+                        {(q.columnB || []).map((it, k) => <div key={k} className="flex gap-1.5 text-sm"><b>{toRoman(k + 1)}.</b> <MathText>{it}</MathText></div>)}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <StatementPairView q={q} />
+                  <TableView q={q} />
+                  <AssertionReasonView q={q} />
+
+                  <div className="mt-3 space-y-2">
+                    {(q.options || []).map((opt, idx) => {
+                      const cls =
+                        idx === q.correct
+                          ? "border-emerald-500 bg-emerald-50 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200"
+                          : idx === userAns
+                          ? "border-rose-500 bg-rose-50 text-rose-800 dark:bg-rose-900/30 dark:text-rose-200"
+                          : "border-slate-200 dark:border-slate-700";
+                      return (
+                        <div key={idx} className={`flex items-center gap-2 rounded-xl border-2 px-3 py-2 text-sm ${cls}`}>
+                          <span className="flex h-6 w-6 items-center justify-center rounded-lg border text-xs font-bold">{optionLabels[idx]}</span>
+                          <span className="flex-1"><MathText>{opt}</MathText></span>
+                          {idx === q.correct && <CheckCircle2 className="h-4 w-4 text-emerald-500" />}
+                          {idx === userAns && idx !== q.correct && <XCircle className="h-4 w-4 text-rose-500" />}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {q.explanation && (
+                    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-900/20">
+                      <div className="flex items-center gap-2 font-semibold text-amber-700 dark:text-amber-300">
+                        <Lightbulb className="h-4 w-4" /> Explanation
+                      </div>
+                      <p className="mt-1 text-sm text-amber-900/90 dark:text-amber-100/90"><MathText>{q.explanation}</MathText></p>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     );
   }

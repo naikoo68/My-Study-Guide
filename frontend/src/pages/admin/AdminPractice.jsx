@@ -7,7 +7,9 @@ import QuestionFormModal from "../../components/admin/QuestionFormModal";
 import BulkUploadQuestions, { questionsToCsv } from "../../components/admin/BulkUploadQuestions";
 import AiGenerate from "../../components/admin/AiGenerate";
 import AiImport from "../../components/admin/AiImport";
+import DuplicatesModal from "../../components/admin/DuplicatesModal";
 import QuestionView from "../../components/admin/QuestionView";
+import { Files } from "lucide-react";
 
 const KINDS = [
   { key: "quiz", label: "My Quiz", icon: ListChecks },
@@ -35,6 +37,7 @@ export default function AdminPractice() {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [dupOpen, setDupOpen] = useState(false);
   const [viewQ, setViewQ] = useState(null);
   const [viewAll, setViewAll] = useState(false);
   const [selectedQ, setSelectedQ] = useState([]);
@@ -169,9 +172,14 @@ export default function AdminPractice() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-extrabold">Practice Quizzes</h1>
-        <p className="text-slate-500 dark:text-slate-400">Hidden by default — grant access per student. Adding content here never notifies anyone.</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-extrabold">Practice Quizzes</h1>
+          <p className="text-slate-500 dark:text-slate-400">Hidden by default — grant access per student. Adding content here never notifies anyone.</p>
+        </div>
+        <button onClick={() => setDupOpen(true)} className="btn-outline" title="Scan practice questions for duplicates">
+          <Files className="h-4 w-4" /> Find Duplicates
+        </button>
       </div>
 
       {/* Kind tabs */}
@@ -395,6 +403,12 @@ export default function AdminPractice() {
           load("items");
           return res;
         }}
+      />
+
+      <DuplicatesModal
+        open={dupOpen}
+        onClose={() => setDupOpen(false)}
+        defaultCategory={kind === "quiz" ? "Practice Quiz" : "Practice Test"}
       />
 
       {/* Visibility modal */}

@@ -21,12 +21,12 @@ const CONTEXT_STYLE = {
 // Finds FULL-question duplicates (text + all options + type) scoped to each
 // container: Quiz per subject, Test Series per test, Practice per item. Lets
 // the admin view the full question and delete the extra copies.
-export default function DuplicatesModal({ open, onClose, defaultSubject = "all" }) {
+export default function DuplicatesModal({ open, onClose, defaultSubject = "all", defaultCategory = "All" }) {
   const [data, setData] = useState(null); // { scanned, groups, extras, duplicates }
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [deleting, setDeleting] = useState({}); // id -> true
-  const [filter, setFilter] = useState("All"); // category filter
+  const [filter, setFilter] = useState(defaultCategory); // category filter
   const [expanded, setExpanded] = useState({}); // groupKey -> bool
   const [subjects, setSubjects] = useState([]); // for the subject dropdown
   const [subjectId, setSubjectId] = useState(defaultSubject || "all"); // "all" or a subject _id
@@ -46,10 +46,10 @@ export default function DuplicatesModal({ open, onClose, defaultSubject = "all" 
     if (!open) return;
     const sid = defaultSubject || "all";
     setSubjectId(sid);
-    setFilter("All");
+    setFilter(defaultCategory || "All");
     contentService.subjects().then(setSubjects).catch(() => setSubjects([]));
     scan(sid);
-  }, [open, defaultSubject, scan]);
+  }, [open, defaultSubject, defaultCategory, scan]);
 
   const onSubjectChange = (sid) => {
     setSubjectId(sid);
@@ -151,7 +151,7 @@ export default function DuplicatesModal({ open, onClose, defaultSubject = "all" 
             </p>
 
             {/* Category tabs (Quiz / Test Series / Practice …) */}
-            {categories.length > 2 && (
+            {categories.length > 1 && (
               <div className="mb-4 flex flex-wrap gap-2">
                 {categories.map((c) => (
                   <button
