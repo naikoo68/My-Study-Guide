@@ -40,6 +40,7 @@ export default function AdminContent() {
   const [aiOpen, setAiOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [dupOpen, setDupOpen] = useState(false);
+  const [dupScope, setDupScope] = useState({ id: "all", name: "" }); // which subject the duplicate scan targets
   const [saving, setSaving] = useState(false);
   const [viewQ, setViewQ] = useState(null); // single question to preview
   const [viewAll, setViewAll] = useState(false); // preview all questions
@@ -227,7 +228,7 @@ export default function AdminContent() {
         </div>
         <div className="flex flex-wrap gap-2">
           <button
-            onClick={() => setDupOpen(true)}
+            onClick={() => { setDupScope({ id: subject?._id || "all", name: subject?.name || "" }); setDupOpen(true); }}
             className="btn-outline"
             title={subject ? `Scan duplicates in ${subject.name}` : "Scan all questions for duplicates"}
           >
@@ -322,6 +323,15 @@ export default function AdminContent() {
                 )}
               </div>
               <div className="flex flex-shrink-0 items-center gap-1">
+                {view === "subjects" && (
+                  <button
+                    onClick={() => { setDupScope({ id: item._id, name: item.name }); setDupOpen(true); }}
+                    title={`Find duplicates in ${item.name}`}
+                    className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30"
+                  >
+                    <Files className="h-4 w-4" />
+                  </button>
+                )}
                 {view !== "questions" && (
                   <button
                     onClick={() =>
@@ -425,8 +435,8 @@ export default function AdminContent() {
       <DuplicatesModal
         open={dupOpen}
         onClose={() => setDupOpen(false)}
-        defaultSubject={subject?._id || "all"}
-        defaultSubjectName={subject?.name || ""}
+        defaultSubject={dupScope.id}
+        defaultSubjectName={dupScope.name}
       />
 
       {/* View single question */}
