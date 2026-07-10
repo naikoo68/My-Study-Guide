@@ -28,6 +28,7 @@ import {
   bulkCreateQuestions,
   updateQuestion,
   deleteQuestion,
+  findDuplicateQuestions,
 } from "../controllers/contentController.js";
 import { protect, authorize, optionalAuth } from "../middleware/auth.js";
 
@@ -46,6 +47,7 @@ router.get("/subjects", listSubjects);
 router.post("/subjects", ...admin, createSubject);
 router.put("/subjects/:id", ...admin, updateSubject);
 router.delete("/subjects/:id", ...admin, deleteSubject);
+router.get("/subjects/:subjectId/duplicates", ...admin, findDuplicateQuestions);
 
 // Topics (within a subject)
 router.get("/subjects/:subjectId/topics", listTopics);

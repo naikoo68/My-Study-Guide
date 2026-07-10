@@ -279,3 +279,60 @@ export async function deleteQuestion(req, res) {
   await Question.findByIdAndDelete(req.params.id);
   res.json({ message: "Question deleted" });
 }
+
+// GET /api/subjects/:subjectId/duplicates  (admin)
+// Finds questions within a subject that share the same text, so an admin can
+// review each group and delete the extras via DELETE /api/questions/:id.
+// Matching is done on a normalized version of the text (lower-cased, trimmed,
+// whitespace collapsed) so cosmetic differences don't hide real duplicates.
+export async function findDuplicateQuestions(req, res) {
+  const { subjectId } = req.params;
+
+  const questions = await Question.find({ subject: subjectId })
+    .sort("createdAt")
+    .populate("session", "title")
+    .populate("quiz", "title")
+    .lean();
+
+  const normalize = (t) =>
+    (t || "").toLowerCase().replace(/\s+/g, " ").trim();
+
+  // Group questions by their normalized text.
+  const groups = new Map();
+  for (const q of questions) {
+    const key = normalize(q.text);
+    if (!key) continue; // skip questions with no text
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push({
+      _id: q._id,
+      text: q.text,
+      type: q.type,
+      difficulty: q.difficulty,
+      topic: q.topic,
+      status: q.status,
+      session: q.session?.title || null,
+      quiz: q.quiz?.title || null,
+      createdAt: q.createdAt,
+    });
+  }
+
+  // Keep only groups that actually have more than one question.
+  const duplicates = [];
+  for (const [, items] of groups) {
+    if (items.length > 1) {
+      duplicates.push({ text: items[0].text, count: items.length, questions: items });
+    }
+  }
+
+  // Most-duplicated groups first.
+  duplicates.sort((a, b) => b.count - a.count);
+
+  res.json({
+    subject: subjectId,
+    totalQuestions: questions.length,
+    duplicateGroups: duplicates.length,
+    // Total number of questions that could be safely removed (all but one per group).
+    redundantQuestions: duplicates.reduce((sum, g) => sum + (g.count - 1), 0),
+    duplicates,
+  });
+}

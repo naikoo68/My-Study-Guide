@@ -32,6 +32,7 @@ export const contentService = {
   createSubject: (data) => api.post("/subjects", data),
   updateSubject: (id, data) => api.put(`/subjects/${id}`, data),
   deleteSubject: (id) => api.del(`/subjects/${id}`),
+  duplicateQuestions: (subjectId) => api.get(`/subjects/${subjectId}/duplicates`),
   // topics (admin)
   createTopic: (data) => api.post("/topics", data),
   updateTopic: (id, data) => api.put(`/topics/${id}`, data),

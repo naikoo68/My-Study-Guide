@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { Plus, Pencil, Trash2, X, ChevronRight, FolderOpen, Layers, BookOpen, HelpCircle, ListChecks, Upload, Eye, Copy, Download, GraduationCap } from "lucide-react";
+import { Plus, Pencil, Trash2, X, ChevronRight, FolderOpen, Layers, BookOpen, HelpCircle, ListChecks, Upload, Eye, Copy, Download, GraduationCap, CopyCheck } from "lucide-react";
 import { contentService } from "../../services";
 import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
@@ -40,6 +40,50 @@ export default function AdminContent() {
   const [viewQ, setViewQ] = useState(null); // single question to preview
   const [viewAll, setViewAll] = useState(false); // preview all questions
   const [selected, setSelected] = useState([]); // bulk-selected question ids
+  const [dupOpen, setDupOpen] = useState(false); // duplicate-finder modal
+  const [dupData, setDupData] = useState(null); // { totalQuestions, duplicateGroups, redundantQuestions, duplicates }
+  const [dupLoading, setDupLoading] = useState(false);
+  const [dupError, setDupError] = useState("");
+
+  // Scan the current subject for duplicate questions (same text) and open the review modal.
+  const findDuplicates = async () => {
+    if (!subject) return;
+    setDupOpen(true);
+    setDupLoading(true);
+    setDupError("");
+    setDupData(null);
+    try {
+      setDupData(await contentService.duplicateQuestions(subject._id));
+    } catch (e) {
+      setDupError(e.message);
+    } finally {
+      setDupLoading(false);
+    }
+  };
+
+  // Delete a single duplicate question, then remove it from the modal's local state.
+  const deleteDuplicate = async (id) => {
+    if (!window.confirm("Delete this question? This cannot be undone.")) return;
+    try {
+      await contentService.deleteQuestion(id);
+      setDupData((d) => {
+        if (!d) return d;
+        const duplicates = d.duplicates
+          .map((g) => ({ ...g, questions: g.questions.filter((q) => q._id !== id) }))
+          .map((g) => ({ ...g, count: g.questions.length }))
+          .filter((g) => g.count > 1); // a group with one left is no longer a duplicate
+        return {
+          ...d,
+          totalQuestions: Math.max(0, d.totalQuestions - 1),
+          duplicateGroups: duplicates.length,
+          redundantQuestions: duplicates.reduce((sum, g) => sum + (g.count - 1), 0),
+          duplicates,
+        };
+      });
+    } catch (e) {
+      setDupError(e.message);
+    }
+  };
 
   const toggleSelect = (id) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
   const allSelected = view === "questions" && items.length > 0 && selected.length === items.length;
@@ -241,6 +285,11 @@ export default function AdminContent() {
               </button>
             </>
           )}
+          {subject && view !== "streams" && view !== "subjects" && (
+            <button onClick={findDuplicates} className="btn-outline" title={`Find duplicate questions in ${subject.name}`}>
+              <CopyCheck className="h-4 w-4" /> Find Duplicates
+            </button>
+          )}
           <button onClick={openAdd} className="btn-primary">
             <Plus className="h-4 w-4" /> {H.add}
           </button>
@@ -402,6 +451,63 @@ export default function AdminContent() {
               <button onClick={() => setViewQ(null)}><X className="h-5 w-5" /></button>
             </div>
             <QuestionView q={viewQ} />
+          </div>
+        </div>
+      )}
+
+      {/* Find duplicate questions in the current subject */}
+      {dupOpen && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4" onClick={() => setDupOpen(false)}>
+          <div onClick={(e) => e.stopPropagation()} className="my-8 w-full max-w-3xl animate-scale-in card p-6">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-bold">Duplicate questions {subject ? `in ${subject.name}` : ""}</h3>
+              <button onClick={() => setDupOpen(false)}><X className="h-5 w-5" /></button>
+            </div>
+
+            {dupError && <div className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600 dark:bg-rose-900/30">{dupError}</div>}
+
+            {dupLoading ? (
+              <Loading label="Scanning subject for duplicates..." />
+            ) : !dupData ? null : dupData.duplicates.length === 0 ? (
+              <EmptyState message={`No duplicate questions found. Scanned ${dupData.totalQuestions} question(s).`} />
+            ) : (
+              <>
+                <div className="mb-4 flex flex-wrap gap-2 text-sm">
+                  <Badge variant="brand">{dupData.duplicateGroups} duplicate group(s)</Badge>
+                  <Badge variant="neutral">{dupData.totalQuestions} questions scanned</Badge>
+                  <Badge variant="Hard">{dupData.redundantQuestions} removable</Badge>
+                </div>
+                <p className="mb-3 text-sm text-slate-500 dark:text-slate-400">
+                  Each group has the same question text. Keep one and delete the extras.
+                </p>
+                <div className="max-h-[65vh] space-y-4 overflow-y-auto pr-1">
+                  {dupData.duplicates.map((g, gi) => (
+                    <div key={gi} className="rounded-lg border border-amber-300 bg-amber-50/50 p-3 dark:border-amber-700/60 dark:bg-amber-900/10">
+                      <div className="mb-2 flex items-start justify-between gap-3">
+                        <p className="font-medium">{g.text}</p>
+                        <Badge variant="accent">×{g.count}</Badge>
+                      </div>
+                      <div className="space-y-2">
+                        {g.questions.map((q, qi) => (
+                          <div key={q._id} className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-800">
+                            <div className="min-w-0 flex-1 text-xs text-slate-500 dark:text-slate-400">
+                              <span className="font-semibold text-slate-700 dark:text-slate-200">Copy {qi + 1}</span>
+                              {q.quiz && <> · Quiz: {q.quiz}</>}
+                              {q.session && <> · Session: {q.session}</>}
+                              {q.difficulty && <> · {q.difficulty}</>}
+                              {q.status && <> · {q.status}</>}
+                            </div>
+                            <button onClick={() => deleteDuplicate(q._id)} title="Delete this copy" className="flex-shrink-0 rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30">
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
