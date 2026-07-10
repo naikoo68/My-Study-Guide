@@ -3,6 +3,10 @@ import { X, Files, Trash2, RefreshCw, Loader2, CheckCircle2, Eye, EyeOff } from 
 import { contentService } from "../../services";
 import { Loading, ErrorState } from "../ui/AsyncState";
 import MathText from "../ui/MathText";
+import AssertionReasonView from "../ui/AssertionReasonView";
+import TableView from "../ui/TableView";
+
+const toRoman = (n) => ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"][n] || String(n + 1);
 
 const LETTERS = ["A", "B", "C", "D"];
 
@@ -173,9 +177,40 @@ export default function DuplicatesModal({ open, onClose }) {
                         <MathText>{g.text}</MathText>
                       </p>
 
-                      {/* Full question preview for confirmation */}
+                      {/* Full question preview for confirmation — every detail */}
                       {isOpen && (
                         <div className="mt-2 space-y-1.5 rounded-lg bg-slate-50 p-3 dark:bg-slate-800/60">
+                          {g.image && <img src={g.image} alt="" className="mb-2 max-h-48 rounded-lg object-contain" />}
+
+                          {/* Assertion & Reason */}
+                          <AssertionReasonView q={g} />
+
+                          {/* Table-based */}
+                          <TableView q={g} />
+
+                          {/* Matching / pair columns */}
+                          {(Array.isArray(g.columnA) && g.columnA.length > 0) || (Array.isArray(g.columnB) && g.columnB.length > 0) ? (
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="rounded-lg border border-slate-200 p-2 dark:border-slate-700">
+                                <p className="mb-1 text-[10px] font-semibold uppercase text-brand-600 dark:text-brand-400">Column A</p>
+                                {(g.columnA || []).map((it, i) => (
+                                  <div key={i} className="flex gap-1.5 text-xs">
+                                    <b>{i + 1}.</b> <MathText>{it}</MathText>
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="rounded-lg border border-slate-200 p-2 dark:border-slate-700">
+                                <p className="mb-1 text-[10px] font-semibold uppercase text-accent-600 dark:text-accent-400">Column B</p>
+                                {(g.columnB || []).map((it, i) => (
+                                  <div key={i} className="flex gap-1.5 text-xs">
+                                    <b>{toRoman(i)}.</b> <MathText>{it}</MathText>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {/* Options */}
                           {(g.options || []).map((o, j) => (
                             <div
                               key={j}

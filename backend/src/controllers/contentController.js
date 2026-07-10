@@ -286,11 +286,28 @@ function normalizeText(t) {
     .trim();
 }
 
-// A question is a duplicate only if the WHOLE thing matches — the stem text AND
-// every option AND the type. (Same title with different options is NOT a dup.)
+const normArr = (a) => (Array.isArray(a) ? a : []).map(normalizeText).join("|");
+const normTable = (rows) =>
+  Array.isArray(rows)
+    ? rows.map((r) => (Array.isArray(r) ? r.map(normalizeText).join("~") : normalizeText(r))).join("||")
+    : "";
+
+// A question is a duplicate only if EVERY content detail matches — not just the
+// stem text. This includes the type-specific fields so, e.g., two Assertion &
+// Reason questions (which share the same stem + standard options) are only
+// duplicates when their Assertion AND Reason texts are also identical.
 function questionSignature(q) {
-  const opts = (Array.isArray(q.options) ? q.options : []).map(normalizeText).join("|");
-  return `${normalizeText(q.text)}##${opts}##${q.type || "mcq"}`;
+  return [
+    q.type || "mcq",
+    normalizeText(q.text),
+    normArr(q.options), // all options
+    normArr(q.columnA), // matching / pair / pairselect
+    normArr(q.columnB),
+    normalizeText(q.assertion), // assertion & reason
+    normalizeText(q.reason),
+    normTable(q.tableRows), // table-based
+    normalizeText(q.image), // image/diagram
+  ].join("##");
 }
 
 // GET /api/questions/duplicates  (admin)
@@ -303,7 +320,7 @@ function questionSignature(q) {
 // admin can view and confirm before deleting.
 export async function findDuplicates(req, res) {
   const questions = await Question.find({})
-    .select("text options correct type difficulty status subject quiz session testSeries createdAt")
+    .select("text options correct type difficulty status subject quiz session testSeries createdAt assertion reason columnA columnB tableRows image")
     .populate("subject", "name")
     .populate("quiz", "title")
     .populate("testSeries", "name practice practiceKind")
@@ -346,6 +363,13 @@ export async function findDuplicates(req, res) {
         correct: q.correct,
         type: q.type,
         difficulty: q.difficulty,
+        // full content for the "View question" confirmation panel
+        assertion: q.assertion,
+        reason: q.reason,
+        columnA: q.columnA,
+        columnB: q.columnB,
+        tableRows: q.tableRows,
+        image: q.image,
         questions: [],
       });
     }
