@@ -28,6 +28,7 @@ import {
   bulkCreateQuestions,
   updateQuestion,
   deleteQuestion,
+  findDuplicates,
 } from "../controllers/contentController.js";
 import { protect, authorize, optionalAuth } from "../middleware/auth.js";
 
@@ -68,6 +69,7 @@ router.get("/quizzes/:quizId/questions", optionalAuth, listQuizQuestions);
 
 // Questions
 router.get("/questions", ...admin, listAllQuestions);
+router.get("/questions/duplicates", ...admin, findDuplicates);
 router.get("/sessions/:sessionId/questions", listQuestions);
 router.post("/questions", ...admin, createQuestion);
 router.post("/questions/bulk", ...admin, bulkCreateQuestions);

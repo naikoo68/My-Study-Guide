@@ -275,6 +275,74 @@ export async function updateQuestion(req, res) {
   res.json(question);
 }
 
+// Normalize question text for duplicate comparison: lowercase, strip LaTeX
+// markers and punctuation, collapse whitespace. So "What is 2+2?" and
+// "what is  2 + 2" are treated as the same question.
+function normalizeText(t) {
+  return String(t || "")
+    .toLowerCase()
+    .replace(/\$/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// GET /api/questions/duplicates  (admin)
+// Scans ALL questions (Quiz content, Test Series, and Practice) and groups
+// together those with effectively identical text. Returns only groups with
+// more than one copy, each annotated with where the copy lives.
+export async function findDuplicates(req, res) {
+  const questions = await Question.find({})
+    .select("text type difficulty status subject quiz session testSeries createdAt")
+    .populate("subject", "name")
+    .populate("quiz", "title")
+    .populate("session", "title")
+    .populate("testSeries", "name practice practiceKind")
+    .lean();
+
+  const locate = (q) => {
+    if (q.testSeries) {
+      const ts = q.testSeries;
+      const context = ts.practice
+        ? ts.practiceKind === "quiz"
+          ? "Practice Quiz"
+          : "Practice Test"
+        : "Test Series";
+      return { context, location: ts.name || "Untitled" };
+    }
+    if (q.subject || q.quiz) {
+      const parts = [q.subject?.name, q.quiz?.title].filter(Boolean);
+      return { context: "Quiz", location: parts.join(" › ") || "Quiz" };
+    }
+    return { context: "Uncategorized", location: "—" };
+  };
+
+  const groups = new Map(); // normalizedText -> { text, questions: [...] }
+  for (const q of questions) {
+    const key = normalizeText(q.text);
+    if (!key) continue;
+    if (!groups.has(key)) groups.set(key, { text: q.text, questions: [] });
+    const loc = locate(q);
+    groups.get(key).questions.push({
+      _id: q._id,
+      type: q.type,
+      difficulty: q.difficulty,
+      status: q.status,
+      context: loc.context,
+      location: loc.location,
+      createdAt: q.createdAt,
+    });
+  }
+
+  const dupes = [...groups.values()]
+    .filter((g) => g.questions.length > 1)
+    .map((g) => ({ text: g.text, count: g.questions.length, questions: g.questions }))
+    .sort((a, b) => b.count - a.count);
+
+  const extras = dupes.reduce((s, g) => s + (g.count - 1), 0);
+  res.json({ scanned: questions.length, groups: dupes.length, extras, duplicates: dupes });
+}
+
 export async function deleteQuestion(req, res) {
   await Question.findByIdAndDelete(req.params.id);
   res.json({ message: "Question deleted" });

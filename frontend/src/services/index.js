@@ -50,6 +50,8 @@ export const contentService = {
   deleteQuestion: (id) => api.del(`/questions/${id}`),
   // bulk upload: context merged into each question (subject/session/quiz/testSeries)
   bulkQuestions: (questions, context) => api.post("/questions/bulk", { questions, context }),
+  // scan ALL questions for duplicates (by normalized text) across quiz/test/practice
+  duplicates: () => api.get("/questions/duplicates"),
 };
 
 // ---- Quiz ----

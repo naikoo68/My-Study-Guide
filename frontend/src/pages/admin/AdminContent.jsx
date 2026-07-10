@@ -7,7 +7,8 @@ import BulkUploadQuestions, { questionsToCsv } from "../../components/admin/Bulk
 import AiGenerate from "../../components/admin/AiGenerate";
 import QuestionFormModal from "../../components/admin/QuestionFormModal";
 import QuestionView from "../../components/admin/QuestionView";
-import { Sparkles } from "lucide-react";
+import DuplicatesModal from "../../components/admin/DuplicatesModal";
+import { Sparkles, Files } from "lucide-react";
 
 const COLORS = [
   "from-blue-500 to-indigo-600",
@@ -36,6 +37,7 @@ export default function AdminContent() {
   const [modal, setModal] = useState(null); // { type, mode, data }
   const [bulkOpen, setBulkOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
+  const [dupOpen, setDupOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [viewQ, setViewQ] = useState(null); // single question to preview
   const [viewAll, setViewAll] = useState(false); // preview all questions
@@ -222,6 +224,9 @@ export default function AdminContent() {
           <p className="text-slate-500 dark:text-slate-400">Stream → Subject → Topic → Session → Quiz → Questions. Add, edit or delete at any level.</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <button onClick={() => setDupOpen(true)} className="btn-outline" title="Scan all questions for duplicates">
+            <Files className="h-4 w-4" /> Find Duplicates
+          </button>
           {view === "questions" && (
             <>
               <button onClick={() => setViewAll(true)} className="btn-outline">
@@ -392,6 +397,8 @@ export default function AdminContent() {
           return res;
         }}
       />
+
+      <DuplicatesModal open={dupOpen} onClose={() => setDupOpen(false)} />
 
       {/* View single question */}
       {viewQ && (
