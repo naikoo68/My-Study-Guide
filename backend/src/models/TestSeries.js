@@ -23,6 +23,14 @@ const testSeriesSchema = new mongoose.Schema(
     marks: { type: Number, required: true },
     difficulty: { type: String, enum: ["Easy", "Medium", "Hard"], default: "Medium" },
     questions: [{ type: mongoose.Schema.Types.ObjectId, ref: "Question" }],
+    // Manual blueprint the admin types when creating a test: which subjects and
+    // how many questions each. Just a plan/guide — questions are added manually.
+    subjectPlan: [
+      {
+        subject: { type: String, trim: true },
+        count: { type: Number, default: 0 },
+      },
+    ],
     negativeMarking: { type: Number, default: 0.25 },
     schedule: { type: Date },
     status: { type: String, enum: ["draft", "scheduled", "published"], default: "draft" },

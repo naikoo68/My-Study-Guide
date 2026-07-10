@@ -6,8 +6,8 @@ import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState"
 import BulkUploadQuestions, { questionsToCsv } from "../../components/admin/BulkUploadQuestions";
 import AiGenerate from "../../components/admin/AiGenerate";
 import AiImport from "../../components/admin/AiImport";
-import QuestionBankComposer, { rowsToPlan } from "../../components/admin/QuestionBankComposer";
-import AddFromBank from "../../components/admin/AddFromBank";
+import SubjectPlanEditor from "../../components/admin/SubjectPlanEditor";
+import PickFromBank from "../../components/admin/PickFromBank";
 import QuestionFormModal from "../../components/admin/QuestionFormModal";
 import QuestionView from "../../components/admin/QuestionView";
 
@@ -45,12 +45,10 @@ export default function AdminTests() {
   const [bulkTest, setBulkTest] = useState(null);
   const [aiTest, setAiTest] = useState(null); // AI-generate questions for a test
   const [importTest, setImportTest] = useState(null); // import-from-web questions for a test
-  const [bankTest, setBankTest] = useState(null); // add-from-bank (quiz/practice) for a test
+  const [bankTest, setBankTest] = useState(null); // manual pick-from-bank for a test
 
-  // Question-bank composition for the create popup + subject lists
+  // Manual subject plan (typed) for the create/edit popup
   const [composition, setComposition] = useState([]);
-  const [quizSubjects, setQuizSubjects] = useState([]);
-  const [practiceSubjects, setPracticeSubjects] = useState([]);
 
   // Manage-questions state
   const [qTest, setQTest] = useState(null); // test whose questions we're editing
@@ -244,8 +242,6 @@ export default function AdminTests() {
     setForm(blank);
     setEditing(null);
     setComposition([]);
-    contentService.subjects().then(setQuizSubjects).catch(() => setQuizSubjects([]));
-    practiceService.allSubjects().then(setPracticeSubjects).catch(() => setPracticeSubjects([]));
     setModal(true);
   };
 
@@ -259,6 +255,7 @@ export default function AdminTests() {
       status: t.status,
       schedule: t.schedule ? new Date(t.schedule).toISOString().slice(0, 10) : "",
     });
+    setComposition((t.subjectPlan || []).map((r) => ({ subject: r.subject || "", count: r.count ?? 0 })));
     setEditing(t);
     setModal(true);
   };
@@ -286,26 +283,20 @@ export default function AdminTests() {
     e.preventDefault();
     setSaving(true);
     try {
-      const payload = { ...form };
+      // Manual subject blueprint (typed) — saved as a plan/guide, no auto-pull.
+      const subjectPlan = composition
+        .filter((r) => r.subject?.trim())
+        .map((r) => ({ subject: r.subject.trim(), count: parseInt(r.count, 10) || 0 }));
+      const payload = { ...form, subjectPlan };
       if (!payload.schedule) delete payload.schedule;
       if (editing) {
         const updated = await testService.update(editing._id, payload);
         setTests((prev) => prev.map((x) => (x._id === editing._id ? { ...x, ...updated, questionCount: x.questionCount } : x)));
       } else {
-        // New tests belong to the current exam + post.
+        // New tests belong to the current exam + post. Add questions afterwards
+        // (manually, from the bank / bulk / one-by-one).
         const created = await testService.create({ ...payload, exam: exam?._id, post: post?._id });
-        // Optionally pull questions from the quiz/practice bank per the composition.
-        let questionCount = 0;
-        const plan = rowsToPlan(composition);
-        if (plan.quizPlan.length || plan.practicePlan.length) {
-          try {
-            const r = await testService.populate(created._id, plan);
-            questionCount = r?.inserted || 0;
-          } catch (e) {
-            setError(`Test created, but pulling questions failed: ${e.message}`);
-          }
-        }
-        setTests((prev) => [{ ...created, questionCount }, ...prev]);
+        setTests((prev) => [{ ...created, questionCount: 0 }, ...prev]);
       }
       setModal(false);
       setForm(blank);
@@ -538,22 +529,17 @@ export default function AdminTests() {
                   </select>
                 </div>
               </div>
-              {!editing && (
-                <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
-                  <label className="mb-1 block text-sm font-semibold">Add questions per subject (optional)</label>
-                  <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
-                    Pull questions straight from your <b>Quizzes</b> and <b>Practice</b> bank — choose each subject and how many.
-                  </p>
-                  <QuestionBankComposer
-                    rows={composition}
-                    onChange={setComposition}
-                    quizSubjects={quizSubjects}
-                    practiceSubjects={practiceSubjects}
-                  />
-                </div>
-              )}
+              <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+                <label className="mb-1 block text-sm font-semibold">Subjects &amp; questions per subject (optional)</label>
+                <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
+                  Type your subjects and how many questions each — this is a plan/guide for the test. You add the actual
+                  questions afterwards.
+                </p>
+                <SubjectPlanEditor rows={composition} onChange={setComposition} />
+              </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Tip: you can also add questions later with <b>Manage questions</b>, <b>Bulk upload</b>, or <b>Add from bank</b> on the test row.
+                After creating, add questions with <b>Add from Quizzes/Practice</b> (hand-pick), <b>Manage questions</b>
+                (one by one), <b>Bulk upload</b>, <b>Generate with AI</b>, or <b>Import from Web</b> on the test row.
               </p>
               <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={() => setModal(false)} className="btn-outline">Cancel</button>
@@ -696,10 +682,10 @@ export default function AdminTests() {
         }}
       />
 
-      <AddFromBank
+      <PickFromBank
         open={!!bankTest}
         testId={bankTest?._id}
-        title={`Add from Bank${bankTest ? ` — ${bankTest.name}` : ""}`}
+        title={`Add from Quizzes / Practice${bankTest ? ` — ${bankTest.name}` : ""}`}
         onClose={() => setBankTest(null)}
         onDone={() => load()}
       />
