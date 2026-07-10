@@ -201,6 +201,7 @@ export const aiService = {
   status: () => api.get("/ai/status"),
   generate: (data) => api.post("/ai/generate", data), // returns { jobId, requested }
   job: (id) => api.get(`/ai/job/${id}`), // poll: { status, count, requested, questions? }
+  extract: (data) => api.post("/ai/extract", data), // import questions from a URL/text → { questions }
 };
 
 // ---- File upload (Cloudinary) ----

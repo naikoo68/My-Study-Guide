@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, Eye, EyeOff, X, CalendarClock, Users, Search, Upload, HelpCircle, ChevronRight, GraduationCap, Briefcase, Copy, Download, Sparkles } from "lucide-react";
+import { Plus, Pencil, Trash2, Eye, EyeOff, X, CalendarClock, Users, Search, Upload, HelpCircle, ChevronRight, GraduationCap, Briefcase, Copy, Download, Sparkles, Globe } from "lucide-react";
 import { testService, contentService, examService } from "../../services";
 import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 import BulkUploadQuestions, { questionsToCsv } from "../../components/admin/BulkUploadQuestions";
 import AiGenerate from "../../components/admin/AiGenerate";
+import AiImport from "../../components/admin/AiImport";
 import QuestionFormModal from "../../components/admin/QuestionFormModal";
 import QuestionView from "../../components/admin/QuestionView";
 
@@ -41,6 +42,7 @@ export default function AdminTests() {
   // Bulk-upload-questions-to-a-test state
   const [bulkTest, setBulkTest] = useState(null);
   const [aiTest, setAiTest] = useState(null); // AI-generate questions for a test
+  const [importTest, setImportTest] = useState(null); // import-from-web questions for a test
 
   // Manage-questions state
   const [qTest, setQTest] = useState(null); // test whose questions we're editing
@@ -407,6 +409,9 @@ export default function AdminTests() {
                       <button onClick={() => setAiTest(t)} title="Generate questions with AI" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30">
                         <Sparkles className="h-4 w-4" />
                       </button>
+                      <button onClick={() => setImportTest(t)} title="Import questions from web" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30">
+                        <Globe className="h-4 w-4" />
+                      </button>
                       <button onClick={() => openAccess(t)} title="Manage user access" className="rounded-lg p-2 text-accent-600 hover:bg-accent-50 dark:hover:bg-accent-900/30">
                         <Users className="h-4 w-4" />
                       </button>
@@ -637,6 +642,17 @@ export default function AdminTests() {
         onUpload={async (questions) => {
           const res = await contentService.bulkQuestions(questions, { testSeries: aiTest._id });
           load(); // refresh question counts
+          return res;
+        }}
+      />
+
+      <AiImport
+        open={!!importTest}
+        title={`Import from Web${importTest ? ` — ${importTest.name}` : ""}`}
+        onClose={() => setImportTest(null)}
+        onUpload={async (questions) => {
+          const res = await contentService.bulkQuestions(questions, { testSeries: importTest._id });
+          load();
           return res;
         }}
       />

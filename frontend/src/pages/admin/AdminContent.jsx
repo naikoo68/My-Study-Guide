@@ -8,7 +8,8 @@ import AiGenerate from "../../components/admin/AiGenerate";
 import QuestionFormModal from "../../components/admin/QuestionFormModal";
 import QuestionView from "../../components/admin/QuestionView";
 import DuplicatesModal from "../../components/admin/DuplicatesModal";
-import { Sparkles, Files } from "lucide-react";
+import AiImport from "../../components/admin/AiImport";
+import { Sparkles, Files, Globe } from "lucide-react";
 
 const COLORS = [
   "from-blue-500 to-indigo-600",
@@ -37,6 +38,7 @@ export default function AdminContent() {
   const [modal, setModal] = useState(null); // { type, mode, data }
   const [bulkOpen, setBulkOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [dupOpen, setDupOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [viewQ, setViewQ] = useState(null); // single question to preview
@@ -238,6 +240,9 @@ export default function AdminContent() {
               <button onClick={() => setAiOpen(true)} className="btn-outline text-brand-600">
                 <Sparkles className="h-4 w-4" /> Generate with AI
               </button>
+              <button onClick={() => setImportOpen(true)} className="btn-outline text-brand-600">
+                <Globe className="h-4 w-4" /> Import from Web
+              </button>
               <button onClick={() => copyCsv(selected.length ? items.filter((q) => selected.includes(q._id)) : items)} disabled={!items.length} className="btn-outline">
                 <Copy className="h-4 w-4" /> Copy CSV{selected.length ? ` (${selected.length})` : ""}
               </button>
@@ -387,6 +392,21 @@ export default function AdminContent() {
         open={aiOpen}
         title={`Generate with AI${quiz ? ` — ${quiz.title}` : ""}`}
         onClose={() => setAiOpen(false)}
+        onUpload={async (questions) => {
+          const res = await contentService.bulkQuestions(questions, {
+            subject: subject._id,
+            session: session._id,
+            quiz: quiz._id,
+          });
+          load("questions");
+          return res;
+        }}
+      />
+
+      <AiImport
+        open={importOpen}
+        title={`Import from Web${quiz ? ` — ${quiz.title}` : ""}`}
+        onClose={() => setImportOpen(false)}
         onUpload={async (questions) => {
           const res = await contentService.bulkQuestions(questions, {
             subject: subject._id,

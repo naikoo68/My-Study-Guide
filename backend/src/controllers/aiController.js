@@ -457,3 +457,120 @@ export function jobStatus(req, res) {
     questions: job.status === "done" ? job.questions : undefined,
   });
 }
+
+
+/* --------------------- Import questions from a website / text ---------------------
+   The admin pastes a page URL and/or the copied text; the AI EXTRACTS the
+   questions already present and returns them in the app schema for preview. */
+
+const MAX_SOURCE_CHARS = 16000; // cap the material sent to the model
+
+// Fetch a web page and reduce it to readable plain text.
+async function fetchPageText(url) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  try {
+    const resp = await fetch(url, {
+      redirect: "follow",
+      signal: controller.signal,
+      headers: {
+        // A normal browser UA — some sites reject unknown clients.
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+        Accept: "text/html,application/xhtml+xml",
+      },
+    });
+    if (!resp.ok) return { ok: false, status: resp.status };
+    const html = await resp.text();
+    const text = html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ") // strip tags
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&amp;/gi, "&")
+      .replace(/&lt;/gi, "<")
+      .replace(/&gt;/gi, ">")
+      .replace(/&#39;|&apos;/gi, "'")
+      .replace(/&quot;/gi, '"')
+      .replace(/\s+/g, " ")
+      .trim();
+    return { ok: true, text };
+  } catch (e) {
+    return { ok: false, error: e?.name === "AbortError" ? "The page took too long to load." : e?.message };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function buildExtractPrompt(sourceText) {
+  return [
+    'Extract EVERY exam/quiz question found in the material below and return them in the required JSON object {"questions":[...]}.',
+    "Rules:",
+    "- Only extract questions that are actually present — do NOT invent new questions.",
+    "- Reproduce each question's stem and options faithfully.",
+    "- If fewer than 4 options exist, complete them sensibly to 4; if more, keep the 4 most relevant.",
+    "- If the correct answer is indicated (marked, 'Ans:', bold, an answer key, etc.), set \"correct\" to it; otherwise pick the best correct option.",
+    "- Add a short explanation and brief per-option notes where possible.",
+    "- Preserve Assertion/Reason, matching columns, and tables using the proper fields.",
+    "",
+    "SOURCE MATERIAL:",
+    sourceText,
+  ].join("\n");
+}
+
+// POST /api/ai/extract  (admin)
+// Body: { url?, content?, model? } — returns { questions, model }.
+export async function extractQuestions(req, res) {
+  const key = (process.env.AI_API_KEY || "").trim();
+  if (!key) {
+    return res.status(400).json({
+      message: "AI is not configured. Add AI_API_KEY to the server environment.",
+    });
+  }
+
+  const model = resolveModel(String(req.body?.model || "").trim());
+  const url = String(req.body?.url || "").trim();
+  let content = String(req.body?.content || "").trim();
+
+  // Optionally pull text from a page URL.
+  if (url) {
+    if (!/^https?:\/\//i.test(url)) {
+      return res.status(400).json({ message: "Enter a valid http(s) URL, or paste the text instead." });
+    }
+    const page = await fetchPageText(url);
+    if (!page.ok) {
+      return res.status(502).json({
+        message: `Couldn't read that page${page.status ? ` (HTTP ${page.status})` : ""}. ${
+          page.error || "The site may block automated access — try copying the questions text and pasting it instead."
+        }`,
+      });
+    }
+    content = `${content}\n\n${page.text}`.trim();
+  }
+
+  if (!content) {
+    return res.status(400).json({ message: "Provide a page URL or paste the questions text to import." });
+  }
+  const source = content.slice(0, MAX_SOURCE_CHARS);
+
+  const r = await callProvider({
+    key,
+    model,
+    userPrompt: buildExtractPrompt(source),
+    maxTokens: 16000,
+  });
+  if (!r.ok) {
+    const hint =
+      r.status === 429 ? " Quota/rate limit reached — wait a moment or use a different model." : "";
+    return res.status(502).json({ message: `AI provider error (${r.status}).${hint} ${(r.detail || "").slice(0, 200)}` });
+  }
+
+  const questions = normalize(parseQuestions(r.content));
+  if (!questions.length) {
+    return res.status(422).json({
+      message:
+        "No questions could be extracted from that source. Make sure the page/text actually contains questions, or paste them directly.",
+    });
+  }
+  res.json({ questions, model });
+}
