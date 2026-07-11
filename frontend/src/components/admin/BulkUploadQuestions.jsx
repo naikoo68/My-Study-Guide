@@ -37,7 +37,12 @@ function correctIndex(v) {
 }
 
 const asDifficulty = (d) => (["Easy", "Medium", "Hard"].includes(d) ? d : "Medium");
-const splitList = (s) => String(s || "").split("|").map((x) => x.trim()).filter(Boolean);
+// Strip a leading list marker ("1.", "2)", "I.", "(iii)", "IV -") from an item,
+// since the app auto-numbers Column A (1,2,3,4) and Column B (I,II,III,IV) and
+// statement/pair lists. This avoids double numbering like "1  1. Constant MRT".
+export const stripListMarker = (x) =>
+  String(x || "").replace(/^\s*[([]?\s*(?:\d{1,2}|[ivxlcIVXLC]{1,5})\s*[.)\]:\-]\s+/, "").trim();
+const splitList = (s) => String(s || "").split("|").map((x) => stripListMarker(x)).filter(Boolean);
 
 // Builds the per-option brief notes (why each WRONG option is wrong). The four
 // cells align to options A–D; the correct option's cell is always cleared,

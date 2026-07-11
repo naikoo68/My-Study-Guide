@@ -31,6 +31,11 @@ function resolveModel(requested) {
 const TYPES = ["mcq", "matching", "statement", "pair", "pairselect", "assertion", "table"];
 const DIFFS = ["Easy", "Medium", "Hard"];
 
+// Strip a leading list marker ("1.", "2)", "I.", "(iii)") from a column/statement
+// item — the app auto-numbers Column A (1,2,3,4) and Column B (I,II,III,IV).
+const stripListMarker = (x) =>
+  String(x || "").replace(/^\s*[([]?\s*(?:\d{1,2}|[ivxlcIVXLC]{1,5})\s*[.)\]:\-]\s+/, "").trim();
+
 // GET /api/ai/status — lets the admin UI show/hide the "Generate with AI"
 // button and populate the model dropdown.
 export function aiStatus(req, res) {
@@ -53,7 +58,7 @@ Each question object uses these fields:
 - "explanation": a detailed explanation of why the correct option is right.
 - "optionExplanations": array of EXACTLY 4 short strings, one per option, explaining why each is right/wrong. Leave the correct option's entry an empty string "".
 Type-specific extra fields:
-- "matching"/"pair"/"pairselect": also include "columnA" (array) and "columnB" (array) to match. Each option in "options" is a mapping like "1-III, 2-I, 3-IV, 4-II".
+- "matching"/"pair"/"pairselect": also include "columnA" (array) and "columnB" (array) to match. Each option in "options" is a mapping like "1-III, 2-I, 3-IV, 4-II". Do NOT prefix columnA/columnB items with numbers or roman numerals (no "1.", "I.") — the app numbers Column A (1,2,3,4) and Column B (I,II,III,IV) automatically.
 - "assertion": include "assertion" (Assertion A text) and "reason" (Reason R text). The 4 options should be the standard A&R choices.
 - "table": include "tableRows" (2D array; first inner array is the header row).
 Never include image URLs. Keep questions factually correct and self-contained.`;
@@ -204,8 +209,10 @@ function normalize(list) {
       };
 
       if (type === "matching" || type === "pair" || type === "pairselect") {
-        out.columnA = arrStr(q?.columnA);
-        out.columnB = arrStr(q?.columnB);
+        // Strip any leading "1.", "2)", "I.", "(iii)" markers — the app numbers
+        // Column A (1,2,3,4) and Column B (I,II,III,IV) automatically.
+        out.columnA = arrStr(q?.columnA).map(stripListMarker);
+        out.columnB = arrStr(q?.columnB).map(stripListMarker);
       }
       if (type === "assertion") {
         out.assertion = asStr(q?.assertion).trim();
