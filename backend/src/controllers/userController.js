@@ -1,6 +1,10 @@
 import crypto from "crypto";
 import User from "../models/User.js";
 import TestSeries from "../models/TestSeries.js";
+import Question from "../models/Question.js";
+import PracticeStream from "../models/PracticeStream.js";
+import PracticeSubject from "../models/PracticeSubject.js";
+import PracticeTopic from "../models/PracticeTopic.js";
 import { findAccessEntry } from "../utils/accessControl.js";
 
 const norm = (e) => String(e || "").toLowerCase().trim();
@@ -18,6 +22,45 @@ export async function listUsers(req, res) {
     .limit(Number(limit));
   const total = await User.countDocuments(filter);
   res.json({ users, total, page: Number(page) });
+}
+
+// GET /api/users/clients  (admin) — self-service client accounts, each with a
+// count of the private My Practice content they've created.
+export async function listClients(req, res) {
+  const { search = "" } = req.query;
+  const filter = { role: "client" };
+  if (search) filter.$or = [{ name: new RegExp(search, "i") }, { email: new RegExp(search, "i") }];
+
+  const clients = await User.find(filter).select("-password").sort("-createdAt").lean();
+  const ids = clients.map((c) => c._id);
+
+  // Owned content counts (practice quizzes vs tests, and total questions).
+  const [tsAgg, qAgg] = await Promise.all([
+    TestSeries.aggregate([
+      { $match: { owner: { $in: ids } } },
+      { $group: { _id: { owner: "$owner", kind: "$practiceKind" }, count: { $sum: 1 } } },
+    ]),
+    Question.aggregate([{ $match: { owner: { $in: ids } } }, { $group: { _id: "$owner", count: { $sum: 1 } } }]),
+  ]);
+
+  const quizMap = {};
+  const testMap = {};
+  tsAgg.forEach((r) => {
+    const o = String(r._id.owner);
+    if (r._id.kind === "quiz") quizMap[o] = (quizMap[o] || 0) + r.count;
+    else testMap[o] = (testMap[o] || 0) + r.count;
+  });
+  const qMap = Object.fromEntries(qAgg.map((r) => [String(r._id), r.count]));
+
+  res.json({
+    clients: clients.map((c) => ({
+      ...c,
+      quizzes: quizMap[String(c._id)] || 0,
+      tests: testMap[String(c._id)] || 0,
+      questions: qMap[String(c._id)] || 0,
+    })),
+    total: clients.length,
+  });
 }
 
 // POST /api/users  (admin) — create a new user
@@ -88,6 +131,17 @@ export async function updateUser(req, res) {
 export async function deleteUser(req, res) {
   const user = await User.findById(req.params.id);
   if (!user) return res.status(404).json({ message: "User not found" });
+  // A client owns private My Practice content — remove it too so nothing is
+  // orphaned when the account is deleted.
+  if (user.role === "client") {
+    await Promise.all([
+      Question.deleteMany({ owner: user._id }),
+      TestSeries.deleteMany({ owner: user._id }),
+      PracticeTopic.deleteMany({ owner: user._id }),
+      PracticeSubject.deleteMany({ owner: user._id }),
+      PracticeStream.deleteMany({ owner: user._id }),
+    ]);
+  }
   await User.findByIdAndDelete(req.params.id);
   res.json({ message: "User deleted" });
 }

@@ -239,6 +239,7 @@ export const uploadService = {
 // ---- Users (admin) ----
 export const userService = {
   list: (search = "") => api.get(`/users${search ? `?search=${encodeURIComponent(search)}` : ""}`),
+  clients: (search = "") => api.get(`/users/clients${search ? `?search=${encodeURIComponent(search)}` : ""}`),
   create: (data) => api.post("/users", data),
   update: (id, data) => api.put(`/users/${id}`, data),
   remove: (id) => api.del(`/users/${id}`),

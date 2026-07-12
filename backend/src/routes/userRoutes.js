@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   listUsers,
+  listClients,
   createUser,
   updateUser,
   deleteUser,
@@ -16,6 +17,7 @@ const router = Router();
 const admin = [protect, authorize("admin")];
 
 router.get("/", ...admin, listUsers);
+router.get("/clients", ...admin, listClients); // self-service client accounts
 router.post("/", ...admin, createUser);
 router.put("/:id", ...admin, updateUser);
 router.delete("/:id", ...admin, deleteUser);
