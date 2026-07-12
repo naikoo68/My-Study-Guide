@@ -1,10 +1,25 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ListChecks, FileStack, Play, Clock, ShieldCheck, AlarmClock, Sparkles, HelpCircle } from "lucide-react";
+import * as Icons from "lucide-react";
+import {
+  ListChecks,
+  FileStack,
+  Play,
+  Clock,
+  ShieldCheck,
+  AlarmClock,
+  Sparkles,
+  HelpCircle,
+  ChevronRight,
+  ArrowRight,
+  GraduationCap,
+  FolderOpen,
+  Layers,
+} from "lucide-react";
 import { practiceService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
 import Badge from "../../components/ui/Badge";
-import { Loading, ErrorState } from "../../components/ui/AsyncState";
+import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 
 const fmtDate = (d) =>
   new Date(d).toLocaleString(undefined, { day: "2-digit", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
@@ -21,15 +36,42 @@ function relativeTo(d) {
 }
 const isExpired = (d) => d && new Date(d).getTime() < Date.now();
 
-// The client's home. Shows profile + validity and lets them PRACTICE the
-// quizzes and tests they built (this is where practicing happens, not the
-// builder). `onBuild` switches to the builder tab to add/edit content.
+// The two sub-modules a client practices. My Quiz drills Stream → Subject →
+// Topic → Quiz; My Test drills Stream → Test.
+const KINDS = [
+  { key: "quiz", label: "My Quiz", Icon: ListChecks, tone: "bg-violet-100 text-violet-600 dark:bg-violet-900/40 dark:text-violet-300" },
+  { key: "test", label: "My Test", Icon: FileStack, tone: "bg-brand-100 text-brand-600 dark:bg-brand-900/40 dark:text-brand-300" },
+];
+
+const eq = (a, b) => String(a || "") === String(b || "");
+
+// Collect the distinct nodes referenced by `list` under the given key
+// (e.g. every distinct stream among a set of quizzes), preserving order.
+function uniqueNodes(list, key) {
+  const map = new Map();
+  for (const it of list) {
+    const node = it[key];
+    if (node && node._id && !map.has(String(node._id))) map.set(String(node._id), node);
+  }
+  return [...map.values()];
+}
+
+// The client's home. Shows profile + validity, then lets them browse and
+// practice the quizzes and tests they built (this is where practicing happens,
+// not the builder). `onBuild` switches to the builder tab to add/edit content.
 export default function ClientDashboard({ onBuild }) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  // Drill-down state. `kind` picks the sub-module; the selected stream/subject/
+  // topic define how deep we've navigated. Switching kind resets the path.
+  const [kind, setKind] = useState("quiz");
+  const [stream, setStream] = useState(null);
+  const [subject, setSubject] = useState(null);
+  const [topic, setTopic] = useState(null);
 
   const load = () => {
     setLoading(true);
@@ -42,8 +84,8 @@ export default function ClientDashboard({ onBuild }) {
   };
   useEffect(load, []);
 
-  const quizzes = items.filter((i) => i.kind === "quiz");
-  const tests = items.filter((i) => i.kind === "test");
+  const resetPath = () => { setStream(null); setSubject(null); setTopic(null); };
+  const switchKind = (k) => { setKind(k); resetPath(); };
 
   const play = (item) => {
     if (item.kind === "quiz") navigate(`/practice/quiz/play/${item._id}`);
@@ -52,51 +94,50 @@ export default function ClientDashboard({ onBuild }) {
 
   const expired = isExpired(user?.expiresAt);
 
-  const Section = ({ title, Icon, list, cta, tone }) => (
-    <div className="card p-5">
-      <div className="mb-4 flex items-center gap-2">
-        <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${tone}`}>
-          <Icon className="h-5 w-5" />
-        </span>
-        <h2 className="text-lg font-bold">{title}</h2>
-        <span className="ml-auto text-sm text-slate-400">{list.length}</span>
-      </div>
-      {list.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-200 p-6 text-center dark:border-slate-700">
-          <p className="text-sm text-slate-500 dark:text-slate-400">Nothing here yet.</p>
-          <button onClick={onBuild} className="btn-outline mt-3">
-            <Sparkles className="h-4 w-4" /> Build one
-          </button>
-        </div>
-      ) : (
-        <div className="space-y-2.5">
-          {list.map((item) => {
-            const empty = (item.questionCount ?? 0) === 0;
-            return (
-              <div key={item._id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3 dark:border-slate-700">
-                <div className="min-w-0">
-                  <p className="truncate font-semibold">{item.name}</p>
-                  <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-400">
-                    <span className="inline-flex items-center gap-1"><HelpCircle className="h-3 w-3" /> {item.questionCount} Qs</span>
-                    {item.kind === "test" && <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" /> {item.duration} min</span>}
-                    {item.difficulty && <Badge variant={item.difficulty}>{item.difficulty}</Badge>}
-                  </div>
-                </div>
-                <button
-                  onClick={() => play(item)}
-                  disabled={empty}
-                  title={empty ? "Add questions to this first" : cta}
-                  className="btn-primary flex-shrink-0 py-1.5 text-xs disabled:opacity-50"
-                >
-                  <Play className="h-3.5 w-3.5" /> {empty ? "No questions" : cta}
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
+  const quizzes = items.filter((i) => i.kind === "quiz");
+  const tests = items.filter((i) => i.kind === "test");
+
+  // Which level are we viewing for the active kind?
+  //   My Quiz : streams → subjects → topics → items(quizzes)
+  //   My Test : streams → items(tests)
+  const level = kind === "quiz"
+    ? (topic ? "items" : subject ? "topics" : stream ? "subjects" : "streams")
+    : (stream ? "items" : "streams");
+
+  // Rows for the current level, derived from the flat item list.
+  let rows = [];
+  if (kind === "quiz") {
+    if (level === "streams") rows = uniqueNodes(quizzes, "stream");
+    else if (level === "subjects") rows = uniqueNodes(quizzes.filter((q) => eq(q.stream?._id, stream._id)), "subject");
+    else if (level === "topics") rows = uniqueNodes(quizzes.filter((q) => eq(q.subject?._id, subject._id)), "topic");
+    else rows = quizzes.filter((q) => eq(q.topic?._id, topic._id));
+  } else {
+    if (level === "streams") rows = uniqueNodes(tests, "stream");
+    else rows = tests.filter((t) => eq(t.stream?._id, stream._id));
+  }
+
+  const isItems = level === "items";
+
+  // Breadcrumb trail for the active kind.
+  const crumbs = [{ label: KINDS.find((k) => k.key === kind).label, onClick: resetPath }];
+  if (stream) crumbs.push({ label: stream.name, onClick: () => { setSubject(null); setTopic(null); } });
+  if (subject) crumbs.push({ label: subject.name, onClick: () => setTopic(null) });
+  if (topic) crumbs.push({ label: topic.name, onClick: null });
+
+  const openNode = (node) => {
+    if (kind === "test") { setStream(node); return; } // stream → tests
+    if (level === "streams") setStream(node);
+    else if (level === "subjects") setSubject(node);
+    else if (level === "topics") setTopic(node);
+  };
+
+  const levelHint =
+    level === "streams" ? "Choose a stream"
+    : level === "subjects" ? "Choose a subject"
+    : level === "topics" ? "Choose a topic"
+    : kind === "quiz" ? "Select a quiz to start" : "Select a test to start";
+
+  const fallbackIcon = level === "streams" ? GraduationCap : level === "topics" ? Layers : FolderOpen;
 
   return (
     <div className="space-y-6">
@@ -140,16 +181,102 @@ export default function ClientDashboard({ onBuild }) {
         </div>
       </div>
 
-      {loading ? (
-        <Loading label="Loading your content..." />
-      ) : error ? (
-        <ErrorState message={error} onRetry={load} />
-      ) : (
-        <div className="grid gap-5 lg:grid-cols-2">
-          <Section title="Practice Quiz" Icon={ListChecks} list={quizzes} cta="Practice" tone="bg-violet-100 text-violet-600 dark:bg-violet-900/40 dark:text-violet-300" />
-          <Section title="Practice Test" Icon={FileStack} list={tests} cta="Take Test" tone="bg-brand-100 text-brand-600 dark:bg-brand-900/40 dark:text-brand-300" />
+      {/* Practice browser */}
+      <div className="card p-5">
+        {/* Kind tabs: My Quiz vs My Test */}
+        <div className="flex flex-wrap gap-2">
+          {KINDS.map((k) => (
+            <button
+              key={k.key}
+              onClick={() => switchKind(k.key)}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
+                kind === k.key ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
+              }`}
+            >
+              <k.Icon className="h-4 w-4" /> {k.label}
+            </button>
+          ))}
         </div>
-      )}
+
+        {/* Breadcrumb */}
+        <nav className="mt-4 flex flex-wrap items-center gap-1 text-sm">
+          {crumbs.map((c, i) => (
+            <span key={i} className="flex items-center gap-1">
+              {i > 0 && <ChevronRight className="h-4 w-4 text-slate-400" />}
+              {c.onClick ? (
+                <button onClick={c.onClick} className="rounded px-2 py-1 font-medium text-slate-500 hover:text-brand-600">{c.label}</button>
+              ) : (
+                <span className="rounded px-2 py-1 font-medium text-brand-600">{c.label}</span>
+              )}
+            </span>
+          ))}
+        </nav>
+
+        <h2 className="mt-2 text-lg font-bold">{levelHint}</h2>
+
+        {loading ? (
+          <div className="mt-6"><Loading label="Loading your content..." /></div>
+        ) : error ? (
+          <div className="mt-6"><ErrorState message={error} onRetry={load} /></div>
+        ) : rows.length === 0 ? (
+          <div className="mt-6 rounded-xl border border-dashed border-slate-200 p-8 text-center dark:border-slate-700">
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              {level === "streams" ? `No ${kind === "quiz" ? "quizzes" : "tests"} yet.` : "Nothing here yet."}
+            </p>
+            <button onClick={onBuild} className="btn-outline mt-3">
+              <Sparkles className="h-4 w-4" /> Build one
+            </button>
+          </div>
+        ) : isItems ? (
+          // Leaf level — playable quizzes / tests
+          <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {rows.map((item) => {
+              const empty = (item.questionCount ?? 0) === 0;
+              const cta = kind === "quiz" ? "Practice" : "Take Test";
+              return (
+                <div key={item._id} className="card p-4">
+                  <p className="truncate font-semibold">{item.name}</p>
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-400">
+                    <span className="inline-flex items-center gap-1"><HelpCircle className="h-3 w-3" /> {item.questionCount} Qs</span>
+                    {item.kind === "test" && <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" /> {item.duration} min</span>}
+                    {item.difficulty && <Badge variant={item.difficulty}>{item.difficulty}</Badge>}
+                  </div>
+                  <button
+                    onClick={() => play(item)}
+                    disabled={empty}
+                    title={empty ? "Add questions to this first" : cta}
+                    className="btn-primary mt-3 w-full py-1.5 text-xs disabled:opacity-50"
+                  >
+                    <Play className="h-3.5 w-3.5" /> {empty ? "No questions" : cta}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          // Grouping level — streams / subjects / topics
+          <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {rows.map((node) => {
+              const Icon = Icons[node.icon] || fallbackIcon;
+              return (
+                <button
+                  key={node._id}
+                  onClick={() => openNode(node)}
+                  className="card-hover group p-5 text-left"
+                >
+                  <div className={`flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br ${node.color || "from-violet-500 to-fuchsia-600"} text-white shadow-soft`}>
+                    <Icon className="h-6 w-6" />
+                  </div>
+                  <h3 className="mt-3 font-bold">{node.name}</h3>
+                  <span className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-brand-600 transition group-hover:gap-2 dark:text-brand-400">
+                    Open <ArrowRight className="h-4 w-4" />
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

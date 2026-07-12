@@ -210,10 +210,19 @@ export async function playQuiz(req, res) {
   });
 }
 
-// GET /api/practice/my-items — flat list of the caller's OWN practice items
-// (both My Quiz and My Test), used by the client dashboard to practice them.
+// GET /api/practice/my-items — list of the caller's OWN practice items (both
+// My Quiz and My Test). Each item carries its Stream → Subject → Topic context
+// so the client dashboard can present a drill-down browser:
+//   My Quiz : Stream → Subject → Topic → Quiz
+//   My Test : Stream → Test
+const nodeInfo = (n) => (n ? { _id: n._id, name: n.name, icon: n.icon, color: n.color } : null);
 export async function myItems(req, res) {
-  const items = await TestSeries.find({ practice: true, ...ownerFilter(req) }).sort("createdAt").lean();
+  const items = await TestSeries.find({ practice: true, ...ownerFilter(req) })
+    .populate("practiceStream", "name icon color")
+    .populate("practiceSubject", "name icon color")
+    .populate("practiceTopic", "name icon color")
+    .sort("createdAt")
+    .lean();
   res.json(
     items.map((t) => ({
       _id: t._id,
@@ -223,6 +232,9 @@ export async function myItems(req, res) {
       marks: t.marks,
       difficulty: t.difficulty,
       questionCount: t.questions?.length || 0,
+      stream: nodeInfo(t.practiceStream),
+      subject: nodeInfo(t.practiceSubject),
+      topic: nodeInfo(t.practiceTopic),
     }))
   );
 }
