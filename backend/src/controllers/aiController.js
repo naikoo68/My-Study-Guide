@@ -37,12 +37,32 @@ function modelRegistry() {
 
 const DEFAULT_MODEL = () => modelRegistry()[0]?.model || "";
 
-// Resolve a requested model → { model, key, baseUrl }. Only honours a model that
-// is actually configured (no arbitrary model injection); falls back to the first.
+// Resolve a requested model → { model, endpoints:[{key,baseUrl}] }. Endpoints are
+// EVERY configured key whose AI_MODEL lists this model, in slot order. This lets
+// several keys (e.g. different Gemini accounts) all serve the same model, so the
+// generator can fall back to the next key when one hits its quota.
 function resolveModel(requested) {
-  const reg = modelRegistry();
-  if (!reg.length) return null;
-  return reg.find((r) => r.model === requested) || reg[0];
+  const provs = providers();
+  if (!provs.length) return null;
+  const defModel = provs[0].models[0];
+  const model = provs.some((p) => p.models.includes(requested)) ? requested : defModel;
+  const endpoints = provs
+    .filter((p) => p.models.includes(model))
+    .map((p) => ({ key: p.key, baseUrl: p.baseUrl }));
+  return { model, endpoints };
+}
+
+// Try a request across all keys that serve the model, moving to the next key on
+// a quota/auth error (429/401/403). Other errors aren't retried on another key.
+async function callWithFallback({ endpoints, model, userPrompt, maxTokens }) {
+  let last = { ok: false, status: 0, detail: "No AI key is configured." };
+  for (const ep of endpoints || []) {
+    const r = await callProvider({ key: ep.key, baseUrl: ep.baseUrl, model, userPrompt, maxTokens });
+    if (r.ok) return r;
+    last = r;
+    if (![429, 401, 403].includes(r.status)) break;
+  }
+  return last;
 }
 
 const TYPES = ["mcq", "matching", "statement", "pair", "pairselect", "assertion", "table"];
@@ -288,7 +308,9 @@ async function callProvider({ key, baseUrl, model, userPrompt, maxTokens }) {
   // (sent only for Gemini; OpenAI/Claude reject this field).
   if (/gemini/i.test(model)) payload.reasoning_effort = "none";
 
-  const TRANSIENT = [429, 500, 502, 503, 504];
+  // 429 is NOT retried here — it returns immediately so the caller can switch to
+  // the next configured key. Only "busy" server errors are retried on this key.
+  const TRANSIENT = [500, 502, 503, 504];
   const WAITS = [1500, 3000, 6000, 9000];
   for (let attempt = 0; ; attempt++) {
     const resp = await fetch(`${(baseUrl || "https://api.tokenlab.sh/v1").replace(/\/$/, "")}/chat/completions`, {
@@ -355,7 +377,7 @@ function cleanupJobs() {
 }
 
 async function runGenerationJob(id, ctx) {
-  const { key, baseUrl, model, topic, notes, plan, count, difficulty, types, target } = ctx;
+  const { endpoints, model, topic, notes, plan, count, difficulty, types, target } = ctx;
   const job = genJobs.get(id);
   const deadline = Date.now() + 4 * 60 * 1000; // 4-minute overall budget
   const MAX_CALLS = Math.ceil(target / CHUNK_SIZE) + 5; // headroom for retries/top-ups
@@ -383,7 +405,7 @@ async function runGenerationJob(id, ctx) {
       }
       calls += 1;
       const maxTokens = Math.min(16000, 1500 + n * 700);
-      const r = await callProvider({ key, baseUrl, model, userPrompt: prompt, maxTokens });
+      const r = await callWithFallback({ endpoints, model, userPrompt: prompt, maxTokens });
       if (!r.ok) {
         lastError = r;
         // A 429 means quota/rate exhausted — retrying more won't help right now.
@@ -425,13 +447,13 @@ async function runGenerationJob(id, ctx) {
 // Starts a background job and returns { jobId, requested }. Poll /api/ai/job/:id.
 export async function generateQuestions(req, res) {
   const chosen = resolveModel(String(req.body?.model || "").trim());
-  if (!chosen) {
+  if (!chosen || !chosen.endpoints.length) {
     return res.status(400).json({
       message:
         "AI is not configured. Add AI_API_KEY (and optionally AI_BASE_URL, AI_MODEL) to the server environment.",
     });
   }
-  const { model, key, baseUrl } = chosen;
+  const { model, endpoints } = chosen;
 
   const topic = String(req.body?.topic || "").trim();
   if (!topic) return res.status(400).json({ message: "A topic is required." });
@@ -477,7 +499,7 @@ export async function generateQuestions(req, res) {
   });
 
   // Fire-and-forget — the client polls /api/ai/job/:id for progress.
-  runGenerationJob(id, { key, baseUrl, model, topic, notes, plan, count, difficulty, types, target });
+  runGenerationJob(id, { endpoints, model, topic, notes, plan, count, difficulty, types, target });
 
   res.json({ jobId: id, requested: target, model });
 }
@@ -585,7 +607,7 @@ function buildExtractPrompt(sourceText) {
 
 // Background worker: extract questions from every source chunk and combine
 // (de-duplicated), so a multi-section page is imported in one go.
-async function runExtractionJob(id, { key, baseUrl, model, chunks }) {
+async function runExtractionJob(id, { endpoints, model, chunks }) {
   const job = genJobs.get(id);
   const deadline = Date.now() + 5 * 60 * 1000; // 5-minute budget
   const collected = [];
@@ -597,9 +619,8 @@ async function runExtractionJob(id, { key, baseUrl, model, chunks }) {
   try {
     for (let c = 0; c < chunks.length; c++) {
       if (Date.now() > deadline) break;
-      const r = await callProvider({
-        key,
-        baseUrl,
+      const r = await callWithFallback({
+        endpoints,
         model,
         userPrompt: buildExtractPrompt(chunks[c]),
         maxTokens: 16000,
@@ -640,10 +661,10 @@ async function runExtractionJob(id, { key, baseUrl, model, chunks }) {
 // whole source (all sections) and returns { jobId }. Poll /api/ai/job/:id.
 export async function extractQuestions(req, res) {
   const chosen = resolveModel(String(req.body?.model || "").trim());
-  if (!chosen) {
+  if (!chosen || !chosen.endpoints.length) {
     return res.status(400).json({ message: "AI is not configured. Add AI_API_KEY to the server environment." });
   }
-  const { model, key, baseUrl } = chosen;
+  const { model, endpoints } = chosen;
   const url = String(req.body?.url || "").trim();
   let content = String(req.body?.content || "").trim();
 
@@ -682,6 +703,6 @@ export async function extractQuestions(req, res) {
     updatedAt: Date.now(),
   });
 
-  runExtractionJob(id, { key, baseUrl, model, chunks });
+  runExtractionJob(id, { endpoints, model, chunks });
   res.json({ jobId: id, chunks: chunks.length, model });
 }
