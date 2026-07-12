@@ -747,10 +747,28 @@ function keyToClient(k) {
   };
 }
 
-// GET /api/ai/keys (admin)
+// GET /api/ai/keys (admin) — DB keys (editable) + env-var keys (read-only), plus
+// the flat list of all available models across every enabled key.
 export async function listKeys(req, res) {
-  const keys = await AiKey.find().sort("order createdAt").lean();
-  res.json(keys.map(keyToClient));
+  const db = await AiKey.find().sort("order createdAt").lean();
+  const dbList = db.map((k) => ({ ...keyToClient(k), source: "db" }));
+
+  const envList = envProviders().map((p, i) => ({
+    _id: `env-${i + 1}`,
+    source: "env",
+    readOnly: true, // configured in Render, not editable from the UI
+    label: i === 0 ? "Server key · AI_API_KEY" : `Server key · AI_API_KEY_${i + 1}`,
+    baseUrl: p.baseUrl,
+    models: p.models.join(", "),
+    keyMask: maskKey(p.key),
+    enabled: true,
+    lastStatus: "",
+    lastError: "",
+    lastCheckedAt: null,
+  }));
+
+  const models = (await modelRegistry()).map((r) => r.model);
+  res.json({ keys: [...dbList, ...envList], models });
 }
 
 // POST /api/ai/keys (admin)

@@ -16,6 +16,7 @@ const blank = { label: "", baseUrl: GEMINI_BASE, models: "gemini-flash-latest", 
 
 export default function AdminAiKeys() {
   const [keys, setKeys] = useState([]);
+  const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [modal, setModal] = useState(null); // { mode:"add"|"edit", data }
@@ -29,7 +30,12 @@ export default function AdminAiKeys() {
     setError("");
     aiService.keys
       .list()
-      .then(setKeys)
+      .then((res) => {
+        // Backward/forward compatible: response is { keys, models } or a raw array.
+        const list = Array.isArray(res) ? res : res?.keys || [];
+        setKeys(list);
+        setModels(Array.isArray(res) ? [] : res?.models || []);
+      })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
@@ -119,6 +125,17 @@ export default function AdminAiKeys() {
         <button onClick={openAdd} className="btn-primary"><Plus className="h-4 w-4" /> Add API Key</button>
       </div>
 
+      {models.length > 0 && (
+        <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+          <p className="mb-1.5 text-sm font-semibold">Models available in the generator ({models.length})</p>
+          <div className="flex flex-wrap gap-1.5">
+            {models.map((m) => (
+              <span key={m} className="rounded-full bg-brand-100 px-2.5 py-0.5 text-xs font-semibold text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">{m}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {loading ? (
         <Loading label="Loading keys..." />
       ) : error ? (
@@ -133,6 +150,9 @@ export default function AdminAiKeys() {
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="font-bold">{k.label || "Untitled key"}</p>
                   <StatusBadge k={k} />
+                  {k.source === "env" && (
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500 dark:bg-slate-800">From server (Render)</span>
+                  )}
                   <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-800">{k.keyMask}</code>
                 </div>
                 <p className="mt-1 truncate text-xs text-slate-400">
@@ -140,20 +160,24 @@ export default function AdminAiKeys() {
                   {k.lastStatus === "error" && k.lastError ? ` · ${k.lastError}` : ""}
                 </p>
               </div>
-              <div className="flex flex-shrink-0 items-center gap-1">
-                <button onClick={() => test(k._id)} disabled={testing[k._id]} title="Test this key now" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 disabled:opacity-50 dark:hover:bg-brand-900/30">
-                  {testing[k._id] ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                </button>
-                <button onClick={() => toggle(k)} disabled={busy[k._id]} title={k.enabled ? "Disable" : "Enable"} className={`rounded-lg p-2 hover:bg-slate-100 disabled:opacity-50 dark:hover:bg-slate-800 ${k.enabled ? "text-emerald-600" : "text-slate-400"}`}>
-                  <Power className="h-4 w-4" />
-                </button>
-                <button onClick={() => openEdit(k)} title="Edit" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30">
-                  <Pencil className="h-4 w-4" />
-                </button>
-                <button onClick={() => remove(k)} disabled={busy[k._id]} title="Delete" className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 disabled:opacity-50 dark:hover:bg-rose-900/30">
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
+              {k.readOnly ? (
+                <span className="flex-shrink-0 text-xs text-slate-400">Managed in Render env vars</span>
+              ) : (
+                <div className="flex flex-shrink-0 items-center gap-1">
+                  <button onClick={() => test(k._id)} disabled={testing[k._id]} title="Test this key now" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 disabled:opacity-50 dark:hover:bg-brand-900/30">
+                    {testing[k._id] ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                  </button>
+                  <button onClick={() => toggle(k)} disabled={busy[k._id]} title={k.enabled ? "Disable" : "Enable"} className={`rounded-lg p-2 hover:bg-slate-100 disabled:opacity-50 dark:hover:bg-slate-800 ${k.enabled ? "text-emerald-600" : "text-slate-400"}`}>
+                    <Power className="h-4 w-4" />
+                  </button>
+                  <button onClick={() => openEdit(k)} title="Edit" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30">
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                  <button onClick={() => remove(k)} disabled={busy[k._id]} title="Delete" className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 disabled:opacity-50 dark:hover:bg-rose-900/30">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>
