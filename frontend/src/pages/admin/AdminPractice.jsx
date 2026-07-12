@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Plus, Pencil, Trash2, X, ChevronRight, GraduationCap, FolderOpen, ListChecks, FileStack, HelpCircle, Upload, Eye, Users, Copy, Search, Download, Sparkles, Globe, Play } from "lucide-react";
+import { Plus, Pencil, Trash2, X, ChevronRight, GraduationCap, FolderOpen, ListChecks, FileStack, HelpCircle, Upload, Eye, Users, Copy, Search, Download, Sparkles, Globe } from "lucide-react";
 import { practiceService, testService, contentService } from "../../services";
 import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
@@ -22,7 +21,6 @@ const KINDS = [
 // the per-student "Visibility" control (irrelevant — a client is the only
 // viewer) and add a "Practice" button so they can take their own quizzes/tests.
 export default function AdminPractice({ clientMode = false }) {
-  const navigate = useNavigate();
   const [kind, setKind] = useState("quiz");
   const [view, setView] = useState("streams"); // streams | subjects | topics | items
   const [stream, setStream] = useState(null);
@@ -72,13 +70,6 @@ export default function AdminPractice({ clientMode = false }) {
   const openSubject = (s) => { setSubject(s); setTopic(null); setView(kind === "quiz" ? "topics" : "items"); };
   const openTopic = (t) => { setTopic(t); setView("items"); };
   const goTo = (v) => setView(v);
-
-  // Client: take an item now. My Quiz → instant-reveal quiz player; My Test →
-  // the timed test interface. Uses the item's own kind so it's always correct.
-  const startPractice = (item) => {
-    const asQuiz = (item.practiceKind || kind) === "quiz";
-    navigate(asQuiz ? `/practice/quiz/play/${item._id}` : `/test-series/attempt/${item._id}`);
-  };
 
   // ---- Entity CRUD ----
   const saveEntity = async (form) => {
@@ -283,16 +274,6 @@ export default function AdminPractice({ clientMode = false }) {
               </div>
               {view === "items" && (
                 <div className="mt-3 flex flex-wrap gap-2">
-                  {clientMode && (
-                    <button
-                      onClick={() => startPractice(item)}
-                      disabled={(item.questionCount ?? 0) === 0}
-                      title={(item.questionCount ?? 0) === 0 ? "Add questions first" : "Take this now"}
-                      className="btn-primary py-1.5 text-xs disabled:opacity-50"
-                    >
-                      <Play className="h-3.5 w-3.5" /> {kind === "quiz" ? "Practice Quiz" : "Take Test"}
-                    </button>
-                  )}
                   <button onClick={() => openQuestions(item)} className="btn-outline py-1.5 text-xs"><HelpCircle className="h-3.5 w-3.5" /> Questions</button>
                   {!clientMode && (
                     <button onClick={() => openAccess(item)} className="btn-outline py-1.5 text-xs"><Users className="h-3.5 w-3.5" /> Visibility</button>

@@ -210,6 +210,23 @@ export async function playQuiz(req, res) {
   });
 }
 
+// GET /api/practice/my-items — flat list of the caller's OWN practice items
+// (both My Quiz and My Test), used by the client dashboard to practice them.
+export async function myItems(req, res) {
+  const items = await TestSeries.find({ practice: true, ...ownerFilter(req) }).sort("createdAt").lean();
+  res.json(
+    items.map((t) => ({
+      _id: t._id,
+      name: t.name,
+      kind: t.practiceKind,
+      duration: t.duration,
+      marks: t.marks,
+      difficulty: t.difficulty,
+      questionCount: t.questions?.length || 0,
+    }))
+  );
+}
+
 /* ---------------- Student browse (visibility-filtered) ---------------- */
 export async function browseStreams(req, res) {
   const items = await TestSeries.find({ practice: true, practiceKind: req.params.kind, status: "published", owner: null })

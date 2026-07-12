@@ -5,7 +5,7 @@ import {
   listTopics, createTopic, updateTopic, deleteTopic, listTopicItems,
   listItems, createItem,
   browseStreams, browseSubjects, browseTopics, browseItems, browseTopicItems,
-  playQuiz, allSubjects,
+  playQuiz, allSubjects, myItems,
 } from "../controllers/practiceController.js";
 import { protect, authorize, optionalAuth } from "../middleware/auth.js";
 
@@ -23,6 +23,9 @@ router.get("/browse/:kind/topics/:topicId/items", optionalAuth, browseTopicItems
 
 // Play a "My Quiz" practice quiz with immediate answer reveal (questions incl. answers).
 router.get("/quiz/:id/play", protect, playQuiz);
+
+// The caller's own practice items (client dashboard).
+router.get("/my-items", ...admin, myItems);
 
 // Admin — streams
 router.get("/streams", ...admin, listStreams);

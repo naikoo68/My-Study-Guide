@@ -1,10 +1,12 @@
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { GraduationCap, LogOut, Moon, Sun, ZoomIn, ZoomOut } from "lucide-react";
+import { GraduationCap, LogOut, Moon, Sun, ZoomIn, ZoomOut, LayoutDashboard, Wrench } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
 import { useSettings } from "../../context/SettingsContext";
 import { useZoom } from "../../context/ZoomContext";
 import AdminPractice from "../admin/AdminPractice";
+import ClientDashboard from "./ClientDashboard";
 
 // The self-service CLIENT workspace. A client only ever sees the My Practice
 // section (their own private content) — no other part of the site. It reuses
@@ -16,11 +18,17 @@ export default function ClientWorkspace() {
   const { settings } = useSettings();
   const { zoom, zoomIn, zoomOut } = useZoom();
   const navigate = useNavigate();
+  const [tab, setTab] = useState("dashboard"); // "dashboard" (practice) | "build"
 
   const handleLogout = () => {
     logout();
     navigate("/login");
   };
+
+  const tabs = [
+    { key: "dashboard", label: "Dashboard", Icon: LayoutDashboard },
+    { key: "build", label: "Build", Icon: Wrench },
+  ];
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
@@ -57,10 +65,24 @@ export default function ClientWorkspace() {
             </button>
           </div>
         </div>
+        {/* Tabs: Dashboard (practice + validity) vs Build (create content) */}
+        <div className="mx-auto mt-3 flex max-w-6xl gap-2">
+          {tabs.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
+                tab === t.key ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
+              }`}
+            >
+              <t.Icon className="h-4 w-4" /> {t.label}
+            </button>
+          ))}
+        </div>
       </header>
 
       <main className="mx-auto max-w-6xl p-4 sm:p-6">
-        <AdminPractice clientMode />
+        {tab === "dashboard" ? <ClientDashboard onBuild={() => setTab("build")} /> : <AdminPractice clientMode />}
       </main>
     </div>
   );
