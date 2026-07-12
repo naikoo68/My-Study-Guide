@@ -1,17 +1,43 @@
 import { useEffect, useState } from "react";
-import { Search, Ban, CheckCircle2, KeyRound, UserPlus, Trash2, X, ListChecks, FileStack, HelpCircle, Store } from "lucide-react";
+import { Search, Ban, CheckCircle2, KeyRound, UserPlus, Trash2, X, ListChecks, FileStack, HelpCircle, Store, Pencil, Clock, AlarmClock } from "lucide-react";
 import { userService } from "../../services";
 import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 
-const blank = { name: "", email: "", password: "" };
+// Duration units offered when giving a client a temporary (auto-expiring) account.
+const UNIT_MS = { Minutes: 60_000, Hours: 3_600_000, Days: 86_400_000, Weeks: 604_800_000, Months: 2_592_000_000 };
+
+const blank = {
+  name: "",
+  email: "",
+  password: "",
+  active: true, // access: can the client log in?
+  isTemp: false, // validity: temporary auto-expiring account
+  durationValue: 30,
+  durationUnit: "Days",
+};
 
 const fmtDate = (d) =>
+  new Date(d).toLocaleString(undefined, { day: "2-digit", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
+const fmtDay = (d) =>
   new Date(d).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
 
+function relativeTo(d) {
+  const ms = new Date(d).getTime() - Date.now();
+  if (ms <= 0) return "Expired";
+  const mins = Math.round(ms / 60000);
+  if (mins < 60) return `in ${mins} min`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 48) return `in ${hrs} hr${hrs === 1 ? "" : "s"}`;
+  const days = Math.round(hrs / 24);
+  return `in ${days} day${days === 1 ? "" : "s"}`;
+}
+const isExpired = (d) => d && new Date(d).getTime() < Date.now();
+
 // Self-service "client" accounts — people who register at /client/register and
-// build/practice their own private My Practice content. This screen lets the
-// admin see them, create them, block/unblock, reset passwords and delete.
+// build/practice their own private My Practice content. The admin can create
+// them, set validity (auto-expiry) & access, block/unblock, reset passwords
+// and delete them (which also removes all their content).
 export default function AdminClients() {
   const [clients, setClients] = useState([]);
   const [search, setSearch] = useState("");
@@ -19,6 +45,7 @@ export default function AdminClients() {
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
   const [modal, setModal] = useState(false);
+  const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(blank);
   const [saving, setSaving] = useState(false);
 
@@ -36,6 +63,22 @@ export default function AdminClients() {
   const flash = (msg) => {
     setToast(msg);
     setTimeout(() => setToast(""), 2800);
+  };
+
+  const openAdd = () => { setForm(blank); setEditing(null); setError(""); setModal(true); };
+  const openEdit = (c) => {
+    setForm({
+      name: c.name,
+      email: c.email,
+      password: "",
+      active: c.status !== "blocked",
+      isTemp: !!c.expiresAt,
+      durationValue: 30,
+      durationUnit: "Days",
+    });
+    setEditing(c);
+    setError("");
+    setModal(true);
   };
 
   const toggleBlock = async (c) => {
@@ -72,11 +115,37 @@ export default function AdminClients() {
     setSaving(true);
     setError("");
     try {
-      const created = await userService.create({ ...form, role: "client" });
-      setClients((list) => [{ ...created, quizzes: 0, tests: 0, questions: 0 }, ...list]);
-      flash("Client created.");
+      // Validity → an absolute expiry from now, or null for a permanent account.
+      const expiresAt = form.isTemp
+        ? new Date(Date.now() + Math.max(1, Number(form.durationValue) || 1) * UNIT_MS[form.durationUnit]).toISOString()
+        : null;
+
+      if (editing) {
+        const payload = { name: form.name, email: form.email, expiresAt };
+        if (form.password) payload.password = form.password;
+        const updated = await userService.update(editing._id, payload);
+        // Apply access (active/blocked) if it changed.
+        let status = editing.status;
+        if (form.active === (editing.status === "blocked")) {
+          const res = await userService.toggleStatus(editing._id);
+          status = res.status;
+        }
+        setClients((list) => list.map((x) => (x._id === editing._id ? { ...x, ...updated, status } : x)));
+        flash("Client updated.");
+      } else {
+        const created = await userService.create({
+          name: form.name,
+          email: form.email,
+          password: form.password,
+          role: "client",
+          expiresAt,
+        });
+        setClients((list) => [{ ...created, quizzes: 0, tests: 0, questions: 0 }, ...list]);
+        flash(form.isTemp ? "Temporary client created." : "Client created.");
+      }
       setModal(false);
       setForm(blank);
+      setEditing(null);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -88,16 +157,18 @@ export default function AdminClients() {
     (c) => c.name.toLowerCase().includes(search.toLowerCase()) || c.email.toLowerCase().includes(search.toLowerCase())
   );
 
+  const previewExpiry = new Date(Date.now() + Math.max(1, Number(form.durationValue) || 1) * UNIT_MS[form.durationUnit]);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-extrabold"><Store className="h-6 w-6 text-accent-500" /> Clients</h1>
           <p className="text-slate-500 dark:text-slate-400">
-            Self-service accounts that build & practice their own private My Practice content. Create, block, reset passwords or delete them here.
+            Self-service accounts that build & practice their own private My Practice content. Manage validity, access, passwords and deletion here.
           </p>
         </div>
-        <button onClick={() => { setForm(blank); setError(""); setModal(true); }} className="btn-primary">
+        <button onClick={openAdd} className="btn-primary">
           <UserPlus className="h-4 w-4" /> Add Client
         </button>
       </div>
@@ -111,8 +182,8 @@ export default function AdminClients() {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {[
               { l: "Total Clients", v: clients.length, c: "text-brand-600" },
-              { l: "Active", v: clients.filter((c) => c.status === "active").length, c: "text-emerald-600" },
-              { l: "Blocked", v: clients.filter((c) => c.status === "blocked").length, c: "text-rose-600" },
+              { l: "Active", v: clients.filter((c) => c.status === "active" && !isExpired(c.expiresAt)).length, c: "text-emerald-600" },
+              { l: "Blocked / Expired", v: clients.filter((c) => c.status === "blocked" || isExpired(c.expiresAt)).length, c: "text-rose-600" },
               { l: "Questions Created", v: clients.reduce((s, c) => s + (c.questions || 0), 0), c: "text-accent-600" },
             ].map((s) => (
               <div key={s.l} className="card p-5 text-center">
@@ -131,61 +202,85 @@ export default function AdminClients() {
             <EmptyState message={search ? "No clients match your search." : "No client accounts yet. They appear here when people register at /client/register (or add one above)."} />
           ) : (
             <div className="card overflow-x-auto">
-              <table className="w-full min-w-[760px] text-sm">
+              <table className="w-full min-w-[860px] text-sm">
                 <thead className="bg-slate-50 text-left text-slate-500 dark:bg-slate-800/60">
                   <tr>
                     <th className="px-5 py-3 font-semibold">Client</th>
                     <th className="px-5 py-3 font-semibold">Content</th>
-                    <th className="px-5 py-3 font-semibold">Status</th>
-                    <th className="px-5 py-3 font-semibold">Joined</th>
+                    <th className="px-5 py-3 font-semibold">Access</th>
+                    <th className="px-5 py-3 font-semibold">Validity</th>
                     <th className="px-5 py-3 text-right font-semibold">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {filtered.map((c) => (
-                    <tr key={c._id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                      <td className="px-5 py-3">
-                        <div className="flex items-center gap-3">
-                          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-accent-100 text-xs font-bold text-accent-700 dark:bg-accent-900/40 dark:text-accent-300">
-                            {c.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
-                          </span>
-                          <div>
-                            <p className="font-medium">{c.name}</p>
-                            <p className="text-xs text-slate-400">{c.email}</p>
+                  {filtered.map((c) => {
+                    const expired = isExpired(c.expiresAt);
+                    return (
+                      <tr key={c._id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                        <td className="px-5 py-3">
+                          <div className="flex items-center gap-3">
+                            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-accent-100 text-xs font-bold text-accent-700 dark:bg-accent-900/40 dark:text-accent-300">
+                              {c.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
+                            </span>
+                            <div>
+                              <p className="font-medium">{c.name}</p>
+                              <p className="text-xs text-slate-400">{c.email}</p>
+                            </div>
                           </div>
-                        </div>
-                      </td>
-                      <td className="px-5 py-3">
-                        <div className="flex flex-wrap gap-1.5">
-                          <Badge variant="brand"><ListChecks className="h-3 w-3" /> {c.quizzes} quizzes</Badge>
-                          <Badge variant="accent"><FileStack className="h-3 w-3" /> {c.tests} tests</Badge>
-                          <Badge variant="neutral"><HelpCircle className="h-3 w-3" /> {c.questions} Qs</Badge>
-                        </div>
-                      </td>
-                      <td className="px-5 py-3">
-                        <Badge variant={c.status === "active" ? "Easy" : "Hard"}>{c.status}</Badge>
-                        {c.isEmailVerified === false && <span className="ml-2 text-xs text-amber-500">unverified</span>}
-                      </td>
-                      <td className="px-5 py-3 text-xs text-slate-400">{fmtDate(c.createdAt)}</td>
-                      <td className="px-5 py-3">
-                        <div className="flex justify-end gap-2">
-                          <button onClick={() => resetPassword(c)} title="Reset password" className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700">
-                            <KeyRound className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => toggleBlock(c)}
-                            title={c.status === "blocked" ? "Unblock" : "Block"}
-                            className={`rounded-lg p-2 ${c.status === "blocked" ? "text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30" : "text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30"}`}
-                          >
-                            {c.status === "blocked" ? <CheckCircle2 className="h-4 w-4" /> : <Ban className="h-4 w-4" />}
-                          </button>
-                          <button onClick={() => removeClient(c)} title="Delete client & their content" className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30">
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="px-5 py-3">
+                          <div className="flex flex-wrap gap-1.5">
+                            <Badge variant="brand"><ListChecks className="h-3 w-3" /> {c.quizzes}</Badge>
+                            <Badge variant="accent"><FileStack className="h-3 w-3" /> {c.tests}</Badge>
+                            <Badge variant="neutral"><HelpCircle className="h-3 w-3" /> {c.questions} Qs</Badge>
+                          </div>
+                        </td>
+                        <td className="px-5 py-3">
+                          {c.status === "blocked" ? (
+                            <Badge variant="Hard">Blocked</Badge>
+                          ) : expired ? (
+                            <Badge variant="Hard">Expired</Badge>
+                          ) : (
+                            <Badge variant="Easy">Active</Badge>
+                          )}
+                        </td>
+                        <td className="px-5 py-3">
+                          {c.expiresAt ? (
+                            <div className="flex items-center gap-1.5">
+                              {expired ? (
+                                <Badge variant="Hard">Expired</Badge>
+                              ) : (
+                                <Badge variant="accent"><Clock className="h-3 w-3" /> {relativeTo(c.expiresAt)}</Badge>
+                              )}
+                              <span className="hidden text-xs text-slate-400 lg:inline">{fmtDay(c.expiresAt)}</span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-slate-400">Never expires</span>
+                          )}
+                        </td>
+                        <td className="px-5 py-3">
+                          <div className="flex justify-end gap-2">
+                            <button onClick={() => openEdit(c)} title="Edit validity & access" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30">
+                              <Pencil className="h-4 w-4" />
+                            </button>
+                            <button onClick={() => resetPassword(c)} title="Reset password" className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700">
+                              <KeyRound className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={() => toggleBlock(c)}
+                              title={c.status === "blocked" ? "Unblock" : "Block"}
+                              className={`rounded-lg p-2 ${c.status === "blocked" ? "text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30" : "text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30"}`}
+                            >
+                              {c.status === "blocked" ? <CheckCircle2 className="h-4 w-4" /> : <Ban className="h-4 w-4" />}
+                            </button>
+                            <button onClick={() => removeClient(c)} title="Delete client & their content" className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30">
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -193,12 +288,12 @@ export default function AdminClients() {
         </>
       )}
 
-      {/* Add client modal */}
+      {/* Add / edit client modal */}
       {modal && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4">
           <form onSubmit={saveClient} className="my-8 w-full max-w-md animate-scale-in card p-6">
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-bold">Add Client</h3>
+              <h3 className="text-lg font-bold">{editing ? "Edit Client" : "Add Client"}</h3>
               <button type="button" onClick={() => setModal(false)}><X className="h-5 w-5" /></button>
             </div>
             {error && <div className="mb-3 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">{error}</div>}
@@ -212,16 +307,68 @@ export default function AdminClients() {
                 <input required type="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} className="input" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="client@example.com" />
               </div>
               <div>
-                <label className="mb-1.5 block text-sm font-medium">Password</label>
-                <input required minLength={6} className="input" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="At least 6 characters" />
+                <label className="mb-1.5 block text-sm font-medium">
+                  {editing ? "New Password (leave blank to keep current)" : "Password"}
+                </label>
+                <input required={!editing} minLength={6} className="input" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder={editing ? "Leave blank to keep unchanged" : "At least 6 characters"} />
               </div>
-              <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                The client can log in immediately at the normal login page and will land in their own private My Practice workspace.
-              </p>
+
+              {/* Access — can this client log in and use My Practice? */}
+              <div className="flex items-center justify-between rounded-xl border border-slate-200 p-4 dark:border-slate-700">
+                <div>
+                  <p className="text-sm font-medium">Account access</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">When off, the client can't log in.</p>
+                </div>
+                <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-medium">
+                  <input type="checkbox" className="h-4 w-4 accent-emerald-600" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} />
+                  {form.active ? "Active" : "Blocked"}
+                </label>
+              </div>
+
+              {/* Validity — temporary auto-expiring account */}
+              <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-700">
+                <label className="flex cursor-pointer items-center justify-between gap-3">
+                  <span className="flex items-center gap-2 text-sm font-medium">
+                    <AlarmClock className="h-4 w-4 text-accent-600" /> Set validity (auto-expire)
+                  </span>
+                  <input type="checkbox" className="h-4 w-4 accent-accent-600" checked={form.isTemp} onChange={(e) => setForm({ ...form, isTemp: e.target.checked })} />
+                </label>
+
+                {form.isTemp && (
+                  <div className="mt-4 space-y-3">
+                    {editing && (
+                      <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                        {editing.expiresAt ? `Currently expires ${fmtDate(editing.expiresAt)}.` : "Currently permanent."}{" "}
+                        Choosing a duration below resets the validity from now.
+                      </p>
+                    )}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="mb-1.5 block text-sm font-medium">Valid for</label>
+                        <input type="number" min={1} className="input" value={form.durationValue} onChange={(e) => setForm({ ...form, durationValue: e.target.value })} />
+                      </div>
+                      <div>
+                        <label className="mb-1.5 block text-sm font-medium">Unit</label>
+                        <select className="input" value={form.durationUnit} onChange={(e) => setForm({ ...form, durationUnit: e.target.value })}>
+                          {Object.keys(UNIT_MS).map((u) => (
+                            <option key={u}>{u}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <p className="flex flex-wrap items-center gap-1.5 text-sm text-accent-700 dark:text-accent-300">
+                      <Clock className="h-4 w-4" /> Expires on <strong>{fmtDate(previewExpiry)}</strong>
+                    </p>
+                  </div>
+                )}
+                {!form.isTemp && (
+                  <p className="mt-2 text-xs text-slate-400">Off = permanent account that never expires.</p>
+                )}
+              </div>
             </div>
             <div className="mt-6 flex justify-end gap-3">
               <button type="button" onClick={() => setModal(false)} className="btn-outline">Cancel</button>
-              <button type="submit" disabled={saving} className="btn-primary">{saving ? "Saving..." : "Create Client"}</button>
+              <button type="submit" disabled={saving} className="btn-primary">{saving ? "Saving..." : editing ? "Save Changes" : "Create Client"}</button>
             </div>
           </form>
         </div>

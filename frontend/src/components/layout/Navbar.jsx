@@ -23,8 +23,16 @@ export default function Navbar() {
   const { zoom, zoomIn, zoomOut } = useZoom();
   const navigate = useNavigate();
   const isAdmin = user?.role === "admin";
-  // Hide the Quiz link when an admin has disabled quiz access for this student.
-  const visibleLinks = user && user.quizAccess === false ? links.filter((l) => l.to !== "/quiz") : links;
+  const isClient = user?.role === "client";
+  // Clients only ever use their own My Practice workspace — replace the whole
+  // nav with a single link back to it so "Home"/the logo never strands them on
+  // a page with no way back to their created questions.
+  const visibleLinks = isClient
+    ? [{ to: "/client", label: "My Practice", end: true }]
+    : user && user.quizAccess === false
+    ? links.filter((l) => l.to !== "/quiz")
+    : links;
+  const homeTo = isClient ? "/client" : "/";
 
   const handleLogout = () => {
     logout();
@@ -36,7 +44,7 @@ export default function Navbar() {
     <header className="sticky top-0 z-50 border-b border-slate-200/70 bg-white/80 backdrop-blur-lg dark:border-slate-800/70 dark:bg-slate-950/80">
       <nav className="container-page flex items-center justify-between" style={{ minHeight: "var(--nav-height, 4rem)" }}>
         <div className="flex items-center gap-3">
-          <Link to="/" onClick={() => setOpen(false)}>
+          <Link to={homeTo} onClick={() => setOpen(false)}>
             <Brand nameStyle={{ fontSize: "var(--nav-brand-size, 1.125rem)" }} />
           </Link>
           <div className="flex items-center overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
@@ -88,8 +96,8 @@ export default function Navbar() {
                   <ShieldCheck className="h-4 w-4" /> Admin Mode
                 </Link>
               )}
-              <Link to="/dashboard" className="btn-ghost">
-                <LayoutDashboard className="h-4 w-4" /> Dashboard
+              <Link to={isClient ? "/client" : "/dashboard"} className="btn-ghost">
+                <LayoutDashboard className="h-4 w-4" /> {isClient ? "My Practice" : "Dashboard"}
               </Link>
               <span className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-600 text-sm font-bold text-white">
                 {user.avatar}
@@ -148,8 +156,8 @@ export default function Navbar() {
                       <ShieldCheck className="h-4 w-4" /> Admin Mode
                     </Link>
                   )}
-                  <Link to="/dashboard" onClick={() => setOpen(false)} className="btn-outline w-full">
-                    <LayoutDashboard className="h-4 w-4" /> Dashboard
+                  <Link to={isClient ? "/client" : "/dashboard"} onClick={() => setOpen(false)} className="btn-outline w-full">
+                    <LayoutDashboard className="h-4 w-4" /> {isClient ? "My Practice" : "Dashboard"}
                   </Link>
                   <button onClick={handleLogout} className="btn-ghost w-full">
                     <LogOut className="h-4 w-4" /> Log out
