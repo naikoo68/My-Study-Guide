@@ -123,15 +123,16 @@ Each question object uses these fields:
 - "options": array of EXACTLY 4 answer strings.
 - "correct": 0-based index (0-3) of the correct option in "options".
 - "difficulty": one of "Easy", "Medium", "Hard".
-- "explanation": a detailed explanation of why the correct option is right.
-- "optionExplanations": array of EXACTLY 4 short strings, one per option, explaining why each is right/wrong. Leave the correct option's entry an empty string "".
+- "explanation": a THOROUGH, self-contained explanation of the correct answer (3-6 sentences). Include EVERY relevant supporting fact a student needs — exact dates/years, historical background, definitions, full formulas WITH the actual calculation, laws/theorems/principles by name, cause-and-effect reasoning, and any key names, places or numbers. Never give a one-line answer or just restate the option; teach the concept as if to someone seeing it for the first time.
+- "optionExplanations": array of EXACTLY 4 strings, one per option, clearly explaining why each specific option is right or wrong (for wrong ones, name the exact misconception or fact that makes it incorrect). Leave the correct option's entry an empty string "".
+- "correct": distribute the correct answer's position EVENLY and RANDOMLY across the four options over the whole set — do NOT keep putting the answer at option A. Aim for a roughly equal spread of correct answers landing on positions 0, 1, 2 and 3.
 Type-specific rules — each type needs specific extra fields AND a specific style of "options":
 - "mcq": a normal question with 4 plausible options; "correct" is the right one. No extra fields.
-- "matching": include "columnA" (array) and "columnB" (array) — the two lists to match. The 4 "options" are FULL MAPPING SEQUENCES like "1-III, 2-I, 3-IV, 4-II" (Column A is auto-numbered 1,2,3,4; Column B is I,II,III,IV). Exactly one option is the correct complete mapping; the others are wrong mappings.
+- "matching": include "columnA" (array) and "columnB" (array) — the two lists to match. The 4 "options" are FULL MAPPING SEQUENCES like "1-III, 2-I, 3-IV, 4-II" (Column A is auto-numbered 1,2,3,4; Column B is I,II,III,IV). Exactly one option is the correct complete mapping; the others are wrong mappings. In "explanation", justify EVERY correct pairing individually (e.g. "1-III because …; 2-I because …") with the fact/definition behind each match.
 - "statement": put the individual statements in "columnA" (an array of 2-4 statement strings). "text" is the intro line, e.g. "Consider the following statements:". The 4 "options" are COMBINATIONS like "1 only", "2 only", "1 and 2 only", "Neither 1 nor 2".
-- "pair": include "columnA" (left items) and "columnB" (right items); item i is paired with item i. "text" is the intro. The 4 "options" state HOW MANY pairs are correctly matched, e.g. "Only one pair", "Only two pairs", "Only three pairs", "All four pairs".
-- "pairselect": include "columnA" and "columnB" (candidate pairs). "text" is the intro. The 4 "options" state WHICH pairs are correct, e.g. "1 and 2 only", "2 and 3 only", "1, 3 and 4 only", "All of the above".
-- "assertion": include "assertion" (Assertion A text) and "reason" (Reason R text); "text" may be empty. The 4 "options" MUST be exactly: "Both A and R are true and R is the correct explanation of A", "Both A and R are true but R is NOT the correct explanation of A", "A is true but R is false", "A is false but R is true".
+- "pair": include "columnA" (left items) and "columnB" (right items); item i is paired with item i. "text" is the intro. The 4 "options" state HOW MANY pairs are correctly matched, e.g. "Only one pair", "Only two pairs", "Only three pairs", "All four pairs". In "explanation", go through EACH pair stating whether it is correctly matched and the fact behind it.
+- "pairselect": include "columnA" and "columnB" (candidate pairs). "text" is the intro. The 4 "options" state WHICH pairs are correct, e.g. "1 and 2 only", "2 and 3 only", "1, 3 and 4 only", "All of the above". In "explanation", go through EACH pair stating whether it is correct or wrong and why.
+- "assertion": include "assertion" (Assertion A text) and "reason" (Reason R text); "text" may be empty. The 4 "options" MUST be exactly: "Both A and R are true and R is the correct explanation of A", "Both A and R are true but R is NOT the correct explanation of A", "A is true but R is false", "A is false but R is true". In "explanation", separately evaluate Assertion (A) — state true/false and WHY with supporting facts — then separately evaluate Reason (R) — true/false and WHY — and finally explain the RELATIONSHIP: whether R correctly explains A and why.
 - "table": include "tableRows" (a 2D array; the first inner array is the header row). "text" is the intro. 4 normal options.
 Do NOT prefix columnA / columnB / statement items with numbers or roman numerals (no "1.", "I.") — the app numbers Column A (1,2,3,4), Column B (I,II,III,IV) and statements (1,2,3) automatically.
 Never include image URLs. Keep questions factually correct and self-contained.`;
@@ -160,6 +161,9 @@ function buildUserPrompt({ topic, count, difficulty, types, notes, plan }) {
   }
 
   if (notes) lines.push(`Extra instructions: ${notes}`);
+  lines.push(
+    `For every question write a rich, complete "explanation" that includes all relevant facts (dates, years, historical context, definitions, formulas with calculations, named laws/principles) — not a single line. Vary which option (A/B/C/D) is correct across the set.`
+  );
   lines.push(`Return ONLY the JSON object {"questions":[...]}.`);
   return lines.join("\n");
 }
@@ -310,8 +314,43 @@ function normalize(list) {
     .filter((q) => q.text); // drop empty questions
 }
 
+// Spread the correct answer evenly + randomly across A/B/C/D so it isn't always
+// option A. Models strongly bias the answer to the first option; this fixes it
+// deterministically after the fact. Only free-form option types are shuffled —
+// structured types (assertion, matching, statement, pair, pairselect) keep their
+// fixed option order, since there the option TEXT carries the meaning.
+const SHUFFLE_TYPES = new Set(["mcq", "table"]);
+function balanceCorrectOptions(list) {
+  const targetIdx = [];
+  for (let i = 0; i < list.length; i++) if (SHUFFLE_TYPES.has(list[i].type)) targetIdx.push(i);
+
+  // Build a balanced sequence of destination positions (0,1,2,3,0,1,2,3,…) and
+  // Fisher–Yates shuffle it → even distribution AND random order.
+  const dests = targetIdx.map((_, n) => n % 4);
+  for (let i = dests.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [dests[i], dests[j]] = [dests[j], dests[i]];
+  }
+
+  targetIdx.forEach((qi, n) => {
+    const q = list[qi];
+    const from = q.correct;
+    const to = dests[n];
+    if (from === to || !Array.isArray(q.options) || q.options.length < 4) return;
+    // Move the correct option (and its matching explanation) to the target slot.
+    const opts = q.options.slice();
+    const oe = Array.isArray(q.optionExplanations) ? q.optionExplanations.slice() : ["", "", "", ""];
+    [opts[from], opts[to]] = [opts[to], opts[from]];
+    [oe[from], oe[to]] = [oe[to], oe[from]];
+    q.options = opts;
+    q.optionExplanations = oe;
+    q.correct = to;
+  });
+  return list;
+}
+
 const MAX_TOTAL = 100; // most questions per generate request
-const CHUNK_SIZE = 15; // questions generated per provider call (keeps each reply small enough to not truncate)
+const CHUNK_SIZE = 12; // questions generated per provider call — smaller so the richer, detailed explanations don't truncate the JSON reply
 
 // Pull a suggested retry wait (ms) out of a 429 response — either the
 // Retry-After header or Gemini's RetryInfo "retryDelay":"27s" body field.
@@ -434,7 +473,7 @@ async function runGenerationJob(id, ctx) {
         prompt = buildUserPrompt({ topic, notes, count: n, difficulty, types });
       }
       calls += 1;
-      const maxTokens = Math.min(16000, 1500 + n * 700);
+      const maxTokens = Math.min(16000, 1800 + n * 1000); // extra room for the detailed explanations
       const r = await callWithFallback({ endpoints, model, userPrompt: prompt, maxTokens });
       if (!r.ok) {
         lastError = r;
@@ -464,11 +503,12 @@ async function runGenerationJob(id, ctx) {
       }
       save({ status: "error", error: msg });
     } else {
-      // Finished (possibly short of target if quota ran out mid-run).
-      save({ status: "done", questions: collected, error: lastError?.status === 429 ? "quota" : null });
+      // Finished (possibly short of target if quota ran out mid-run). Even out
+      // the correct-answer positions across the whole batch before returning.
+      save({ status: "done", questions: balanceCorrectOptions(collected), error: lastError?.status === 429 ? "quota" : null });
     }
   } catch (err) {
-    save(collected.length ? { status: "done", questions: collected } : { status: "error", error: err?.message || "AI request failed." });
+    save(collected.length ? { status: "done", questions: balanceCorrectOptions(collected) } : { status: "error", error: err?.message || "AI request failed." });
   }
 }
 
