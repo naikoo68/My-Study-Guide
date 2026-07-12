@@ -12,11 +12,21 @@ const PRESETS = [
   { label: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", models: "deepseek-chat" },
 ];
 
-const blank = { label: "", baseUrl: GEMINI_BASE, models: "gemini-flash-latest", key: "" };
+const blank = { label: "", baseUrl: GEMINI_BASE, models: "gemini-flash-latest", key: "", creditLimit: "" };
+
+// Compact number formatter (1234567 -> "1.23M", 12345 -> "12.3K").
+const fmt = (n) => {
+  const v = Number(n) || 0;
+  if (v >= 1e9) return (v / 1e9).toFixed(2).replace(/\.?0+$/, "") + "B";
+  if (v >= 1e6) return (v / 1e6).toFixed(2).replace(/\.?0+$/, "") + "M";
+  if (v >= 1e3) return (v / 1e3).toFixed(1).replace(/\.?0+$/, "") + "K";
+  return String(v);
+};
 
 export default function AdminAiKeys() {
   const [keys, setKeys] = useState([]);
   const [models, setModels] = useState([]);
+  const [totals, setTotals] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [modal, setModal] = useState(null); // { mode:"add"|"edit", data }
@@ -36,6 +46,7 @@ export default function AdminAiKeys() {
         const list = Array.isArray(res) ? res : res?.keys || [];
         setKeys(list);
         setModels(Array.isArray(res) ? [] : res?.models || []);
+        setTotals(Array.isArray(res) ? null : res?.totals || null);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -44,7 +55,7 @@ export default function AdminAiKeys() {
 
   const openAdd = () => { setForm(blank); setModal({ mode: "add" }); };
   const openEdit = (k) => {
-    setForm({ label: k.label || "", baseUrl: k.baseUrl, models: k.models, key: "" }); // key blank = keep existing
+    setForm({ label: k.label || "", baseUrl: k.baseUrl, models: k.models, key: "", creditLimit: k.creditLimit || "" }); // key blank = keep existing
     setModal({ mode: "edit", data: k });
   };
 
@@ -163,6 +174,9 @@ export default function AdminAiKeys() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <button onClick={load} disabled={loading} className="btn-outline" title="Refresh usage & totals">
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
+          </button>
           {keys.length > 0 && (
             <button onClick={testAll} disabled={bulkBusy === "test"} className="btn-outline">
               {bulkBusy === "test" ? <><Loader2 className="h-4 w-4 animate-spin" /> Testing…</> : <><RefreshCw className="h-4 w-4" /> Test all</>}
@@ -185,6 +199,33 @@ export default function AdminAiKeys() {
               <span key={m} className="rounded-full bg-brand-100 px-2.5 py-0.5 text-xs font-semibold text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">{m}</span>
             ))}
           </div>
+        </div>
+      )}
+
+      {totals && (
+        <div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Requests used</p>
+              <p className="text-xl font-extrabold">{fmt(totals.totalRequests)}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Tokens used</p>
+              <p className="text-xl font-extrabold">{fmt(totals.totalTokens)}</p>
+            </div>
+            <div className={`rounded-xl border p-3 ${totals.hasLimits ? "border-slate-200 dark:border-slate-700" : "border-dashed border-slate-200 opacity-60 dark:border-slate-700"}`}>
+              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Total credits</p>
+              <p className="text-xl font-extrabold">{totals.hasLimits ? fmt(totals.totalCredits) : "—"}</p>
+            </div>
+            <div className={`rounded-xl border p-3 ${totals.hasLimits ? "border-emerald-200 bg-emerald-50/50 dark:border-emerald-900/40 dark:bg-emerald-900/10" : "border-dashed border-slate-200 opacity-60 dark:border-slate-700"}`}>
+              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Remaining</p>
+              <p className="text-xl font-extrabold text-emerald-700 dark:text-emerald-300">{totals.hasLimits ? fmt(totals.totalRemaining) : "—"}</p>
+            </div>
+          </div>
+          <p className="mt-2 text-xs text-slate-400">
+            Usage is counted by this site (real). Providers like Gemini/OpenAI don't expose your remaining balance via API —
+            set a <b>credit limit</b> (token budget) on a key to see “credits” and “remaining”. Credits &amp; remaining count only keys that have a limit set.
+          </p>
         </div>
       )}
 
@@ -211,6 +252,15 @@ export default function AdminAiKeys() {
                   {k.models} · {k.baseUrl}
                   {k.lastStatus === "error" && k.lastError ? ` · ${k.lastError}` : ""}
                 </p>
+                {k.source !== "env" && (
+                  <p className="mt-1 text-xs text-slate-400">
+                    <span className="font-semibold text-slate-500 dark:text-slate-300">{fmt(k.usedRequests)}</span> requests ·{" "}
+                    <span className="font-semibold text-slate-500 dark:text-slate-300">{fmt(k.usedTokens)}</span> tokens used
+                    {k.creditLimit > 0 && (
+                      <> · limit <span className="font-semibold text-slate-500 dark:text-slate-300">{fmt(k.creditLimit)}</span> · <span className="font-semibold text-emerald-600 dark:text-emerald-400">{fmt(Math.max(0, k.creditLimit - k.usedTokens))} left</span></>
+                    )}
+                  </p>
+                )}
               </div>
               {k.readOnly ? (
                 <button onClick={() => importOne(k)} disabled={busy[k._id]} className="btn-outline flex-shrink-0 py-1.5 text-xs">
@@ -278,6 +328,19 @@ export default function AdminAiKeys() {
                 <input className="input" value={form.models} onChange={(e) => setForm({ ...form, models: e.target.value })} placeholder="gemini-flash-latest" />
                 <p className="mt-1 text-xs text-slate-400">Comma-separate multiple models. Use the <b>same</b> model on several keys to make them quota fallbacks.</p>
               </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-semibold">Credit limit <span className="font-normal text-slate-400">(tokens, optional)</span></label>
+                <input type="number" min="0" className="input" value={form.creditLimit} onChange={(e) => setForm({ ...form, creditLimit: e.target.value })} placeholder="e.g. 1000000" />
+                <p className="mt-1 text-xs text-slate-400">Your total token budget for this key. Leave blank/0 if unknown — providers don't share it, so this is a manual figure used to show “remaining”.</p>
+              </div>
+
+              {modal.mode === "edit" && (
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={!!form.resetUsage} onChange={(e) => setForm({ ...form, resetUsage: e.target.checked })} />
+                  Reset this key's usage counters to zero
+                </label>
+              )}
             </div>
 
             <div className="mt-6 flex justify-end gap-3">

@@ -15,6 +15,12 @@ const aiKeySchema = new mongoose.Schema(
     lastStatus: { type: String, enum: ["", "ok", "error"], default: "" },
     lastError: { type: String, default: "" },
     lastCheckedAt: { type: Date, default: null },
+    // Usage tracked by THIS app (providers don't expose remaining credits).
+    usedRequests: { type: Number, default: 0 },
+    usedTokens: { type: Number, default: 0 },
+    // Optional token budget the admin enters, so "remaining" can be computed
+    // (remaining = creditLimit − usedTokens). 0 = not set.
+    creditLimit: { type: Number, default: 0 },
   },
   { timestamps: true }
 );

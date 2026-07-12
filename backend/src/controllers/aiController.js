@@ -82,7 +82,12 @@ async function callWithFallback({ endpoints, model, userPrompt, maxTokens }) {
   let last = { ok: false, status: 0, detail: "No AI key is configured." };
   for (const ep of endpoints || []) {
     const r = await callProvider({ key: ep.key, baseUrl: ep.baseUrl, model, userPrompt, maxTokens });
-    if (r.ok) return r;
+    if (r.ok) {
+      // Record app-side usage on the matching DB key (env-only keys aren't in
+      // the DB, so this is a no-op for them). Fire-and-forget.
+      AiKey.updateOne({ key: ep.key }, { $inc: { usedRequests: 1, usedTokens: r.tokens || 0 } }).catch(() => {});
+      return r;
+    }
     last = r;
     if (![429, 401, 403].includes(r.status)) break;
   }
@@ -345,7 +350,7 @@ async function callProvider({ key, baseUrl, model, userPrompt, maxTokens }) {
     });
     if (resp.ok) {
       const data = await resp.json();
-      return { ok: true, content: extractContent(data) };
+      return { ok: true, content: extractContent(data), tokens: data?.usage?.total_tokens || 0 };
     }
     const detail = await resp.text().catch(() => "");
     const canRetry = TRANSIENT.includes(resp.status) && attempt < WAITS.length;
@@ -753,6 +758,9 @@ function keyToClient(k) {
     lastStatus: k.lastStatus || "",
     lastError: k.lastError || "",
     lastCheckedAt: k.lastCheckedAt || null,
+    usedRequests: k.usedRequests || 0,
+    usedTokens: k.usedTokens || 0,
+    creditLimit: k.creditLimit || 0,
   };
 }
 
@@ -778,17 +786,41 @@ export async function listKeys(req, res) {
       lastStatus: "",
       lastError: "",
       lastCheckedAt: null,
+      usedRequests: 0,
+      usedTokens: 0,
+      creditLimit: 0,
     }))
     .filter((p) => !dbKeyValues.has(p.key))
     .map(({ key, ...rest }) => rest); // never send the raw key to the browser
 
   const models = (await modelRegistry()).map((r) => r.model);
-  res.json({ keys: [...dbList, ...envList], models });
+
+  // Aggregate usage across the DB keys (app-tracked — providers don't expose
+  // real remaining credits). creditLimit is a manual token budget the admin
+  // enters, so remaining = sum(creditLimit) − sum(usedTokens) for limited keys.
+  const totalRequests = db.reduce((s, k) => s + (k.usedRequests || 0), 0);
+  const totalTokens = db.reduce((s, k) => s + (k.usedTokens || 0), 0);
+  const limited = db.filter((k) => (k.creditLimit || 0) > 0);
+  const totalCredits = limited.reduce((s, k) => s + (k.creditLimit || 0), 0);
+  const usedOnLimited = limited.reduce((s, k) => s + (k.usedTokens || 0), 0);
+  const totalRemaining = Math.max(0, totalCredits - usedOnLimited);
+
+  res.json({
+    keys: [...dbList, ...envList],
+    models,
+    totals: {
+      totalRequests,
+      totalTokens,
+      totalCredits, // sum of manual credit limits (0 if none set)
+      totalRemaining, // credits − used, only counting keys that have a limit
+      hasLimits: limited.length > 0,
+    },
+  });
 }
 
 // POST /api/ai/keys (admin)
 export async function createKey(req, res) {
-  const { label, baseUrl, models, key } = req.body || {};
+  const { label, baseUrl, models, key, creditLimit } = req.body || {};
   if (!key || !String(key).trim()) return res.status(400).json({ message: "API key is required." });
   const order = await AiKey.countDocuments();
   const doc = await AiKey.create({
@@ -796,6 +828,7 @@ export async function createKey(req, res) {
     baseUrl: String(baseUrl || "").trim() || "https://generativelanguage.googleapis.com/v1beta/openai",
     models: String(models || "").trim() || "gemini-flash-latest",
     key: String(key).trim(),
+    creditLimit: Math.max(0, parseInt(creditLimit, 10) || 0),
     enabled: true,
     order,
   });
@@ -804,7 +837,7 @@ export async function createKey(req, res) {
 
 // PUT /api/ai/keys/:id (admin) — key is only replaced when a new one is provided.
 export async function updateKey(req, res) {
-  const { label, baseUrl, models, enabled, key, order } = req.body || {};
+  const { label, baseUrl, models, enabled, key, order, creditLimit, resetUsage } = req.body || {};
   const patch = {};
   if (label !== undefined) patch.label = String(label).trim();
   if (baseUrl !== undefined) patch.baseUrl = String(baseUrl).trim();
@@ -812,6 +845,9 @@ export async function updateKey(req, res) {
   if (enabled !== undefined) patch.enabled = !!enabled;
   if (order !== undefined) patch.order = parseInt(order, 10) || 0;
   if (key !== undefined && String(key).trim()) patch.key = String(key).trim();
+  if (creditLimit !== undefined) patch.creditLimit = Math.max(0, parseInt(creditLimit, 10) || 0);
+  // Let the admin zero the app-tracked usage counters (e.g. after a quota reset).
+  if (resetUsage) { patch.usedRequests = 0; patch.usedTokens = 0; }
   const doc = await AiKey.findByIdAndUpdate(req.params.id, patch, { new: true });
   if (!doc) return res.status(404).json({ message: "Key not found" });
   res.json(keyToClient(doc));
