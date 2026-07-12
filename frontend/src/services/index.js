@@ -215,6 +215,14 @@ export const aiService = {
   generate: (data) => api.post("/ai/generate", data), // returns { jobId, requested }
   job: (id) => api.get(`/ai/job/${id}`), // poll: { status, count, requested, questions? }
   extract: (data) => api.post("/ai/extract", data), // import questions from a URL/text → { questions }
+  // Admin AI-key management
+  keys: {
+    list: () => api.get("/ai/keys"),
+    create: (data) => api.post("/ai/keys", data),
+    update: (id, data) => api.put(`/ai/keys/${id}`, data),
+    remove: (id) => api.del(`/ai/keys/${id}`),
+    test: (id) => api.post(`/ai/keys/${id}/test`),
+  },
 };
 
 // ---- File upload (Cloudinary) ----

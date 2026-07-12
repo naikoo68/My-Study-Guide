@@ -1,33 +1,50 @@
 // AI Question Generator — talks to any OpenAI-compatible provider
-// Works with any OpenAI-compatible provider (Gemini, TokenLab, OpenAI, Groq,
-// DeepSeek, …). You can configure UP TO 6 API keys, each with its own base URL
-// and models, using numbered env-var "slots":
-//   Slot 1: AI_API_KEY      AI_BASE_URL      AI_MODEL
-//   Slot 2: AI_API_KEY_2    AI_BASE_URL_2    AI_MODEL_2
-//   Slot 3: AI_API_KEY_3    AI_BASE_URL_3    AI_MODEL_3   … up to _6
-// AI_MODEL(_n) may list several models, comma-separated. Every model from every
-// configured key appears in the admin dropdown; each generation uses the key +
-// base URL that owns the chosen model. Keys live ONLY on the server.
-const MAX_SLOTS = 6;
+import AiKey from "../models/AiKey.js";
 
-function providers() {
+// Works with any OpenAI-compatible provider (Gemini, TokenLab, OpenAI, Groq,
+// DeepSeek, …). Keys come from TWO places, both used together:
+//   1) Admin panel (stored in the DB) — add/enable/test keys from the UI.
+//   2) Env-var slots (AI_API_KEY / AI_API_KEY_2..6 with matching AI_BASE_URL /
+//      AI_MODEL) — for server-side config.
+// Every model from every ENABLED key appears in the admin dropdown; each
+// generation uses a key that owns the chosen model, falling back to the next
+// key on a quota error. Keys live ONLY on the server.
+const MAX_SLOTS = 6;
+const DEFAULT_BASE = "https://api.tokenlab.sh/v1";
+
+function envProviders() {
   const out = [];
   for (let i = 1; i <= MAX_SLOTS; i++) {
     const sfx = i === 1 ? "" : `_${i}`;
     const key = (process.env[`AI_API_KEY${sfx}`] || "").trim();
     if (!key) continue;
-    const baseUrl = (process.env[`AI_BASE_URL${sfx}`] || "https://api.tokenlab.sh/v1").replace(/\/$/, "");
-    const models = (process.env[`AI_MODEL${sfx}`] || "gpt-4o-mini")
-      .split(",").map((m) => m.trim()).filter(Boolean);
-    out.push({ slot: i, key, baseUrl, models: models.length ? models : ["gpt-4o-mini"] });
+    const baseUrl = (process.env[`AI_BASE_URL${sfx}`] || DEFAULT_BASE).replace(/\/$/, "");
+    const models = (process.env[`AI_MODEL${sfx}`] || "gpt-4o-mini").split(",").map((m) => m.trim()).filter(Boolean);
+    out.push({ key, baseUrl, models: models.length ? models : ["gpt-4o-mini"] });
   }
   return out;
 }
 
+// All active providers = admin-managed DB keys (enabled) first, then env slots.
+async function providers() {
+  const db = await AiKey.find({ enabled: true }).sort("order createdAt").lean();
+  const dbProviders = db
+    .filter((k) => (k.key || "").trim())
+    .map((k) => {
+      const models = (k.models || "").split(",").map((m) => m.trim()).filter(Boolean);
+      return {
+        key: k.key.trim(),
+        baseUrl: (k.baseUrl || DEFAULT_BASE).replace(/\/$/, ""),
+        models: models.length ? models : ["gemini-flash-latest"],
+      };
+    });
+  return [...dbProviders, ...envProviders()];
+}
+
 // Flat list of every available model with the key + base URL that serves it.
-function modelRegistry() {
+async function modelRegistry() {
   const reg = [];
-  for (const p of providers()) {
+  for (const p of await providers()) {
     for (const m of p.models) {
       if (!reg.some((r) => r.model === m)) reg.push({ model: m, key: p.key, baseUrl: p.baseUrl });
     }
@@ -35,14 +52,12 @@ function modelRegistry() {
   return reg;
 }
 
-const DEFAULT_MODEL = () => modelRegistry()[0]?.model || "";
-
 // Resolve a requested model → { model, endpoints:[{key,baseUrl}] }. Endpoints are
-// EVERY configured key whose AI_MODEL lists this model, in slot order. This lets
-// several keys (e.g. different Gemini accounts) all serve the same model, so the
-// generator can fall back to the next key when one hits its quota.
-function resolveModel(requested) {
-  const provs = providers();
+// EVERY enabled key whose model list includes this model. This lets several keys
+// (e.g. different Gemini accounts) serve the same model, so the generator can
+// fall back to the next key when one hits its quota.
+async function resolveModel(requested) {
+  const provs = await providers();
   if (!provs.length) return null;
   const defModel = provs[0].models[0];
   const model = provs.some((p) => p.models.includes(requested)) ? requested : defModel;
@@ -75,13 +90,14 @@ const stripListMarker = (x) =>
 
 // GET /api/ai/status — lets the admin UI show/hide the "Generate with AI"
 // button and populate the model dropdown.
-export function aiStatus(req, res) {
-  const reg = modelRegistry();
+export async function aiStatus(req, res) {
+  const reg = await modelRegistry();
+  const provs = await providers();
   res.json({
     enabled: reg.length > 0,
     model: reg[0]?.model || "", // default / first configured model
     models: reg.map((r) => r.model), // every model across all keys (dropdown)
-    keys: providers().length, // how many API keys are configured
+    keys: provs.length, // how many API keys are active
   });
 }
 
@@ -446,11 +462,11 @@ async function runGenerationJob(id, ctx) {
 // Body: { topic, notes, model, plan:[{type,difficulty,count}] }  (or legacy { count, difficulty, types })
 // Starts a background job and returns { jobId, requested }. Poll /api/ai/job/:id.
 export async function generateQuestions(req, res) {
-  const chosen = resolveModel(String(req.body?.model || "").trim());
+  const chosen = await resolveModel(String(req.body?.model || "").trim());
   if (!chosen || !chosen.endpoints.length) {
     return res.status(400).json({
       message:
-        "AI is not configured. Add AI_API_KEY (and optionally AI_BASE_URL, AI_MODEL) to the server environment.",
+        "AI is not configured. Add an API key in Admin → AI Keys, or set AI_API_KEY on the server.",
     });
   }
   const { model, endpoints } = chosen;
@@ -660,9 +676,9 @@ async function runExtractionJob(id, { endpoints, model, chunks }) {
 // Body: { url?, content?, model? } — starts a background import job over the
 // whole source (all sections) and returns { jobId }. Poll /api/ai/job/:id.
 export async function extractQuestions(req, res) {
-  const chosen = resolveModel(String(req.body?.model || "").trim());
+  const chosen = await resolveModel(String(req.body?.model || "").trim());
   if (!chosen || !chosen.endpoints.length) {
-    return res.status(400).json({ message: "AI is not configured. Add AI_API_KEY to the server environment." });
+    return res.status(400).json({ message: "AI is not configured. Add an API key in Admin → AI Keys." });
   }
   const { model, endpoints } = chosen;
   const url = String(req.body?.url || "").trim();
@@ -705,4 +721,85 @@ export async function extractQuestions(req, res) {
 
   runExtractionJob(id, { endpoints, model, chunks });
   res.json({ jobId: id, chunks: chunks.length, model });
+}
+
+
+/* --------------------------- AI key management (admin) --------------------------- */
+
+const maskKey = (k) => {
+  const s = String(k || "");
+  return s.length <= 4 ? "••••" : `••••${s.slice(-4)}`;
+};
+
+// Never send the raw key to the browser — only a masked hint + metadata.
+function keyToClient(k) {
+  return {
+    _id: k._id,
+    label: k.label || "",
+    baseUrl: k.baseUrl,
+    models: k.models,
+    enabled: k.enabled,
+    order: k.order,
+    keyMask: maskKey(k.key),
+    lastStatus: k.lastStatus || "",
+    lastError: k.lastError || "",
+    lastCheckedAt: k.lastCheckedAt || null,
+  };
+}
+
+// GET /api/ai/keys (admin)
+export async function listKeys(req, res) {
+  const keys = await AiKey.find().sort("order createdAt").lean();
+  res.json(keys.map(keyToClient));
+}
+
+// POST /api/ai/keys (admin)
+export async function createKey(req, res) {
+  const { label, baseUrl, models, key } = req.body || {};
+  if (!key || !String(key).trim()) return res.status(400).json({ message: "API key is required." });
+  const order = await AiKey.countDocuments();
+  const doc = await AiKey.create({
+    label: String(label || "").trim(),
+    baseUrl: String(baseUrl || "").trim() || "https://generativelanguage.googleapis.com/v1beta/openai",
+    models: String(models || "").trim() || "gemini-flash-latest",
+    key: String(key).trim(),
+    enabled: true,
+    order,
+  });
+  res.status(201).json(keyToClient(doc));
+}
+
+// PUT /api/ai/keys/:id (admin) — key is only replaced when a new one is provided.
+export async function updateKey(req, res) {
+  const { label, baseUrl, models, enabled, key, order } = req.body || {};
+  const patch = {};
+  if (label !== undefined) patch.label = String(label).trim();
+  if (baseUrl !== undefined) patch.baseUrl = String(baseUrl).trim();
+  if (models !== undefined) patch.models = String(models).trim();
+  if (enabled !== undefined) patch.enabled = !!enabled;
+  if (order !== undefined) patch.order = parseInt(order, 10) || 0;
+  if (key !== undefined && String(key).trim()) patch.key = String(key).trim();
+  const doc = await AiKey.findByIdAndUpdate(req.params.id, patch, { new: true });
+  if (!doc) return res.status(404).json({ message: "Key not found" });
+  res.json(keyToClient(doc));
+}
+
+// DELETE /api/ai/keys/:id (admin)
+export async function deleteKey(req, res) {
+  await AiKey.findByIdAndDelete(req.params.id);
+  res.json({ message: "Key deleted" });
+}
+
+// POST /api/ai/keys/:id/test (admin) — makes a tiny live call to check the key.
+export async function testKey(req, res) {
+  const doc = await AiKey.findById(req.params.id);
+  if (!doc) return res.status(404).json({ message: "Key not found" });
+  const model = (doc.models || "").split(",").map((m) => m.trim()).filter(Boolean)[0] || "gpt-4o-mini";
+  const baseUrl = (doc.baseUrl || DEFAULT_BASE).replace(/\/$/, "");
+  const r = await callProvider({ key: doc.key, baseUrl, model, userPrompt: "Reply with the word ok.", maxTokens: 5 });
+  doc.lastStatus = r.ok ? "ok" : "error";
+  doc.lastError = r.ok ? "" : `HTTP ${r.status || 0}: ${(r.detail || "").slice(0, 150)}`;
+  doc.lastCheckedAt = new Date();
+  await doc.save();
+  res.json({ ok: r.ok, status: doc.lastStatus, error: doc.lastError, lastCheckedAt: doc.lastCheckedAt });
 }

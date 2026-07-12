@@ -55,6 +55,7 @@ const AdminCustomization = lazy(() => import("./pages/admin/AdminCustomization")
 const AdminNotices = lazy(() => import("./pages/admin/AdminNotices"));
 const AdminPerformance = lazy(() => import("./pages/admin/AdminPerformance"));
 const AdminPractice = lazy(() => import("./pages/admin/AdminPractice"));
+const AdminAiKeys = lazy(() => import("./pages/admin/AdminAiKeys"));
 
 // Wraps a lazily-loaded page in a Suspense boundary with a loading fallback.
 const S = (Comp) => (
@@ -132,6 +133,7 @@ const router = createBrowserRouter([
       { path: "performance", element: S(AdminPerformance) },
       { path: "messages", element: S(AdminMessages) },
       { path: "notices", element: S(AdminNotices) },
+      { path: "ai-keys", element: S(AdminAiKeys) },
       { path: "customization", element: S(AdminCustomization) },
     ],
   },

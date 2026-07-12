@@ -11,6 +11,7 @@ import {
   MessageSquare,
   Megaphone,
   Palette,
+  KeyRound,
   GraduationCap,
   LogOut,
   Menu,
@@ -35,6 +36,7 @@ const nav = [
   { to: "/admin/feedback", label: "Feedback", icon: MessageSquare },
   { to: "/admin/messages", label: "Messages", icon: Mail },
   { to: "/admin/notices", label: "Notice Board", icon: Megaphone },
+  { to: "/admin/ai-keys", label: "AI Keys", icon: KeyRound },
   { to: "/admin/customization", label: "Customization", icon: Palette },
 ];
 
