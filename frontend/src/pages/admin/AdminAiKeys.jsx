@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { KeyRound, Plus, Trash2, Pencil, X, CheckCircle2, XCircle, Loader2, RefreshCw, Power } from "lucide-react";
+import { KeyRound, Plus, Trash2, Pencil, X, CheckCircle2, XCircle, Loader2, RefreshCw, Power, Download } from "lucide-react";
 import { aiService } from "../../services";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 
@@ -24,6 +24,7 @@ export default function AdminAiKeys() {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState({}); // id -> bool
   const [busy, setBusy] = useState({}); // id -> bool (toggle/delete)
+  const [bulkBusy, setBulkBusy] = useState(""); // "" | "test" | "import"
 
   const load = useCallback(() => {
     setLoading(true);
@@ -103,6 +104,45 @@ export default function AdminAiKeys() {
     }
   };
 
+  const importOne = async (k) => {
+    // Import a single Render env key into the DB so it becomes manageable.
+    setBusy((b) => ({ ...b, [k._id]: true }));
+    try {
+      await aiService.keys.importEnv();
+      load();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy((b) => ({ ...b, [k._id]: false }));
+    }
+  };
+
+  const importAll = async () => {
+    setBulkBusy("import");
+    try {
+      const res = await aiService.keys.importEnv();
+      load();
+      if (!res?.imported) setError("No new server keys to import (they may already be in the panel).");
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBulkBusy("");
+    }
+  };
+
+  const testAll = async () => {
+    setBulkBusy("test");
+    try {
+      await aiService.keys.testAll();
+      load();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBulkBusy("");
+    }
+  };
+
+  const hasEnvKeys = keys.some((k) => k.source === "env");
   const activeCount = keys.filter((k) => k.enabled).length;
 
   const StatusBadge = ({ k }) => {
@@ -122,7 +162,19 @@ export default function AdminAiKeys() {
             <span className="font-semibold text-emerald-600 dark:text-emerald-400"> {activeCount} enabled</span>.
           </p>
         </div>
-        <button onClick={openAdd} className="btn-primary"><Plus className="h-4 w-4" /> Add API Key</button>
+        <div className="flex flex-wrap gap-2">
+          {keys.length > 0 && (
+            <button onClick={testAll} disabled={bulkBusy === "test"} className="btn-outline">
+              {bulkBusy === "test" ? <><Loader2 className="h-4 w-4 animate-spin" /> Testing…</> : <><RefreshCw className="h-4 w-4" /> Test all</>}
+            </button>
+          )}
+          {hasEnvKeys && (
+            <button onClick={importAll} disabled={bulkBusy === "import"} className="btn-outline">
+              {bulkBusy === "import" ? <><Loader2 className="h-4 w-4 animate-spin" /> Importing…</> : <><Download className="h-4 w-4" /> Import server keys</>}
+            </button>
+          )}
+          <button onClick={openAdd} className="btn-primary"><Plus className="h-4 w-4" /> Add API Key</button>
+        </div>
       </div>
 
       {models.length > 0 && (
@@ -161,7 +213,9 @@ export default function AdminAiKeys() {
                 </p>
               </div>
               {k.readOnly ? (
-                <span className="flex-shrink-0 text-xs text-slate-400">Managed in Render env vars</span>
+                <button onClick={() => importOne(k)} disabled={busy[k._id]} className="btn-outline flex-shrink-0 py-1.5 text-xs">
+                  {busy[k._id] ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />} Import to manage
+                </button>
               ) : (
                 <div className="flex flex-shrink-0 items-center gap-1">
                   <button onClick={() => test(k._id)} disabled={testing[k._id]} title="Test this key now" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 disabled:opacity-50 dark:hover:bg-brand-900/30">

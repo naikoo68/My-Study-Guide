@@ -38,7 +38,16 @@ async function providers() {
         models: models.length ? models : ["gemini-flash-latest"],
       };
     });
-  return [...dbProviders, ...envProviders()];
+  // DB keys first, then env slots — de-duplicated by key value so the same key
+  // isn't used twice if it's both imported and still set in Render.
+  const seen = new Set();
+  const deduped = [];
+  for (const p of [...dbProviders, ...envProviders()]) {
+    if (seen.has(p.key)) continue;
+    seen.add(p.key);
+    deduped.push(p);
+  }
+  return deduped;
 }
 
 // Flat list of every available model with the key + base URL that serves it.
@@ -753,19 +762,25 @@ export async function listKeys(req, res) {
   const db = await AiKey.find().sort("order createdAt").lean();
   const dbList = db.map((k) => ({ ...keyToClient(k), source: "db" }));
 
-  const envList = envProviders().map((p, i) => ({
-    _id: `env-${i + 1}`,
-    source: "env",
-    readOnly: true, // configured in Render, not editable from the UI
-    label: i === 0 ? "Server key · AI_API_KEY" : `Server key · AI_API_KEY_${i + 1}`,
-    baseUrl: p.baseUrl,
-    models: p.models.join(", "),
-    keyMask: maskKey(p.key),
-    enabled: true,
-    lastStatus: "",
-    lastError: "",
-    lastCheckedAt: null,
-  }));
+  // Hide env keys that have already been imported into the DB (same key value).
+  const dbKeyValues = new Set(db.map((k) => (k.key || "").trim()));
+  const envList = envProviders()
+    .map((p, i) => ({
+      _id: `env-${i + 1}`,
+      source: "env",
+      readOnly: true, // configured in Render — import it to manage from the UI
+      label: i === 0 ? "Server key · AI_API_KEY" : `Server key · AI_API_KEY_${i + 1}`,
+      baseUrl: p.baseUrl,
+      models: p.models.join(", "),
+      key: p.key, // used only to import; stripped before sending below
+      keyMask: maskKey(p.key),
+      enabled: true,
+      lastStatus: "",
+      lastError: "",
+      lastCheckedAt: null,
+    }))
+    .filter((p) => !dbKeyValues.has(p.key))
+    .map(({ key, ...rest }) => rest); // never send the raw key to the browser
 
   const models = (await modelRegistry()).map((r) => r.model);
   res.json({ keys: [...dbList, ...envList], models });
@@ -808,10 +823,8 @@ export async function deleteKey(req, res) {
   res.json({ message: "Key deleted" });
 }
 
-// POST /api/ai/keys/:id/test (admin) — makes a tiny live call to check the key.
-export async function testKey(req, res) {
-  const doc = await AiKey.findById(req.params.id);
-  if (!doc) return res.status(404).json({ message: "Key not found" });
+// Live-test one key doc: updates lastStatus and returns whether it worked.
+async function runKeyTest(doc) {
   const model = (doc.models || "").split(",").map((m) => m.trim()).filter(Boolean)[0] || "gpt-4o-mini";
   const baseUrl = (doc.baseUrl || DEFAULT_BASE).replace(/\/$/, "");
   const r = await callProvider({ key: doc.key, baseUrl, model, userPrompt: "Reply with the word ok.", maxTokens: 5 });
@@ -819,5 +832,41 @@ export async function testKey(req, res) {
   doc.lastError = r.ok ? "" : `HTTP ${r.status || 0}: ${(r.detail || "").slice(0, 150)}`;
   doc.lastCheckedAt = new Date();
   await doc.save();
-  res.json({ ok: r.ok, status: doc.lastStatus, error: doc.lastError, lastCheckedAt: doc.lastCheckedAt });
+  return r.ok;
+}
+
+// POST /api/ai/keys/import (admin) — copy Render env-var keys into the DB so they
+// become fully manageable (test/edit/delete). Skips keys already imported.
+export async function importEnvKeys(req, res) {
+  const existing = new Set((await AiKey.find().select("key").lean()).map((k) => (k.key || "").trim()));
+  let order = await AiKey.countDocuments();
+  let imported = 0;
+  for (const p of envProviders()) {
+    if (existing.has(p.key)) continue;
+    await AiKey.create({
+      label: "Imported from server",
+      baseUrl: p.baseUrl,
+      models: p.models.join(", "),
+      key: p.key,
+      enabled: true,
+      order: order++,
+    });
+    imported += 1;
+  }
+  res.json({ imported });
+}
+
+// POST /api/ai/keys/test-all (admin) — test every DB key in one go.
+export async function testAllKeys(req, res) {
+  const keys = await AiKey.find();
+  for (const doc of keys) await runKeyTest(doc);
+  res.json({ tested: keys.length });
+}
+
+// POST /api/ai/keys/:id/test (admin) — makes a tiny live call to check the key.
+export async function testKey(req, res) {
+  const doc = await AiKey.findById(req.params.id);
+  if (!doc) return res.status(404).json({ message: "Key not found" });
+  const ok = await runKeyTest(doc);
+  res.json({ ok, status: doc.lastStatus, error: doc.lastError, lastCheckedAt: doc.lastCheckedAt });
 }
