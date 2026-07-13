@@ -1,7 +1,7 @@
 import { Router } from "express";
 import {
   aiStatus, generateQuestions, jobStatus, extractQuestions,
-  listKeys, createKey, updateKey, deleteKey, testKey, importEnvKeys, testAllKeys,
+  listKeys, createKey, updateKey, deleteKey, testKey, importEnvKeys, testAllKeys, listKeyModels,
 } from "../controllers/aiController.js";
 import { protect, authorize } from "../middleware/auth.js";
 
@@ -24,5 +24,6 @@ router.post("/keys/test-all", ...admin, testAllKeys); // test every key at once
 router.put("/keys/:id", ...admin, updateKey);
 router.delete("/keys/:id", ...admin, deleteKey);
 router.post("/keys/:id/test", ...admin, testKey);
+router.post("/keys/:id/models", ...admin, listKeyModels); // list models this key can use
 
 export default router;

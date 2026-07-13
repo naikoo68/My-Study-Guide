@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { KeyRound, Plus, Trash2, Pencil, X, CheckCircle2, XCircle, Loader2, RefreshCw, Power, Download } from "lucide-react";
+import { KeyRound, Plus, Trash2, Pencil, X, CheckCircle2, XCircle, Loader2, RefreshCw, Power, Download, List } from "lucide-react";
 import { aiService } from "../../services";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 
@@ -38,6 +38,8 @@ export default function AdminAiKeys() {
   const [testing, setTesting] = useState({}); // id -> bool
   const [busy, setBusy] = useState({}); // id -> bool (toggle/delete)
   const [bulkBusy, setBulkBusy] = useState(""); // "" | "test" | "import"
+  const [keyModels, setKeyModels] = useState({}); // id -> available model ids
+  const [modelsBusy, setModelsBusy] = useState({}); // id -> bool
 
   const load = useCallback(() => {
     setLoading(true);
@@ -90,6 +92,30 @@ export default function AdminAiKeys() {
       setError(e.message);
     } finally {
       setTesting((t) => ({ ...t, [id]: false }));
+    }
+  };
+
+  // Ask the provider which models THIS key can use, and show them as chips.
+  const showModels = async (k) => {
+    setModelsBusy((b) => ({ ...b, [k._id]: true }));
+    setError("");
+    try {
+      const res = await aiService.keys.models(k._id);
+      setKeyModels((s) => ({ ...s, [k._id]: res.models || [] }));
+    } catch (e) {
+      setError(`Couldn't list models: ${e.message}`);
+    } finally {
+      setModelsBusy((b) => ({ ...b, [k._id]: false }));
+    }
+  };
+  // Set a key's model to the chosen id, then refresh.
+  const pickModel = async (k, m) => {
+    try {
+      await aiService.keys.update(k._id, { models: m });
+      setKeyModels((s) => { const c = { ...s }; delete c[k._id]; return c; });
+      load();
+    } catch (e) {
+      setError(e.message);
     }
   };
 
@@ -271,6 +297,9 @@ export default function AdminAiKeys() {
                 </button>
               ) : (
                 <div className="flex flex-shrink-0 items-center gap-1">
+                  <button onClick={() => showModels(k)} disabled={modelsBusy[k._id]} title="Show models this key can use" className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-300 dark:hover:bg-slate-800">
+                    {modelsBusy[k._id] ? <Loader2 className="h-4 w-4 animate-spin" /> : <List className="h-4 w-4" />}
+                  </button>
                   <button onClick={() => test(k._id)} disabled={testing[k._id]} title="Test this key now" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 disabled:opacity-50 dark:hover:bg-brand-900/30">
                     {testing[k._id] ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                   </button>
@@ -283,6 +312,34 @@ export default function AdminAiKeys() {
                   <button onClick={() => remove(k)} disabled={busy[k._id]} title="Delete" className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 disabled:opacity-50 dark:hover:bg-rose-900/30">
                     <Trash2 className="h-4 w-4" />
                   </button>
+                </div>
+              )}
+
+              {keyModels[k._id] && (
+                <div className="w-full border-t border-slate-100 pt-2 dark:border-slate-800">
+                  <p className="mb-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                    Models this key can use — click one to set it:
+                  </p>
+                  {keyModels[k._id].length === 0 ? (
+                    <p className="text-xs text-slate-400">No models returned — the key may be invalid or out of quota.</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {keyModels[k._id].map((m) => (
+                        <button
+                          key={m}
+                          onClick={() => pickModel(k, m)}
+                          title="Use this model for this key"
+                          className={`rounded-full border px-2 py-0.5 text-xs font-medium transition ${
+                            k.models === m
+                              ? "border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-900/30 dark:text-brand-300"
+                              : "border-slate-200 text-slate-600 hover:border-brand-500 hover:text-brand-600 dark:border-slate-700 dark:text-slate-300"
+                          }`}
+                        >
+                          {m}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

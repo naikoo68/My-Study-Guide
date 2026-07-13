@@ -1064,6 +1064,27 @@ export async function testAllKeys(req, res) {
   res.json({ tested: keys.length });
 }
 
+// POST /api/ai/keys/:id/models (admin) — ask the provider which models THIS key
+// can actually use (OpenAI-compatible /models list). Fixes "404 model not found"
+// guesswork by showing valid ids to choose from.
+export async function listKeyModels(req, res) {
+  const doc = await AiKey.findById(req.params.id);
+  if (!doc) return res.status(404).json({ message: "Key not found" });
+  const baseUrl = (doc.baseUrl || DEFAULT_BASE).replace(/\/$/, "");
+  try {
+    const resp = await fetch(`${baseUrl}/models`, { headers: { Authorization: `Bearer ${doc.key}` } });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) return res.status(resp.status).json({ message: data?.error?.message || `HTTP ${resp.status}` });
+    const models = (Array.isArray(data?.data) ? data.data : [])
+      .map((m) => String(m?.id || "").replace(/^models\//, "")) // strip Google's "models/" prefix
+      .filter(Boolean)
+      .sort();
+    res.json({ models });
+  } catch (e) {
+    res.status(502).json({ message: e.message || "Could not list models for this key." });
+  }
+}
+
 // POST /api/ai/keys/:id/test (admin) — makes a tiny live call to check the key.
 export async function testKey(req, res) {
   const doc = await AiKey.findById(req.params.id);

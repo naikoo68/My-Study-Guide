@@ -227,6 +227,7 @@ export const aiService = {
     update: (id, data) => api.put(`/ai/keys/${id}`, data),
     remove: (id) => api.del(`/ai/keys/${id}`),
     test: (id) => api.post(`/ai/keys/${id}/test`),
+    models: (id) => api.post(`/ai/keys/${id}/models`), // which models this key can use
     importEnv: () => api.post("/ai/keys/import"),
     testAll: () => api.post("/ai/keys/test-all"),
   },
