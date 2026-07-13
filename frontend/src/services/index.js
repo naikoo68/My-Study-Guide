@@ -254,3 +254,11 @@ export const userService = {
   getAccess: (id) => api.get(`/users/${id}/access`),
   updateAccess: (id, data) => api.put(`/users/${id}/access`, data),
 };
+
+// ---- Discount coupons (admin) ----
+export const couponService = {
+  list: () => api.get("/coupons"),
+  create: (data) => api.post("/coupons", data),
+  update: (id, data) => api.put(`/coupons/${id}`, data),
+  remove: (id) => api.del(`/coupons/${id}`),
+};

@@ -59,6 +59,7 @@ const AdminNotices = lazy(() => import("./pages/admin/AdminNotices"));
 const AdminPerformance = lazy(() => import("./pages/admin/AdminPerformance"));
 const AdminPractice = lazy(() => import("./pages/admin/AdminPractice"));
 const AdminClients = lazy(() => import("./pages/admin/AdminClients"));
+const AdminCoupons = lazy(() => import("./pages/admin/AdminCoupons"));
 const AdminAiKeys = lazy(() => import("./pages/admin/AdminAiKeys"));
 
 // Wraps a lazily-loaded page in a Suspense boundary with a loading fallback.
@@ -143,6 +144,7 @@ const router = createBrowserRouter([
       { path: "tests", element: S(AdminTests) },
       { path: "practice", element: S(AdminPractice) },
       { path: "clients", element: S(AdminClients) },
+      { path: "coupons", element: S(AdminCoupons) },
       { path: "study", element: S(AdminStudyMaterial) },
       { path: "feedback", element: S(AdminFeedback) },
       { path: "users", element: S(AdminUsers) },

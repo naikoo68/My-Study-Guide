@@ -20,6 +20,7 @@ import feedbackRoutes from "./routes/feedbackRoutes.js";
 import noticeRoutes from "./routes/noticeRoutes.js";
 import practiceRoutes from "./routes/practiceRoutes.js";
 import aiRoutes from "./routes/aiRoutes.js";
+import couponRoutes from "./routes/couponRoutes.js";
 import { notFound, errorHandler } from "./middleware/error.js";
 import { isMailConfigured, verifyMail } from "./config/mailer.js";
 import { isCloudinaryConfigured } from "./config/cloudinary.js";
@@ -71,6 +72,7 @@ app.use("/api/feedback", feedbackRoutes); // student feedback (per-question + ov
 app.use("/api/notices", noticeRoutes); // scrolling notice board (public read, admin write)
 app.use("/api/practice", practiceRoutes); // "Practice Quizzes" section (My Quiz / My Test Series)
 app.use("/api/ai", aiRoutes); // AI question generator (admin)
+app.use("/api/coupons", couponRoutes); // discount coupons (admin manage; used at client checkout)
 
 // Errors
 app.use(notFound);

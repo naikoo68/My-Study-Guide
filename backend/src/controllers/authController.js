@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import User from "../models/User.js";
+import Coupon from "../models/Coupon.js";
 import generateToken from "../utils/generateToken.js";
 import { sendMail } from "../config/mailer.js";
 import { notifyNewUser } from "../utils/notify.js";
@@ -86,7 +87,15 @@ async function computeOffer({ planKey, couponCode, referralCode, selfEmail }) {
 
   const code = String(couponCode || "").trim().toUpperCase();
   if (code) {
-    const c = COUPONS[code];
+    // Admin-managed coupons (DB) take priority; fall back to the built-in codes.
+    const dbCoupon = await Coupon.findOne({ code });
+    let c = null;
+    if (dbCoupon) {
+      const usable = dbCoupon.active && (!dbCoupon.usageLimit || dbCoupon.usedCount < dbCoupon.usageLimit);
+      if (usable) c = { type: dbCoupon.type, value: dbCoupon.value, label: dbCoupon.type === "percent" ? `${dbCoupon.value}% off` : `₹${dbCoupon.value} off` };
+    } else if (COUPONS[code]) {
+      c = COUPONS[code];
+    }
     if (c) {
       const d = c.type === "percent" ? Math.round((base * c.value) / 100) : c.value;
       discount += d;
@@ -153,6 +162,9 @@ export async function register(req, res) {
       throw e;
     }
   }
+
+  // Count usage of an admin-managed coupon (built-in codes have no DB doc → no-op).
+  if (doc.couponCode) Coupon.updateOne({ code: doc.couponCode }, { $inc: { usedCount: 1 } }).catch(() => {});
 
   const otp = await issueOtp(user);
   const emailSent = await sendOtpEmail(email, name, otp).catch(() => false);

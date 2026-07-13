@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
-import { Search, Ban, CheckCircle2, KeyRound, UserPlus, Trash2, X, ListChecks, FileStack, HelpCircle, Store, Pencil, Clock, AlarmClock } from "lucide-react";
+import { Search, Ban, CheckCircle2, KeyRound, UserPlus, Trash2, X, ListChecks, FileStack, HelpCircle, Store, Pencil, Clock, AlarmClock, Gift, Ticket } from "lucide-react";
 import { userService } from "../../services";
 import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 
 // Duration units offered when giving a client a temporary (auto-expiring) account.
 const UNIT_MS = { Minutes: 60_000, Hours: 3_600_000, Days: 86_400_000, Weeks: 604_800_000, Months: 2_592_000_000 };
+
+// Subscription plan keys → readable labels (mirrors the backend CLIENT_PLANS).
+const PLAN_LABELS = { "1m": "1 Month", "2m": "2 Months", "6m": "6 Months", "1y": "1 Year" };
 
 const blank = {
   name: "",
@@ -202,11 +205,12 @@ export default function AdminClients() {
             <EmptyState message={search ? "No clients match your search." : "No client accounts yet. They appear here when people register at /client/register (or add one above)."} />
           ) : (
             <div className="card overflow-x-auto">
-              <table className="w-full min-w-[860px] text-sm">
+              <table className="w-full min-w-[1000px] text-sm">
                 <thead className="bg-slate-50 text-left text-slate-500 dark:bg-slate-800/60">
                   <tr>
                     <th className="px-5 py-3 font-semibold">Client</th>
                     <th className="px-5 py-3 font-semibold">Content</th>
+                    <th className="px-5 py-3 font-semibold">Plan</th>
                     <th className="px-5 py-3 font-semibold">Access</th>
                     <th className="px-5 py-3 font-semibold">Validity</th>
                     <th className="px-5 py-3 text-right font-semibold">Actions</th>
@@ -225,6 +229,12 @@ export default function AdminClients() {
                             <div>
                               <p className="font-medium">{c.name}</p>
                               <p className="text-xs text-slate-400">{c.email}</p>
+                              {c.referralCode && (
+                                <p className="mt-0.5 flex items-center gap-1 text-xs text-slate-400">
+                                  <Gift className="h-3 w-3" /> {c.referralCode}
+                                  {c.referredBy && <span> · via {c.referredBy}</span>}
+                                </p>
+                              )}
                             </div>
                           </div>
                         </td>
@@ -234,6 +244,19 @@ export default function AdminClients() {
                             <Badge variant="accent"><FileStack className="h-3 w-3" /> {c.tests}</Badge>
                             <Badge variant="neutral"><HelpCircle className="h-3 w-3" /> {c.questions} Qs</Badge>
                           </div>
+                        </td>
+                        <td className="px-5 py-3">
+                          {c.subscriptionPlan ? (
+                            <div className="flex flex-col gap-1">
+                              <Badge variant="brand">{PLAN_LABELS[c.subscriptionPlan] || c.subscriptionPlan}</Badge>
+                              <span className="flex items-center gap-1 text-xs text-slate-400">
+                                ₹{c.subscriptionPrice ?? "—"}
+                                {c.couponCode && <span className="inline-flex items-center gap-0.5"><Ticket className="h-3 w-3" /> {c.couponCode}</span>}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-slate-400">—</span>
+                          )}
                         </td>
                         <td className="px-5 py-3">
                           {c.status === "blocked" ? (
