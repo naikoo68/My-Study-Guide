@@ -448,10 +448,12 @@ function cleanupJobs() {
 async function runGenerationJob(id, ctx) {
   const { endpoints, model, topic, notes, plan, count, difficulty, types, target } = ctx;
   const job = genJobs.get(id);
-  const deadline = Date.now() + 4 * 60 * 1000; // 4-minute overall budget
-  const MAX_CALLS = Math.ceil(target / CHUNK_SIZE) + 5; // headroom for retries/top-ups
+  const deadline = Date.now() + 8 * 60 * 1000; // overall time budget (long: free-tier rate limits force waits between chunks)
+  const MAX_CALLS = Math.ceil(target / CHUNK_SIZE) + 12; // headroom for retries/top-ups/partial chunks
+  const MAX_QUOTA_WAITS = 6; // times we'll wait out a 429 (per-minute limit) before giving up
   const collected = [];
   let calls = 0;
+  let quotaWaits = 0;
   let lastError = null;
 
   const save = (patch) => {
@@ -477,9 +479,20 @@ async function runGenerationJob(id, ctx) {
       const r = await callWithFallback({ endpoints, model, userPrompt: prompt, maxTokens });
       if (!r.ok) {
         lastError = r;
-        // A 429 means quota/rate exhausted — retrying more won't help right now.
-        // Stop and return whatever we already have.
-        if (r.status === 429) break;
+        // A 429 = the provider's rate/quota limit. Per-minute limits RESET, so
+        // rather than giving up we wait the suggested delay and keep going (up to
+        // MAX_QUOTA_WAITS times, within the time budget). This lets one run push
+        // through the whole batch on free tiers instead of stopping short at ~60.
+        if (r.status === 429) {
+          if (quotaWaits >= MAX_QUOTA_WAITS) break;
+          const waitMs = Math.min(retryWaitMs(null, r.detail) || 30000, 60000);
+          if (Date.now() + waitMs >= deadline) break;
+          quotaWaits += 1;
+          calls -= 1; // a rate-limited attempt shouldn't burn the call budget
+          save({ questions: collected.slice() }); // keep progress visible while we wait
+          await new Promise((res2) => setTimeout(res2, waitMs));
+          continue;
+        }
         continue;
       }
       const qs = normalize(parseQuestions(r.content));
@@ -505,7 +518,10 @@ async function runGenerationJob(id, ctx) {
     } else {
       // Finished (possibly short of target if quota ran out mid-run). Even out
       // the correct-answer positions across the whole batch before returning.
-      save({ status: "done", questions: balanceCorrectOptions(collected), error: lastError?.status === 429 ? "quota" : null });
+      // Only flag "quota" when we actually fell short — a mid-run 429 we waited
+      // out and recovered from shouldn't alarm the user.
+      const short = collected.length < target;
+      save({ status: "done", questions: balanceCorrectOptions(collected), error: short && lastError?.status === 429 ? "quota" : null });
     }
   } catch (err) {
     save(collected.length ? { status: "done", questions: balanceCorrectOptions(collected) } : { status: "error", error: err?.message || "AI request failed." });

@@ -79,7 +79,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
       // Poll the background job for progress until it finishes.
       const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       let done = false;
-      for (let i = 0; i < 150 && !done; i++) {
+      for (let i = 0; i < 300 && !done; i++) {
         await sleep(2000);
         let s;
         try {
