@@ -21,6 +21,7 @@ import noticeRoutes from "./routes/noticeRoutes.js";
 import practiceRoutes from "./routes/practiceRoutes.js";
 import aiRoutes from "./routes/aiRoutes.js";
 import couponRoutes from "./routes/couponRoutes.js";
+import paymentRoutes from "./routes/paymentRoutes.js";
 import { notFound, errorHandler } from "./middleware/error.js";
 import { isMailConfigured, verifyMail } from "./config/mailer.js";
 import { isCloudinaryConfigured } from "./config/cloudinary.js";
@@ -73,6 +74,7 @@ app.use("/api/notices", noticeRoutes); // scrolling notice board (public read, a
 app.use("/api/practice", practiceRoutes); // "Practice Quizzes" section (My Quiz / My Test Series)
 app.use("/api/ai", aiRoutes); // AI question generator (admin)
 app.use("/api/coupons", couponRoutes); // discount coupons (admin manage; used at client checkout)
+app.use("/api/payments", paymentRoutes); // Razorpay: create orders + config for client checkout
 
 // Errors
 app.use(notFound);

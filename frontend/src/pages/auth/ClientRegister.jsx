@@ -4,7 +4,19 @@ import { User, Mail, Lock, Eye, EyeOff, UserPlus, Loader2, AlertCircle, Sparkles
 import AuthShell from "../../components/auth/AuthShell";
 import OtpVerify from "../../components/auth/OtpVerify";
 import { useAuth } from "../../context/AuthContext";
-import { authService } from "../../services";
+import { authService, paymentService } from "../../services";
+
+// Load Razorpay Checkout once, on demand.
+function loadRazorpay() {
+  return new Promise((resolve) => {
+    if (window.Razorpay) return resolve(true);
+    const s = document.createElement("script");
+    s.src = "https://checkout.razorpay.com/v1/checkout.js";
+    s.onload = () => resolve(true);
+    s.onerror = () => resolve(false);
+    document.body.appendChild(s);
+  });
+}
 
 // Prices mirror the backend (single source of truth) — used only until the
 // live /auth/plans response arrives, so the form never renders empty.
@@ -18,7 +30,7 @@ const FALLBACK_PLANS = [
 // Self-service registration for a "client" account. A client picks a plan and
 // gets a private My Practice workspace to build and take their own quizzes/tests.
 export default function ClientRegister() {
-  const { register } = useAuth();
+  const { register, applySession } = useAuth();
   const navigate = useNavigate();
   const [showPw, setShowPw] = useState(false);
   const [otpStep, setOtpStep] = useState(null); // { email, devOtp, emailSent }
@@ -28,12 +40,14 @@ export default function ClientRegister() {
   const [coupon, setCoupon] = useState("");
   const [referral, setReferral] = useState("");
   const [offer, setOffer] = useState(null); // { basePrice, discount, finalPrice, applied }
+  const [payEnabled, setPayEnabled] = useState(false); // Razorpay configured on the server?
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  // Authoritative plans/prices from the backend.
+  // Authoritative plans/prices + whether online payment is enabled.
   useEffect(() => {
     authService.plans().then((r) => { if (r?.plans?.length) setPlans(r.plans); }).catch(() => {});
+    paymentService.config().then((r) => setPayEnabled(!!r?.enabled)).catch(() => {});
   }, []);
 
   // Live price preview (debounced) when the plan or codes change.
@@ -53,17 +67,75 @@ export default function ClientRegister() {
   const discount = offer?.discount ?? 0;
   const total = offer?.finalPrice ?? selectedPlan?.price ?? 0;
 
+  // Create the account. `paymentFields` carries the verified Razorpay details
+  // for paid signups; empty for free/OTP signups.
+  const doRegister = async (paymentFields = {}) => {
+    const res = await register(form.name, form.email, form.password, "client", {
+      plan: planKey,
+      couponCode: coupon.trim() || undefined,
+      referralCode: referral.trim() || undefined,
+      ...paymentFields,
+    });
+    // Paid signup → server returns a session; log in and go straight to the app.
+    if (res?.paid && res?.token) {
+      applySession(res.token, res.user);
+      navigate("/client", { replace: true });
+      return;
+    }
+    // Free / payments-off → verify email via OTP.
+    setOtpStep({ email: res.email || form.email, devOtp: res.devOtp, emailSent: res.emailSent });
+  };
+
   const submit = async (e) => {
     e.preventDefault();
     setError("");
     setBusy(true);
     try {
-      const res = await register(form.name, form.email, form.password, "client", {
-        plan: planKey,
-        couponCode: coupon.trim() || undefined,
-        referralCode: referral.trim() || undefined,
-      });
-      setOtpStep({ email: res.email || form.email, devOtp: res.devOtp, emailSent: res.emailSent });
+      // Take payment first when it's enabled and the plan costs money.
+      if (payEnabled && total > 0) {
+        const order = await paymentService.createOrder({
+          plan: planKey,
+          couponCode: coupon.trim() || undefined,
+          referralCode: referral.trim() || undefined,
+          email: form.email,
+        });
+        if (order.free) {
+          await doRegister();
+        } else {
+          const ready = await loadRazorpay();
+          if (!ready) throw new Error("Couldn't open the payment window. Check your connection and try again.");
+          await new Promise((resolve, reject) => {
+            const rzp = new window.Razorpay({
+              key: order.keyId,
+              order_id: order.orderId,
+              amount: order.amount,
+              currency: order.currency || "INR",
+              name: "My Study Guide",
+              description: `${selectedPlan?.label} plan`,
+              prefill: { name: form.name, email: form.email },
+              theme: { color: "#2563eb" },
+              handler: async (resp) => {
+                try {
+                  await doRegister({
+                    razorpay_order_id: resp.razorpay_order_id,
+                    razorpay_payment_id: resp.razorpay_payment_id,
+                    razorpay_signature: resp.razorpay_signature,
+                  });
+                  resolve();
+                } catch (err) {
+                  reject(err);
+                }
+              },
+              modal: { ondismiss: () => reject(new Error("Payment was cancelled.")) },
+            });
+            rzp.on("payment.failed", (r) => reject(new Error(r?.error?.description || "Payment failed. Please try again.")));
+            rzp.open();
+          });
+        }
+      } else {
+        // Payments not enabled yet → account activates on email verification.
+        await doRegister();
+      }
     } catch (err) {
       setError(err.message || "Registration failed");
     } finally {
@@ -241,10 +313,12 @@ export default function ClientRegister() {
 
         <button type="submit" disabled={busy} className="btn-primary w-full">
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
-          {busy ? "Creating account..." : `Create account · ₹${total}`}
+          {busy ? "Processing..." : payEnabled && total > 0 ? `Pay ₹${total} & Create account` : `Create account · ₹${total}`}
         </button>
         <p className="text-center text-xs text-slate-400">
-          After verifying your email, your account is active for the selected duration.
+          {payEnabled && total > 0
+            ? "You'll pay securely via Razorpay, then your account activates instantly for the selected duration."
+            : "After verifying your email, your account is active for the selected duration."}
         </p>
       </form>
 

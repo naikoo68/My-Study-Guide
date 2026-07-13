@@ -2,6 +2,7 @@ import crypto from "crypto";
 import User from "../models/User.js";
 import Coupon from "../models/Coupon.js";
 import generateToken from "../utils/generateToken.js";
+import { razorpayConfigured, verifyPaymentSignature } from "../config/razorpay.js";
 import { sendMail } from "../config/mailer.js";
 import { notifyNewUser } from "../utils/notify.js";
 
@@ -78,7 +79,7 @@ function makeReferralCode(name) {
 
 // Compute the payable price for a plan, applying an optional coupon and/or a
 // valid friend's referral code. Returns null if the plan key is invalid.
-async function computeOffer({ planKey, couponCode, referralCode, selfEmail }) {
+export async function computeOffer({ planKey, couponCode, referralCode, selfEmail }) {
   const plan = findPlan(planKey);
   if (!plan) return null;
   const base = plan.price;
@@ -139,6 +140,7 @@ export async function register(req, res) {
 
   // Clients pick a subscription plan and may use a coupon / friend's referral
   // code. Store the selection; validity (expiresAt) starts when they verify.
+  let paidActive = false;
   if (role === "client") {
     const offer = await computeOffer({ planKey: req.body.plan, couponCode: req.body.couponCode, referralCode: req.body.referralCode, selfEmail: email });
     if (offer) {
@@ -147,6 +149,24 @@ export async function register(req, res) {
       doc.subscriptionPrice = offer.finalPrice;
       if (offer.applied?.coupon && !offer.applied.coupon.invalid) doc.couponCode = offer.applied.coupon.code;
       if (offer.applied?.referral && !offer.applied.referral.invalid) doc.referredBy = offer.applied.referral.code;
+
+      // If online payments are enabled and the plan costs money, a verified
+      // Razorpay payment is REQUIRED. On success the account is activated at
+      // once (validity starts now) and the user is signed straight in — no OTP.
+      if (razorpayConfigured() && offer.finalPrice > 0) {
+        const ok = verifyPaymentSignature({
+          orderId: req.body.razorpay_order_id,
+          paymentId: req.body.razorpay_payment_id,
+          signature: req.body.razorpay_signature,
+        });
+        if (!ok) return res.status(400).json({ message: "Payment could not be verified. Please try again." });
+        doc.isEmailVerified = true;
+        doc.paymentId = req.body.razorpay_payment_id;
+        const exp = new Date();
+        exp.setMonth(exp.getMonth() + offer.plan.months);
+        doc.expiresAt = exp;
+        paidActive = true;
+      }
     }
   }
 
@@ -165,6 +185,12 @@ export async function register(req, res) {
 
   // Count usage of an admin-managed coupon (built-in codes have no DB doc → no-op).
   if (doc.couponCode) Coupon.updateOne({ code: doc.couponCode }, { $inc: { usedCount: 1 } }).catch(() => {});
+
+  // Paid client → already active & verified, sign them straight in (no OTP step).
+  if (paidActive) {
+    notifyNewUser(user);
+    return res.status(201).json({ paid: true, token: generateToken(user._id), user: sanitize(user) });
+  }
 
   const otp = await issueOtp(user);
   const emailSent = await sendOtpEmail(email, name, otp).catch(() => false);

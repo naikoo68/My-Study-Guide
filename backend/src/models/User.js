@@ -36,6 +36,7 @@ const userSchema = new mongoose.Schema(
     referralCode: { type: String, unique: true, sparse: true },
     referredBy: { type: String },
     couponCode: { type: String },
+    paymentId: { type: String }, // Razorpay payment id (paid client signups)
     streak: { type: Number, default: 0 },
   },
   { timestamps: true }

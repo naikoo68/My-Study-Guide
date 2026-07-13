@@ -262,3 +262,9 @@ export const couponService = {
   update: (id, data) => api.put(`/coupons/${id}`, data),
   remove: (id) => api.del(`/coupons/${id}`),
 };
+
+// ---- Payments (Razorpay) ----
+export const paymentService = {
+  config: () => api.get("/payments/config", { auth: false }), // { enabled, keyId }
+  createOrder: (data) => api.post("/payments/create-order", data, { auth: false }),
+};

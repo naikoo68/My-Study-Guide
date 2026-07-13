@@ -52,6 +52,13 @@ export function AuthProvider({ children }) {
     return persist(u);
   };
 
+  // Sign in directly from a token + profile (e.g. after a paid registration
+  // that returns a session instead of requiring an OTP).
+  const applySession = (token, u) => {
+    setToken(token);
+    return persist(u);
+  };
+
   // Registration now returns { needsVerification, email, emailSent, devOtp? }
   // and does NOT sign the user in until the OTP is verified.
   const register = async (name, email, password, role, extra) => {
@@ -80,7 +87,7 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, login, register, verifyOtp, resendOtp, loginWithGoogle, logout, isAuthenticated: !!user }}
+      value={{ user, loading, login, register, verifyOtp, resendOtp, loginWithGoogle, logout, applySession, isAuthenticated: !!user }}
     >
       {children}
     </AuthContext.Provider>
