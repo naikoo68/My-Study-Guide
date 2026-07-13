@@ -6,4 +6,4 @@ Disallow: /admin
 Disallow: /client
 Disallow: /dashboard
 
-Sitemap: https://my-study-guide.vercel.app/sitemap.xml
+Sitemap: https://mystudyguideme.vercel.app/sitemap.xml
