@@ -463,11 +463,11 @@ function planGaps(planArr, collected, reserved) {
 }
 
 async function runGenerationJob(id, ctx) {
-  const { endpoints, model, topic, notes, plan, count, difficulty, types, target } = ctx;
+  const { workers, model, topic, notes, plan, count, difficulty, types, target } = ctx;
   const job = genJobs.get(id);
   const deadline = Date.now() + 8 * 60 * 1000; // overall time budget
   const MAX_QUOTA_WAITS = 6; // per key: how many per-minute 429s we ride out before retiring it
-  const MAX_ATTEMPTS = Math.ceil(target / CHUNK_SIZE) + 12 + (endpoints?.length || 1) * MAX_QUOTA_WAITS; // global safety cap
+  const MAX_ATTEMPTS = Math.ceil(target / CHUNK_SIZE) + 12 + (workers?.length || 1) * MAX_QUOTA_WAITS; // global safety cap
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   const collected = [];
@@ -512,7 +512,7 @@ async function runGenerationJob(id, ctx) {
         : buildUserPrompt({ topic, notes, count: res.n, difficulty, types });
       const maxTokens = Math.min(16000, 1800 + res.n * 1000);
       attempts += 1;
-      const r = await callProvider({ key: ep.key, baseUrl: ep.baseUrl, model, userPrompt: prompt, maxTokens });
+      const r = await callProvider({ key: ep.key, baseUrl: ep.baseUrl, model: ep.model || model, userPrompt: prompt, maxTokens });
       release(res); // free the reservation — any shortfall gets re-targeted next round
       if (r.ok) {
         AiKey.updateOne({ key: ep.key }, { $inc: { usedRequests: 1, usedTokens: r.tokens || 0 } }).catch(() => {});
@@ -536,8 +536,8 @@ async function runGenerationJob(id, ctx) {
   };
 
   try {
-    // Launch every key at once.
-    await Promise.all((endpoints || []).map((ep) => worker(ep)));
+    // Launch every configured key at once — each on a model it supports.
+    await Promise.all((workers || []).map((ep) => worker(ep)));
 
     if (!collected.length) {
       let msg;
@@ -574,7 +574,16 @@ export async function generateQuestions(req, res) {
         "AI is not configured. Add an API key in Admin → AI Keys, or set AI_API_KEY on the server.",
     });
   }
-  const { model, endpoints } = chosen;
+  const { model } = chosen;
+
+  // Build one worker per ENABLED key so they ALL generate simultaneously. A key
+  // that serves the chosen model uses it; any other key uses its own first model
+  // — so every available key contributes, not just those on the selected model.
+  const workers = (await providers()).map((p) => ({
+    key: p.key,
+    baseUrl: p.baseUrl,
+    model: p.models.includes(model) ? model : (p.models[0] || model),
+  }));
 
   const topic = String(req.body?.topic || "").trim();
   if (!topic) return res.status(400).json({ message: "A topic is required." });
@@ -620,7 +629,7 @@ export async function generateQuestions(req, res) {
   });
 
   // Fire-and-forget — the client polls /api/ai/job/:id for progress.
-  runGenerationJob(id, { endpoints, model, topic, notes, plan, count, difficulty, types, target });
+  runGenerationJob(id, { workers, model, topic, notes, plan, count, difficulty, types, target });
 
   res.json({ jobId: id, requested: target, model });
 }
