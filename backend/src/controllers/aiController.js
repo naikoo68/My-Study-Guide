@@ -445,69 +445,105 @@ function cleanupJobs() {
   for (const [id, j] of genJobs) if (j.updatedAt < cutoff) genJobs.delete(id);
 }
 
+// Buckets still short — accounting for BOTH what's collected AND what parallel
+// workers currently have reserved (in-flight), so two keys never target the
+// same gap at the same time.
+function planGaps(planArr, collected, reserved) {
+  const have = {};
+  for (const q of collected) { const k = `${q.type}|${q.difficulty}`; have[k] = (have[k] || 0) + 1; }
+  for (const k in reserved) have[k] = (have[k] || 0) + (reserved[k] || 0);
+  return planArr
+    .map((b) => {
+      const k = `${b.type}|${b.difficulty}`;
+      const used = Math.min(have[k] || 0, b.count);
+      have[k] = (have[k] || 0) - used;
+      return { ...b, count: b.count - used };
+    })
+    .filter((b) => b.count > 0);
+}
+
 async function runGenerationJob(id, ctx) {
   const { endpoints, model, topic, notes, plan, count, difficulty, types, target } = ctx;
   const job = genJobs.get(id);
-  const deadline = Date.now() + 8 * 60 * 1000; // overall time budget (long: free-tier rate limits force waits between chunks)
-  const MAX_CALLS = Math.ceil(target / CHUNK_SIZE) + 12; // headroom for retries/top-ups/partial chunks
-  const MAX_QUOTA_WAITS = 6; // times we'll wait out a 429 (per-minute limit) before giving up
+  const deadline = Date.now() + 8 * 60 * 1000; // overall time budget
+  const MAX_QUOTA_WAITS = 6; // per key: how many per-minute 429s we ride out before retiring it
+  const MAX_ATTEMPTS = Math.ceil(target / CHUNK_SIZE) + 12 + (endpoints?.length || 1) * MAX_QUOTA_WAITS; // global safety cap
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
   const collected = [];
-  let calls = 0;
-  let quotaWaits = 0;
+  const reserved = {};   // bucket -> reserved count (plan mode)
+  let reservedCount = 0; // reserved total (count mode)
+  let attempts = 0;
   let lastError = null;
 
-  const save = (patch) => {
-    Object.assign(job, patch, { updatedAt: Date.now() });
+  const save = (patch) => Object.assign(job, patch, { updatedAt: Date.now() });
+
+  // Reserve the next chunk of work so parallel key-workers don't duplicate it.
+  const reserveChunk = () => {
+    if (plan) {
+      const rem = planGaps(plan, collected, reserved);
+      if (!rem.length) return null;
+      const chunk = takeChunk(rem, CHUNK_SIZE);
+      for (const b of chunk) reserved[`${b.type}|${b.difficulty}`] = (reserved[`${b.type}|${b.difficulty}`] || 0) + b.count;
+      return { chunk, n: chunk.reduce((s, b) => s + b.count, 0) };
+    }
+    const remaining = target - collected.length - reservedCount;
+    if (remaining <= 0) return null;
+    const n = Math.min(CHUNK_SIZE, remaining);
+    reservedCount += n;
+    return { n };
+  };
+  const release = (res) => {
+    if (plan) for (const b of res.chunk) { const k = `${b.type}|${b.difficulty}`; reserved[k] = Math.max(0, (reserved[k] || 0) - b.count); }
+    else reservedCount = Math.max(0, reservedCount - res.n);
+  };
+
+  // ONE worker PER API KEY → every key generates SIMULTANEOUSLY. Each worker
+  // sticks to its own key; when that key hits its per-minute limit (429) it
+  // waits it out while the OTHER keys keep producing. This both speeds up big
+  // batches and spreads the rate-limit load across all keys at once.
+  const worker = async (ep) => {
+    let quotaWaits = 0;
+    while (collected.length < target && attempts < MAX_ATTEMPTS && Date.now() < deadline) {
+      const res = reserveChunk();
+      if (!res) break; // nothing left to generate
+      const prompt = plan
+        ? buildUserPrompt({ topic, notes, plan: res.chunk })
+        : buildUserPrompt({ topic, notes, count: res.n, difficulty, types });
+      const maxTokens = Math.min(16000, 1800 + res.n * 1000);
+      attempts += 1;
+      const r = await callProvider({ key: ep.key, baseUrl: ep.baseUrl, model, userPrompt: prompt, maxTokens });
+      release(res); // free the reservation — any shortfall gets re-targeted next round
+      if (r.ok) {
+        AiKey.updateOne({ key: ep.key }, { $inc: { usedRequests: 1, usedTokens: r.tokens || 0 } }).catch(() => {});
+        for (const q of normalize(parseQuestions(r.content))) { if (collected.length >= target) break; collected.push(q); }
+        save({ questions: collected.slice() });
+        continue;
+      }
+      lastError = r;
+      if ([401, 403].includes(r.status)) break; // this key is dead/unauthorized — retire the worker
+      if (r.status === 429) {
+        // This key hit its per-minute limit. Wait it out; the other key-workers
+        // keep generating in parallel meanwhile.
+        if (quotaWaits >= MAX_QUOTA_WAITS) break;
+        const waitMs = Math.min(retryWaitMs(null, r.detail) || 30000, 60000);
+        if (Date.now() + waitMs >= deadline) break;
+        quotaWaits += 1;
+        await sleep(waitMs);
+      }
+      // transient/other errors: loop and try another chunk on this key
+    }
   };
 
   try {
-    while (collected.length < target && calls < MAX_CALLS && Date.now() < deadline) {
-      let prompt;
-      let n;
-      if (plan) {
-        const rem = remainingPlan(plan, collected);
-        if (!rem.length) break; // distribution satisfied
-        const chunk = takeChunk(rem, CHUNK_SIZE);
-        n = chunk.reduce((s, b) => s + b.count, 0);
-        prompt = buildUserPrompt({ topic, notes, plan: chunk });
-      } else {
-        n = Math.min(CHUNK_SIZE, target - collected.length);
-        prompt = buildUserPrompt({ topic, notes, count: n, difficulty, types });
-      }
-      calls += 1;
-      const maxTokens = Math.min(16000, 1800 + n * 1000); // extra room for the detailed explanations
-      const r = await callWithFallback({ endpoints, model, userPrompt: prompt, maxTokens });
-      if (!r.ok) {
-        lastError = r;
-        // A 429 = the provider's rate/quota limit. Per-minute limits RESET, so
-        // rather than giving up we wait the suggested delay and keep going (up to
-        // MAX_QUOTA_WAITS times, within the time budget). This lets one run push
-        // through the whole batch on free tiers instead of stopping short at ~60.
-        if (r.status === 429) {
-          if (quotaWaits >= MAX_QUOTA_WAITS) break;
-          const waitMs = Math.min(retryWaitMs(null, r.detail) || 30000, 60000);
-          if (Date.now() + waitMs >= deadline) break;
-          quotaWaits += 1;
-          calls -= 1; // a rate-limited attempt shouldn't burn the call budget
-          save({ questions: collected.slice() }); // keep progress visible while we wait
-          await new Promise((res2) => setTimeout(res2, waitMs));
-          continue;
-        }
-        continue;
-      }
-      const qs = normalize(parseQuestions(r.content));
-      for (const q of qs) {
-        if (collected.length >= target) break;
-        collected.push(q);
-      }
-      save({ questions: collected.slice() });
-    }
+    // Launch every key at once.
+    await Promise.all((endpoints || []).map((ep) => worker(ep)));
 
     if (!collected.length) {
       let msg;
       if (lastError?.status === 429) {
         msg =
-          "Gemini quota/rate limit reached (429). The free tier allows only a limited number of requests per minute/day. Wait a minute (or until tomorrow), generate a smaller batch, switch to another model, or enable billing on your Google AI key.";
+          "All configured API keys hit their quota/rate limit (429). Free tiers allow only limited requests per minute/day. Add another API key (Admin → AI Keys), wait a minute (or until tomorrow), use a smaller batch, or enable billing on your key.";
       } else if (lastError) {
         const busy = lastError.status === 503 ? " The model is busy — try again shortly or pick a different model." : "";
         msg = `AI provider error (${lastError.status}).${busy} ${(lastError.detail || "").slice(0, 200)}`;
@@ -516,10 +552,9 @@ async function runGenerationJob(id, ctx) {
       }
       save({ status: "error", error: msg });
     } else {
-      // Finished (possibly short of target if quota ran out mid-run). Even out
+      // Finished (possibly short of target if every key's quota ran out). Even out
       // the correct-answer positions across the whole batch before returning.
-      // Only flag "quota" when we actually fell short — a mid-run 429 we waited
-      // out and recovered from shouldn't alarm the user.
+      // Only flag "quota" when we actually fell short.
       const short = collected.length < target;
       save({ status: "done", questions: balanceCorrectOptions(collected), error: short && lastError?.status === 429 ? "quota" : null });
     }
