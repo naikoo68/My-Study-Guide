@@ -154,14 +154,22 @@ export async function register(req, res) {
       // Razorpay payment is REQUIRED. On success the account is activated at
       // once (validity starts now) and the user is signed straight in — no OTP.
       if (razorpayConfigured() && offer.finalPrice > 0) {
-        const ok = verifyPaymentSignature({
-          orderId: req.body.razorpay_order_id,
-          paymentId: req.body.razorpay_payment_id,
-          signature: req.body.razorpay_signature,
-        });
-        if (!ok) return res.status(400).json({ message: "Payment could not be verified. Please try again." });
+        const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+        // No payment fields → the page registered without going through Checkout
+        // (often an older cached frontend build, or payment was dismissed).
+        if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+          return res.status(400).json({ message: "No payment was received. Please refresh the page (hard-reload) and try again." });
+        }
+        const ok = verifyPaymentSignature({ orderId: razorpay_order_id, paymentId: razorpay_payment_id, signature: razorpay_signature });
+        if (!ok) {
+          console.error("[payment] signature verification failed", { order: razorpay_order_id, payment: razorpay_payment_id });
+          return res.status(400).json({
+            message:
+              "Payment signature check failed. This almost always means RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET on the server are not from the SAME key pair (or aren't both Live). Please re-check them on Render.",
+          });
+        }
         doc.isEmailVerified = true;
-        doc.paymentId = req.body.razorpay_payment_id;
+        doc.paymentId = razorpay_payment_id;
         const exp = new Date();
         exp.setMonth(exp.getMonth() + offer.plan.months);
         doc.expiresAt = exp;
