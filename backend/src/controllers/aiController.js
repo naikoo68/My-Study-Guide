@@ -124,7 +124,8 @@ Each question object uses these fields:
 - "correct": 0-based index (0-3) of the correct option in "options".
 - "difficulty": one of "Easy", "Medium", "Hard".
 - "explanation": a THOROUGH, self-contained explanation of the correct answer (3-6 sentences). Include EVERY relevant supporting fact a student needs — exact dates/years, historical background, definitions, full formulas WITH the actual calculation, laws/theorems/principles by name, cause-and-effect reasoning, and any key names, places or numbers. Never give a one-line answer or just restate the option; teach the concept as if to someone seeing it for the first time.
-- "optionExplanations": array of EXACTLY 4 strings, one per option, clearly explaining why each specific option is right or wrong (for wrong ones, name the exact misconception or fact that makes it incorrect). Leave the correct option's entry an empty string "".
+- LOCAL / ALTERNATIVE NAMES: whenever a term, concept, place, person, species, disease, chemical, unit, festival, law or any answer option ALSO has another name — a common or locally/regionally used name (including the vernacular / Hindi / local-language term), a synonym, an abbreviation's full form, or an old/renamed title — ALWAYS mention that alternative name in brackets right after it, so learners recognise it by the name they use locally. Examples: "Sodium bicarbonate (baking soda; 'khaane wala soda')", "Mumbai (formerly Bombay)", "Tuberculosis (TB)", "Vitamin C (ascorbic acid)". Add it in both "explanation" and the relevant "optionExplanations" entries.
+- "optionExplanations": array of EXACTLY 4 strings, one per option, clearly explaining why each specific option is right or wrong (for wrong ones, name the exact misconception or fact that makes it incorrect). Include the local/alternative name of an option in brackets where one exists. Leave the correct option's entry an empty string "".
 - "correct": distribute the correct answer's position EVENLY and RANDOMLY across the four options over the whole set — do NOT keep putting the answer at option A. Aim for a roughly equal spread of correct answers landing on positions 0, 1, 2 and 3.
 Type-specific rules — each type needs specific extra fields AND a specific style of "options":
 - "mcq": a normal question with 4 plausible options; "correct" is the right one. No extra fields.
@@ -162,7 +163,7 @@ function buildUserPrompt({ topic, count, difficulty, types, notes, plan }) {
 
   if (notes) lines.push(`Extra instructions: ${notes}`);
   lines.push(
-    `For every question write a rich, complete "explanation" that includes all relevant facts (dates, years, historical context, definitions, formulas with calculations, named laws/principles) — not a single line. Vary which option (A/B/C/D) is correct across the set.`
+    `For every question write a rich, complete "explanation" that includes all relevant facts (dates, years, historical context, definitions, formulas with calculations, named laws/principles) — not a single line. Whenever a term/place/concept/option has a local or alternative name (common name, vernacular/Hindi/regional name, synonym, abbreviation's full form, or old name), add it in brackets. Vary which option (A/B/C/D) is correct across the set.`
   );
   lines.push(`Return ONLY the JSON object {"questions":[...]}.`);
   return lines.join("\n");
