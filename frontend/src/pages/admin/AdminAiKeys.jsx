@@ -43,6 +43,7 @@ export default function AdminAiKeys() {
   const [bulkBusy, setBulkBusy] = useState(""); // "" | "test" | "import"
   const [keyModels, setKeyModels] = useState({}); // id -> available model ids
   const [modelsBusy, setModelsBusy] = useState({}); // id -> bool
+  const [modelSearch, setModelSearch] = useState({}); // id -> filter text
 
   const load = useCallback(() => {
     setLoading(true);
@@ -325,24 +326,40 @@ export default function AdminAiKeys() {
                   </p>
                   {keyModels[k._id].length === 0 ? (
                     <p className="text-xs text-slate-400">No models returned — the key may be invalid or out of quota.</p>
-                  ) : (
-                    <div className="flex flex-wrap gap-1.5">
-                      {keyModels[k._id].map((m) => (
-                        <button
-                          key={m}
-                          onClick={() => pickModel(k, m)}
-                          title="Use this model for this key"
-                          className={`rounded-full border px-2 py-0.5 text-xs font-medium transition ${
-                            k.models === m
-                              ? "border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-900/30 dark:text-brand-300"
-                              : "border-slate-200 text-slate-600 hover:border-brand-500 hover:text-brand-600 dark:border-slate-700 dark:text-slate-300"
-                          }`}
-                        >
-                          {m}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                  ) : (() => {
+                    const q = (modelSearch[k._id] || "").toLowerCase().trim();
+                    const filtered = keyModels[k._id].filter((m) => m.toLowerCase().includes(q));
+                    return (
+                      <>
+                        <input
+                          value={modelSearch[k._id] || ""}
+                          onChange={(e) => setModelSearch((s) => ({ ...s, [k._id]: e.target.value }))}
+                          placeholder={`Search ${keyModels[k._id].length} models…  (e.g. "flash", ":free", "claude")`}
+                          className="input mb-2 py-1 text-xs"
+                        />
+                        {filtered.length === 0 ? (
+                          <p className="text-xs text-slate-400">No models match “{modelSearch[k._id]}”.</p>
+                        ) : (
+                          <div className="flex max-h-44 flex-wrap gap-1.5 overflow-y-auto">
+                            {filtered.map((m) => (
+                              <button
+                                key={m}
+                                onClick={() => pickModel(k, m)}
+                                title="Use this model for this key"
+                                className={`rounded-full border px-2 py-0.5 text-xs font-medium transition ${
+                                  k.models === m
+                                    ? "border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-900/30 dark:text-brand-300"
+                                    : "border-slate-200 text-slate-600 hover:border-brand-500 hover:text-brand-600 dark:border-slate-700 dark:text-slate-300"
+                                }`}
+                              >
+                                {m}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               )}
             </div>
