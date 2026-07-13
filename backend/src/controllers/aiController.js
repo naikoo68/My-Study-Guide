@@ -580,9 +580,22 @@ async function runGenerationJob(id, ctx) {
         continue;
       }
       lastError = r;
-      // 401/403 = key dead/unauthorized; 404 = this key's model doesn't exist.
-      // Retire the worker instead of looping on a model that can never succeed.
-      if ([401, 403, 404].includes(r.status)) break;
+      if ([401, 403].includes(r.status)) break; // key dead/unauthorized — retire
+      if (r.status === 404) {
+        // The model isn't valid for this key. Auto-find a valid one (once),
+        // switch to it, remember it on the key, and retry — so a wrong model id
+        // (common with OpenRouter) self-heals instead of failing the whole run.
+        if (!ep._repaired) {
+          ep._repaired = true;
+          const picked = pickPreferredModel(await fetchModels(ep.key, ep.baseUrl));
+          if (picked && picked !== ep.model) {
+            ep.model = picked;
+            AiKey.updateOne({ key: ep.key }, { models: picked }).catch(() => {});
+            continue; // retry this chunk with the valid model
+          }
+        }
+        break; // couldn't find a valid model for this key — retire it
+      }
       if (r.status === 429) {
         // This key hit its per-minute limit. Wait it out; the other key-workers
         // keep generating in parallel meanwhile.
