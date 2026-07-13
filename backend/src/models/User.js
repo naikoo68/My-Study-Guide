@@ -35,6 +35,7 @@ const userSchema = new mongoose.Schema(
     // Referrals: this user's OWN shareable code + the code they signed up with.
     referralCode: { type: String, unique: true, sparse: true },
     referredBy: { type: String },
+    referrerRewarded: { type: Boolean, default: false }, // referrer already credited for this user's first paid plan
     couponCode: { type: String },
     isTrial: { type: Boolean, default: false }, // on a free trial (vs a paid plan)
     paymentId: { type: String }, // Razorpay payment id (paid client signups)

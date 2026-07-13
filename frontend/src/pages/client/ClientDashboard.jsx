@@ -175,6 +175,11 @@ export default function ClientDashboard({ onBuild, onUpgrade }) {
               </button>
             )}
           </div>
+          {user?.referralCode && (
+            <p className="mt-2 text-xs text-slate-400">
+              Share your code — for every friend who buys a plan, you get <b className="text-emerald-600">10 free days</b> added automatically.
+            </p>
+          )}
         </div>
 
         {/* Validity */}

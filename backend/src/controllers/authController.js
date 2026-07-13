@@ -70,6 +70,9 @@ const COUPONS = {
 
 // Flat discount (₹) for signing up with a valid friend's referral code.
 const REFERRAL_DISCOUNT = 50;
+// Days added to a REFERRER's account when a friend they referred buys a paid
+// plan (credited once per referred friend).
+const REFERRAL_BONUS_DAYS = 10;
 
 const findPlan = (key) => CLIENT_PLANS.find((p) => p.key === key) || null;
 
@@ -121,6 +124,26 @@ export async function computeOffer({ planKey, couponCode, referralCode, selfEmai
 
   const finalPrice = Math.max(0, base - discount);
   return { plan: { key: plan.key, label: plan.label, months: plan.months }, basePrice: base, discount, finalPrice, applied };
+}
+
+// When `referredUser` buys their FIRST paid plan, credit the friend who referred
+// them (matched by referral code) with REFERRAL_BONUS_DAYS extra days. Credited
+// once per referred user. Sets `referrerRewarded` on the passed doc — the CALLER
+// is responsible for saving `referredUser`.
+export async function creditReferrer(referredUser) {
+  if (!referredUser?.referredBy || referredUser.referrerRewarded) return;
+  referredUser.referrerRewarded = true; // mark handled regardless of outcome (caller persists)
+
+  const referrer = await User.findOne({ referralCode: referredUser.referredBy });
+  // Only client accounts have a validity to extend; skip self-referrals.
+  if (!referrer || referrer.role !== "client" || String(referrer._id) === String(referredUser._id)) return;
+
+  const now = Date.now();
+  const base = referrer.expiresAt && referrer.expiresAt.getTime() > now ? new Date(referrer.expiresAt) : new Date();
+  base.setDate(base.getDate() + REFERRAL_BONUS_DAYS);
+  referrer.expiresAt = base;
+  referrer.isTrial = false; // a rewarded referrer is no longer just on a trial
+  await referrer.save();
 }
 
 // POST /api/auth/register
@@ -202,6 +225,8 @@ export async function register(req, res) {
 
   // Paid client → already active & verified, sign them straight in (no OTP step).
   if (paidActive) {
+    await creditReferrer(user); // friend bought a plan → reward the referrer (+10 days)
+    await user.save(); // persist the referrerRewarded flag set above
     notifyNewUser(user);
     return res.status(201).json({ paid: true, token: generateToken(user._id), user: sanitize(user) });
   }

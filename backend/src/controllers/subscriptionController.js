@@ -1,6 +1,6 @@
 import User from "../models/User.js";
 import Coupon from "../models/Coupon.js";
-import { computeOffer } from "./authController.js";
+import { computeOffer, creditReferrer } from "./authController.js";
 import { razorpayConfigured, razorpayKeyId, createRazorpayOrder, verifyPaymentSignature } from "../config/razorpay.js";
 
 // Both routes run behind attachUser + authorize("client"), so an EXPIRED
@@ -65,6 +65,9 @@ export async function upgradeActivate(req, res) {
   req.user.subscriptionPrice = offer.finalPrice;
   if (offer.applied?.coupon && !offer.applied.coupon.invalid) req.user.couponCode = offer.applied.coupon.code;
   if (offer.applied?.referral && !offer.applied.referral.invalid) req.user.referredBy = req.user.referredBy || offer.applied.referral.code;
+
+  // Friend bought a paid plan → reward whoever referred them (+10 days), once.
+  await creditReferrer(req.user);
   await req.user.save();
 
   if (offer.applied?.coupon && !offer.applied.coupon.invalid) {
