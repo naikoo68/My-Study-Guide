@@ -1029,11 +1029,49 @@ export async function deleteKey(req, res) {
   res.json({ message: "Key deleted" });
 }
 
+// Fetch the model ids a key can use (OpenAI-compatible /models). Returns [].
+async function fetchModels(key, baseUrl) {
+  try {
+    const resp = await fetch(`${(baseUrl || DEFAULT_BASE).replace(/\/$/, "")}/models`, { headers: { Authorization: `Bearer ${key}` } });
+    if (!resp.ok) return [];
+    const data = await resp.json().catch(() => ({}));
+    return (Array.isArray(data?.data) ? data.data : [])
+      .map((m) => String(m?.id || "").replace(/^models\//, ""))
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+// Choose a sensible default model from a list. Prefers FREE options first (so we
+// never auto-select a paid model), then light "flash"/"mini" chat models.
+function pickPreferredModel(models) {
+  if (!models.length) return "";
+  const pref = [/:free$/i, /gemini[.\-\d]*flash/i, /flash/i, /gpt-4o-mini/i, /mini/i, /haiku/i, /chat/i];
+  for (const rx of pref) {
+    const hit = models.find((m) => rx.test(m) && !/embed|vision|image|whisper|tts|audio/i.test(m));
+    if (hit) return hit;
+  }
+  return models.find((m) => !/embed|image|whisper|tts|audio/i.test(m)) || models[0];
+}
+
 // Live-test one key doc: updates lastStatus and returns whether it worked.
+// AUTO-REPAIR: if the configured model is invalid (404), find a valid model for
+// this key and switch to it automatically, so a valid key never stays "broken".
 async function runKeyTest(doc) {
-  const model = (doc.models || "").split(",").map((m) => m.trim()).filter(Boolean)[0] || "gpt-4o-mini";
+  let model = (doc.models || "").split(",").map((m) => m.trim()).filter(Boolean)[0] || "gpt-4o-mini";
   const baseUrl = (doc.baseUrl || DEFAULT_BASE).replace(/\/$/, "");
-  const r = await callProvider({ key: doc.key, baseUrl, model, userPrompt: "Reply with the word ok.", maxTokens: 5 });
+  let r = await callProvider({ key: doc.key, baseUrl, model, userPrompt: "Reply with the word ok.", maxTokens: 5 });
+
+  if (!r.ok && r.status === 404) {
+    const picked = pickPreferredModel(await fetchModels(doc.key, baseUrl));
+    if (picked && picked !== model) {
+      doc.models = picked; // remember the working model on this key
+      model = picked;
+      r = await callProvider({ key: doc.key, baseUrl, model, userPrompt: "Reply with the word ok.", maxTokens: 5 });
+    }
+  }
+
   doc.lastStatus = r.ok ? "ok" : "error";
   doc.lastError = r.ok ? "" : `HTTP ${r.status || 0}: ${(r.detail || "").slice(0, 150)}`;
   doc.lastCheckedAt = new Date();
