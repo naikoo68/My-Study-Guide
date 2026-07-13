@@ -431,6 +431,12 @@ async function callProvider({ key, baseUrl, model, userPrompt, maxTokens }) {
       return { ok: true, content: extractContent(data), tokens: data?.usage?.total_tokens || 0 };
     }
     const detail = await resp.text().catch(() => "");
+    // Some Gemini model versions reject the `reasoning_effort` field with a 400.
+    // Retry once WITHOUT it so a valid key isn't wrongly marked as "not working".
+    if (resp.status === 400 && payload.reasoning_effort) {
+      delete payload.reasoning_effort;
+      continue;
+    }
     const canRetry = TRANSIENT.includes(resp.status) && attempt < WAITS.length;
     if (!canRetry) return { ok: false, status: resp.status, detail };
     // For 429 (quota/rate) honour the server's suggested delay; else backoff.
