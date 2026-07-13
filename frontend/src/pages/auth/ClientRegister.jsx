@@ -1,28 +1,68 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { User, Mail, Lock, Eye, EyeOff, UserPlus, Loader2, AlertCircle, Sparkles } from "lucide-react";
+import { User, Mail, Lock, Eye, EyeOff, UserPlus, Loader2, AlertCircle, Sparkles, Check, Tag, Gift } from "lucide-react";
 import AuthShell from "../../components/auth/AuthShell";
 import OtpVerify from "../../components/auth/OtpVerify";
 import { useAuth } from "../../context/AuthContext";
+import { authService } from "../../services";
 
-// Self-service registration for a "client" account. A client gets a private
-// My Practice workspace where they build and practice their OWN quizzes/tests
-// and questions — isolated from the platform and from other clients.
+// Prices mirror the backend (single source of truth) — used only until the
+// live /auth/plans response arrives, so the form never renders empty.
+const FALLBACK_PLANS = [
+  { key: "1m", label: "1 Month", months: 1, price: 299 },
+  { key: "2m", label: "2 Months", months: 2, price: 499 },
+  { key: "6m", label: "6 Months", months: 6, price: 699 },
+  { key: "1y", label: "1 Year", months: 12, price: 899 },
+];
+
+// Self-service registration for a "client" account. A client picks a plan and
+// gets a private My Practice workspace to build and take their own quizzes/tests.
 export default function ClientRegister() {
   const { register } = useAuth();
   const navigate = useNavigate();
   const [showPw, setShowPw] = useState(false);
   const [otpStep, setOtpStep] = useState(null); // { email, devOtp, emailSent }
   const [form, setForm] = useState({ name: "", email: "", password: "" });
+  const [plans, setPlans] = useState(FALLBACK_PLANS);
+  const [planKey, setPlanKey] = useState("6m");
+  const [coupon, setCoupon] = useState("");
+  const [referral, setReferral] = useState("");
+  const [offer, setOffer] = useState(null); // { basePrice, discount, finalPrice, applied }
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // Authoritative plans/prices from the backend.
+  useEffect(() => {
+    authService.plans().then((r) => { if (r?.plans?.length) setPlans(r.plans); }).catch(() => {});
+  }, []);
+
+  // Live price preview (debounced) when the plan or codes change.
+  useEffect(() => {
+    let active = true;
+    const t = setTimeout(() => {
+      authService
+        .validateOffer({ plan: planKey, couponCode: coupon, referralCode: referral, email: form.email })
+        .then((r) => active && setOffer(r))
+        .catch(() => active && setOffer(null));
+    }, 400);
+    return () => { active = false; clearTimeout(t); };
+  }, [planKey, coupon, referral, form.email]);
+
+  const selectedPlan = plans.find((p) => p.key === planKey) || plans[0];
+  const basePrice = offer?.basePrice ?? selectedPlan?.price ?? 0;
+  const discount = offer?.discount ?? 0;
+  const total = offer?.finalPrice ?? selectedPlan?.price ?? 0;
 
   const submit = async (e) => {
     e.preventDefault();
     setError("");
     setBusy(true);
     try {
-      const res = await register(form.name, form.email, form.password, "client");
+      const res = await register(form.name, form.email, form.password, "client", {
+        plan: planKey,
+        couponCode: coupon.trim() || undefined,
+        referralCode: referral.trim() || undefined,
+      });
       setOtpStep({ email: res.email || form.email, devOtp: res.devOtp, emailSent: res.emailSent });
     } catch (err) {
       setError(err.message || "Registration failed");
@@ -46,10 +86,10 @@ export default function ClientRegister() {
   }
 
   return (
-    <AuthShell title="Create a My Practice account" subtitle="Build and practice your own quizzes & tests — private to you.">
+    <AuthShell title="Create a Client account" subtitle="Pick a plan and build your own private quizzes & tests.">
       <div className="mb-5 flex items-start gap-2 rounded-xl border border-accent-200 bg-accent-50 px-3 py-2.5 text-sm text-accent-800 dark:border-accent-900/50 dark:bg-accent-900/20 dark:text-accent-200">
         <Sparkles className="mt-0.5 h-4 w-4 flex-shrink-0" />
-        This account gives you your own private <b>My Practice</b> space to create and take your own quizzes and tests.
+        A Client account gives you your own private <b>My Practice</b> space to create and take your own quizzes and tests.
       </div>
       <form onSubmit={submit} className="space-y-4">
         {error && (
@@ -110,6 +150,90 @@ export default function ClientRegister() {
           </div>
         </div>
 
+        {/* Plan selection */}
+        <div>
+          <label className="mb-1.5 block text-sm font-medium">Choose your plan</label>
+          <div className="grid grid-cols-2 gap-2">
+            {plans.map((p) => {
+              const active = p.key === planKey;
+              return (
+                <button
+                  type="button"
+                  key={p.key}
+                  onClick={() => setPlanKey(p.key)}
+                  className={`relative rounded-xl border p-3 text-left transition ${
+                    active
+                      ? "border-brand-500 bg-brand-50 ring-1 ring-brand-500 dark:bg-brand-900/20"
+                      : "border-slate-200 hover:border-slate-300 dark:border-slate-700"
+                  }`}
+                >
+                  {active && <Check className="absolute right-2 top-2 h-4 w-4 text-brand-600" />}
+                  <p className="text-sm font-semibold">{p.label}</p>
+                  <p className="text-lg font-extrabold">₹{p.price}</p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Coupon + referral */}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className="mb-1.5 block text-sm font-medium">
+              Coupon code <span className="font-normal text-slate-400">(optional)</span>
+            </label>
+            <div className="relative">
+              <Tag className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                value={coupon}
+                onChange={(e) => setCoupon(e.target.value.toUpperCase())}
+                placeholder="e.g. WELCOME10"
+                className="input pl-9 uppercase"
+              />
+            </div>
+            {offer?.applied?.coupon?.invalid && <p className="mt-1 text-xs text-rose-600">Invalid coupon code</p>}
+            {offer?.applied?.coupon?.label && (
+              <p className="mt-1 text-xs text-emerald-600">✓ {offer.applied.coupon.label} applied</p>
+            )}
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium">
+              Referral code <span className="font-normal text-slate-400">(optional)</span>
+            </label>
+            <div className="relative">
+              <Gift className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                value={referral}
+                onChange={(e) => setReferral(e.target.value.toUpperCase())}
+                placeholder="Friend's code"
+                className="input pl-9 uppercase"
+              />
+            </div>
+            {offer?.applied?.referral?.invalid && <p className="mt-1 text-xs text-rose-600">Referral code not found</p>}
+            {offer?.applied?.referral?.discount > 0 && (
+              <p className="mt-1 text-xs text-emerald-600">✓ ₹{offer.applied.referral.discount} referral discount</p>
+            )}
+          </div>
+        </div>
+
+        {/* Price summary */}
+        <div className="rounded-xl border border-slate-200 p-3 text-sm dark:border-slate-700">
+          <div className="flex items-center justify-between">
+            <span className="text-slate-600 dark:text-slate-300">{selectedPlan?.label} plan</span>
+            <span className={discount > 0 ? "text-slate-400 line-through" : "font-semibold"}>₹{basePrice}</span>
+          </div>
+          {discount > 0 && (
+            <div className="mt-1 flex items-center justify-between text-emerald-600">
+              <span>Discount</span>
+              <span>−₹{discount}</span>
+            </div>
+          )}
+          <div className="mt-2 flex items-center justify-between border-t border-slate-200 pt-2 text-base font-extrabold dark:border-slate-700">
+            <span>Total</span>
+            <span>₹{total}</span>
+          </div>
+        </div>
+
         <label className="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
           <input required type="checkbox" className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600" />
           I agree to the Terms of Service and Privacy Policy.
@@ -117,8 +241,11 @@ export default function ClientRegister() {
 
         <button type="submit" disabled={busy} className="btn-primary w-full">
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
-          {busy ? "Creating account..." : "Create My Practice Account"}
+          {busy ? "Creating account..." : `Create account · ₹${total}`}
         </button>
+        <p className="text-center text-xs text-slate-400">
+          After verifying your email, your account is active for the selected duration.
+        </p>
       </form>
 
       <p className="mt-6 text-center text-sm text-slate-600 dark:text-slate-300">

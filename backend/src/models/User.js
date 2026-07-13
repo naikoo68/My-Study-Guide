@@ -27,6 +27,15 @@ const userSchema = new mongoose.Schema(
     resetPasswordToken: String,
     resetPasswordExpires: Date,
     enrolledTests: [{ type: mongoose.Schema.Types.ObjectId, ref: "TestSeries" }],
+    // Client subscription (chosen at self-service Client registration). The
+    // account's validity (expiresAt) is set from subscriptionMonths on verify.
+    subscriptionPlan: { type: String },    // "1m" | "2m" | "6m" | "1y"
+    subscriptionMonths: { type: Number },
+    subscriptionPrice: { type: Number },   // final price after coupon/referral
+    // Referrals: this user's OWN shareable code + the code they signed up with.
+    referralCode: { type: String, unique: true, sparse: true },
+    referredBy: { type: String },
+    couponCode: { type: String },
     streak: { type: Number, default: 0 },
   },
   { timestamps: true }

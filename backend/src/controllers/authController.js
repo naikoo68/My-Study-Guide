@@ -44,7 +44,72 @@ const sanitize = (u) => ({
   expiresAt: u.expiresAt,
   quizAccess: u.quizAccess !== false,
   streak: u.streak,
+  referralCode: u.referralCode,
+  subscriptionPlan: u.subscriptionPlan,
 });
+
+// ---- Client subscription plans (single source of truth for pricing) ----
+export const CLIENT_PLANS = [
+  { key: "1m", label: "1 Month", months: 1, price: 299 },
+  { key: "2m", label: "2 Months", months: 2, price: 499 },
+  { key: "6m", label: "6 Months", months: 6, price: 699 },
+  { key: "1y", label: "1 Year", months: 12, price: 899 },
+];
+
+// Promo coupons. type "percent" → value = % off; type "flat" → value = ₹ off.
+// Add or edit codes here to run promotions.
+const COUPONS = {
+  WELCOME10: { type: "percent", value: 10, label: "10% off" },
+  SAVE100: { type: "flat", value: 100, label: "₹100 off" },
+  FRIEND50: { type: "flat", value: 50, label: "₹50 off" },
+};
+
+// Flat discount (₹) for signing up with a valid friend's referral code.
+const REFERRAL_DISCOUNT = 50;
+
+const findPlan = (key) => CLIENT_PLANS.find((p) => p.key === key) || null;
+
+// A short, human-ish unique referral/share code, e.g. "RAHU3F9A".
+function makeReferralCode(name) {
+  const base = String(name || "").replace(/[^a-zA-Z]/g, "").slice(0, 4).toUpperCase() || "USER";
+  return `${base}${crypto.randomBytes(2).toString("hex").toUpperCase()}`;
+}
+
+// Compute the payable price for a plan, applying an optional coupon and/or a
+// valid friend's referral code. Returns null if the plan key is invalid.
+async function computeOffer({ planKey, couponCode, referralCode, selfEmail }) {
+  const plan = findPlan(planKey);
+  if (!plan) return null;
+  const base = plan.price;
+  let discount = 0;
+  const applied = { coupon: null, referral: null };
+
+  const code = String(couponCode || "").trim().toUpperCase();
+  if (code) {
+    const c = COUPONS[code];
+    if (c) {
+      const d = c.type === "percent" ? Math.round((base * c.value) / 100) : c.value;
+      discount += d;
+      applied.coupon = { code, label: c.label, discount: d };
+    } else {
+      applied.coupon = { code, invalid: true };
+    }
+  }
+
+  const ref = String(referralCode || "").trim().toUpperCase();
+  if (ref) {
+    const refUser = await User.findOne({ referralCode: ref }).select("email");
+    if (refUser && norm(refUser.email) !== norm(selfEmail || "")) {
+      discount += REFERRAL_DISCOUNT;
+      applied.referral = { code: ref, discount: REFERRAL_DISCOUNT };
+    } else {
+      applied.referral = { code: ref, invalid: true };
+    }
+  }
+
+  const finalPrice = Math.max(0, base - discount);
+  return { plan: { key: plan.key, label: plan.label, months: plan.months }, basePrice: base, discount, finalPrice, applied };
+}
 
 // POST /api/auth/register
 export async function register(req, res) {
@@ -60,8 +125,35 @@ export async function register(req, res) {
   // Only "client" can be self-selected here; "admin" can never be self-assigned.
   const role = req.body.role === "client" ? "client" : "student";
 
-  // Create the account UNVERIFIED — the user must confirm the OTP to activate it.
-  const user = await User.create({ name, email, password, role, isEmailVerified: false });
+  // Every account gets its own shareable referral code.
+  const doc = { name, email, password, role, isEmailVerified: false, referralCode: makeReferralCode(name) };
+
+  // Clients pick a subscription plan and may use a coupon / friend's referral
+  // code. Store the selection; validity (expiresAt) starts when they verify.
+  if (role === "client") {
+    const offer = await computeOffer({ planKey: req.body.plan, couponCode: req.body.couponCode, referralCode: req.body.referralCode, selfEmail: email });
+    if (offer) {
+      doc.subscriptionPlan = offer.plan.key;
+      doc.subscriptionMonths = offer.plan.months;
+      doc.subscriptionPrice = offer.finalPrice;
+      if (offer.applied?.coupon && !offer.applied.coupon.invalid) doc.couponCode = offer.applied.coupon.code;
+      if (offer.applied?.referral && !offer.applied.referral.invalid) doc.referredBy = offer.applied.referral.code;
+    }
+  }
+
+  // Create UNVERIFIED — the user must confirm the OTP to activate the account.
+  // Retry if the random referral code happens to collide with an existing one.
+  let user;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      user = await User.create(doc);
+      break;
+    } catch (e) {
+      if (e?.code === 11000 && e?.keyPattern?.referralCode) { doc.referralCode = makeReferralCode(name); continue; }
+      throw e;
+    }
+  }
+
   const otp = await issueOtp(user);
   const emailSent = await sendOtpEmail(email, name, otp).catch(() => false);
 
@@ -93,6 +185,12 @@ export async function verifyOtp(req, res) {
     user.isEmailVerified = true;
     user.otpHash = undefined;
     user.otpExpires = undefined;
+    // Start a client's subscription clock now that the account is active.
+    if (user.role === "client" && user.subscriptionMonths && !user.expiresAt) {
+      const exp = new Date();
+      exp.setMonth(exp.getMonth() + user.subscriptionMonths);
+      user.expiresAt = exp;
+    }
     await user.save();
     notifyNewUser(user); // notify admin of the new registration (fire-and-forget)
   }
@@ -190,4 +288,22 @@ export async function resetPassword(req, res) {
 // GET /api/auth/me
 export async function getMe(req, res) {
   res.json({ user: sanitize(req.user) });
+}
+
+// GET /api/auth/plans — public list of client subscription plans + pricing.
+export function getPlans(req, res) {
+  res.json({ plans: CLIENT_PLANS });
+}
+
+// POST /api/auth/validate-offer — live price preview for a plan with an optional
+// coupon and/or friend's referral code (used by the client registration form).
+export async function validateOffer(req, res) {
+  const offer = await computeOffer({
+    planKey: req.body?.plan,
+    couponCode: req.body?.couponCode,
+    referralCode: req.body?.referralCode,
+    selfEmail: req.body?.email,
+  });
+  if (!offer) return res.status(400).json({ message: "Choose a valid plan." });
+  res.json(offer);
 }

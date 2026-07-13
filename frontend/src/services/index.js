@@ -3,8 +3,11 @@ import { api } from "../lib/api";
 // ---- Auth ----
 export const authService = {
   login: (email, password) => api.post("/auth/login", { email, password }, { auth: false }),
-  register: (name, email, password, role) =>
-    api.post("/auth/register", { name, email, password, ...(role ? { role } : {}) }, { auth: false }),
+  register: (name, email, password, role, extra = {}) =>
+    api.post("/auth/register", { name, email, password, ...(role ? { role } : {}), ...extra }, { auth: false }),
+  // Client subscription plans + live price preview (coupon / referral).
+  plans: () => api.get("/auth/plans", { auth: false }),
+  validateOffer: (data) => api.post("/auth/validate-offer", data, { auth: false }),
   verifyOtp: (email, otp) => api.post("/auth/verify-otp", { email, otp }, { auth: false }),
   resendOtp: (email) => api.post("/auth/resend-otp", { email }, { auth: false }),
   google: (profile) => api.post("/auth/google", profile, { auth: false }),

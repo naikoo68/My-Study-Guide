@@ -54,8 +54,8 @@ export function AuthProvider({ children }) {
 
   // Registration now returns { needsVerification, email, emailSent, devOtp? }
   // and does NOT sign the user in until the OTP is verified.
-  const register = async (name, email, password, role) => {
-    return authService.register(name, email, password, role);
+  const register = async (name, email, password, role, extra) => {
+    return authService.register(name, email, password, role, extra);
   };
 
   // Confirm the OTP → signs the user in (stores JWT + profile).

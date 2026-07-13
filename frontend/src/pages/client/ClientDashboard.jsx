@@ -15,6 +15,8 @@ import {
   GraduationCap,
   FolderOpen,
   Layers,
+  Gift,
+  Copy,
 } from "lucide-react";
 import { practiceService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
@@ -72,6 +74,15 @@ export default function ClientDashboard({ onBuild }) {
   const [stream, setStream] = useState(null);
   const [subject, setSubject] = useState(null);
   const [topic, setTopic] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  const copyReferral = () => {
+    if (!user?.referralCode) return;
+    navigator.clipboard?.writeText(user.referralCode).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }).catch(() => {});
+  };
 
   const load = () => {
     setLoading(true);
@@ -147,9 +158,22 @@ export default function ClientDashboard({ onBuild }) {
           <p className="text-sm text-slate-500 dark:text-slate-400">Welcome back,</p>
           <h1 className="text-2xl font-extrabold">{user?.name || "there"}</h1>
           <p className="mt-0.5 text-sm text-slate-400">{user?.email}</p>
-          <button onClick={onBuild} className="btn-outline mt-4">
-            <Sparkles className="h-4 w-4" /> Build quizzes & tests
-          </button>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <button onClick={onBuild} className="btn-outline">
+              <Sparkles className="h-4 w-4" /> Build quizzes & tests
+            </button>
+            {user?.referralCode && (
+              <button
+                onClick={copyReferral}
+                title="Copy your referral code to share with friends"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 hover:border-brand-400 hover:text-brand-600 dark:border-slate-600 dark:text-slate-300"
+              >
+                <Gift className="h-4 w-4" />
+                Refer a friend: <span className="font-bold tracking-wide">{user.referralCode}</span>
+                {copied ? <span className="text-emerald-600">Copied!</span> : <Copy className="h-3.5 w-3.5" />}
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Validity */}
