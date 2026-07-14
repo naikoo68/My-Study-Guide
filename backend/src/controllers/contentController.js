@@ -230,19 +230,23 @@ export async function listQuestions(req, res) {
   res.json(questions);
 }
 
-// GET /api/questions  (admin) — list all questions with subject/session names
+// GET /api/questions  (admin) — list all questions with their full location
+// (stream → subject → topic → session → quiz) so the UI can show a breadcrumb.
 export async function listAllQuestions(req, res) {
   const questions = await Question.find()
     .sort("-createdAt")
     .limit(500)
-    .populate("subject", "name")
-    .populate("session", "title")
+    .populate({ path: "subject", select: "name stream", populate: { path: "stream", select: "name" } })
+    .populate({ path: "session", select: "title topic", populate: { path: "topic", select: "title" } })
     .populate("quiz", "title")
     .lean();
   res.json(
     questions.map((q) => ({
       ...q,
+      stream: q.subject?.stream?.name || "",
       subject: q.subject?.name || "—",
+      // Hierarchical topic (from the session) with a fallback to the free-text topic.
+      topicName: q.session?.topic?.title || q.topic || "",
       session: q.session?.title || "—",
       quiz: q.quiz?.title || "—",
     }))

@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { Search, X, Loader2 } from "lucide-react";
 import { searchService, contentService } from "../../services";
 import { searchQuestions } from "../../lib/questions";
+import QuestionView from "../admin/QuestionView";
 
 // Colour chip per result type.
 const TYPE_STYLES = {
@@ -40,6 +41,7 @@ export default function GlobalSearch({
   const [open, setOpen] = useState(false);
   const [err, setErr] = useState("");
   const [note, setNote] = useState("");
+  const [detail, setDetail] = useState(null); // full question shown on tap
   const [rect, setRect] = useState(null);
   const boxRef = useRef(null);
   const panelRef = useRef(null);
@@ -81,10 +83,10 @@ export default function GlobalSearch({
             type: "Question",
             id: qq._id,
             title: preview(qq.text),
-            subtitle: [qq.subject, qq.quiz].filter((x) => x && x !== "—").join(" · ") || "Question",
+            subtitle:
+              [qq.stream, qq.subject, qq.quiz].filter((x) => x && x !== "—").join(" · ") || "Question",
             match: qq._match,
-            path: "/admin/content",
-            adminPath: "/admin/content",
+            raw: qq, // full question → shown in a detail panel on tap
           }));
           // 2) Names (streams/subjects/…) — best effort from the search API.
           let nameHits = [];
@@ -148,12 +150,24 @@ export default function GlobalSearch({
   }, [open, measure]);
 
   const go = (item) => {
+    // Question with full data → show it right here with its breadcrumb.
+    if (item.raw) {
+      setDetail(item.raw);
+      setOpen(false);
+      return;
+    }
     const path = mode === "admin" ? item.adminPath || item.path : item.path;
     setOpen(false);
     setQ("");
     setResults([]);
     if (path) navigate(path);
   };
+
+  // Stream › Subject › Topic › Session › Quiz from whatever fields are present.
+  const trail = (d) =>
+    [d?.stream, d?.subject, d?.topicName || d?.topic, d?.session, d?.quiz]
+      .filter((x) => x && x !== "—")
+      .join(" › ");
 
   const showPanel = open && q.trim().length >= 2;
 
@@ -244,6 +258,59 @@ export default function GlobalSearch({
                 ))}
               </>
             )}
+          </div>,
+          document.body
+        )}
+
+      {/* Question detail — opens on tap, shows the full question + its location. */}
+      {detail &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-black/50 p-4"
+            onMouseDown={() => setDetail(null)}
+          >
+            <div
+              className="my-10 w-full max-w-2xl rounded-2xl bg-white p-5 shadow-2xl dark:bg-slate-900"
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Question</p>
+                  {trail(detail) && (
+                    <p className="mt-0.5 break-words text-sm font-semibold text-brand-600 dark:text-brand-400">
+                      {trail(detail)}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDetail(null)}
+                  className="flex-shrink-0 rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <QuestionView q={detail} />
+
+              <div className="mt-4 flex justify-end gap-2">
+                <button type="button" onClick={() => setDetail(null)} className="btn-outline">
+                  Close
+                </button>
+                {mode === "admin" && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDetail(null);
+                      navigate("/admin/content");
+                    }}
+                    className="btn-primary"
+                  >
+                    Open Content Manager
+                  </button>
+                )}
+              </div>
+            </div>
           </div>,
           document.body
         )}
