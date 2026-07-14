@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { Plus, Pencil, Trash2, X, ChevronRight, FolderOpen, Layers, BookOpen, HelpCircle, ListChecks, Upload, Eye, Copy, Download, GraduationCap } from "lucide-react";
+import { Plus, Pencil, Trash2, X, ChevronRight, FolderOpen, Layers, BookOpen, HelpCircle, ListChecks, Upload, Eye, Copy, Download, GraduationCap, Search, Clock } from "lucide-react";
 import { contentService } from "../../services";
 import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
@@ -23,6 +23,28 @@ const COLORS = [
 // Singular type name for each drill-down level (used by the form modal).
 const VIEW_TYPE = { streams: "stream", subjects: "subject", topics: "topic", sessions: "session", quizzes: "quiz", questions: "question" };
 
+// Upload date + time of a question.
+const fmtDateTime = (d) =>
+  d ? new Date(d).toLocaleString(undefined, { day: "2-digit", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+
+// How well a question matches a search query, as a 0–100%. Full phrase present
+// → 100%; otherwise the share of query words found in the question's text,
+// options, explanation, topic, etc. The UI only shows results at 40%+.
+function matchPercent(query, item) {
+  const q = String(query || "").toLowerCase().trim();
+  if (!q) return 0;
+  const hay = [item.text, ...(item.options || []), item.explanation, item.topic, item.section, item.assertion, item.reason]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  if (!hay) return 0;
+  if (hay.includes(q)) return 100;
+  const words = q.split(/\s+/).filter(Boolean);
+  if (!words.length) return 0;
+  const matched = words.filter((w) => hay.includes(w)).length;
+  return Math.round((matched / words.length) * 100);
+}
+
 export default function AdminContent() {
   // Drill-down context
   const [view, setView] = useState("streams"); // streams | subjects | topics | sessions | quizzes | questions
@@ -45,6 +67,7 @@ export default function AdminContent() {
   const [viewQ, setViewQ] = useState(null); // single question to preview
   const [viewAll, setViewAll] = useState(false); // preview all questions
   const [selected, setSelected] = useState([]); // bulk-selected question ids
+  const [search, setSearch] = useState(""); // question search query
 
   const toggleSelect = (id) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
   const allSelected = view === "questions" && items.length > 0 && selected.length === items.length;
@@ -80,7 +103,7 @@ export default function AdminContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stream, subject, topic, session, quiz]);
 
-  useEffect(() => { setSelected([]); load(view); /* eslint-disable-next-line */ }, [view]);
+  useEffect(() => { setSelected([]); setSearch(""); load(view); /* eslint-disable-next-line */ }, [view]);
 
   // Navigation
   const openStream = (s) => { setStream(s); setSubject(null); setTopic(null); setSession(null); setQuiz(null); setView("subjects"); };
@@ -219,6 +242,17 @@ export default function AdminContent() {
     URL.revokeObjectURL(url);
   };
 
+  // Fuzzy question search: score each question and show only 40%+ matches, best first.
+  const searchQ = search.trim();
+  const questionResults =
+    view === "questions" && searchQ
+      ? items
+          .map((it) => ({ it, score: matchPercent(searchQ, it) }))
+          .filter((r) => r.score >= 40)
+          .sort((a, b) => b.score - a.score)
+      : null;
+  const shown = questionResults ? questionResults.map((r) => ({ ...r.it, _match: r.score })) : items;
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -273,20 +307,43 @@ export default function AdminContent() {
       ) : (
         <div className="space-y-3">
           {view === "questions" && (
-            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 px-4 py-2 dark:border-slate-700">
-              <label className="flex items-center gap-2 text-sm font-medium">
-                <input type="checkbox" checked={allSelected} onChange={toggleAll} className="h-4 w-4 accent-brand-600" /> Select all
-              </label>
-              {selected.length > 0 && (
-                <>
-                  <span className="text-sm text-slate-500">{selected.length} selected</span>
-                  <button onClick={deleteSelected} className="btn-outline py-1.5 text-rose-600"><Trash2 className="h-4 w-4" /> Delete selected</button>
-                  <button onClick={() => setSelected([])} className="text-sm text-slate-500 hover:underline">Clear</button>
-                </>
-              )}
+            <div className="space-y-3">
+              {/* Search questions — shows a match % (40%–100%), best first */}
+              <div className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700">
+                <Search className="h-4 w-4 flex-shrink-0 text-slate-400" />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search questions…  (shows matches 40%–100%)"
+                  className="w-full bg-transparent text-sm outline-none"
+                />
+                {search && (
+                  <button onClick={() => setSearch("")} title="Clear search" className="flex-shrink-0 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><X className="h-4 w-4" /></button>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 px-4 py-2 dark:border-slate-700">
+                <label className="flex items-center gap-2 text-sm font-medium">
+                  <input type="checkbox" checked={allSelected} onChange={toggleAll} className="h-4 w-4 accent-brand-600" /> Select all
+                </label>
+                {questionResults && (
+                  <span className="text-sm font-medium text-slate-500">{questionResults.length} match{questionResults.length === 1 ? "" : "es"} (40%+)</span>
+                )}
+                {selected.length > 0 && (
+                  <>
+                    <span className="text-sm text-slate-500">{selected.length} selected</span>
+                    <button onClick={deleteSelected} className="btn-outline py-1.5 text-rose-600"><Trash2 className="h-4 w-4" /> Delete selected</button>
+                    <button onClick={() => setSelected([])} className="text-sm text-slate-500 hover:underline">Clear</button>
+                  </>
+                )}
+              </div>
             </div>
           )}
-          {items.map((item, i) => (
+          {questionResults && questionResults.length === 0 && (
+            <p className="rounded-xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500 dark:border-slate-700">
+              No questions match “{search}” at 40% or higher. Try fewer or different words.
+            </p>
+          )}
+          {shown.map((item, i) => (
             <div key={item._id} className="card flex items-center justify-between gap-3 p-4">
               {view === "questions" && (
                 <input type="checkbox" checked={selected.includes(item._id)} onChange={() => toggleSelect(item._id)} className="h-4 w-4 flex-shrink-0 accent-brand-600" />
@@ -296,6 +353,9 @@ export default function AdminContent() {
                   <>
                     <p className="truncate font-medium"><span className="text-slate-400">Q{i + 1}.</span> {item.text}</p>
                     <div className="mt-1 flex flex-wrap items-center gap-2">
+                      {item._match != null && (
+                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">{item._match}% match</span>
+                      )}
                       <Badge variant={item.type === "matching" ? "accent" : "brand"}>
                         {item.type === "matching" ? "Matching" : "MCQ"}
                       </Badge>
@@ -303,6 +363,9 @@ export default function AdminContent() {
                       <Badge variant={item.status === "published" ? "brand" : "neutral"}>{item.status}</Badge>
                       {item.correct !== undefined && (
                         <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">Correct: {String.fromCharCode(65 + item.correct)}</span>
+                      )}
+                      {item.createdAt && (
+                        <span className="inline-flex items-center gap-1 text-xs text-slate-400"><Clock className="h-3 w-3" /> {fmtDateTime(item.createdAt)}</span>
                       )}
                     </div>
                   </>
