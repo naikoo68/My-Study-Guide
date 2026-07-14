@@ -20,6 +20,7 @@ import {
   ZoomIn,
   ZoomOut,
   Trophy,
+  Search,
 } from "lucide-react";
 import { practiceService, testService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
@@ -33,6 +34,7 @@ import Watermark from "../../components/ui/Watermark";
 import FeedbackButton from "../../components/ui/FeedbackButton";
 import { useZoom } from "../../context/ZoomContext";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
+import { questionDateText, searchQuestions } from "../../lib/questions";
 
 const optionLabels = ["A", "B", "C", "D"];
 
@@ -81,6 +83,7 @@ export default function PracticeQuizPlay() {
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null);
   const [showReview, setShowReview] = useState(false);
+  const [reviewSearch, setReviewSearch] = useState("");
   const [fullscreen, setFullscreen] = useState(false);
   const containerRef = useRef(null);
   const { zoom, zoomIn, zoomOut } = useZoom();
@@ -195,6 +198,10 @@ export default function PracticeQuizPlay() {
       { l: "Wrong", v: result.incorrect, c: "text-rose-600 dark:text-rose-400" },
       { l: "Time", v: mmss, c: "text-slate-700 dark:text-slate-200" },
     ];
+    // Searchable review list: keep the original index so numbering/answers stay correct.
+    const reviewEntries = questions.map((qq, idx) => ({ ...qq, _idx: idx }));
+    const reviewResults = searchQuestions(reviewEntries, reviewSearch);
+    const reviewShown = reviewResults || reviewEntries;
     return (
       <div className="container-page py-10">
         <Watermark />
@@ -228,15 +235,48 @@ export default function PracticeQuizPlay() {
         {/* Answer review */}
         {showReview && (
           <div className="mt-6 space-y-4">
-            <h2 className="text-lg font-bold">Review Answers</h2>
-            {questions.map((q, i) => {
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-lg font-bold">Review Answers</h2>
+              <div className="flex w-full max-w-sm items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700">
+                <Search className="h-4 w-4 flex-shrink-0 text-slate-400" />
+                <input
+                  value={reviewSearch}
+                  onChange={(e) => setReviewSearch(e.target.value)}
+                  placeholder="Search questions…  (matches 40%–100%)"
+                  className="w-full bg-transparent text-sm outline-none"
+                />
+                {reviewSearch && (
+                  <button onClick={() => setReviewSearch("")} title="Clear search" className="flex-shrink-0 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><X className="h-4 w-4" /></button>
+                )}
+              </div>
+            </div>
+            {reviewResults && (
+              <p className="text-sm font-medium text-slate-500">{reviewResults.length} match{reviewResults.length === 1 ? "" : "es"} (40%+)</p>
+            )}
+            {reviewResults && reviewResults.length === 0 && (
+              <p className="rounded-xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500 dark:border-slate-700">
+                No questions match “{reviewSearch}” at 40% or higher. Try fewer or different words.
+              </p>
+            )}
+            {reviewShown.map((q) => {
+              const i = q._idx;
               const userAns = answers[i];
               const answered = userAns !== undefined && userAns !== null;
               const isCorrect = answered && userAns === q.correct;
               return (
                 <div key={q._id || i} className="card p-5">
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-sm font-semibold text-slate-500">Question {i + 1}</span>
+                    <span className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-500">
+                      Question {i + 1}
+                      {q._match != null && (
+                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">{q._match}% match</span>
+                      )}
+                      {questionDateText(q) && (
+                        <span className="inline-flex items-center gap-1 font-normal text-slate-400">
+                          <Clock className="h-3 w-3" /> {questionDateText(q)}
+                        </span>
+                      )}
+                    </span>
                     <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
                       isCorrect ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
                       : answered ? "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300"
@@ -444,7 +484,14 @@ export default function PracticeQuizPlay() {
       <div className="grid gap-6 lg:grid-cols-[1fr,300px]">
         <div className="card p-6">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <Badge variant={q.difficulty}>{q.difficulty}</Badge>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={q.difficulty}>{q.difficulty}</Badge>
+              {questionDateText(q) && (
+                <span className="inline-flex items-center gap-1 text-xs text-slate-400">
+                  <Clock className="h-3 w-3" /> {questionDateText(q)}
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-4">
               <FeedbackButton context="question" questionText={q.text} questionNumber={current + 1} source={title} question={{ ...q, chosen: answers[current] ?? null }} label="Feedback" />
               <button onClick={toggleBookmark} className={`flex items-center gap-1.5 text-sm font-medium transition ${bookmarks[current] ? "text-accent-600 dark:text-accent-400" : "text-slate-400 hover:text-accent-500"}`}>

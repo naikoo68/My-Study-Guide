@@ -31,6 +31,7 @@ import Watermark from "../../components/ui/Watermark";
 import FeedbackButton from "../../components/ui/FeedbackButton";
 import { useZoom } from "../../context/ZoomContext";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
+import { questionDateText } from "../../lib/questions";
 
 const optionLabels = ["A", "B", "C", "D"];
 
@@ -398,7 +399,14 @@ export default function QuizPlay() {
       <div className="grid gap-6 lg:grid-cols-[1fr,300px]">
         <div className="card p-6">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <Badge variant={q.difficulty}>{q.difficulty}</Badge>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={q.difficulty}>{q.difficulty}</Badge>
+              {questionDateText(q) && (
+                <span className="inline-flex items-center gap-1 text-xs text-slate-400">
+                  <Clock className="h-3 w-3" /> {questionDateText(q)}
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-4">
               <FeedbackButton context="question" questionText={q.text} questionNumber={current + 1} source={crumb || subjectName || "Quiz"} question={{ ...q, chosen: answers[current] ?? null }} label="Feedback" />
               <button

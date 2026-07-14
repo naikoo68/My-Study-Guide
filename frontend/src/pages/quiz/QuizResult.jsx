@@ -15,6 +15,8 @@ import {
   EyeOff,
   AlertTriangle,
   Award,
+  Search,
+  X,
 } from "lucide-react";
 import StatCard from "../../components/ui/StatCard";
 import MathText from "../../components/ui/MathText";
@@ -23,6 +25,7 @@ import TableView from "../../components/ui/TableView";
 import AssertionReasonView from "../../components/ui/AssertionReasonView";
 import Watermark from "../../components/ui/Watermark";
 import FeedbackButton from "../../components/ui/FeedbackButton";
+import { questionDateText, searchQuestions } from "../../lib/questions";
 
 function toRomanLite(n) {
   const m = [["X", 10], ["IX", 9], ["V", 5], ["IV", 4], ["I", 1]];
@@ -38,6 +41,7 @@ export default function QuizResult() {
   const { state } = useLocation();
   const { subjectId, topicId, sessionId, quizId } = useParams();
   const [showReview, setShowReview] = useState(false);
+  const [reviewSearch, setReviewSearch] = useState("");
 
   if (!state) {
     // Direct visit without a submission — redirect back.
@@ -62,6 +66,11 @@ export default function QuizResult() {
   const unattempted = total - attempted;
   const rank = Math.max(1, Math.round((100 - percentage) * 4 + 1));
   const mmss = `${Math.floor(timeTaken / 60)}m ${timeTaken % 60}s`;
+
+  // Searchable review list — keep the original index for numbering.
+  const reviewEntries = (review || []).map((r, i) => ({ ...r, _idx: i }));
+  const reviewResults = searchQuestions(reviewEntries, reviewSearch);
+  const reviewShown = reviewResults || reviewEntries;
 
   const doughnutData = {
     labels: ["Correct", "Incorrect", "Unattempted"],
@@ -186,13 +195,45 @@ export default function QuizResult() {
       {/* Review */}
       {showReview && (
         <div className="mt-6 space-y-4">
-          {review.map((r, i) => (
+          <div className="flex w-full max-w-sm items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700">
+            <Search className="h-4 w-4 flex-shrink-0 text-slate-400" />
+            <input
+              value={reviewSearch}
+              onChange={(e) => setReviewSearch(e.target.value)}
+              placeholder="Search questions…  (matches 40%–100%)"
+              className="w-full bg-transparent text-sm outline-none"
+            />
+            {reviewSearch && (
+              <button onClick={() => setReviewSearch("")} title="Clear search" className="flex-shrink-0 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><X className="h-4 w-4" /></button>
+            )}
+          </div>
+          {reviewResults && (
+            <p className="text-sm font-medium text-slate-500">{reviewResults.length} match{reviewResults.length === 1 ? "" : "es"} (40%+)</p>
+          )}
+          {reviewResults && reviewResults.length === 0 && (
+            <p className="rounded-xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500 dark:border-slate-700">
+              No questions match “{reviewSearch}” at 40% or higher. Try fewer or different words.
+            </p>
+          )}
+          {reviewShown.map((r) => {
+            const i = r._idx;
+            return (
             <div key={i} className="card p-5">
               <div className="flex items-start gap-3">
                 <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-slate-100 text-sm font-bold dark:bg-slate-800">
                   {i + 1}
                 </span>
                 <div className="flex-1">
+                  {(r._match != null || questionDateText(r)) && (
+                    <div className="mb-1 flex flex-wrap items-center gap-2">
+                      {r._match != null && (
+                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">{r._match}% match</span>
+                      )}
+                      {questionDateText(r) && (
+                        <span className="inline-flex items-center gap-1 text-xs text-slate-400"><Clock className="h-3 w-3" /> {questionDateText(r)}</span>
+                      )}
+                    </div>
+                  )}
                   <div className="flex items-start justify-between gap-2">
                     <p className="font-semibold"><MathText>{r.text}</MathText></p>
                     <FeedbackButton
@@ -269,7 +310,8 @@ export default function QuizResult() {
                 </div>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

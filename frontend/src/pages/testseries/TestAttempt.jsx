@@ -15,6 +15,7 @@ import {
   Trophy,
   ZoomIn,
   ZoomOut,
+  Search,
 } from "lucide-react";
 import { testService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
@@ -26,6 +27,7 @@ import AssertionReasonView from "../../components/ui/AssertionReasonView";
 import Watermark from "../../components/ui/Watermark";
 import FeedbackButton from "../../components/ui/FeedbackButton";
 import { useZoom } from "../../context/ZoomContext";
+import { questionDateText, searchQuestions } from "../../lib/questions";
 
 // Roman numerals for Column B labels (I, II, III, IV…)
 function toRoman(n) {
@@ -67,6 +69,7 @@ export default function TestAttempt() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [result, setResult] = useState(null);
   const [showReview, setShowReview] = useState(false);
+  const [reviewSearch, setReviewSearch] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const containerRef = useRef(null);
 
@@ -229,6 +232,10 @@ export default function TestAttempt() {
       { l: "Wrong", v: result.incorrect, c: "text-rose-600 dark:text-rose-400" },
       { l: "Skipped", v: result.skipped, c: "text-amber-600 dark:text-amber-400" },
     ];
+    // Searchable review list — keep the original index for numbering.
+    const reviewEntries = review.map((r, i) => ({ ...r, _idx: i }));
+    const reviewResults = searchQuestions(reviewEntries, reviewSearch);
+    const reviewShown = reviewResults || reviewEntries;
     return (
       <div className="min-h-screen bg-slate-50 py-10 dark:bg-slate-950">
         <Watermark />
@@ -268,7 +275,29 @@ export default function TestAttempt() {
           {/* Answer review */}
           {showReview && (
             <div className="mt-6 space-y-4">
-              {review.map((r, i) => (
+              <div className="flex w-full max-w-sm items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700">
+                <Search className="h-4 w-4 flex-shrink-0 text-slate-400" />
+                <input
+                  value={reviewSearch}
+                  onChange={(e) => setReviewSearch(e.target.value)}
+                  placeholder="Search questions…  (matches 40%–100%)"
+                  className="w-full bg-transparent text-sm outline-none"
+                />
+                {reviewSearch && (
+                  <button onClick={() => setReviewSearch("")} title="Clear search" className="flex-shrink-0 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><X className="h-4 w-4" /></button>
+                )}
+              </div>
+              {reviewResults && (
+                <p className="text-sm font-medium text-slate-500">{reviewResults.length} match{reviewResults.length === 1 ? "" : "es"} (40%+)</p>
+              )}
+              {reviewResults && reviewResults.length === 0 && (
+                <p className="rounded-xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500 dark:border-slate-700">
+                  No questions match “{reviewSearch}” at 40% or higher. Try fewer or different words.
+                </p>
+              )}
+              {reviewShown.map((r) => {
+                const i = r._idx;
+                return (
                 <div key={r._id || i} className="card p-5">
                   <div className="flex items-start justify-between gap-3">
                     <p className="font-semibold">
@@ -293,6 +322,16 @@ export default function TestAttempt() {
                       />
                     </div>
                   </div>
+                  {(r._match != null || questionDateText(r)) && (
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      {r._match != null && (
+                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">{r._match}% match</span>
+                      )}
+                      {questionDateText(r) && (
+                        <span className="inline-flex items-center gap-1 text-xs text-slate-400"><Clock className="h-3 w-3" /> {questionDateText(r)}</span>
+                      )}
+                    </div>
+                  )}
                   {r.image && <img src={r.image} alt="" className="mt-3 max-h-52 rounded-lg object-contain" />}
 
                   {r.type === "matching" && (
@@ -347,7 +386,8 @@ export default function TestAttempt() {
                     </div>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -400,7 +440,12 @@ export default function TestAttempt() {
             </div>
           )}
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3 dark:border-slate-800">
-            <span className="font-bold">Question {current + 1} of {questions.length}</span>
+            <span className="flex flex-wrap items-center gap-2 font-bold">
+              Question {current + 1} of {questions.length}
+              {questionDateText(q) && (
+                <span className="inline-flex items-center gap-1 text-xs font-normal text-slate-400"><Clock className="h-3 w-3" /> {questionDateText(q)}</span>
+              )}
+            </span>
             <div className="flex items-center gap-4">
               <FeedbackButton context="question" questionText={q.text} questionNumber={current + 1} source={testSource} question={{ ...q, chosen: answers[current] ?? null }} label="Feedback" />
               <span className="text-sm text-slate-500">
