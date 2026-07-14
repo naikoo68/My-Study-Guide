@@ -5,7 +5,7 @@ import {
   listTopics, createTopic, updateTopic, deleteTopic, listTopicItems,
   listItems, createItem,
   browseStreams, browseSubjects, browseTopics, browseItems, browseTopicItems,
-  playQuiz, allSubjects, myItems, moveItem,
+  playQuiz, allSubjects, myItems, moveItem, moveSubject, moveTopic,
 } from "../controllers/practiceController.js";
 import { protect, authorize, optionalAuth } from "../middleware/auth.js";
 
@@ -53,5 +53,7 @@ router.get("/all-subjects", ...admin, allSubjects);
 // Admin — items (practice test-series). Questions/visibility/attempt reuse /tests.
 router.post("/items", ...admin, createItem);
 router.patch("/items/:id/move", ...admin, moveItem); // relocate an item (admin or owning client)
+router.patch("/subjects/:id/move", ...admin, moveSubject); // move a subject to another stream
+router.patch("/topics/:id/move", ...admin, moveTopic); // move a topic to another subject
 
 export default router;

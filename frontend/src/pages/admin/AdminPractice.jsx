@@ -277,6 +277,15 @@ export default function AdminPractice({ clientMode = false }) {
                       <Files className="h-4 w-4" />
                     </button>
                   )}
+                  {(view === "subjects" || view === "topics") && (
+                    <button
+                      onClick={() => setMoveTarget({ type: view === "subjects" ? "subject" : "topic", node: item })}
+                      title={`Move ${view === "subjects" ? "subject to another stream" : "topic to another subject"}`}
+                      className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30"
+                    >
+                      <Move className="h-4 w-4" />
+                    </button>
+                  )}
                   {view !== "items" && (
                     <button onClick={() => setModal({ type: view === "streams" ? "stream" : view === "subjects" ? "subject" : "topic", mode: "edit", data: item })} className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30"><Pencil className="h-4 w-4" /></button>
                   )}
@@ -286,7 +295,7 @@ export default function AdminPractice({ clientMode = false }) {
               {view === "items" && (
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button onClick={() => openQuestions(item)} className="btn-outline py-1.5 text-xs"><HelpCircle className="h-3.5 w-3.5" /> Questions</button>
-                  <button onClick={() => setMoveTarget(item)} className="btn-outline py-1.5 text-xs" title="Move to another stream / subject / topic"><Move className="h-3.5 w-3.5" /> Move</button>
+                  <button onClick={() => setMoveTarget({ type: "item", node: item })} className="btn-outline py-1.5 text-xs" title="Move to another stream / subject / topic"><Move className="h-3.5 w-3.5" /> Move</button>
                   {!clientMode && (
                     <button onClick={() => openAccess(item)} className="btn-outline py-1.5 text-xs"><Users className="h-3.5 w-3.5" /> Visibility</button>
                   )}
@@ -428,7 +437,9 @@ export default function AdminPractice({ clientMode = false }) {
 
       <MoveItemModal
         open={!!moveTarget}
-        item={moveTarget}
+        type={moveTarget?.type}
+        node={moveTarget?.node}
+        kind={kind}
         onClose={() => setMoveTarget(null)}
         onDone={() => load(view)}
       />

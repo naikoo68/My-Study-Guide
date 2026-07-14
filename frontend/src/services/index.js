@@ -138,6 +138,8 @@ export const practiceService = {
   createItem: (data) => api.post("/practice/items", data),
   // move an item (My Quiz / My Test) to a different stream/subject/topic
   moveItem: (id, target) => api.patch(`/practice/items/${id}/move`, target),
+  moveSubject: (id, stream) => api.patch(`/practice/subjects/${id}/move`, { stream }),
+  moveTopic: (id, subject) => api.patch(`/practice/topics/${id}/move`, { subject }),
 };
 
 // ---- Dashboard / analytics ----

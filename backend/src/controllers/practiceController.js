@@ -219,6 +219,48 @@ export async function moveItem(req, res) {
   res.json({ message: "Item moved", _id: item._id });
 }
 
+// PATCH /api/practice/subjects/:id/move — move a whole subject to another
+// stream (of the same type). Its topics and items follow it. Owner-scoped.
+export async function moveSubject(req, res) {
+  const subject = await PracticeSubject.findOne({ _id: req.params.id, ...ownerFilter(req) });
+  if (!subject) return res.status(404).json({ message: "Subject not found" });
+  const stream = await PracticeStream.findOne({ _id: req.body.stream, ...ownerFilter(req) });
+  if (!stream) return res.status(400).json({ message: "Choose a target stream." });
+  const current = await PracticeStream.findById(subject.stream).select("kind");
+  if (current?.kind && stream.kind && current.kind !== stream.kind) {
+    return res.status(400).json({ message: "Pick a stream of the same type." });
+  }
+  subject.stream = stream._id;
+  await subject.save();
+  // Items under this subject follow it to the new stream.
+  await TestSeries.updateMany(
+    { practice: true, practiceSubject: subject._id, ...ownerFilter(req) },
+    { $set: { practiceStream: stream._id } }
+  );
+  res.json({ message: "Subject moved", _id: subject._id });
+}
+
+// PATCH /api/practice/topics/:id/move — move a whole topic to another subject
+// (My Quiz only). Its quizzes follow it. Owner-scoped.
+export async function moveTopic(req, res) {
+  const topic = await PracticeTopic.findOne({ _id: req.params.id, ...ownerFilter(req) });
+  if (!topic) return res.status(404).json({ message: "Topic not found" });
+  const subject = await PracticeSubject.findOne({ _id: req.body.subject, ...ownerFilter(req) });
+  if (!subject) return res.status(400).json({ message: "Choose a target subject." });
+  const st = await PracticeStream.findById(subject.stream).select("kind");
+  if (st?.kind && st.kind !== "quiz") {
+    return res.status(400).json({ message: "Pick a My Quiz subject." });
+  }
+  topic.subject = subject._id;
+  await topic.save();
+  // Quizzes under this topic follow it to the new subject (and its stream).
+  await TestSeries.updateMany(
+    { practice: true, practiceTopic: topic._id, ...ownerFilter(req) },
+    { $set: { practiceSubject: subject._id, practiceStream: subject.stream } }
+  );
+  res.json({ message: "Topic moved", _id: topic._id });
+}
+
 // GET /api/practice/quiz/:id/play — full questions WITH answers, so a "My Quiz"
 // practice quiz can reveal correctness instantly (like the regular Quiz).
 // Restricted to practice items of kind "quiz" that are visible to the user, so
