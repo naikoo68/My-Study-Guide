@@ -213,6 +213,9 @@ export async function globalSearch(req, res) {
     .slice(0, 12);
   if (!candidateWords.length) candidateWords = allWords.slice(0, 12);
 
+  let questionsScanned = 0;
+  let questionsMatched = 0;
+
   if (candidateWords.length) {
     const or = [];
     for (const w of candidateWords) {
@@ -240,11 +243,14 @@ export async function globalSearch(req, res) {
       })
       .lean();
 
+    questionsScanned = candidates.length;
+
     const scored = candidates
       .map((qq) => ({ qq, m: questionMatchPercent(queryLower, allWords, qq) }))
       .filter((x) => x.m >= 40)
       .sort((a, b) => b.m - a.m)
       .slice(0, 10);
+    questionsMatched = scored.length;
 
     for (const { qq, m } of scored) {
       let path = "/quiz";
@@ -277,5 +283,18 @@ export async function globalSearch(req, res) {
     }
   }
 
-  res.json({ query: q, count: results.length, results });
+  res.json({
+    query: q,
+    count: results.length,
+    results,
+    // Diagnostics — visible when opening /api/search?q=... directly in a browser.
+    // `version` confirms this (question-search) build is live on the server.
+    meta: {
+      version: "search-v2-questions",
+      scope: isAdmin ? "admin (all content)" : req.user ? "user (published + own)" : "public (published only)",
+      candidateWords,
+      questionsScanned,
+      questionsMatched,
+    },
+  });
 }
