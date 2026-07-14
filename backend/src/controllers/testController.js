@@ -5,7 +5,7 @@ import Attempt from "../models/Attempt.js";
 import User from "../models/User.js";
 import { isTestVisibleToUser, findAccessEntry } from "../utils/accessControl.js";
 import { notifyNewContent } from "../utils/notify.js";
-import { ownerValue } from "../utils/ownership.js";
+import { ownerValue, ownerFilter } from "../utils/ownership.js";
 
 // A caller may manage a test/question only within their own space: clients only
 // their own owned items; admins only the shared (ownerless) platform items.
@@ -25,9 +25,13 @@ const COPY_FIELDS = [
 export async function populateTest(req, res) {
   const test = await TestSeries.findById(req.params.id);
   if (!test) return res.status(404).json({ message: "Test not found" });
+  // Admin works on platform tests; a client only on their own test.
+  if (!canManage(req, test)) return res.status(403).json({ message: "Not your content" });
 
   const quizPlan = Array.isArray(req.body?.quizPlan) ? req.body.quizPlan : [];
   const practicePlan = Array.isArray(req.body?.practicePlan) ? req.body.practicePlan : [];
+  const owner = ownerValue(req); // stamp copies with the caller's space
+  const scope = ownerFilter(req); // { owner: null } for admin, { owner: <id> } for a client
 
   const oid = (v) => { try { return new mongoose.Types.ObjectId(String(v)); } catch { return null; } };
   const sample = async (match, count) => {
@@ -35,37 +39,52 @@ export async function populateTest(req, res) {
     if (!n) return [];
     return Question.aggregate([{ $match: match }, { $sample: { size: n } }]);
   };
-  const toCopy = (q) => {
-    const doc = { testSeries: test._id, status: "published" };
+  const toCopy = (q, section) => {
+    const doc = { testSeries: test._id, status: "published", owner };
+    if (section) doc.section = section;
     for (const f of COPY_FIELDS) if (q[f] !== undefined) doc[f] = q[f];
     return doc;
   };
 
   const copies = [];
+  const pulled = {}; // subject name -> how many were actually pulled (weightage)
 
   // From the Quiz bank — quiz questions carry a `subject` and no `testSeries`.
   for (const row of quizPlan) {
     const sid = oid(row?.subject);
     if (!sid) continue;
-    const qs = await sample({ subject: sid, testSeries: { $exists: false } }, row.count);
-    copies.push(...qs.map(toCopy));
+    const qs = await sample({ subject: sid, testSeries: { $exists: false }, ...scope }, row.count);
+    copies.push(...qs.map((q) => toCopy(q, row.section)));
+    if (row.section) pulled[row.section] = (pulled[row.section] || 0) + qs.length;
   }
 
   // From the Practice bank — practice questions live inside practice items
-  // (TestSeries) under a practice subject.
+  // (TestSeries) under a practice subject, scoped to the caller's space.
   for (const row of practicePlan) {
     const psid = oid(row?.practiceSubject);
     if (!psid) continue;
-    const items = await TestSeries.find({ practice: true, practiceSubject: psid }).select("_id").lean();
+    const items = await TestSeries.find({ practice: true, practiceSubject: psid, ...scope }).select("_id").lean();
     const ids = items.map((i) => i._id);
     if (!ids.length) continue;
-    const qs = await sample({ testSeries: { $in: ids } }, row.count);
-    copies.push(...qs.map(toCopy));
+    const qs = await sample({ testSeries: { $in: ids }, ...scope }, row.count);
+    copies.push(...qs.map((q) => toCopy(q, row.section)));
+    if (row.section) pulled[row.section] = (pulled[row.section] || 0) + qs.length;
   }
 
   if (copies.length) {
     const created = await Question.insertMany(copies);
-    await TestSeries.findByIdAndUpdate(test._id, { $push: { questions: { $each: created.map((c) => c._id) } } });
+    // Reflect the chosen weightage in the test's subject plan so the
+    // "questions by subject" view stays accurate.
+    const plan = [...(test.subjectPlan || [])];
+    for (const [subject, count] of Object.entries(pulled)) {
+      const existing = plan.find((p) => (p.subject || "") === subject);
+      if (existing) existing.count = (existing.count || 0) + count;
+      else plan.push({ subject, count });
+    }
+    await TestSeries.findByIdAndUpdate(test._id, {
+      $push: { questions: { $each: created.map((c) => c._id) } },
+      $set: { subjectPlan: plan },
+    });
   }
   res.json({ inserted: copies.length });
 }

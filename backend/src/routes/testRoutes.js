@@ -29,7 +29,7 @@ router.get("/:id/access", ...admin, getTestAccess);
 router.put("/:id/access", ...admin, updateTestAccess);
 router.get("/:id/questions", ...manage, getTestQuestions);
 router.post("/:id/questions", ...manage, addTestQuestion);
-router.post("/:id/populate", ...admin, populateTest); // pull questions from quiz/practice bank
+router.post("/:id/populate", ...manage, populateTest); // pull questions from quiz/practice bank (admin or owning client)
 router.delete("/:id/questions/:qid", ...manage, deleteTestQuestion);
 router.get("/:id", protect, getTest);
 router.post("/:id/submit", protect, submitTest);

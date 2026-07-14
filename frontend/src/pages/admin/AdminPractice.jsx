@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, X, ChevronRight, GraduationCap, FolderOpen, ListChecks, FileStack, HelpCircle, Upload, Eye, Users, Copy, Search, Download, Sparkles, Globe, Clock } from "lucide-react";
+import { Plus, Pencil, Trash2, X, ChevronRight, GraduationCap, FolderOpen, ListChecks, FileStack, HelpCircle, Upload, Eye, Users, Copy, Search, Download, Sparkles, Globe, Clock, Scale } from "lucide-react";
 import { questionDateText, searchQuestions } from "../../lib/questions";
 import { practiceService, testService, contentService } from "../../services";
 import Badge from "../../components/ui/Badge";
@@ -10,6 +10,7 @@ import AiGenerate from "../../components/admin/AiGenerate";
 import AiImport from "../../components/admin/AiImport";
 import DuplicatesModal from "../../components/admin/DuplicatesModal";
 import QuestionView from "../../components/admin/QuestionView";
+import WeightageFill from "../../components/admin/WeightageFill";
 import { Files } from "lucide-react";
 
 const KINDS = [
@@ -42,6 +43,7 @@ export default function AdminPractice({ clientMode = false }) {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [weightOpen, setWeightOpen] = useState(false); // add by subject (weightage)
   const [dupOpen, setDupOpen] = useState(false);
   const [dupScope, setDupScope] = useState({ params: null, name: "" }); // duplicate-scan target
   const [viewQ, setViewQ] = useState(null);
@@ -310,6 +312,9 @@ export default function AdminPractice({ clientMode = false }) {
               <button onClick={() => setBulkOpen(true)} className="btn-outline"><Upload className="h-4 w-4" /> Bulk Upload</button>
               <button onClick={() => setAiOpen(true)} className="btn-outline text-brand-600"><Sparkles className="h-4 w-4" /> Generate with AI</button>
               <button onClick={() => setImportOpen(true)} className="btn-outline text-brand-600"><Globe className="h-4 w-4" /> Import from Web</button>
+              {kind === "test" && (
+                <button onClick={() => setWeightOpen(true)} className="btn-outline text-brand-600" title="Add by subject (weightage) — auto-pull N questions per subject from your quizzes"><Scale className="h-4 w-4" /> By subject</button>
+              )}
               <button onClick={() => setTqModal({ mode: "add", data: null })} className="btn-primary"><Plus className="h-4 w-4" /> Add Question</button>
             </div>
             {tqLoading ? <Loading /> : tq.length === 0 ? <EmptyState message="No questions yet." /> : (
@@ -412,6 +417,15 @@ export default function AdminPractice({ clientMode = false }) {
           </div>
         </div>
       )}
+
+      <WeightageFill
+        open={weightOpen}
+        testId={qItem?._id}
+        includeQuizBank={!clientMode}
+        title={`Add by subject (weightage) — ${qItem?.name || ""}`}
+        onClose={() => setWeightOpen(false)}
+        onDone={async () => { await reloadTq(); load(view); }}
+      />
 
       <BulkUploadQuestions
         open={bulkOpen}

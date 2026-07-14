@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, Eye, EyeOff, X, CalendarClock, Users, Search, Upload, HelpCircle, ChevronRight, GraduationCap, Briefcase, Copy, Download, Sparkles, Globe, Library, Clock } from "lucide-react";
+import { Plus, Pencil, Trash2, Eye, EyeOff, X, CalendarClock, Users, Search, Upload, HelpCircle, ChevronRight, GraduationCap, Briefcase, Copy, Download, Sparkles, Globe, Library, Clock, Scale } from "lucide-react";
 import { questionDateText, searchQuestions } from "../../lib/questions";
 import { testService, contentService, examService, practiceService } from "../../services";
 import Badge from "../../components/ui/Badge";
@@ -9,6 +9,7 @@ import AiGenerate from "../../components/admin/AiGenerate";
 import AiImport from "../../components/admin/AiImport";
 import SubjectPlanEditor from "../../components/admin/SubjectPlanEditor";
 import PickFromBank from "../../components/admin/PickFromBank";
+import WeightageFill from "../../components/admin/WeightageFill";
 import DuplicatesModal from "../../components/admin/DuplicatesModal";
 import { Files } from "lucide-react";
 import QuestionFormModal from "../../components/admin/QuestionFormModal";
@@ -51,6 +52,7 @@ export default function AdminTests() {
   const [aiTest, setAiTest] = useState(null); // AI-generate questions for a test
   const [importTest, setImportTest] = useState(null); // import-from-web questions for a test
   const [bankTest, setBankTest] = useState(null); // manual pick-from-bank for a test
+  const [weightTest, setWeightTest] = useState(null); // auto-fill by subject (weightage)
   const [dupTest, setDupTest] = useState(null); // find-duplicates within a test
 
   // Manual subject plan (typed) for the create/edit popup
@@ -435,8 +437,11 @@ export default function AdminTests() {
                       <button onClick={() => setImportTest(t)} title="Import questions from web" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30">
                         <Globe className="h-4 w-4" />
                       </button>
-                      <button onClick={() => setBankTest(t)} title="Add questions from quizzes / practice" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30">
+                      <button onClick={() => setBankTest(t)} title="Add questions from quizzes / practice (hand-pick)" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30">
                         <Library className="h-4 w-4" />
+                      </button>
+                      <button onClick={() => setWeightTest(t)} title="Add by subject (weightage) — auto-pull N questions per subject" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30">
+                        <Scale className="h-4 w-4" />
                       </button>
                       <button onClick={() => setDupTest(t)} title="Find duplicate questions in this test" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30">
                         <Files className="h-4 w-4" />
@@ -704,6 +709,15 @@ export default function AdminTests() {
         plan={bankTest?.subjectPlan || []}
         title={`Add from Quizzes / Practice${bankTest ? ` — ${bankTest.name}` : ""}`}
         onClose={() => setBankTest(null)}
+        onDone={() => load()}
+      />
+
+      <WeightageFill
+        open={!!weightTest}
+        testId={weightTest?._id}
+        includeQuizBank
+        title={`Add by subject (weightage)${weightTest ? ` — ${weightTest.name}` : ""}`}
+        onClose={() => setWeightTest(null)}
         onDone={() => load()}
       />
 
