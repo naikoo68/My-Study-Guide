@@ -1,8 +1,9 @@
 // Shared helpers for question lists (used across Content, Tests, Practice).
 
-// Format a date as "12 Jul 2026, 11:05 AM".
+// Format a date as "12 Jul 2026, 11:05 AM" — always 12-hour with AM/PM
+// (hour12:true) so it never shows 24-hour time regardless of browser locale.
 export const fmtDateTime = (d) =>
-  d ? new Date(d).toLocaleString(undefined, { day: "2-digit", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+  d ? new Date(d).toLocaleString("en-US", { day: "2-digit", month: "short", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true }) : "";
 
 // Upload date of a question. Uses `createdAt` when present; otherwise derives it
 // from the Mongo `_id` — every ObjectId embeds its creation time in the first 4
