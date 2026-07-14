@@ -21,10 +21,18 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { practiceService } from "../../services";
+import { practiceService, searchService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
 import Badge from "../../components/ui/Badge";
+import QuestionView from "../../components/admin/QuestionView";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
+
+const previewText = (t, n = 100) => {
+  const s = String(t || "").replace(/\$/g, "").replace(/\s+/g, " ").trim();
+  return s.length > n ? s.slice(0, n) + "…" : s;
+};
+const qTrail = (d) =>
+  [d?.stream, d?.subject, d?.topicName || d?.topic, d?.session, d?.quiz].filter((x) => x && x !== "—").join(" › ");
 
 const fmtDate = (d) =>
   new Date(d).toLocaleString(undefined, { day: "2-digit", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
@@ -79,6 +87,9 @@ export default function ClientDashboard({ onBuild, onUpgrade }) {
   const [topic, setTopic] = useState(null);
   const [copied, setCopied] = useState(false);
   const [q, setQ] = useState("");
+  const [qResults, setQResults] = useState([]); // question matches (backend search)
+  const [qLoading, setQLoading] = useState(false);
+  const [detail, setDetail] = useState(null); // question shown in the detail panel
 
   const copyReferral = () => {
     if (!user?.referralCode) return;
@@ -98,6 +109,35 @@ export default function ClientDashboard({ onBuild, onUpgrade }) {
       .finally(() => setLoading(false));
   };
   useEffect(load, []);
+
+  // Search the client's QUESTIONS by content (their own + published) via the
+  // backend search, so questions are findable here just like everywhere else.
+  useEffect(() => {
+    const query = q.trim();
+    if (query.length < 2) {
+      setQResults([]);
+      return;
+    }
+    let cancelled = false;
+    setQLoading(true);
+    const t = setTimeout(() => {
+      searchService
+        .query(query)
+        .then((r) => {
+          if (!cancelled) setQResults((r.results || []).filter((x) => x.type === "Question"));
+        })
+        .catch(() => {
+          if (!cancelled) setQResults([]);
+        })
+        .finally(() => {
+          if (!cancelled) setQLoading(false);
+        });
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [q]);
 
   const resetPath = () => { setStream(null); setSubject(null); setTopic(null); };
   const switchKind = (k) => { setKind(k); resetPath(); };
@@ -254,7 +294,7 @@ export default function ClientDashboard({ onBuild, onUpgrade }) {
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search your quizzes & tests by name, stream, subject or topic…"
+            placeholder="Search your quizzes, tests & questions…"
             className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400"
           />
           {q && (
@@ -266,7 +306,7 @@ export default function ClientDashboard({ onBuild, onUpgrade }) {
 
         {searching ? (
           <h2 className="text-lg font-bold">
-            {searchMatches.length} result{searchMatches.length === 1 ? "" : "s"} for “{q.trim()}”
+            {searchMatches.length + qResults.length} result{searchMatches.length + qResults.length === 1 ? "" : "s"} for “{q.trim()}”
           </h2>
         ) : (<>
         {/* Kind tabs: My Quiz vs My Test */}
@@ -306,40 +346,77 @@ export default function ClientDashboard({ onBuild, onUpgrade }) {
         ) : error ? (
           <div className="mt-6"><ErrorState message={error} onRetry={load} /></div>
         ) : searching ? (
-          searchMatches.length === 0 ? (
-            <div className="mt-6 rounded-xl border border-dashed border-slate-200 p-8 text-center dark:border-slate-700">
-              <p className="text-sm text-slate-500 dark:text-slate-400">No quizzes or tests match “{q.trim()}”.</p>
-            </div>
-          ) : (
-            <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {searchMatches.map((item) => {
-                const empty = (item.questionCount ?? 0) === 0;
-                const cta = item.kind === "quiz" ? "Practice" : "Take Test";
-                const trail = [item.stream?.name, item.subject?.name, item.topic?.name].filter(Boolean).join(" › ");
-                return (
-                  <div key={item._id} className="card p-4">
-                    <Badge variant={item.kind === "quiz" ? "accent" : "brand"}>
-                      {item.kind === "quiz" ? "My Quiz" : "My Test"}
-                    </Badge>
-                    <p className="mt-2 truncate font-semibold">{item.name}</p>
-                    {trail && <p className="truncate text-xs text-slate-400">{trail}</p>}
-                    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-400">
-                      <span className="inline-flex items-center gap-1"><HelpCircle className="h-3 w-3" /> {item.questionCount} Qs</span>
-                      {item.kind === "test" && <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" /> {item.duration} min</span>}
-                    </div>
+          <div className="mt-5 space-y-6">
+            {/* Your quizzes & tests (matched by name / stream / subject / topic) */}
+            {searchMatches.length > 0 && (
+              <div>
+                <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-400">Your quizzes & tests</h3>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {searchMatches.map((item) => {
+                    const empty = (item.questionCount ?? 0) === 0;
+                    const cta = item.kind === "quiz" ? "Practice" : "Take Test";
+                    const trail = [item.stream?.name, item.subject?.name, item.topic?.name].filter(Boolean).join(" › ");
+                    return (
+                      <div key={item._id} className="card p-4">
+                        <Badge variant={item.kind === "quiz" ? "accent" : "brand"}>
+                          {item.kind === "quiz" ? "My Quiz" : "My Test"}
+                        </Badge>
+                        <p className="mt-2 truncate font-semibold">{item.name}</p>
+                        {trail && <p className="truncate text-xs text-slate-400">{trail}</p>}
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-400">
+                          <span className="inline-flex items-center gap-1"><HelpCircle className="h-3 w-3" /> {item.questionCount} Qs</span>
+                          {item.kind === "test" && <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" /> {item.duration} min</span>}
+                        </div>
+                        <button
+                          onClick={() => play(item)}
+                          disabled={empty}
+                          title={empty ? "Add questions to this first" : cta}
+                          className="btn-primary mt-3 w-full py-1.5 text-xs disabled:opacity-50"
+                        >
+                          <Play className="h-3.5 w-3.5" /> {empty ? "No questions" : cta}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Questions (matched by their content) — tap to view full details */}
+            {qResults.length > 0 && (
+              <div>
+                <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-400">Questions</h3>
+                <div className="space-y-2">
+                  {qResults.map((item) => (
                     <button
-                      onClick={() => play(item)}
-                      disabled={empty}
-                      title={empty ? "Add questions to this first" : cta}
-                      className="btn-primary mt-3 w-full py-1.5 text-xs disabled:opacity-50"
+                      key={item.id}
+                      onClick={() => item.raw && setDetail(item.raw)}
+                      className="flex w-full items-center gap-3 rounded-xl border border-slate-200 p-3 text-left hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
                     >
-                      <Play className="h-3.5 w-3.5" /> {empty ? "No questions" : cta}
+                      <span className="flex-shrink-0 rounded-md bg-rose-100 px-2 py-0.5 text-xs font-bold text-rose-700 dark:bg-rose-900/40 dark:text-rose-300">
+                        Question
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-semibold">{item.title}</span>
+                        <span className="block truncate text-xs text-slate-400">
+                          {item.match != null && <span className="mr-1.5 font-semibold text-rose-500">{item.match}% match</span>}
+                          {item.subtitle}
+                        </span>
+                      </span>
                     </button>
-                  </div>
-                );
-              })}
-            </div>
-          )
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {searchMatches.length === 0 && qResults.length === 0 && (
+              <div className="rounded-xl border border-dashed border-slate-200 p-8 text-center dark:border-slate-700">
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  {qLoading ? "Searching…" : `Nothing matches “${q.trim()}”.`}
+                </p>
+              </div>
+            )}
+          </div>
         ) : rows.length === 0 ? (
           <div className="mt-6 rounded-xl border border-dashed border-slate-200 p-8 text-center dark:border-slate-700">
             <p className="text-sm text-slate-500 dark:text-slate-400">
@@ -399,6 +476,42 @@ export default function ClientDashboard({ onBuild, onUpgrade }) {
           </div>
         )}
       </div>
+
+      {/* Question detail — opens on tap, shows the full question + its location. */}
+      {detail && (
+        <div
+          className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-black/50 p-4"
+          onMouseDown={() => setDetail(null)}
+        >
+          <div
+            className="my-10 w-full max-w-2xl rounded-2xl bg-white p-5 shadow-2xl dark:bg-slate-900"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Question</p>
+                {qTrail(detail) && (
+                  <p className="mt-0.5 break-words text-sm font-semibold text-brand-600 dark:text-brand-400">
+                    {qTrail(detail)}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => setDetail(null)}
+                className="flex-shrink-0 rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <QuestionView q={detail} />
+
+            <div className="mt-4 flex justify-end">
+              <button onClick={() => setDetail(null)} className="btn-outline">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
