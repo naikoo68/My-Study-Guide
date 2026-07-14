@@ -34,6 +34,7 @@ export default function GlobalSearch({
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [err, setErr] = useState("");
+  const [meta, setMeta] = useState(null);
   const [rect, setRect] = useState(null);
   const boxRef = useRef(null);
   const panelRef = useRef(null);
@@ -61,11 +62,13 @@ export default function GlobalSearch({
         .query(query)
         .then((r) => {
           setResults(r.results || []);
-          setErr("");
+          setErr(r.error || "");
+          setMeta(r.meta || null);
         })
         .catch((e) => {
           setErr(e.message || "Search failed");
           setResults([]);
+          setMeta(null);
         })
         .finally(() => setLoading(false));
     }, 300);
@@ -154,7 +157,16 @@ export default function GlobalSearch({
             ) : loading && !results.length ? (
               <p className="px-3 py-4 text-center text-sm text-slate-500">Searching…</p>
             ) : results.length === 0 ? (
-              <p className="px-3 py-4 text-center text-sm text-slate-500">No matches for “{q.trim()}”.</p>
+              <div className="px-3 py-4 text-center">
+                <p className="text-sm text-slate-500">No matches for “{q.trim()}”.</p>
+                {meta && (
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    {meta.version ? `${meta.version} · ` : ""}
+                    {meta.scope}
+                    {meta.questionsScanned != null ? ` · scanned ${meta.questionsScanned} question${meta.questionsScanned === 1 ? "" : "s"}` : ""}
+                  </p>
+                )}
+              </div>
             ) : (
               <>
                 <p className="px-3 py-1 text-xs font-semibold text-slate-400">
