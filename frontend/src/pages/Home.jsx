@@ -17,6 +17,7 @@ import {
 import { useSettings } from "../context/SettingsContext";
 import { useAuth } from "../context/AuthContext";
 import { analyticsService } from "../services";
+import GlobalSearch from "../components/ui/GlobalSearch";
 
 // Icons applied by position to the editable stats from Customization.
 const STAT_ICONS = [Users, ListChecks, Layers];
@@ -169,6 +170,10 @@ export default function Home() {
               <Link to="/test-series" className="btn-outline text-base">
                 Explore Test Series <ArrowRight className="h-4 w-4" />
               </Link>
+            </div>
+            {/* Search all content — streams, subjects, topics, quizzes & tests */}
+            <div className="mt-6 max-w-lg">
+              <GlobalSearch mode="public" placeholder="Search streams, subjects, topics, quizzes, tests…" />
             </div>
             <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-slate-500 dark:text-slate-400">
               {["No credit card needed", "Free quizzes", "Detailed solutions"].map((t) => (

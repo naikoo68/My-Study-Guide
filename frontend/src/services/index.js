@@ -275,3 +275,10 @@ export const subscriptionService = {
   order: (data) => api.post("/subscriptions/order", data),
   activate: (data) => api.post("/subscriptions/activate", data),
 };
+
+// ---- Global metadata search (streams/subjects/topics/quizzes/tests) ----
+// optionalAuth on the backend: an admin's token unlocks all metadata; guests
+// and students see only public, published content.
+export const searchService = {
+  query: (q) => api.get(`/search?q=${encodeURIComponent(q)}`),
+};

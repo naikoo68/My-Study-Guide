@@ -19,6 +19,7 @@ import studyRoutes from "./routes/studyRoutes.js";
 import feedbackRoutes from "./routes/feedbackRoutes.js";
 import noticeRoutes from "./routes/noticeRoutes.js";
 import practiceRoutes from "./routes/practiceRoutes.js";
+import searchRoutes from "./routes/searchRoutes.js";
 import aiRoutes from "./routes/aiRoutes.js";
 import couponRoutes from "./routes/couponRoutes.js";
 import paymentRoutes from "./routes/paymentRoutes.js";
@@ -73,6 +74,7 @@ app.use("/api", studyRoutes); // study material: institutions → subjects → c
 app.use("/api/feedback", feedbackRoutes); // student feedback (per-question + overall)
 app.use("/api/notices", noticeRoutes); // scrolling notice board (public read, admin write)
 app.use("/api/practice", practiceRoutes); // "Practice Quizzes" section (My Quiz / My Test Series)
+app.use("/api", searchRoutes); // global metadata search (streams/subjects/topics/quizzes/tests)
 app.use("/api/ai", aiRoutes); // AI question generator (admin)
 app.use("/api/coupons", couponRoutes); // discount coupons (admin manage; used at client checkout)
 app.use("/api/payments", paymentRoutes); // Razorpay: create orders + config for client checkout
