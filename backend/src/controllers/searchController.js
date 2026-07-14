@@ -3,12 +3,52 @@ import Subject from "../models/Subject.js";
 import Topic from "../models/Topic.js";
 import Session from "../models/Session.js";
 import Quiz from "../models/Quiz.js";
+import Question from "../models/Question.js";
 import TestSeries from "../models/TestSeries.js";
 
 // Escape user input so it is treated as a literal string inside a RegExp.
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const LIMIT = 8; // max results per content type
+
+// ---- Question matching (word-level, mirrors frontend lib/questions.js) ----
+// Questions store the stem (`text`) separately from `options`, so pasting a
+// whole "stem + (a).. (b).." string never matches as one phrase. Instead we
+// score by the share of query WORDS found anywhere in the question.
+
+// All searchable text of a question, across every question type.
+function questionHaystack(q) {
+  const parts = [
+    q.text,
+    q.explanation,
+    q.topic,
+    q.section,
+    q.assertion,
+    q.reason,
+    ...(q.options || []),
+    ...(q.optionExplanations || []),
+    ...(q.columnA || []),
+    ...(q.columnB || []),
+    ...(Array.isArray(q.tableRows) ? q.tableRows.flat(Infinity) : []),
+  ];
+  return parts.filter(Boolean).join(" ").toLowerCase();
+}
+
+// 0–100%: full phrase present → 100; else the share of query words found.
+function questionMatchPercent(queryLower, words, q) {
+  const hay = questionHaystack(q);
+  if (!hay) return 0;
+  if (hay.includes(queryLower)) return 100;
+  if (!words.length) return 0;
+  const matched = words.filter((w) => hay.includes(w)).length;
+  return Math.round((matched / words.length) * 100);
+}
+
+// Short preview of a question stem for the results list.
+const preview = (t, n = 90) => {
+  const s = String(t || "").replace(/\$/g, "").replace(/\s+/g, " ").trim();
+  return s.length > n ? s.slice(0, n) + "…" : s;
+};
 
 // GET /api/search?q=...
 // Global metadata search across the whole content hierarchy
@@ -140,9 +180,83 @@ export async function globalSearch(req, res) {
         ? "Practice item"
         : [t.exam?.name, t.post?.name].filter(Boolean).join(" · ") || "Test Series",
       path: !isPractice && t.exam && t.post ? `/test-series/${t.exam._id}/${t.post._id}` : "/test-series",
-      adminPath: isPractice ? "/admin/practice" : "/admin/tests",
+      adminPath: isPractice ? "/admin/tests" : "/admin/tests",
       active: t.status === "published",
     });
+  }
+
+  // ---- Questions (by their text / options / statements / etc.) ----
+  // Narrow candidates using the most distinctive query words (≥4 chars; falls
+  // back to ≥2), then score every candidate by word overlap and keep 40%+.
+  const queryLower = q.toLowerCase();
+  const allWords = queryLower.split(/\s+/).filter(Boolean);
+  let candidateWords = [...new Set(allWords.filter((w) => w.length >= 4))]
+    .sort((a, b) => b.length - a.length)
+    .slice(0, 12);
+  if (!candidateWords.length) candidateWords = [...new Set(allWords.filter((w) => w.length >= 2))].slice(0, 12);
+
+  if (candidateWords.length) {
+    const or = [];
+    for (const w of candidateWords) {
+      const wrx = new RegExp(escapeRegex(w), "i");
+      or.push({ text: wrx }, { options: wrx }, { assertion: wrx }, { reason: wrx }, { explanation: wrx });
+    }
+    const qFilter = { $or: or };
+    if (!isAdmin) {
+      qFilter.status = "published";
+      qFilter.owner = req.user ? { $in: [null, req.user._id] } : null;
+    }
+
+    const candidates = await Question.find(qFilter)
+      .limit(200)
+      .populate("subject", "name")
+      .populate("session", "title topic")
+      .populate("quiz", "title")
+      .populate({
+        path: "testSeries",
+        select: "name exam post practice practiceKind",
+        populate: [
+          { path: "exam", select: "name" },
+          { path: "post", select: "name" },
+        ],
+      })
+      .lean();
+
+    const scored = candidates
+      .map((qq) => ({ qq, m: questionMatchPercent(queryLower, allWords, qq) }))
+      .filter((x) => x.m >= 40)
+      .sort((a, b) => b.m - a.m)
+      .slice(0, 10);
+
+    for (const { qq, m } of scored) {
+      let path = "/quiz";
+      let adminPath = "/admin/content";
+      let subtitle = "Question";
+      if (qq.testSeries) {
+        const ts = qq.testSeries;
+        const isPractice = ts.practice === true;
+        adminPath = "/admin/tests";
+        path = !isPractice && ts.exam && ts.post ? `/test-series/${ts.exam._id}/${ts.post._id}` : "/test-series";
+        subtitle = ts.name ? `${ts.name} · Question` : "Test question";
+      } else {
+        const subjId = qq.subject?._id;
+        const sessId = qq.session?._id;
+        const topicId = qq.session?.topic;
+        const quizId = qq.quiz?._id;
+        if (subjId && sessId && topicId && quizId) path = `/quiz/${subjId}/${topicId}/${sessId}/${quizId}`;
+        subtitle = [qq.subject?.name, qq.quiz?.title].filter(Boolean).join(" · ") || "Question";
+      }
+      results.push({
+        type: "Question",
+        id: String(qq._id),
+        title: preview(qq.text),
+        subtitle,
+        match: m,
+        path,
+        adminPath,
+        active: qq.status === "published",
+      });
+    }
   }
 
   res.json({ query: q, count: results.length, results });

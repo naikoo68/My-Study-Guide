@@ -14,6 +14,7 @@ const TYPE_STYLES = {
   Test: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
   "My Quiz": "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300",
   "My Test": "bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300",
+  Question: "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300",
 };
 
 // Reusable metadata search box with a live results dropdown. Calls the
@@ -175,8 +176,13 @@ export default function GlobalSearch({
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-semibold">{item.title}</span>
-                      {item.subtitle && (
-                        <span className="block truncate text-xs text-slate-400">{item.subtitle}</span>
+                      {(item.subtitle || item.match != null) && (
+                        <span className="block truncate text-xs text-slate-400">
+                          {item.match != null && (
+                            <span className="mr-1.5 font-semibold text-rose-500">{item.match}% match</span>
+                          )}
+                          {item.subtitle}
+                        </span>
                       )}
                     </span>
                     {mode === "admin" && item.active === false && (
