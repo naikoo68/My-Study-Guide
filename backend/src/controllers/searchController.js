@@ -50,6 +50,23 @@ const preview = (t, n = 90) => {
   return s.length > n ? s.slice(0, n) + "…" : s;
 };
 
+// Option labels that must NOT count as search words (roman numerals ii–xv;
+// single letters a/b/c/d and single digits 1/2 are dropped by the length rule).
+const OPTION_LABELS = new Set(["ii", "iii", "iv", "vi", "vii", "viii", "ix", "xi", "xii", "xiii", "xiv", "xv"]);
+
+// Meaningful words from a query. Splits on ANY non-alphanumeric char so labels
+// like "(a)", "1.", "(ii)" detach from the real word — "(a)Dual" → "dual".
+// Then drops single letters (a,b,c,d), single digits, and roman-numeral labels,
+// so the search keys off the question body only, never the option marker/place.
+const meaningfulWords = (query) => [
+  ...new Set(
+    String(query || "")
+      .toLowerCase()
+      .split(/[^a-z0-9]+/i)
+      .filter((w) => w.length >= 2 && !OPTION_LABELS.has(w))
+  ),
+];
+
 // GET /api/search?q=...
 // Global metadata search across the whole content hierarchy
 // (Stream → Subject → Topic → Session → Quiz) plus Test Series.
@@ -189,11 +206,12 @@ export async function globalSearch(req, res) {
   // Narrow candidates using the most distinctive query words (≥4 chars; falls
   // back to ≥2), then score every candidate by word overlap and keep 40%+.
   const queryLower = q.toLowerCase();
-  const allWords = queryLower.split(/\s+/).filter(Boolean);
-  let candidateWords = [...new Set(allWords.filter((w) => w.length >= 4))]
+  const allWords = meaningfulWords(q); // ignores option labels a/b/c/d, 1/2, i/ii…
+  let candidateWords = [...allWords]
+    .filter((w) => w.length >= 4)
     .sort((a, b) => b.length - a.length)
     .slice(0, 12);
-  if (!candidateWords.length) candidateWords = [...new Set(allWords.filter((w) => w.length >= 2))].slice(0, 12);
+  if (!candidateWords.length) candidateWords = allWords.slice(0, 12);
 
   if (candidateWords.length) {
     const or = [];

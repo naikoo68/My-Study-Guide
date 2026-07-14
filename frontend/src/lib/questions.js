@@ -48,17 +48,34 @@ function questionHaystack(item) {
   return parts.filter(Boolean).join(" ").toLowerCase();
 }
 
+// Option labels that must NOT count as search words (roman numerals ii–xv;
+// single letters a/b/c/d and lone digits 1/2 are dropped by the length rule).
+const OPTION_LABELS = new Set(["ii", "iii", "iv", "vi", "vii", "viii", "ix", "xi", "xii", "xiii", "xiv", "xv"]);
+
+// Meaningful words from a query. Splits on ANY non-alphanumeric char so option
+// labels like "(a)", "1.", "(ii)" detach from the real word ("(a)Dual" → "dual"),
+// then drops single letters, lone digits and roman-numeral labels — so search
+// keys off the question body only, never the option marker or its place.
+const meaningfulWords = (query) => [
+  ...new Set(
+    String(query || "")
+      .toLowerCase()
+      .split(/[^a-z0-9]+/i)
+      .filter((w) => w.length >= 2 && !OPTION_LABELS.has(w))
+  ),
+];
+
 // Search relevance 0–100%. Full phrase present anywhere in the question → 100%;
-// otherwise the share of query WORDS found (word-level, not whole-phrase), so a
-// query matches even when its words are split across the body and the options.
-// The UI shows results at 40%+.
+// otherwise the share of meaningful query WORDS found (word-level, not whole-
+// phrase, ignoring option labels), so a query matches even when its words are
+// split across the body and the options. The UI shows results at 40%+.
 export function matchPercent(query, item) {
   const q = String(query || "").toLowerCase().trim();
   if (!q) return 0;
   const hay = questionHaystack(item);
   if (!hay) return 0;
   if (hay.includes(q)) return 100;
-  const words = q.split(/\s+/).filter(Boolean);
+  const words = meaningfulWords(query);
   if (!words.length) return 0;
   const matched = words.filter((w) => hay.includes(w)).length;
   return Math.round((matched / words.length) * 100);
