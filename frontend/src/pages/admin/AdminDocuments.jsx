@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FileText, Upload, Plus, Pencil, Trash2, X, Loader2, Save, Download, ScanText } from "lucide-react";
+import { FileText, Upload, Plus, Pencil, Trash2, X, Loader2, Save, Download, ScanText, Maximize2, Minimize2, Copy, Check } from "lucide-react";
 import { documentService } from "../../services";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 
@@ -18,6 +18,21 @@ export default function AdminDocuments() {
   const [scanned, setScanned] = useState(false);
   const [ocrBusy, setOcrBusy] = useState(false);
   const [ocrProgress, setOcrProgress] = useState(null);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  // Reset the expanded view whenever the editor closes.
+  useEffect(() => { if (!editor) setFullscreen(false); }, [editor]);
+
+  const copyText = async () => {
+    try {
+      await navigator.clipboard.writeText(editor?.content || "");
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setError("Couldn't copy — your browser blocked clipboard access.");
+    }
+  };
 
   const load = () => {
     setLoading(true);
@@ -221,8 +236,8 @@ export default function AdminDocuments() {
       )}
 
       {editor && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4">
-          <div className="my-8 w-full max-w-3xl animate-scale-in card p-6">
+        <div className={`fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 ${fullscreen ? "p-0" : "p-4"}`}>
+          <div className={`animate-scale-in card ${fullscreen ? "flex h-screen w-screen max-w-none flex-col rounded-none p-4" : "my-8 w-full max-w-3xl p-6"}`}>
             <div className="mb-4 flex items-center justify-between">
               <h3 className="flex items-center gap-2 text-lg font-bold"><FileText className="h-5 w-5 text-brand-600" /> {editor.id ? "Edit document" : "New document"}</h3>
               <button onClick={() => { setEditor(null); setError(""); }}><X className="h-5 w-5" /></button>
@@ -246,13 +261,21 @@ export default function AdminDocuments() {
                   </button>
                 )}
                 {editor.content?.trim() && (
+                  <button type="button" onClick={copyText} className="btn-outline !py-1 !text-xs">
+                    {copied ? <><Check className="h-3.5 w-3.5" /> Copied</> : <><Copy className="h-3.5 w-3.5" /> Copy</>}
+                  </button>
+                )}
+                {editor.content?.trim() && (
                   <button type="button" onClick={downloadTxt} className="btn-outline !py-1 !text-xs"><Download className="h-3.5 w-3.5" /> .txt</button>
                 )}
+                <button type="button" onClick={() => setFullscreen((f) => !f)} className="btn-outline !py-1 !text-xs" title={fullscreen ? "Exit full screen" : "Full screen"}>
+                  {fullscreen ? <><Minimize2 className="h-3.5 w-3.5" /> Exit</> : <><Maximize2 className="h-3.5 w-3.5" /> Full screen</>}
+                </button>
               </div>
             </div>
             <textarea
               rows={16}
-              className="input resize-y font-mono text-xs"
+              className={`input resize-y font-mono text-xs ${fullscreen ? "min-h-0 flex-1" : ""}`}
               value={editor.content}
               onChange={(e) => setEditor({ ...editor, content: e.target.value })}
               placeholder="Upload a PDF to fill this, or type/paste text here…"
