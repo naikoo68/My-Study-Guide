@@ -3,7 +3,7 @@ import { FileText, Upload, Plus, Pencil, Trash2, X, Loader2, Save, Download, Sca
 import { documentService, aiService } from "../../services";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 import { questionsToCsv } from "../../components/admin/BulkUploadQuestions";
-import MathText from "../../components/ui/MathText";
+import RichText from "../../components/ui/RichText";
 
 const LETTERS = ["A", "B", "C", "D"];
 const COL_A = ["1", "2", "3", "4", "5", "6", "7", "8"];
@@ -241,6 +241,9 @@ export default function AdminDocuments() {
     try {
       const full = await documentService.get(row._id);
       setEditor({ id: full._id, title: full.title || "", content: full.content || "", sourceName: full.sourceName || "", pages: full.pages || 0 });
+      // Open a saved document in its formatted (rendered) form; click "Edit" to
+      // switch to the raw text.
+      setPreview(!!(full.content || "").trim());
     } catch (e) {
       setError(e.message);
     } finally {
@@ -495,7 +498,7 @@ export default function AdminDocuments() {
                 title="Double-click to edit"
               >
                 {editor.content?.trim()
-                  ? <MathText>{editor.content}</MathText>
+                  ? <RichText>{editor.content}</RichText>
                   : <span className="text-slate-400">Nothing to render yet.</span>}
               </div>
             ) : (
