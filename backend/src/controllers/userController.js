@@ -108,6 +108,12 @@ export async function updateUser(req, res) {
   if (plan) user.plan = plan;
   if (password) user.password = password; // re-hashed by the model's pre-save hook
 
+  // AI access (admin-controlled, for client accounts). Each is applied only when
+  // present in the body so partial updates don't reset the others.
+  if ("aiAccess" in req.body) user.aiAccess = !!req.body.aiAccess;
+  if ("aiAllowInbuilt" in req.body) user.aiAllowInbuilt = !!req.body.aiAllowInbuilt;
+  if ("aiAllowSelf" in req.body) user.aiAllowSelf = !!req.body.aiAllowSelf;
+
   // Temporary-account expiry: an explicit value updates it; null/"" clears it
   // (makes the account permanent). Only touched when the key is present.
   if ("expiresAt" in req.body) {

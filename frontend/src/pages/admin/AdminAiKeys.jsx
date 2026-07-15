@@ -31,7 +31,11 @@ const fmt = (n) => {
   return String(v);
 };
 
-export default function AdminAiKeys() {
+// `clientMode` renders the same manager for a self-service client: the backend
+// scopes every call to the client's OWN keys, so add / bulk-add / test / test-all
+// / refresh / delete all work unchanged. Only the heading copy differs, and
+// server/env-key features never appear (the API doesn't return them to clients).
+export default function AdminAiKeys({ clientMode = false }) {
   const [keys, setKeys] = useState([]);
   const [models, setModels] = useState([]);
   const [totals, setTotals] = useState(null);
@@ -242,9 +246,11 @@ export default function AdminAiKeys() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-extrabold">AI API Keys</h1>
+          <h1 className="text-2xl font-extrabold">{clientMode ? "My API Keys" : "AI API Keys"}</h1>
           <p className="text-slate-500 dark:text-slate-400">
-            Add the keys the AI Generator uses. Enabled keys with the same model act as quota fallbacks —
+            {clientMode
+              ? "Add your own AI provider keys. Several keys on the same model act as quota fallbacks —"
+              : "Add the keys the AI Generator uses. Enabled keys with the same model act as quota fallbacks —"}
             <span className="font-semibold text-emerald-600 dark:text-emerald-400"> {activeCount} enabled</span>.
           </p>
         </div>

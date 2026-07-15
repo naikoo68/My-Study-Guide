@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Search, Ban, CheckCircle2, KeyRound, UserPlus, Trash2, X, ListChecks, FileStack, HelpCircle, Store, Pencil, Clock, AlarmClock, Gift, Ticket } from "lucide-react";
+import { Search, Ban, CheckCircle2, KeyRound, UserPlus, Trash2, X, ListChecks, FileStack, HelpCircle, Store, Pencil, Clock, AlarmClock, Gift, Ticket, Sparkles } from "lucide-react";
 import { userService } from "../../services";
 import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
@@ -18,6 +18,10 @@ const blank = {
   isTemp: false, // validity: temporary auto-expiring account
   durationValue: 30,
   durationUnit: "Days",
+  // AI access: master switch + which key pools this client may use.
+  aiAccess: false,
+  aiAllowInbuilt: true,
+  aiAllowSelf: true,
 };
 
 const fmtDate = (d) =>
@@ -78,6 +82,9 @@ export default function AdminClients() {
       isTemp: !!c.expiresAt,
       durationValue: 30,
       durationUnit: "Days",
+      aiAccess: !!c.aiAccess,
+      aiAllowInbuilt: c.aiAllowInbuilt !== false,
+      aiAllowSelf: c.aiAllowSelf !== false,
     });
     setEditing(c);
     setError("");
@@ -124,7 +131,14 @@ export default function AdminClients() {
         : null;
 
       if (editing) {
-        const payload = { name: form.name, email: form.email, expiresAt };
+        const payload = {
+          name: form.name,
+          email: form.email,
+          expiresAt,
+          aiAccess: form.aiAccess,
+          aiAllowInbuilt: form.aiAllowInbuilt,
+          aiAllowSelf: form.aiAllowSelf,
+        };
         if (form.password) payload.password = form.password;
         const updated = await userService.update(editing._id, payload);
         // Apply access (active/blocked) if it changed.
@@ -388,6 +402,38 @@ export default function AdminClients() {
                   <p className="mt-2 text-xs text-slate-400">Off = permanent account that never expires.</p>
                 )}
               </div>
+
+              {/* AI access — master switch + which key pools this client may use */}
+              {editing && (
+                <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-700">
+                  <label className="flex cursor-pointer items-center justify-between gap-3">
+                    <span className="flex items-center gap-2 text-sm font-medium">
+                      <Sparkles className="h-4 w-4 text-brand-600" /> AI access
+                    </span>
+                    <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={form.aiAccess} onChange={(e) => setForm({ ...form, aiAccess: e.target.checked })} />
+                  </label>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    When on, this client sees an <b>AI</b> tab to generate/import questions.
+                  </p>
+
+                  {form.aiAccess && (
+                    <div className="mt-4 space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Allowed API sources</p>
+                      <label className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-slate-800/60">
+                        <span>Built-in APIs <span className="text-xs text-slate-400">(your platform keys)</span></span>
+                        <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={form.aiAllowInbuilt} onChange={(e) => setForm({ ...form, aiAllowInbuilt: e.target.checked })} />
+                      </label>
+                      <label className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-slate-800/60">
+                        <span>Own APIs <span className="text-xs text-slate-400">(keys the client adds)</span></span>
+                        <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={form.aiAllowSelf} onChange={(e) => setForm({ ...form, aiAllowSelf: e.target.checked })} />
+                      </label>
+                      {!form.aiAllowInbuilt && !form.aiAllowSelf && (
+                        <p className="text-xs font-medium text-rose-600 dark:text-rose-400">Enable at least one source, or the client won't be able to use AI.</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             <div className="mt-6 flex justify-end gap-3">
               <button type="button" onClick={() => setModal(false)} className="btn-outline">Cancel</button>

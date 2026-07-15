@@ -5,6 +5,11 @@ import mongoose from "mongoose";
 // ENABLED keys — several keys with the same model act as quota fallbacks.
 const aiKeySchema = new mongoose.Schema(
   {
+    // Who owns this key. null = a PLATFORM / built-in ("inbuilt") key managed by
+    // the admin and shared with clients who use built-in mode. A user id = a
+    // client's OWN key, usable only by that client. Existing keys have no owner
+    // field, so { owner: null } matches them as platform keys.
+    owner: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null, index: true },
     label: { type: String, trim: true, default: "" }, // friendly name, e.g. "Gemini account 1"
     baseUrl: { type: String, trim: true, default: "https://generativelanguage.googleapis.com/v1beta/openai" },
     models: { type: String, trim: true, default: "gemini-2.5-flash" }, // comma-separated model ids
