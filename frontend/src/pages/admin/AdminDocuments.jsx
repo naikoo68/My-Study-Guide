@@ -1,8 +1,9 @@
 import { useEffect, useState, useRef } from "react";
-import { FileText, Upload, Plus, Pencil, Trash2, X, Loader2, Save, Download, ScanText, Maximize2, Minimize2, Copy, Check, Sigma, Wand2, Eraser } from "lucide-react";
+import { FileText, Upload, Plus, Pencil, Trash2, X, Loader2, Save, Download, ScanText, Maximize2, Minimize2, Copy, Check, Sigma, Wand2, Eraser, Eye, Pencil as PencilIcon } from "lucide-react";
 import { documentService, aiService } from "../../services";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 import { questionsToCsv } from "../../components/admin/BulkUploadQuestions";
+import MathText from "../../components/ui/MathText";
 
 const LETTERS = ["A", "B", "C", "D"];
 const COL_A = ["1", "2", "3", "4", "5", "6", "7", "8"];
@@ -133,13 +134,14 @@ export default function AdminDocuments() {
   const [fullscreen, setFullscreen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showMath, setShowMath] = useState(false);
+  const [preview, setPreview] = useState(false); // render $…$ math in its actual form
   const [converting, setConverting] = useState(""); // "" | "text" | "csv"
   const [convertMsg, setConvertMsg] = useState("");
   const taRef = useRef(null);
 
   // Reset transient editor UI whenever the editor closes.
   useEffect(() => {
-    if (!editor) { setFullscreen(false); setShowMath(false); setConvertMsg(""); }
+    if (!editor) { setFullscreen(false); setShowMath(false); setPreview(false); setConvertMsg(""); }
   }, [editor]);
 
   // Insert text at the textarea caret (wrapping the selection when `after` given).
@@ -463,6 +465,11 @@ export default function AdminDocuments() {
                 <button type="button" onClick={() => setShowMath((v) => !v)} className={`!py-1 !text-xs ${showMath ? "btn-primary" : "btn-outline"}`} title="Insert math">
                   <Sigma className="h-3.5 w-3.5" /> Math
                 </button>
+                {editor.content?.trim() && (
+                  <button type="button" onClick={() => setPreview((v) => !v)} className={`!py-1 !text-xs ${preview ? "btn-primary" : "btn-outline"}`} title={preview ? "Back to editing" : "Render — show $…$ math in its actual form"}>
+                    {preview ? <><PencilIcon className="h-3.5 w-3.5" /> Edit</> : <><Eye className="h-3.5 w-3.5" /> Render</>}
+                  </button>
+                )}
                 <button type="button" onClick={() => setFullscreen((f) => !f)} className="btn-outline !py-1 !text-xs" title={fullscreen ? "Exit full screen" : "Full screen"}>
                   {fullscreen ? <><Minimize2 className="h-3.5 w-3.5" /> Exit</> : <><Maximize2 className="h-3.5 w-3.5" /> Full screen</>}
                 </button>
@@ -481,14 +488,26 @@ export default function AdminDocuments() {
               </div>
             )}
 
-            <textarea
-              ref={taRef}
-              rows={16}
-              className={`input resize-y font-mono text-xs ${fullscreen ? "min-h-0 flex-1" : ""}`}
-              value={editor.content}
-              onChange={(e) => setEditor({ ...editor, content: e.target.value })}
-              placeholder="Upload a PDF to fill this, or type/paste text here…"
-            />
+            {preview ? (
+              <div
+                className={`input overflow-auto text-sm leading-relaxed ${fullscreen ? "min-h-0 flex-1" : "max-h-[60vh]"}`}
+                onDoubleClick={() => setPreview(false)}
+                title="Double-click to edit"
+              >
+                {editor.content?.trim()
+                  ? <MathText>{editor.content}</MathText>
+                  : <span className="text-slate-400">Nothing to render yet.</span>}
+              </div>
+            ) : (
+              <textarea
+                ref={taRef}
+                rows={16}
+                className={`input resize-y font-mono text-xs ${fullscreen ? "min-h-0 flex-1" : ""}`}
+                value={editor.content}
+                onChange={(e) => setEditor({ ...editor, content: e.target.value })}
+                placeholder="Upload a PDF to fill this, or type/paste text here…"
+              />
+            )}
             <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs text-slate-400">
                 {(editor.content || "").length.toLocaleString()} characters
