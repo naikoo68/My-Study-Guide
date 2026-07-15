@@ -152,11 +152,93 @@ function Cascade({ levels, onChange }) {
   );
 }
 
+// Source picker: drill down with dropdowns, then multi-select the leaf items
+// (checkboxes) so you can migrate several at once. Reports an array of ids.
+function MultiSourcePicker({ levels, onChange }) {
+  const drill = levels.slice(0, -1);
+  const leaf = levels[levels.length - 1];
+  const [dOpts, setDOpts] = useState([]);
+  const [dSel, setDSel] = useState([]);
+  const [leafOpts, setLeafOpts] = useState(null); // null = not loaded
+  const [picked, setPicked] = useState([]);
+
+  useEffect(() => {
+    setDSel([]);
+    setDOpts([]);
+    setLeafOpts(null);
+    setPicked([]);
+    onChange?.([]);
+    if (drill.length) drill[0].load().then((r) => setDOpts([r || []])).catch(() => setDOpts([[]]));
+    else leaf.load().then((r) => setLeafOpts(r || [])).catch(() => setLeafOpts([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [levels]);
+
+  const pickDrill = (i, v) => {
+    const ns = dSel.slice(0, i);
+    ns[i] = v;
+    setDSel(ns);
+    setPicked([]);
+    onChange?.([]);
+    setLeafOpts(null);
+    setDOpts((o) => o.slice(0, i + 1));
+    const next = drill[i + 1];
+    if (v && next) {
+      next.load(v).then((r) => setDOpts((o) => { const c = o.slice(0, i + 1); c[i + 1] = r || []; return c; })).catch(() => {});
+    } else if (v && !next) {
+      leaf.load(v).then((r) => setLeafOpts(r || [])).catch(() => setLeafOpts([]));
+    }
+  };
+
+  const toggle = (id) => setPicked((p) => {
+    const n = p.includes(id) ? p.filter((x) => x !== id) : [...p, id];
+    onChange?.(n);
+    return n;
+  });
+  const allIds = (leafOpts || []).map((o) => String(o._id));
+  const allChecked = allIds.length > 0 && picked.length === allIds.length;
+  const toggleAll = () => setPicked(() => { const n = allChecked ? [] : allIds; onChange?.(n); return n; });
+
+  return (
+    <div className="space-y-2">
+      {drill.map((lv, i) => (
+        <select key={lv.key + i} value={dSel[i] || ""} disabled={i > 0 && !dSel[i - 1]} onChange={(e) => pickDrill(i, e.target.value)} className="input">
+          <option value="">{lv.label}</option>
+          {(dOpts[i] || []).map((o) => <option key={o._id} value={o._id}>{o[lv.labelKey || "name"] || o.name || o.title}</option>)}
+        </select>
+      ))}
+      {leafOpts !== null && (
+        <div className="rounded-xl border border-slate-200 dark:border-slate-700">
+          {leafOpts.length === 0 ? (
+            <p className="p-3 text-center text-xs text-slate-400">Nothing here.</p>
+          ) : (
+            <>
+              <label className="flex items-center gap-2 border-b border-slate-200 px-3 py-2 text-xs font-semibold dark:border-slate-700">
+                <input type="checkbox" checked={allChecked} onChange={toggleAll} className="h-4 w-4 accent-brand-600" />
+                Select all ({leafOpts.length})
+              </label>
+              <div className="max-h-52 space-y-1 overflow-y-auto p-2">
+                {leafOpts.map((o) => (
+                  <label key={o._id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-slate-50 dark:hover:bg-slate-800">
+                    <input type="checkbox" checked={picked.includes(String(o._id))} onChange={() => toggle(String(o._id))} className="h-4 w-4 flex-shrink-0 accent-brand-600" />
+                    <span className="min-w-0 flex-1 truncate">{o[leaf.labelKey || "name"] || o.name || o.title}</span>
+                    {o.questionCount != null && <span className="flex-shrink-0 text-xs text-slate-400">{o.questionCount} Qs</span>}
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+      {picked.length > 0 && <p className="text-xs font-medium text-brand-600">{picked.length} selected</p>}
+    </div>
+  );
+}
+
 export default function AdminMigration() {
   const [tab, setTab] = useState("quiz"); // quiz | test
   const [type, setType] = useState("internal"); // internal | external
   const [variant, setVariant] = useState("myquiz");
-  const [src, setSrc] = useState({});
+  const [srcIds, setSrcIds] = useState([]); // multiple source items
   const [dst, setDst] = useState({});
   const [action, setAction] = useState("move"); // move | copy
   const [busy, setBusy] = useState(false);
@@ -170,7 +252,7 @@ export default function AdminMigration() {
   // Default the variant whenever tab/type changes.
   useEffect(() => {
     setVariant((VARIANTS[`${tab}.${type}`] || [{ key: "" }])[0].key);
-    setSrc({});
+    setSrcIds([]);
     setDst({});
     setMsg("");
     setOk(false);
@@ -183,22 +265,37 @@ export default function AdminMigration() {
 
   const migrate = async () => {
     if (!flow) return;
-    if (!src[flow.sourceKey]) { setMsg("Choose the source (the item to move)."); setOk(false); return; }
+    if (!srcIds.length) { setMsg("Select at least one item to migrate."); setOk(false); return; }
     if (flow.destKeys.some((k) => !dst[k])) { setMsg("Choose the full destination."); setOk(false); return; }
     setBusy(true);
     setMsg("");
-    try {
-      await flow.migrate(src, dst, action === "copy");
+    let done = 0;
+    let failed = 0;
+    let lastErr = "";
+    for (const id of srcIds) {
+      try {
+        await flow.migrate({ [flow.sourceKey]: id }, dst, action === "copy");
+        done++;
+      } catch (e) {
+        failed++;
+        lastErr = e.message || "failed";
+      }
+    }
+    setBusy(false);
+    const verb = action === "copy" ? "Copied" : "Moved";
+    if (done && !failed) {
       setOk(true);
-      setMsg(action === "copy" ? "✓ Copied successfully (original kept)." : "✓ Moved successfully.");
-      setSrc({});
+      setMsg(`✓ ${verb} ${done} item${done === 1 ? "" : "s"}.`);
+      setSrcIds([]);
       setDst({});
       setNonce((n) => n + 1);
-    } catch (e) {
+    } else if (done && failed) {
       setOk(false);
-      setMsg(e.message || "Migration failed.");
-    } finally {
-      setBusy(false);
+      setMsg(`${verb} ${done}, but ${failed} failed. ${lastErr}`);
+      setNonce((n) => n + 1);
+    } else {
+      setOk(false);
+      setMsg(lastErr || "Migration failed.");
     }
   };
 
@@ -241,7 +338,7 @@ export default function AdminMigration() {
         {variants.map((v) => (
           <button
             key={v.key}
-            onClick={() => { setVariant(v.key); setSrc({}); setDst({}); setMsg(""); setOk(false); }}
+            onClick={() => { setVariant(v.key); setSrcIds([]); setDst({}); setMsg(""); setOk(false); }}
             className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
               variant === v.key ? "bg-accent-500 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
             }`}
@@ -256,8 +353,8 @@ export default function AdminMigration() {
           <div className="grid gap-6 md:grid-cols-[1fr,auto,1fr] md:items-start">
             {/* Source */}
             <div>
-              <p className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">Move this</p>
-              <Cascade key={resetKey + "-src"} levels={flow.source} onChange={setSrc} />
+              <p className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">Move these (tick one or more)</p>
+              <MultiSourcePicker key={resetKey + "-src"} levels={flow.source} onChange={setSrcIds} />
             </div>
 
             <div className="hidden items-center justify-center pt-16 md:flex">
