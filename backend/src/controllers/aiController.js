@@ -807,6 +807,65 @@ function splitSource(text, size) {
   return chunks.filter(Boolean);
 }
 
+// Number of questions to send to the model per call (user-requested batch size).
+const QUESTIONS_PER_CHUNK = 20;
+// Safety ceiling so a batch of long questions can't grow big enough to truncate
+// the model's JSON reply (which would drop questions — the very bug we fixed).
+const QUESTION_CHUNK_MAX_CHARS = 14000;
+
+// Detect numbered questions in the source and group them into batches of
+// ~QUESTIONS_PER_CHUNK. This makes each AI call handle a predictable number of
+// questions (20, 20, …) instead of a blind character slice. Returns
+// { count, chunks } or null when no reliable numbering is found (caller then
+// falls back to character-based splitting).
+function splitByQuestions(text, perChunk = QUESTIONS_PER_CHUNK) {
+  // Line-start markers like "1.", "12)", "Q3.", "Q.4", "Question 5:".
+  const re = /(^|\n)[ \t]*(?:Q(?:uestion)?\.?\s*)?(\d{1,3})[.)\]:]\s/gi;
+  const marks = [];
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    marks.push({ pos: m.index + (m[1] ? m[1].length : 0), num: parseInt(m[2], 10) });
+  }
+  // Keep a sequential chain (1,2,3,…) so stray numbers / numbered options aren't
+  // mistaken for question starts. Allow a reset to 1 for multi-section papers.
+  const starts = [];
+  let prev = null;
+  for (const mk of marks) {
+    if (prev === null) {
+      if (mk.num <= 3) { starts.push(mk.pos); prev = mk.num; } // begin near the first question
+    } else if (mk.num === prev + 1 || mk.num === 1) {
+      starts.push(mk.pos);
+      prev = mk.num;
+    }
+  }
+  if (starts.length < 2) return null; // no reliable numbering — fall back
+
+  // One text block per detected question.
+  const blocks = [];
+  for (let i = 0; i < starts.length; i++) {
+    const end = i + 1 < starts.length ? starts[i + 1] : text.length;
+    const block = text.slice(starts[i], end).trim();
+    if (block) blocks.push(block);
+  }
+
+  // Group into batches of `perChunk`, but start a new batch early if adding the
+  // next question would exceed the char ceiling.
+  const chunks = [];
+  let cur = [];
+  let curChars = 0;
+  for (const b of blocks) {
+    if (cur.length && (cur.length >= perChunk || curChars + b.length > QUESTION_CHUNK_MAX_CHARS)) {
+      chunks.push(cur.join("\n\n"));
+      cur = [];
+      curChars = 0;
+    }
+    cur.push(b);
+    curChars += b.length + 2;
+  }
+  if (cur.length) chunks.push(cur.join("\n\n"));
+  return { count: blocks.length, chunks };
+}
+
 // Signature to de-duplicate questions collected across chunks/sections.
 function extractSig(q) {
   const opts = (Array.isArray(q.options) ? q.options : []).map((o) => String(o).toLowerCase().trim()).join("|");
@@ -968,14 +1027,18 @@ export async function extractQuestions(req, res) {
   }
 
   const source = content.slice(0, MAX_SOURCE_CHARS);
-  const chunks = splitSource(source, SOURCE_CHUNK_CHARS);
+  // First figure out how many questions the source contains and split it into
+  // batches of ~20 questions each. If numbering can't be detected reliably,
+  // fall back to character-based splitting.
+  const detected = splitByQuestions(source);
+  const chunks = detected ? detected.chunks : splitSource(source, SOURCE_CHUNK_CHARS);
 
   cleanupJobs();
   const id = newJobId();
   genJobs.set(id, {
     status: "pending",
     questions: [],
-    requested: null, // unknown for extraction
+    requested: detected?.count || null, // detected question count (when known)
     chunksTotal: chunks.length,
     chunksDone: 0,
     error: null,
@@ -984,7 +1047,7 @@ export async function extractQuestions(req, res) {
   });
 
   runExtractionJob(id, { endpoints, model, chunks, owner: scope.owner });
-  res.json({ jobId: id, chunks: chunks.length, model });
+  res.json({ jobId: id, chunks: chunks.length, questionsDetected: detected?.count || 0, model });
 }
 
 

@@ -111,13 +111,16 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
     setPreview([]);
     setMsg("Reading the source and extracting questions…");
     try {
-      const { jobId, chunks } = await aiService.extract({
+      const { jobId, chunks, questionsDetected } = await aiService.extract({
         url: url.trim() || undefined,
         content: text.trim() || undefined,
         model: model || undefined,
         mode: isClient ? source : undefined, // which key pool to use for this import
       });
       if (!jobId) throw new Error("Could not start the import.");
+      if (questionsDetected) {
+        setMsg(`Found ~${questionsDetected} question(s) — extracting in ${chunks} batch(es) of up to 20…`);
+      }
 
       // Poll the background job — it processes every section of the source.
       const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
