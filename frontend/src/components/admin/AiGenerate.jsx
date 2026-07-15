@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { X, Sparkles, Wand2, CheckCircle2, AlertTriangle, Loader2 } from "lucide-react";
+import { X, Sparkles, Wand2, CheckCircle2, AlertTriangle, Loader2, Server, KeyRound } from "lucide-react";
 import { aiService } from "../../services";
+import { useAuth } from "../../context/AuthContext";
 
 const TYPE_OPTIONS = [
   { id: "mcq", label: "MCQ" },
@@ -19,6 +20,11 @@ const DIFFS = ["Easy", "Medium", "Hard"];
 // `onUpload(questions)` should return a promise (e.g. { inserted }). The AI
 // only PREVIEWS questions here — nothing is saved until the admin clicks Insert.
 export default function AiGenerate({ open, onClose, onUpload, title = "Generate Questions with AI", sections = [], existingQuestions = [] }) {
+  const { user } = useAuth();
+  // Clients granted BOTH sources may pick which one this generation uses.
+  const isClient = user?.role === "client" && user?.aiAccess;
+  const canChooseSource = isClient && user?.aiAllowInbuilt !== false && user?.aiAllowSelf !== false;
+  const [source, setSource] = useState(user?.aiMode === "self" ? "self" : "inbuilt"); // "inbuilt" | "self"
   const [status, setStatus] = useState(null); // { enabled, model, models: [] }
   // Stems already generated/inserted this session — sent so a repeat batch never
   // duplicates earlier questions. Seeded from any existing questions passed in.
@@ -38,14 +44,20 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
     if (!open) return;
     setMsg("");
     setPreview([]);
+  }, [open]);
+
+  // (Re)load status for the chosen source so the model list / active-key count
+  // reflect that pool. Clients pass their source; admins always use built-in.
+  useEffect(() => {
+    if (!open) return;
     aiService
-      .status()
+      .status(isClient ? source : undefined)
       .then((s) => {
         setStatus(s);
         setModel(s?.model || (s?.models && s.models[0]) || "");
       })
       .catch(() => setStatus({ enabled: false }));
-  }, [open]);
+  }, [open, source, isClient]);
 
   if (!open) return null;
 
@@ -77,6 +89,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
         notes: notes.trim(),
         model: model || undefined,
         avoid: avoidStems, // don't repeat anything from earlier batches
+        mode: isClient ? source : undefined, // which key pool to use for this run
       });
       if (!jobId) throw new Error("Could not start generation.");
 
@@ -150,14 +163,41 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
           <button type="button" onClick={onClose}><X className="h-5 w-5" /></button>
         </div>
 
+        {/* Per-generation API source (clients allowed both pools). Kept above the
+            "not configured" notice so you can always switch to the other source. */}
+        {canChooseSource && (
+          <div className="mb-3">
+            <label className="mb-1 block text-sm font-semibold">API source for this generation</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setSource("inbuilt")}
+                className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition ${source === "inbuilt" ? "border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-900/20 dark:text-brand-300" : "border-slate-200 text-slate-600 hover:border-brand-400 dark:border-slate-700 dark:text-slate-300"}`}>
+                <Server className="h-4 w-4" /> Built-in APIs
+              </button>
+              <button type="button" onClick={() => setSource("self")}
+                className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition ${source === "self" ? "border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-900/20 dark:text-brand-300" : "border-slate-200 text-slate-600 hover:border-brand-400 dark:border-slate-700 dark:text-slate-300"}`}>
+                <KeyRound className="h-4 w-4" /> My own APIs
+              </button>
+            </div>
+          </div>
+        )}
+
         {status && !status.enabled ? (
           <div className="rounded-xl bg-amber-50 p-4 text-sm text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
-            <p className="flex items-center gap-2 font-semibold"><AlertTriangle className="h-4 w-4" /> AI is not configured</p>
-            <p className="mt-1">
-              Ask your admin to add <code>AI_API_KEY</code> (and optionally <code>AI_BASE_URL</code>,
-              <code> AI_MODEL</code>) to the server environment, then redeploy. The key stays on the
-              server and is never exposed to the browser.
-            </p>
+            <p className="flex items-center gap-2 font-semibold"><AlertTriangle className="h-4 w-4" /> AI is not available</p>
+            {isClient ? (
+              <p className="mt-1">
+                {source === "self"
+                  ? "You haven't added any API keys yet. Add keys in the AI tab under \u201cMy own APIs\u201d"
+                  : "Built-in AI isn't available right now"}
+                {canChooseSource ? ", or switch source above." : ". Please contact the administrator."}
+              </p>
+            ) : (
+              <p className="mt-1">
+                Ask your admin to add <code>AI_API_KEY</code> (and optionally <code>AI_BASE_URL</code>,
+                <code> AI_MODEL</code>) to the server environment, then redeploy. The key stays on the
+                server and is never exposed to the browser.
+              </p>
+            )}
           </div>
         ) : (
           <>

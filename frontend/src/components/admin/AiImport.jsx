@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { X, Globe, Download, CheckCircle2, AlertTriangle, Loader2 } from "lucide-react";
+import { X, Globe, Download, CheckCircle2, AlertTriangle, Loader2, Server, KeyRound } from "lucide-react";
 import { aiService } from "../../services";
+import { useAuth } from "../../context/AuthContext";
 
 const LETTERS = ["A", "B", "C", "D"];
 
@@ -9,6 +10,10 @@ const LETTERS = ["A", "B", "C", "D"];
 // app's format for preview → insert. Reuses the same onUpload handler as the
 // bulk-upload / AI-generate modals.
 export default function AiImport({ open, onClose, onUpload, title = "Import Questions from Web", sections = [] }) {
+  const { user } = useAuth();
+  const isClient = user?.role === "client" && user?.aiAccess;
+  const canChooseSource = isClient && user?.aiAllowInbuilt !== false && user?.aiAllowSelf !== false;
+  const [source, setSource] = useState(user?.aiMode === "self" ? "self" : "inbuilt"); // "inbuilt" | "self"
   const [status, setStatus] = useState(null);
   const [model, setModel] = useState("");
   const [section, setSection] = useState(sections[0] || ""); // subject to tag imported questions
@@ -23,14 +28,19 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
     if (!open) return;
     setMsg("");
     setPreview([]);
+  }, [open]);
+
+  // (Re)load status for the chosen source so the model list / key count match.
+  useEffect(() => {
+    if (!open) return;
     aiService
-      .status()
+      .status(isClient ? source : undefined)
       .then((s) => {
         setStatus(s);
         setModel(s?.model || (s?.models && s.models[0]) || "");
       })
       .catch(() => setStatus({ enabled: false }));
-  }, [open]);
+  }, [open, source, isClient]);
 
   if (!open) return null;
 
@@ -47,6 +57,7 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
         url: url.trim() || undefined,
         content: text.trim() || undefined,
         model: model || undefined,
+        mode: isClient ? source : undefined, // which key pool to use for this import
       });
       if (!jobId) throw new Error("Could not start the import.");
 
@@ -115,10 +126,35 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
           <button type="button" onClick={onClose}><X className="h-5 w-5" /></button>
         </div>
 
+        {canChooseSource && (
+          <div className="mb-3">
+            <label className="mb-1 block text-sm font-semibold">API source for this import</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setSource("inbuilt")}
+                className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition ${source === "inbuilt" ? "border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-900/20 dark:text-brand-300" : "border-slate-200 text-slate-600 hover:border-brand-400 dark:border-slate-700 dark:text-slate-300"}`}>
+                <Server className="h-4 w-4" /> Built-in APIs
+              </button>
+              <button type="button" onClick={() => setSource("self")}
+                className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition ${source === "self" ? "border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-900/20 dark:text-brand-300" : "border-slate-200 text-slate-600 hover:border-brand-400 dark:border-slate-700 dark:text-slate-300"}`}>
+                <KeyRound className="h-4 w-4" /> My own APIs
+              </button>
+            </div>
+          </div>
+        )}
+
         {status && !status.enabled ? (
           <div className="rounded-xl bg-amber-50 p-4 text-sm text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
-            <p className="flex items-center gap-2 font-semibold"><AlertTriangle className="h-4 w-4" /> AI is not configured</p>
-            <p className="mt-1">Add <code>AI_API_KEY</code> to the server environment to enable importing.</p>
+            <p className="flex items-center gap-2 font-semibold"><AlertTriangle className="h-4 w-4" /> AI is not available</p>
+            {isClient ? (
+              <p className="mt-1">
+                {source === "self"
+                  ? "You haven't added any API keys yet. Add keys in the AI tab under \u201cMy own APIs\u201d"
+                  : "Built-in AI isn't available right now"}
+                {canChooseSource ? ", or switch source above." : ". Please contact the administrator."}
+              </p>
+            ) : (
+              <p className="mt-1">Add <code>AI_API_KEY</code> to the server environment to enable importing.</p>
+            )}
           </div>
         ) : (
           <>

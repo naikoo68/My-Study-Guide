@@ -35,14 +35,17 @@ const SYSTEM_SCOPE = { owner: null, includeEnv: true, mode: "inbuilt", access: t
 // anonymous callers always use the platform pool. A client uses the pool that
 // matches their chosen mode — but only within what the admin allows. A client
 // with no AI access (or with both pools disabled) is denied.
-function resolveScope(user) {
+function resolveScope(user, requestedMode) {
   if (!user || user.role !== "client") return { ...SYSTEM_SCOPE };
   if (!user.aiAccess) return { owner: null, includeEnv: false, access: false, denied: true };
   const allowInbuilt = user.aiAllowInbuilt !== false;
   const allowSelf = user.aiAllowSelf !== false;
   if (!allowInbuilt && !allowSelf) return { owner: null, includeEnv: false, access: false, denied: true };
-  // The client's preferred pool, corrected to something they're allowed to use.
-  let mode = user.aiMode === "self" ? "self" : "inbuilt";
+  // A per-request choice (picked in the AI generator) wins over the saved
+  // preference; otherwise fall back to the client's stored mode. Either way the
+  // result is corrected to a pool the admin actually allows.
+  const requested = requestedMode === "self" || requestedMode === "inbuilt" ? requestedMode : null;
+  let mode = requested || (user.aiMode === "self" ? "self" : "inbuilt");
   if (mode === "self" && !allowSelf) mode = "inbuilt";
   if (mode === "inbuilt" && !allowInbuilt) mode = "self";
   return mode === "self"
@@ -133,7 +136,7 @@ const stripListMarker = (x) =>
 // GET /api/ai/status — lets the admin UI show/hide the "Generate with AI"
 // button and populate the model dropdown.
 export async function aiStatus(req, res) {
-  const scope = resolveScope(req.user);
+  const scope = resolveScope(req.user, req.query?.mode);
   if (scope.denied) {
     return res.json({ enabled: false, denied: true, mode: null, keys: 0, models: [], model: "" });
   }
@@ -677,7 +680,7 @@ async function runGenerationJob(id, ctx) {
 // Body: { topic, notes, model, plan:[{type,difficulty,count}] }  (or legacy { count, difficulty, types })
 // Starts a background job and returns { jobId, requested }. Poll /api/ai/job/:id.
 export async function generateQuestions(req, res) {
-  const scope = resolveScope(req.user);
+  const scope = resolveScope(req.user, req.body?.mode);
   if (scope.denied) {
     return res.status(403).json({ message: "AI access is not enabled for your account. Please contact the administrator." });
   }
@@ -913,7 +916,7 @@ async function runExtractionJob(id, { endpoints, model, chunks, owner = null }) 
 // Body: { url?, content?, model? } — starts a background import job over the
 // whole source (all sections) and returns { jobId }. Poll /api/ai/job/:id.
 export async function extractQuestions(req, res) {
-  const scope = resolveScope(req.user);
+  const scope = resolveScope(req.user, req.body?.mode);
   if (scope.denied) {
     return res.status(403).json({ message: "AI access is not enabled for your account. Please contact the administrator." });
   }

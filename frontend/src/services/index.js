@@ -224,7 +224,7 @@ export const noticeService = {
 
 // ---- AI question generator (admin) ----
 export const aiService = {
-  status: () => api.get("/ai/status"),
+  status: (mode) => api.get(`/ai/status${mode ? `?mode=${encodeURIComponent(mode)}` : ""}`),
   generate: (data) => api.post("/ai/generate", data), // returns { jobId, requested }
   job: (id) => api.get(`/ai/job/${id}`), // poll: { status, count, requested, questions? }
   extract: (data) => api.post("/ai/extract", data), // import questions from a URL/text → { questions }
