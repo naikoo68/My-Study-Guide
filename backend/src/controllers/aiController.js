@@ -25,9 +25,35 @@ function envProviders() {
   return out;
 }
 
-// All active providers = admin-managed DB keys (enabled) first, then env slots.
-async function providers() {
-  const db = await AiKey.find({ enabled: true }).sort("order createdAt").lean();
+// A "scope" decides which key pool a request draws from:
+//   { owner, includeEnv } — owner null = platform/built-in keys (admin), a user
+//   id = that client's own keys. Env-var slots are only ever part of the
+//   platform pool. The default scope is the platform pool (admin behaviour).
+const SYSTEM_SCOPE = { owner: null, includeEnv: true, mode: "inbuilt", access: true };
+
+// Decide the key scope for the requesting user. Non-clients (admin/student) and
+// anonymous callers always use the platform pool. A client uses the pool that
+// matches their chosen mode — but only within what the admin allows. A client
+// with no AI access (or with both pools disabled) is denied.
+function resolveScope(user) {
+  if (!user || user.role !== "client") return { ...SYSTEM_SCOPE };
+  if (!user.aiAccess) return { owner: null, includeEnv: false, access: false, denied: true };
+  const allowInbuilt = user.aiAllowInbuilt !== false;
+  const allowSelf = user.aiAllowSelf !== false;
+  if (!allowInbuilt && !allowSelf) return { owner: null, includeEnv: false, access: false, denied: true };
+  // The client's preferred pool, corrected to something they're allowed to use.
+  let mode = user.aiMode === "self" ? "self" : "inbuilt";
+  if (mode === "self" && !allowSelf) mode = "inbuilt";
+  if (mode === "inbuilt" && !allowInbuilt) mode = "self";
+  return mode === "self"
+    ? { owner: user._id, includeEnv: false, mode, access: true, allowInbuilt, allowSelf }
+    : { owner: null, includeEnv: true, mode, access: true, allowInbuilt, allowSelf };
+}
+
+// Active providers for a scope = DB keys (enabled, matching owner) first, then
+// env slots when the scope includes them (platform pool only).
+async function providers(scope = SYSTEM_SCOPE) {
+  const db = await AiKey.find({ enabled: true, owner: scope.owner ?? null }).sort("order createdAt").lean();
   const dbProviders = db
     .filter((k) => (k.key || "").trim())
     .map((k) => {
@@ -38,11 +64,12 @@ async function providers() {
         models: models.length ? models : ["gemini-2.5-flash"],
       };
     });
-  // DB keys first, then env slots — de-duplicated by key value so the same key
-  // isn't used twice if it's both imported and still set in Render.
+  // DB keys first, then env slots (if in scope) — de-duplicated by key value so
+  // the same key isn't used twice if it's both imported and still set in Render.
   const seen = new Set();
   const deduped = [];
-  for (const p of [...dbProviders, ...envProviders()]) {
+  const pool = scope.includeEnv ? [...dbProviders, ...envProviders()] : dbProviders;
+  for (const p of pool) {
     if (seen.has(p.key)) continue;
     seen.add(p.key);
     deduped.push(p);
@@ -51,9 +78,9 @@ async function providers() {
 }
 
 // Flat list of every available model with the key + base URL that serves it.
-async function modelRegistry() {
+async function modelRegistry(scope = SYSTEM_SCOPE) {
   const reg = [];
-  for (const p of await providers()) {
+  for (const p of await providers(scope)) {
     for (const m of p.models) {
       if (!reg.some((r) => r.model === m)) reg.push({ model: m, key: p.key, baseUrl: p.baseUrl });
     }
@@ -65,8 +92,8 @@ async function modelRegistry() {
 // EVERY enabled key whose model list includes this model. This lets several keys
 // (e.g. different Gemini accounts) serve the same model, so the generator can
 // fall back to the next key when one hits its quota.
-async function resolveModel(requested) {
-  const provs = await providers();
+async function resolveModel(requested, scope = SYSTEM_SCOPE) {
+  const provs = await providers(scope);
   if (!provs.length) return null;
   const defModel = provs[0].models[0];
   const model = provs.some((p) => p.models.includes(requested)) ? requested : defModel;
@@ -78,14 +105,15 @@ async function resolveModel(requested) {
 
 // Try a request across all keys that serve the model, moving to the next key on
 // a quota/auth error (429/401/403). Other errors aren't retried on another key.
-async function callWithFallback({ endpoints, model, userPrompt, maxTokens }) {
+async function callWithFallback({ endpoints, model, userPrompt, maxTokens, owner = null }) {
   let last = { ok: false, status: 0, detail: "No AI key is configured." };
   for (const ep of endpoints || []) {
     const r = await callProvider({ key: ep.key, baseUrl: ep.baseUrl, model, userPrompt, maxTokens });
     if (r.ok) {
       // Record app-side usage on the matching DB key (env-only keys aren't in
-      // the DB, so this is a no-op for them). Fire-and-forget.
-      AiKey.updateOne({ key: ep.key }, { $inc: { usedRequests: 1, usedTokens: r.tokens || 0 } }).catch(() => {});
+      // the DB, so this is a no-op for them). Scoped by owner so a client key
+      // and a platform key that share a value never cross-update. Fire-and-forget.
+      AiKey.updateOne({ key: ep.key, owner: owner ?? null }, { $inc: { usedRequests: 1, usedTokens: r.tokens || 0 } }).catch(() => {});
       return r;
     }
     last = r;
@@ -105,13 +133,18 @@ const stripListMarker = (x) =>
 // GET /api/ai/status — lets the admin UI show/hide the "Generate with AI"
 // button and populate the model dropdown.
 export async function aiStatus(req, res) {
-  const reg = await modelRegistry();
-  const provs = await providers();
+  const scope = resolveScope(req.user);
+  if (scope.denied) {
+    return res.json({ enabled: false, denied: true, mode: null, keys: 0, models: [], model: "" });
+  }
+  const reg = await modelRegistry(scope);
+  const provs = await providers(scope);
   res.json({
     enabled: reg.length > 0,
+    mode: scope.mode, // "inbuilt" | "self" — which pool this request used
     model: reg[0]?.model || "", // default / first configured model
     models: reg.map((r) => r.model), // every model across all keys (dropdown)
-    keys: provs.length, // how many API keys are active
+    keys: provs.length, // how many API keys are active in this scope
   });
 }
 
@@ -508,7 +541,7 @@ function planGaps(planArr, collected, reserved) {
 }
 
 async function runGenerationJob(id, ctx) {
-  const { workers, model, topic, notes, plan, count, difficulty, types, target, avoid } = ctx;
+  const { workers, model, topic, notes, plan, count, difficulty, types, target, avoid, owner = null } = ctx;
   const job = genJobs.get(id);
   const deadline = Date.now() + 8 * 60 * 1000; // overall time budget
 
@@ -568,7 +601,7 @@ async function runGenerationJob(id, ctx) {
       const r = await callProvider({ key: ep.key, baseUrl: ep.baseUrl, model: ep.model || model, userPrompt: prompt, maxTokens });
       release(res); // free the reservation — any shortfall gets re-targeted next round
       if (r.ok) {
-        AiKey.updateOne({ key: ep.key }, { $inc: { usedRequests: 1, usedTokens: r.tokens || 0 } }).catch(() => {});
+        AiKey.updateOne({ key: ep.key, owner: owner ?? null }, { $inc: { usedRequests: 1, usedTokens: r.tokens || 0 } }).catch(() => {});
         for (const q of normalize(parseQuestions(r.content))) {
           if (collected.length >= target) break;
           const sig = qSig(q);
@@ -644,11 +677,17 @@ async function runGenerationJob(id, ctx) {
 // Body: { topic, notes, model, plan:[{type,difficulty,count}] }  (or legacy { count, difficulty, types })
 // Starts a background job and returns { jobId, requested }. Poll /api/ai/job/:id.
 export async function generateQuestions(req, res) {
-  const chosen = await resolveModel(String(req.body?.model || "").trim());
+  const scope = resolveScope(req.user);
+  if (scope.denied) {
+    return res.status(403).json({ message: "AI access is not enabled for your account. Please contact the administrator." });
+  }
+  const chosen = await resolveModel(String(req.body?.model || "").trim(), scope);
   if (!chosen || !chosen.endpoints.length) {
     return res.status(400).json({
       message:
-        "AI is not configured. Add an API key in Admin → AI Keys, or set AI_API_KEY on the server.",
+        scope.mode === "self"
+          ? "No API keys added yet. Go to the AI tab, choose “Use my own API keys”, and add at least one key."
+          : "AI is not configured. Add an API key in Admin → AI Keys, or set AI_API_KEY on the server.",
     });
   }
   const { model } = chosen;
@@ -656,7 +695,7 @@ export async function generateQuestions(req, res) {
   // Build one worker per ENABLED key so they ALL generate simultaneously. A key
   // that serves the chosen model uses it; any other key uses its own first model
   // — so every available key contributes, not just those on the selected model.
-  const workers = (await providers()).map((p) => ({
+  const workers = (await providers(scope)).map((p) => ({
     key: p.key,
     baseUrl: p.baseUrl,
     model: p.models.includes(model) ? model : (p.models[0] || model),
@@ -712,7 +751,7 @@ export async function generateQuestions(req, res) {
     : [];
 
   // Fire-and-forget — the client polls /api/ai/job/:id for progress.
-  runGenerationJob(id, { workers, model, topic, notes, plan, count, difficulty, types, target, avoid });
+  runGenerationJob(id, { workers, model, topic, notes, plan, count, difficulty, types, target, avoid, owner: scope.owner });
 
   res.json({ jobId: id, requested: target, model });
 }
@@ -820,7 +859,7 @@ function buildExtractPrompt(sourceText) {
 
 // Background worker: extract questions from every source chunk and combine
 // (de-duplicated), so a multi-section page is imported in one go.
-async function runExtractionJob(id, { endpoints, model, chunks }) {
+async function runExtractionJob(id, { endpoints, model, chunks, owner = null }) {
   const job = genJobs.get(id);
   const deadline = Date.now() + 5 * 60 * 1000; // 5-minute budget
   const collected = [];
@@ -837,6 +876,7 @@ async function runExtractionJob(id, { endpoints, model, chunks }) {
         model,
         userPrompt: buildExtractPrompt(chunks[c]),
         maxTokens: 16000,
+        owner,
       });
       save({ chunksDone: c + 1 });
       if (!r.ok) {
@@ -873,9 +913,18 @@ async function runExtractionJob(id, { endpoints, model, chunks }) {
 // Body: { url?, content?, model? } — starts a background import job over the
 // whole source (all sections) and returns { jobId }. Poll /api/ai/job/:id.
 export async function extractQuestions(req, res) {
-  const chosen = await resolveModel(String(req.body?.model || "").trim());
+  const scope = resolveScope(req.user);
+  if (scope.denied) {
+    return res.status(403).json({ message: "AI access is not enabled for your account. Please contact the administrator." });
+  }
+  const chosen = await resolveModel(String(req.body?.model || "").trim(), scope);
   if (!chosen || !chosen.endpoints.length) {
-    return res.status(400).json({ message: "AI is not configured. Add an API key in Admin → AI Keys." });
+    return res.status(400).json({
+      message:
+        scope.mode === "self"
+          ? "No API keys added yet. Go to the AI tab, choose “Use my own API keys”, and add at least one key."
+          : "AI is not configured. Add an API key in Admin → AI Keys.",
+    });
   }
   const { model, endpoints } = chosen;
   const url = String(req.body?.url || "").trim();
@@ -916,7 +965,7 @@ export async function extractQuestions(req, res) {
     updatedAt: Date.now(),
   });
 
-  runExtractionJob(id, { endpoints, model, chunks });
+  runExtractionJob(id, { endpoints, model, chunks, owner: scope.owner });
   res.json({ jobId: id, chunks: chunks.length, model });
 }
 
@@ -947,15 +996,24 @@ function keyToClient(k) {
   };
 }
 
-// GET /api/ai/keys (admin) — DB keys (editable) + env-var keys (read-only), plus
-// the flat list of all available models across every enabled key.
+// The key pool a request manages: admin → platform keys (owner null); a client
+// → only their OWN keys. All key-management queries are scoped by this so a
+// client can never see or touch platform keys (or another client's keys).
+function keyOwner(req) {
+  return req.user?.role === "client" ? req.user._id : null;
+}
+
+// GET /api/ai/keys — DB keys (editable). For the admin these are the platform
+// keys plus the read-only env-var keys; for a client, only their own keys.
 export async function listKeys(req, res) {
-  const db = await AiKey.find().sort("order createdAt").lean();
+  const owner = keyOwner(req);
+  const isAdmin = req.user?.role === "admin";
+  const db = await AiKey.find({ owner: owner ?? null }).sort("order createdAt").lean();
   const dbList = db.map((k) => ({ ...keyToClient(k), source: "db" }));
 
-  // Hide env keys that have already been imported into the DB (same key value).
+  // Env-var keys are part of the PLATFORM pool only — never shown to clients.
   const dbKeyValues = new Set(db.map((k) => (k.key || "").trim()));
-  const envList = envProviders()
+  const envList = (isAdmin ? envProviders() : [])
     .map((p, i) => ({
       _id: `env-${i + 1}`,
       source: "env",
@@ -976,7 +1034,7 @@ export async function listKeys(req, res) {
     .filter((p) => !dbKeyValues.has(p.key))
     .map(({ key, ...rest }) => rest); // never send the raw key to the browser
 
-  const models = (await modelRegistry()).map((r) => r.model);
+  const models = (await modelRegistry({ owner: owner ?? null, includeEnv: isAdmin })).map((r) => r.model);
 
   // Aggregate usage across the DB keys (app-tracked — providers don't expose
   // real remaining credits). creditLimit is a manual token budget the admin
@@ -1005,8 +1063,10 @@ export async function listKeys(req, res) {
 export async function createKey(req, res) {
   const { label, baseUrl, models, key, creditLimit } = req.body || {};
   if (!key || !String(key).trim()) return res.status(400).json({ message: "API key is required." });
-  const order = await AiKey.countDocuments();
+  const owner = keyOwner(req);
+  const order = await AiKey.countDocuments({ owner: owner ?? null });
   const doc = await AiKey.create({
+    owner,
     label: String(label || "").trim(),
     baseUrl: String(baseUrl || "").trim() || "https://generativelanguage.googleapis.com/v1beta/openai",
     models: String(models || "").trim() || "gemini-2.5-flash",
@@ -1037,19 +1097,22 @@ export async function bulkCreateKeys(req, res) {
   }
   if (!cleaned.length) return res.status(400).json({ message: "Paste at least one API key." });
 
-  const existing = new Set((await AiKey.find().select("key").lean()).map((k) => (k.key || "").trim()));
+  const owner = keyOwner(req);
+  // De-dupe within THIS pool only (a client's key list, or the platform's).
+  const existing = new Set((await AiKey.find({ owner: owner ?? null }).select("key").lean()).map((k) => (k.key || "").trim()));
   const baseUrlClean =
     String(baseUrl || "").trim() || "https://generativelanguage.googleapis.com/v1beta/openai";
   const modelsClean = String(models || "").trim() || "gemini-2.5-flash";
   const limitClean = Math.max(0, parseInt(creditLimit, 10) || 0);
   const labelBase = String(label || "").trim();
 
-  let order = await AiKey.countDocuments();
+  let order = await AiKey.countDocuments({ owner: owner ?? null });
   const created = [];
   let skipped = 0;
   for (const key of cleaned) {
     if (existing.has(key)) { skipped += 1; continue; }
     const doc = await AiKey.create({
+      owner,
       label: labelBase ? `${labelBase} ${created.length + 1}` : "",
       baseUrl: baseUrlClean,
       models: modelsClean,
@@ -1077,14 +1140,17 @@ export async function updateKey(req, res) {
   if (creditLimit !== undefined) patch.creditLimit = Math.max(0, parseInt(creditLimit, 10) || 0);
   // Let the admin zero the app-tracked usage counters (e.g. after a quota reset).
   if (resetUsage) { patch.usedRequests = 0; patch.usedTokens = 0; }
-  const doc = await AiKey.findByIdAndUpdate(req.params.id, patch, { new: true });
+  // Scope by owner so a client can only edit their OWN keys (and admin only
+  // platform keys) — never each other's.
+  const doc = await AiKey.findOneAndUpdate({ _id: req.params.id, owner: keyOwner(req) ?? null }, patch, { new: true });
   if (!doc) return res.status(404).json({ message: "Key not found" });
   res.json(keyToClient(doc));
 }
 
-// DELETE /api/ai/keys/:id (admin)
+// DELETE /api/ai/keys/:id — scoped to the caller's own pool.
 export async function deleteKey(req, res) {
-  await AiKey.findByIdAndDelete(req.params.id);
+  const doc = await AiKey.findOneAndDelete({ _id: req.params.id, owner: keyOwner(req) ?? null });
+  if (!doc) return res.status(404).json({ message: "Key not found" });
   res.json({ message: "Key deleted" });
 }
 
@@ -1141,12 +1207,15 @@ async function runKeyTest(doc) {
 // POST /api/ai/keys/import (admin) — copy Render env-var keys into the DB so they
 // become fully manageable (test/edit/delete). Skips keys already imported.
 export async function importEnvKeys(req, res) {
-  const existing = new Set((await AiKey.find().select("key").lean()).map((k) => (k.key || "").trim()));
-  let order = await AiKey.countDocuments();
+  // Env keys belong to the PLATFORM pool (owner null) and this route is
+  // admin-only, so scope the de-dupe/order to platform keys.
+  const existing = new Set((await AiKey.find({ owner: null }).select("key").lean()).map((k) => (k.key || "").trim()));
+  let order = await AiKey.countDocuments({ owner: null });
   let imported = 0;
   for (const p of envProviders()) {
     if (existing.has(p.key)) continue;
     await AiKey.create({
+      owner: null,
       label: "Imported from server",
       baseUrl: p.baseUrl,
       models: p.models.join(", "),
@@ -1159,9 +1228,9 @@ export async function importEnvKeys(req, res) {
   res.json({ imported });
 }
 
-// POST /api/ai/keys/test-all (admin) — test every DB key in one go.
+// POST /api/ai/keys/test-all — test every DB key in the caller's pool.
 export async function testAllKeys(req, res) {
-  const keys = await AiKey.find();
+  const keys = await AiKey.find({ owner: keyOwner(req) ?? null });
   for (const doc of keys) await runKeyTest(doc);
   res.json({ tested: keys.length });
 }
@@ -1170,7 +1239,7 @@ export async function testAllKeys(req, res) {
 // can actually use (OpenAI-compatible /models list). Fixes "404 model not found"
 // guesswork by showing valid ids to choose from.
 export async function listKeyModels(req, res) {
-  const doc = await AiKey.findById(req.params.id);
+  const doc = await AiKey.findOne({ _id: req.params.id, owner: keyOwner(req) ?? null });
   if (!doc) return res.status(404).json({ message: "Key not found" });
   const baseUrl = (doc.baseUrl || DEFAULT_BASE).replace(/\/$/, "");
   try {
@@ -1189,8 +1258,54 @@ export async function listKeyModels(req, res) {
 
 // POST /api/ai/keys/:id/test (admin) — makes a tiny live call to check the key.
 export async function testKey(req, res) {
-  const doc = await AiKey.findById(req.params.id);
+  const doc = await AiKey.findOne({ _id: req.params.id, owner: keyOwner(req) ?? null });
   if (!doc) return res.status(404).json({ message: "Key not found" });
   const ok = await runKeyTest(doc);
   res.json({ ok, status: doc.lastStatus, error: doc.lastError, lastCheckedAt: doc.lastCheckedAt });
+}
+
+
+/* --------------------------- Client AI access & mode --------------------------- */
+
+// GET /api/ai/access — the current user's AI configuration, used to drive the
+// client "AI" tab: whether they have access, which pools they may use, their
+// chosen mode, how many of their own keys exist, and whether built-in AI is
+// actually available. Admins always have full built-in access.
+export async function getAiAccess(req, res) {
+  const user = req.user;
+  if (!user || user.role !== "client") {
+    const inbuiltKeys = (await providers(SYSTEM_SCOPE)).length;
+    return res.json({ role: user?.role || "guest", access: true, mode: "inbuilt", allowInbuilt: true, allowSelf: false, ownKeys: 0, inbuiltAvailable: inbuiltKeys > 0, inbuiltKeys });
+  }
+  const scope = resolveScope(user);
+  const allowInbuilt = user.aiAllowInbuilt !== false;
+  const allowSelf = user.aiAllowSelf !== false;
+  const [ownKeys, inbuiltKeys] = await Promise.all([
+    AiKey.countDocuments({ owner: user._id }),
+    allowInbuilt ? providers(SYSTEM_SCOPE).then((p) => p.length) : Promise.resolve(0),
+  ]);
+  res.json({
+    role: "client",
+    access: user.aiAccess === true && !scope.denied,
+    mode: scope.denied ? null : scope.mode,
+    allowInbuilt,
+    allowSelf,
+    ownKeys,
+    inbuiltAvailable: allowInbuilt && inbuiltKeys > 0,
+    inbuiltKeys,
+  });
+}
+
+// PUT /api/ai/mode — a client picks which pool to use ("inbuilt" | "self"),
+// within what the admin allows. No-op for non-clients.
+export async function setAiMode(req, res) {
+  const user = req.user;
+  if (!user || user.role !== "client") return res.status(403).json({ message: "Only client accounts can set an AI mode." });
+  if (!user.aiAccess) return res.status(403).json({ message: "AI access is not enabled for your account." });
+  const mode = req.body?.mode === "self" ? "self" : "inbuilt";
+  if (mode === "self" && user.aiAllowSelf === false) return res.status(400).json({ message: "Your own API keys are not permitted for this account." });
+  if (mode === "inbuilt" && user.aiAllowInbuilt === false) return res.status(400).json({ message: "Built-in AI is not permitted for this account." });
+  user.aiMode = mode;
+  await user.save();
+  res.json({ mode: user.aiMode });
 }

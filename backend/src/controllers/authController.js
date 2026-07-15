@@ -49,6 +49,11 @@ const sanitize = (u) => ({
   referralCode: u.referralCode,
   subscriptionPlan: u.subscriptionPlan,
   isTrial: u.isTrial,
+  // AI access (client accounts) — drives the client workspace's AI tab.
+  aiAccess: u.aiAccess === true,
+  aiAllowInbuilt: u.aiAllowInbuilt !== false,
+  aiAllowSelf: u.aiAllowSelf !== false,
+  aiMode: u.aiMode === "self" ? "self" : "inbuilt",
 });
 
 // ---- Client subscription plans (single source of truth for pricing) ----

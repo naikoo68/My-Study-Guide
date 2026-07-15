@@ -2,13 +2,15 @@ import { Router } from "express";
 import {
   aiStatus, generateQuestions, jobStatus, extractQuestions,
   listKeys, createKey, bulkCreateKeys, updateKey, deleteKey, testKey, importEnvKeys, testAllKeys, listKeyModels,
+  getAiAccess, setAiMode,
 } from "../controllers/aiController.js";
 import { protect, authorize } from "../middleware/auth.js";
 
 const router = Router();
 const admin = [protect, authorize("admin")];
-// Clients may generate/import questions with AI too (they use the shared keys
-// the platform owner configured). Key MANAGEMENT stays admin-only below.
+// Clients may generate/import questions with AI too. Key MANAGEMENT is also
+// open to clients but every controller scopes strictly to the caller's own
+// keys (admin → platform keys, client → their own), so pools never mix.
 const manage = [protect, authorize("admin", "client")];
 
 router.get("/status", ...manage, aiStatus);
@@ -16,15 +18,20 @@ router.post("/generate", ...manage, generateQuestions);
 router.get("/job/:id", ...manage, jobStatus);
 router.post("/extract", ...manage, extractQuestions);
 
-// AI key management (admin)
-router.get("/keys", ...admin, listKeys);
-router.post("/keys", ...admin, createKey);
-router.post("/keys/bulk", ...admin, bulkCreateKeys); // add many keys at once (shared preset)
-router.post("/keys/import", ...admin, importEnvKeys); // import Render env keys into the DB
-router.post("/keys/test-all", ...admin, testAllKeys); // test every key at once
-router.put("/keys/:id", ...admin, updateKey);
-router.delete("/keys/:id", ...admin, deleteKey);
-router.post("/keys/:id/test", ...admin, testKey);
-router.post("/keys/:id/models", ...admin, listKeyModels); // list models this key can use
+// Client AI access + pool selection (admin allowed too; setMode is client-only).
+router.get("/access", ...manage, getAiAccess);
+router.put("/mode", ...manage, setAiMode);
+
+// AI key management — owner-scoped (admin manages platform keys; a client
+// manages only their OWN keys).
+router.get("/keys", ...manage, listKeys);
+router.post("/keys", ...manage, createKey);
+router.post("/keys/bulk", ...manage, bulkCreateKeys); // add many keys at once (shared preset)
+router.post("/keys/import", ...admin, importEnvKeys); // import Render env keys — platform only
+router.post("/keys/test-all", ...manage, testAllKeys); // test every key in the caller's pool
+router.put("/keys/:id", ...manage, updateKey);
+router.delete("/keys/:id", ...manage, deleteKey);
+router.post("/keys/:id/test", ...manage, testKey);
+router.post("/keys/:id/models", ...manage, listKeyModels); // list models this key can use
 
 export default router;

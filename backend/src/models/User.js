@@ -21,6 +21,16 @@ const userSchema = new mongoose.Schema(
     // can revoke quiz access for a specific user. Test-series access is stored
     // per test on the TestSeries model.
     quizAccess: { type: Boolean, default: true },
+    // AI access for client accounts (admin-controlled). aiAccess is the master
+    // switch — a client only sees the AI feature when the admin turns it on.
+    // The two pools the client may draw from:
+    //   • inbuilt — the platform's built-in (admin) API keys
+    //   • self    — API keys the client adds themselves
+    // aiMode is the client's own choice between the pools they're allowed to use.
+    aiAccess: { type: Boolean, default: false },
+    aiAllowInbuilt: { type: Boolean, default: true },
+    aiAllowSelf: { type: Boolean, default: true },
+    aiMode: { type: String, enum: ["inbuilt", "self"], default: "inbuilt" },
     emailVerificationToken: String,
     otpHash: { type: String, select: false },
     otpExpires: { type: Date, select: false },

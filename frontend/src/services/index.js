@@ -228,7 +228,10 @@ export const aiService = {
   generate: (data) => api.post("/ai/generate", data), // returns { jobId, requested }
   job: (id) => api.get(`/ai/job/${id}`), // poll: { status, count, requested, questions? }
   extract: (data) => api.post("/ai/extract", data), // import questions from a URL/text → { questions }
-  // Admin AI-key management
+  // Client AI access + pool selection (built-in vs own keys)
+  access: () => api.get("/ai/access"), // { access, mode, allowInbuilt, allowSelf, ownKeys, inbuiltAvailable }
+  setMode: (mode) => api.put("/ai/mode", { mode }), // "inbuilt" | "self"
+  // AI-key management (owner-scoped: admin → platform keys, client → own keys)
   keys: {
     list: () => api.get("/ai/keys"),
     create: (data) => api.post("/ai/keys", data),
