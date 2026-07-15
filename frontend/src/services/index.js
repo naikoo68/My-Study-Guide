@@ -99,6 +99,9 @@ export const testService = {
   deleteQuestion: (id, qid) => api.del(`/tests/${id}/questions/${qid}`),
   // pull questions from the quiz/practice bank into a test
   populate: (id, plan) => api.post(`/tests/${id}/populate`, plan), // { quizPlan, practicePlan }
+  // cross-module conversion (admin): My Test ↔ platform Test Series
+  toTestSeries: (id, data) => api.patch(`/tests/${id}/to-test-series`, data), // { exam, post }
+  toMyTest: (id, data) => api.patch(`/tests/${id}/to-my-test`, data), // { practiceStream, practiceSubject }
 };
 
 // ---- Practice Quizzes (My Quiz / My Test Series) ----

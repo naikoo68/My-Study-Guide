@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, Eye, EyeOff, X, CalendarClock, Users, Search, Upload, HelpCircle, ChevronRight, GraduationCap, Briefcase, Copy, Download, Sparkles, Globe, Library, Clock, Scale } from "lucide-react";
+import { Plus, Pencil, Trash2, Eye, EyeOff, X, CalendarClock, Users, Search, Upload, HelpCircle, ChevronRight, GraduationCap, Briefcase, Copy, Download, Sparkles, Globe, Library, Clock, Scale, Shuffle } from "lucide-react";
 import { questionDateText, searchQuestions } from "../../lib/questions";
 import { testService, contentService, examService, practiceService } from "../../services";
 import Badge from "../../components/ui/Badge";
@@ -10,6 +10,7 @@ import AiImport from "../../components/admin/AiImport";
 import SubjectPlanEditor from "../../components/admin/SubjectPlanEditor";
 import PickFromBank from "../../components/admin/PickFromBank";
 import WeightageFill from "../../components/admin/WeightageFill";
+import ConvertModal from "../../components/admin/ConvertModal";
 import DuplicatesModal from "../../components/admin/DuplicatesModal";
 import { Files } from "lucide-react";
 import QuestionFormModal from "../../components/admin/QuestionFormModal";
@@ -53,6 +54,7 @@ export default function AdminTests() {
   const [importTest, setImportTest] = useState(null); // import-from-web questions for a test
   const [bankTest, setBankTest] = useState(null); // manual pick-from-bank for a test
   const [weightTest, setWeightTest] = useState(null); // auto-fill by subject (weightage)
+  const [convertTest, setConvertTest] = useState(null); // convert Test Series → My Test
   const [dupTest, setDupTest] = useState(null); // find-duplicates within a test
 
   // Manual subject plan (typed) for the create/edit popup
@@ -443,6 +445,9 @@ export default function AdminTests() {
                       <button onClick={() => setWeightTest(t)} title="Add by subject (weightage) — auto-pull N questions per subject" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30">
                         <Scale className="h-4 w-4" />
                       </button>
+                      <button onClick={() => setConvertTest(t)} title="Move to My Test (practice)" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30">
+                        <Shuffle className="h-4 w-4" />
+                      </button>
                       <button onClick={() => setDupTest(t)} title="Find duplicate questions in this test" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30">
                         <Files className="h-4 w-4" />
                       </button>
@@ -719,6 +724,14 @@ export default function AdminTests() {
         title={`Add by subject (weightage)${weightTest ? ` — ${weightTest.name}` : ""}`}
         onClose={() => setWeightTest(null)}
         onDone={() => load()}
+      />
+
+      <ConvertModal
+        open={!!convertTest}
+        mode="toMyTest"
+        source={convertTest}
+        onClose={() => setConvertTest(null)}
+        onDone={() => { setConvertTest(null); load(); }}
       />
 
       <DuplicatesModal

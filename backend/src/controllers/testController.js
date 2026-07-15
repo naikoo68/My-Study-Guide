@@ -3,6 +3,8 @@ import TestSeries from "../models/TestSeries.js";
 import Question from "../models/Question.js";
 import Attempt from "../models/Attempt.js";
 import User from "../models/User.js";
+import PracticeStream from "../models/PracticeStream.js";
+import PracticeSubject from "../models/PracticeSubject.js";
 import { isTestVisibleToUser, findAccessEntry } from "../utils/accessControl.js";
 import { notifyNewContent } from "../utils/notify.js";
 import { ownerValue, ownerFilter } from "../utils/ownership.js";
@@ -307,6 +309,49 @@ export async function submitTest(req, res) {
 }
 
 /* ---------------- Test questions (admin) ---------------- */
+
+// ---- Cross-module conversion (ADMIN only, platform ↔ own practice) ----
+// A My Test and a platform Test Series are BOTH TestSeries docs, so converting
+// between them is just a re-tag — the questions (which reference this doc) stay.
+
+// PATCH /api/tests/:id/to-test-series — My Test (practice) → platform Test Series.
+export async function toTestSeries(req, res) {
+  const item = await TestSeries.findOne({ _id: req.params.id, owner: null });
+  if (!item || !item.practice || item.practiceKind !== "test") {
+    return res.status(404).json({ message: "My Test not found" });
+  }
+  const { exam, post, category } = req.body;
+  if (!exam || !post) return res.status(400).json({ message: "Choose an exam and post." });
+  item.practice = false;
+  item.practiceKind = undefined;
+  item.practiceStream = undefined;
+  item.practiceSubject = undefined;
+  item.practiceTopic = undefined;
+  item.exam = exam;
+  item.post = post;
+  if (category) item.category = category;
+  await item.save();
+  res.json({ message: "Converted to Test Series", _id: item._id });
+}
+
+// PATCH /api/tests/:id/to-my-test — platform Test Series → My Test (practice).
+export async function toMyTest(req, res) {
+  const test = await TestSeries.findOne({ _id: req.params.id, owner: null });
+  if (!test || test.practice) return res.status(404).json({ message: "Test Series not found" });
+  const stream = await PracticeStream.findOne({ _id: req.body.practiceStream, owner: null });
+  const subject = await PracticeSubject.findOne({ _id: req.body.practiceSubject, owner: null });
+  if (!stream || !subject) return res.status(400).json({ message: "Choose a My Test stream and subject." });
+  test.practice = true;
+  test.practiceKind = "test";
+  test.practiceStream = stream._id;
+  test.practiceSubject = subject._id;
+  test.practiceTopic = undefined;
+  test.exam = undefined;
+  test.post = undefined;
+  test.visibleToAll = false; // practice items are hidden by default
+  await test.save();
+  res.json({ message: "Converted to My Test", _id: test._id });
+}
 
 // GET /api/tests/:id/questions  (admin or owning client) — full questions incl. answers
 export async function getTestQuestions(req, res) {

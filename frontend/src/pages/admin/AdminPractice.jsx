@@ -13,7 +13,8 @@ import QuestionView from "../../components/admin/QuestionView";
 import WeightageFill from "../../components/admin/WeightageFill";
 import PickFromBank from "../../components/admin/PickFromBank";
 import MoveItemModal from "../../components/admin/MoveItemModal";
-import { Files, Move } from "lucide-react";
+import ConvertModal from "../../components/admin/ConvertModal";
+import { Files, Move, Shuffle } from "lucide-react";
 
 const KINDS = [
   { key: "quiz", label: "My Quiz", icon: ListChecks },
@@ -48,6 +49,7 @@ export default function AdminPractice({ clientMode = false }) {
   const [weightOpen, setWeightOpen] = useState(false); // add by subject (weightage)
   const [bankOpen, setBankOpen] = useState(false); // hand-pick questions from the bank
   const [moveTarget, setMoveTarget] = useState(null); // item being moved
+  const [convert, setConvert] = useState(null); // { mode, source } cross-module convert
   const [dupOpen, setDupOpen] = useState(false);
   const [dupScope, setDupScope] = useState({ params: null, name: "" }); // duplicate-scan target
   const [viewQ, setViewQ] = useState(null);
@@ -296,6 +298,9 @@ export default function AdminPractice({ clientMode = false }) {
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button onClick={() => openQuestions(item)} className="btn-outline py-1.5 text-xs"><HelpCircle className="h-3.5 w-3.5" /> Questions</button>
                   <button onClick={() => setMoveTarget({ type: "item", node: item })} className="btn-outline py-1.5 text-xs" title="Move to another stream / subject / topic"><Move className="h-3.5 w-3.5" /> Move</button>
+                  {!clientMode && kind === "test" && (
+                    <button onClick={() => setConvert({ mode: "toTestSeries", source: item })} className="btn-outline py-1.5 text-xs" title="Convert this My Test into a platform Test Series"><Shuffle className="h-3.5 w-3.5" /> To Test Series</button>
+                  )}
                   {!clientMode && (
                     <button onClick={() => openAccess(item)} className="btn-outline py-1.5 text-xs"><Users className="h-3.5 w-3.5" /> Visibility</button>
                   )}
@@ -441,6 +446,14 @@ export default function AdminPractice({ clientMode = false }) {
         node={moveTarget?.node}
         kind={kind}
         onClose={() => setMoveTarget(null)}
+        onDone={() => load(view)}
+      />
+
+      <ConvertModal
+        open={!!convert}
+        mode={convert?.mode}
+        source={convert?.source}
+        onClose={() => setConvert(null)}
         onDone={() => load(view)}
       />
 
