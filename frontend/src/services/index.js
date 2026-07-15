@@ -222,6 +222,15 @@ export const noticeService = {
   remove: (id) => api.del(`/notices/${id}`),
 };
 
+// ---- Documents (standalone text store; PDF text extraction) ----
+export const documentService = {
+  list: () => api.get("/documents"), // lightweight list (no full content)
+  get: (id) => api.get(`/documents/${id}`), // full document incl. text
+  create: (data) => api.post("/documents", data), // { title, content, sourceName, pages }
+  update: (id, data) => api.put(`/documents/${id}`, data),
+  remove: (id) => api.del(`/documents/${id}`),
+};
+
 // ---- AI question generator (admin) ----
 export const aiService = {
   status: (mode) => api.get(`/ai/status${mode ? `?mode=${encodeURIComponent(mode)}` : ""}`),

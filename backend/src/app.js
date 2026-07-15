@@ -18,6 +18,7 @@ import examRoutes from "./routes/examRoutes.js";
 import studyRoutes from "./routes/studyRoutes.js";
 import feedbackRoutes from "./routes/feedbackRoutes.js";
 import noticeRoutes from "./routes/noticeRoutes.js";
+import documentRoutes from "./routes/documentRoutes.js";
 import practiceRoutes from "./routes/practiceRoutes.js";
 import searchRoutes from "./routes/searchRoutes.js";
 import aiRoutes from "./routes/aiRoutes.js";
@@ -73,6 +74,7 @@ app.use("/api", examRoutes); // /exams, /exams/:id/posts, /posts
 app.use("/api", studyRoutes); // study material: institutions → subjects → classes → files
 app.use("/api/feedback", feedbackRoutes); // student feedback (per-question + overall)
 app.use("/api/notices", noticeRoutes); // scrolling notice board (public read, admin write)
+app.use("/api/documents", documentRoutes); // standalone text documents (PDF text extraction)
 app.use("/api/practice", practiceRoutes); // "Practice Quizzes" section (My Quiz / My Test Series)
 app.use("/api", searchRoutes); // global metadata search (streams/subjects/topics/quizzes/tests)
 app.use("/api/ai", aiRoutes); // AI question generator (admin)
