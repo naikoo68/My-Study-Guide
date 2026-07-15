@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { X, Globe, Download, CheckCircle2, AlertTriangle, Loader2, Server, KeyRound, FileText, Upload, Files, Layers } from "lucide-react";
+import { X, Globe, Download, CheckCircle2, AlertTriangle, Loader2, Server, KeyRound, FileText, Upload, Files, Layers, ScanText } from "lucide-react";
 import { aiService, documentService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
 
@@ -50,6 +50,10 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
   const [msg, setMsg] = useState("");
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfProgress, setPdfProgress] = useState(null);
+  const [pdfFile, setPdfFile] = useState(null); // kept so OCR can re-read a scanned PDF
+  const [scanned, setScanned] = useState(false); // last PDF had no real text layer
+  const [ocrBusy, setOcrBusy] = useState(false);
+  const [ocrProgress, setOcrProgress] = useState(null);
   const [docList, setDocList] = useState([]);
   const [docId, setDocId] = useState("");
 
@@ -58,6 +62,8 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
     setMsg("");
     setBatches([]);
     setDocId("");
+    setPdfFile(null);
+    setScanned(false);
   }, [open]);
 
   useEffect(() => {
@@ -85,13 +91,18 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
     }
     setPdfBusy(true);
     setPdfProgress(null);
+    setPdfFile(file);
+    setScanned(false);
     setMsg(`Reading “${file.name}”…`);
     try {
-      const { extractPdfText } = await import("../../lib/pdf");
+      const { extractPdfText, looksScanned } = await import("../../lib/pdf");
       let total = 0;
       const extracted = await extractPdfText(file, (page, t) => { total = t; setPdfProgress({ page, total: t }); });
-      if (!extracted) {
-        setMsg("Couldn't read any text — this PDF looks like scanned images (no selectable text). Try a text-based PDF or paste the text.");
+      // Scanned/image PDFs (e.g. eOffice files) carry only a short digital stamp
+      // as selectable text — detect that and offer OCR instead of importing junk.
+      if (!extracted || looksScanned(extracted)) {
+        setScanned(true);
+        setMsg(`“${file.name}” looks like a SCANNED PDF — the pages are images, so only ${extracted ? "a header/stamp" : "no text"} could be read. Use “Read scanned PDF with OCR” below.`);
         return;
       }
       const combined = text.trim() ? `${text.trim()}\n\n${extracted}` : extracted;
@@ -102,6 +113,29 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
       setMsg(`PDF read failed: ${err.message}. Check your connection and try again.`);
     } finally {
       setPdfBusy(false);
+    }
+  };
+
+  // Read a scanned/image PDF with OCR (slower). Renders each page and recognises
+  // its text, then builds the question boxes from the result.
+  const runOcr = async () => {
+    if (!pdfFile) return;
+    setOcrBusy(true);
+    setOcrProgress(null);
+    setMsg(`Running OCR on “${pdfFile.name}”… this can take a while (downloads the OCR engine on first use).`);
+    try {
+      const { ocrPdfText } = await import("../../lib/pdf");
+      let total = 0;
+      const ocrText = await ocrPdfText(pdfFile, (page, t) => { total = t; setOcrProgress({ page, total: t }); });
+      if (!ocrText) { setMsg("OCR couldn't read any text from this PDF."); return; }
+      setText(ocrText);
+      buildBatches(ocrText);
+      setScanned(false);
+      setMsg(`✓ OCR read ${total} page(s) — split into question boxes below. OCR isn't perfect, so review each box before extracting.`);
+    } catch (e) {
+      setMsg(`OCR failed: ${e.message}`);
+    } finally {
+      setOcrBusy(false);
     }
   };
 
@@ -308,8 +342,17 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
               )}
             </label>
             <p className="mt-1 flex items-center gap-1 text-xs text-slate-400">
-              <FileText className="h-3.5 w-3.5" /> Works with text-based PDFs (question papers, notes). Scanned image PDFs have no selectable text.
+              <FileText className="h-3.5 w-3.5" /> Text-based PDFs read instantly. Scanned/image PDFs (no selectable text) need OCR below.
             </p>
+
+            {pdfFile && (
+              <button type="button" onClick={runOcr} disabled={ocrBusy || pdfBusy}
+                className={`mt-2 w-full ${scanned ? "btn-primary" : "btn-outline"}`}>
+                {ocrBusy
+                  ? <><Loader2 className="h-4 w-4 animate-spin" /> OCR… page {ocrProgress?.page || 0}/{ocrProgress?.total || "?"}</>
+                  : <><ScanText className="h-4 w-4" /> Read scanned PDF with OCR (slower)</>}
+              </button>
+            )}
 
             <div className="my-3 flex items-center gap-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
               <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" /> or <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />

@@ -70,3 +70,66 @@ export async function extractPdfText(file, onProgress) {
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
+
+
+// Heuristic: a real question paper has lots of words. Scanned/image PDFs (e.g.
+// eOffice government files) only carry a short digital stamp as selectable text,
+// so very few words means the pages are images and need OCR.
+export function looksScanned(text) {
+  const words = (text || "").trim().split(/\s+/).filter(Boolean);
+  return words.length < 60;
+}
+
+// Tesseract.js (OCR) is also loaded from a CDN on demand. It downloads its
+// worker/core/language data from the CDN on first use (~15MB), so OCR is slow.
+const TESSERACT = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+let tessPromise = null;
+function loadTesseract() {
+  if (!tessPromise) {
+    tessPromise = new Promise((resolve, reject) => {
+      if (window.Tesseract) return resolve(window.Tesseract);
+      const s = document.createElement("script");
+      s.src = TESSERACT;
+      s.async = true;
+      s.onload = () => (window.Tesseract ? resolve(window.Tesseract) : reject(new Error("OCR engine failed to load.")));
+      s.onerror = () => reject(new Error("Couldn't load the OCR engine (check your connection)."));
+      document.head.appendChild(s);
+    });
+  }
+  return tessPromise;
+}
+
+// Read a SCANNED / image PDF by rendering each page to an image and running OCR.
+// onProgress(page, totalPages, phase) fires per page. Much slower and less exact
+// than text extraction — use only when the PDF has no real text layer.
+export async function ocrPdfText(file, onProgress) {
+  const lib = await loadPdfjs();
+  const Tesseract = await loadTesseract();
+  const data = new Uint8Array(await file.arrayBuffer());
+  const pdf = await lib.getDocument({ data }).promise;
+  const worker = await Tesseract.createWorker("eng");
+  const pages = [];
+  try {
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const viewport = page.getViewport({ scale: 2 }); // upscale for better OCR accuracy
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.ceil(viewport.width);
+      canvas.height = Math.ceil(viewport.height);
+      const ctx = canvas.getContext("2d");
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      const { data: { text } } = await worker.recognize(canvas);
+      pages.push(text || "");
+      canvas.width = 0; canvas.height = 0; // free memory
+      onProgress?.(i, pdf.numPages);
+    }
+  } finally {
+    try { await worker.terminate(); } catch { /* ignore */ }
+    try { await pdf.cleanup(); } catch { /* ignore */ }
+  }
+  return pages
+    .join("\n\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
