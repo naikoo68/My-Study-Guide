@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { FileText, Upload, Plus, Pencil, Trash2, X, Loader2, Save, Download, ScanText, Maximize2, Minimize2, Copy, Check, Sigma, Wand2 } from "lucide-react";
+import { FileText, Upload, Plus, Pencil, Trash2, X, Loader2, Save, Download, ScanText, Maximize2, Minimize2, Copy, Check, Sigma, Wand2, Eraser } from "lucide-react";
 import { documentService, aiService } from "../../services";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 import { questionsToCsv } from "../../components/admin/BulkUploadQuestions";
@@ -53,6 +53,48 @@ function formatQuestionText(q, idx) {
   }
   lines.push(...optionLines);
   return lines.join("\n");
+}
+
+// One-click, offline text cleaner for extracted / OCR'd exam papers. Strips the
+// boilerplate that scanned government PDFs carry — file numbers, eOffice stamps,
+// "(Set-A)", "[P.T.O.]", page markers, board headers — while keeping the actual
+// questions. Runs entirely in the browser (no AI / no network).
+const JUNK_LINE_PATTERNS = [
+  /^file\s*no\b/i,                                 // File No. JKSSB-COEOEXAM(UT)/…
+  /generated\s+from\s+e?-?\s*office/i,             // Generated from eOffice by …
+  /\bcomputer\s*no\b/i,                            // (Computer No. 7593614)
+  /service\s+selection\s+board/i,                  // …SERVICE SELECTION BOARD…
+  /outside\s+sec(?:retariat|tt)\b/i,               // (OUTSIDE SECTT)
+  /\bproject\s+manager\b/i,                        // …, PROJECT MANAGER, …
+  /^\(?\s*set\s*[-–]?\s*[a-z]\s*\)?[\s.)\]]*$/i,    // (Set-A) on its own line
+  /^\s*page\s*\d+/i,                               // Page 3
+  /^[[(]\s*\d{1,4}\s*[\])]$/,                       // (15)  [15]  page markers
+  /^\s*\d{3,}(?:\s*[/\\]\s*\w+){2,}/,               // 8233675/2026/0/0 Clerical Hall JKSSB
+  /^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/,               // 08/06/2026 date stamps
+];
+
+function cleanExtractedText(raw) {
+  const original = String(raw || "");
+  if (!original.trim()) return { text: original, removed: 0 };
+  // First scrub stamps that sit INLINE on the same line as real content.
+  const scrubbed = original
+    .replace(/\[[^\]\n]*\bP\.?\s*T\.?\s*O\.?[^\]\n]*\]/gi, " ")  // [P.T.O.15]
+    .replace(/\(\s*computer\s*no\.?[^)\n]*\)/gi, " ")            // (Computer No. …)
+    .replace(/\(\s*set\s*[-–]?\s*[a-z]\s*\)/gi, " ")            // (Set-A)
+    .replace(/\bP\.?\s*T\.?\s*O\.?\b/gi, " ");                   // stray P.T.O.
+  let removed = 0;
+  const kept = scrubbed.split(/\r?\n/).filter((line) => {
+    const t = line.trim();
+    if (!t) return true; // keep blanks now; collapse runs later
+    if (JUNK_LINE_PATTERNS.some((re) => re.test(t))) { removed++; return false; }
+    return true;
+  });
+  const text = kept
+    .join("\n")
+    .replace(/[ \t]+\n/g, "\n")   // trailing whitespace
+    .replace(/\n{3,}/g, "\n\n")   // collapse blank-line runs
+    .trim();
+  return { text, removed };
 }
 
 // Inline-math toolbar: LaTeX snippets render via KaTeX inside $…$; plain symbols
@@ -156,6 +198,17 @@ export default function AdminDocuments() {
     } finally {
       setConverting("");
     }
+  };
+
+  // Remove exam-paper boilerplate from the WHOLE text box (offline), leaving
+  // only the questions — run this before "Convert to questions".
+  const cleanText = () => {
+    if (!editor?.content?.trim()) { setError("Add some text first."); return; }
+    const { text, removed } = cleanExtractedText(editor.content);
+    setEditor((ed) => ({ ...ed, content: text }));
+    setConvertMsg(removed
+      ? `✓ Cleaned — removed ${removed} boilerplate line(s) (file numbers, stamps, page markers).`
+      : "Nothing to clean — no boilerplate lines found.");
   };
 
   const copyText = async () => {
@@ -392,6 +445,11 @@ export default function AdminDocuments() {
                 {pdfFile && (
                   <button type="button" onClick={runOcr} disabled={ocrBusy || pdfBusy} className={`!py-1 !text-xs ${scanned ? "btn-primary" : "btn-outline"}`}>
                     {ocrBusy ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> OCR {ocrProgress?.page || 0}/{ocrProgress?.total || "?"}</> : <><ScanText className="h-3.5 w-3.5" /> Read with OCR</>}
+                  </button>
+                )}
+                {editor.content?.trim() && (
+                  <button type="button" onClick={cleanText} className="btn-outline !py-1 !text-xs" title="Remove headers, file numbers, stamps & page markers — keep only questions">
+                    <Eraser className="h-3.5 w-3.5" /> Clean text
                   </button>
                 )}
                 {editor.content?.trim() && (
