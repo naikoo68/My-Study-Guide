@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Trophy, Trash2, RefreshCw, ListChecks, FileStack, Users, Medal, X, Clock } from "lucide-react";
+import { Trophy, Trash2, RefreshCw, ListChecks, FileStack, Users, Medal, X } from "lucide-react";
 import { analyticsService } from "../../services";
 import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";

@@ -25,7 +25,7 @@ import { practiceService, searchService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
 import Badge from "../../components/ui/Badge";
 import QuestionView from "../../components/admin/QuestionView";
-import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
+import { Loading, ErrorState } from "../../components/ui/AsyncState";
 
 const previewText = (t, n = 100) => {
   const s = String(t || "").replace(/\$/g, "").replace(/\s+/g, " ").trim();
