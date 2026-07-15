@@ -12,7 +12,7 @@ const escapeHtml = (s) =>
   String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 function inlineToHtml(text) {
-  const regex = /\$\$([^$]+)\$\$|\$([^$]+)\$|<u>([\s\S]*?)<\/u>|\*\*([^*]+)\*\*|__([^_]+)__|~~([^~]+)~~|\*([^*\n]+)\*|_([^_\n]+)_/g;
+  const regex = /\$\$([^$]+)\$\$|\$([^$]+)\$|<u>([\s\S]*?)<\/u>|\*\*([^*]+)\*\*|__([^_]+)__|~~([^~]+)~~|==([^=\n]+)==|\*([^*\n]+)\*|_([^_\n]+)_/g;
   let out = "";
   let last = 0;
   let m;
@@ -27,8 +27,10 @@ function inlineToHtml(text) {
       out += `<strong>${escapeHtml(m[4] ?? m[5])}</strong>`;
     } else if (m[6] != null) {
       out += `<del>${escapeHtml(m[6])}</del>`;
+    } else if (m[7] != null) {
+      out += `<mark>${escapeHtml(m[7])}</mark>`;
     } else {
-      out += `<em>${escapeHtml(m[7] ?? m[8])}</em>`;
+      out += `<em>${escapeHtml(m[8] ?? m[9])}</em>`;
     }
     last = regex.lastIndex;
   }
@@ -40,6 +42,7 @@ function contentToHtml(text) {
   return String(text || "")
     .split(/\r?\n/)
     .map((line) => {
+      if (/^\s*<!--\s*pagebreak\s*-->\s*$/i.test(line)) return '<div class="pb"></div>';
       const h = line.match(/^\s*(#{1,6})\s*(.+?)\s*$/);
       if (h) return `<p class="h h${h[1].length}">${inlineToHtml(h[2])}</p>`;
       const b = line.match(/^\s*[-*]\s+(.*)$/);
@@ -169,11 +172,13 @@ const FORMAT_BTNS = [
   { t: "I", title: "Italic", wrap: ["*", "*"], cls: "italic" },
   { t: "U", title: "Underline", wrap: ["<u>", "</u>"], cls: "underline" },
   { t: "S", title: "Strikethrough", wrap: ["~~", "~~"], cls: "line-through" },
+  { t: "Mark", title: "Highlight", wrap: ["==", "=="], cls: "bg-yellow-200 text-slate-900" },
   { t: "H1", title: "Heading 1", line: "# " },
   { t: "H2", title: "Heading 2", line: "## " },
   { t: "H3", title: "Heading 3", line: "### " },
   { t: "• List", title: "Bullet list", line: "- " },
   { t: "1. List", title: "Numbered list", line: "1. " },
+  { t: "⤶ Page", title: "Page break — start a new A4 page", wrap: ["\n\n<!-- pagebreak -->\n\n", ""] },
 ];
 
 const blank = { id: null, title: "", content: "", sourceName: "", pages: 0 };
@@ -452,14 +457,17 @@ export default function AdminDocuments() {
       `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>` +
       `<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" crossorigin="anonymous">` +
       `<style>` +
+      `@page{size:A4;margin:18mm}` +
       `*{box-sizing:border-box}` +
-      `body{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;line-height:1.6;color:#0f172a;max-width:780px;margin:24px auto;padding:0 24px}` +
+      `body{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;line-height:1.6;color:#0f172a;margin:0}` +
       `h1.title{font-size:22px;margin:0 0 16px;border-bottom:1px solid #e2e8f0;padding-bottom:8px}` +
       `p{margin:0 0 6px;white-space:pre-wrap;word-wrap:break-word}` +
       `.h{font-weight:700;margin:12px 0 4px}.h1{font-size:20px}.h2{font-size:18px}.h3,.h4,.h5,.h6{font-size:15px}` +
       `.li{padding-left:1em;text-indent:-0.5em}` +
       `.sp{height:8px}` +
-      `@media print{body{margin:0}}` +
+      `mark{background:#fef08a;padding:0 2px}` +
+      `.pb{page-break-after:always;break-after:page;height:0}` +
+      `@media screen{body{max-width:210mm;margin:16px auto;padding:0 18mm}}` +
       `</style></head><body>` +
       `<h1 class="title">${escapeHtml(title)}</h1>` +
       contentToHtml(editor.content) +
@@ -610,7 +618,7 @@ export default function AdminDocuments() {
 
             {preview ? (
               <div
-                className={`input overflow-auto text-sm leading-relaxed ${fullscreen ? "min-h-0 flex-1" : "max-h-[60vh]"}`}
+                className={`overflow-auto rounded-lg border border-slate-200 bg-slate-200/70 p-4 text-sm leading-relaxed dark:border-slate-700 dark:bg-slate-800 ${fullscreen ? "min-h-0 flex-1" : "max-h-[70vh]"}`}
                 onDoubleClick={() => setPreview(false)}
                 title="Double-click to edit"
               >
