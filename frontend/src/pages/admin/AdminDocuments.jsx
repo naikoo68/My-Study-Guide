@@ -1,9 +1,46 @@
 import { useEffect, useState, useRef } from "react";
-import { FileText, Upload, Plus, Pencil, Trash2, X, Loader2, Save, Download, ScanText, Maximize2, Minimize2, Copy, Check, Sigma, Wand2, Eraser, Eye, Pencil as PencilIcon } from "lucide-react";
+import { FileText, Upload, Plus, Pencil, Trash2, X, Loader2, Save, Download, ScanText, Maximize2, Minimize2, Copy, Check, Sigma, Wand2, Eraser, Eye, Pencil as PencilIcon, FileDown } from "lucide-react";
+import katex from "katex";
 import { documentService, aiService } from "../../services";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 import { questionsToCsv } from "../../components/admin/BulkUploadQuestions";
 import RichText from "../../components/ui/RichText";
+
+// --- PDF export helpers: turn the raw document text into formatted HTML
+// (headings → bold, **bold**, and $…$ math via KaTeX) for the print window. ---
+const escapeHtml = (s) =>
+  String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+function inlineToHtml(text) {
+  const regex = /\$\$([^$]+)\$\$|\$([^$]+)\$|\*\*([^*]+)\*\*|__([^_]+)__/g;
+  let out = "";
+  let last = 0;
+  let m;
+  while ((m = regex.exec(text)) !== null) {
+    if (m.index > last) out += escapeHtml(text.slice(last, m.index));
+    if (m[1] != null || m[2] != null) {
+      try { out += katex.renderToString(m[1] ?? m[2], { throwOnError: false, displayMode: m[1] != null }); }
+      catch { out += escapeHtml(m[0]); }
+    } else {
+      out += `<strong>${escapeHtml(m[3] ?? m[4])}</strong>`;
+    }
+    last = regex.lastIndex;
+  }
+  if (last < text.length) out += escapeHtml(text.slice(last));
+  return out;
+}
+
+function contentToHtml(text) {
+  return String(text || "")
+    .split(/\r?\n/)
+    .map((line) => {
+      const h = line.match(/^\s*(#{1,6})\s*(.+?)\s*$/);
+      if (h) return `<p class="h h${h[1].length}">${inlineToHtml(h[2])}</p>`;
+      if (line.trim() === "") return '<div class="sp"></div>';
+      return `<p>${inlineToHtml(line)}</p>`;
+    })
+    .join("\n");
+}
 
 const LETTERS = ["A", "B", "C", "D"];
 const COL_A = ["1", "2", "3", "4", "5", "6", "7", "8"];
@@ -363,6 +400,34 @@ export default function AdminDocuments() {
     URL.revokeObjectURL(a.href);
   };
 
+  // Download as PDF: render the document (headings/bold/math) into a print
+  // window and open the browser's print dialog → "Save as PDF". No extra
+  // dependency needed, and the math/markdown come out formatted.
+  const downloadPdf = () => {
+    if (!editor?.content?.trim()) { setError("Add some text first."); return; }
+    const title = editor.title?.trim() || "document";
+    const win = window.open("", "_blank");
+    if (!win) { setError("Your browser blocked the pop-up — allow pop-ups for this site to download a PDF."); return; }
+    win.document.write(
+      `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>` +
+      `<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" crossorigin="anonymous">` +
+      `<style>` +
+      `*{box-sizing:border-box}` +
+      `body{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;line-height:1.6;color:#0f172a;max-width:780px;margin:24px auto;padding:0 24px}` +
+      `h1.title{font-size:22px;margin:0 0 16px;border-bottom:1px solid #e2e8f0;padding-bottom:8px}` +
+      `p{margin:0 0 6px;white-space:pre-wrap;word-wrap:break-word}` +
+      `.h{font-weight:700;margin:12px 0 4px}.h1{font-size:20px}.h2{font-size:18px}.h3,.h4,.h5,.h6{font-size:15px}` +
+      `.sp{height:8px}` +
+      `@media print{body{margin:0}}` +
+      `</style></head><body>` +
+      `<h1 class="title">${escapeHtml(title)}</h1>` +
+      contentToHtml(editor.content) +
+      `<scr` + `ipt>window.onload=function(){setTimeout(function(){window.focus();window.print();},350)};</scr` + `ipt>` +
+      `</body></html>`
+    );
+    win.document.close();
+  };
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -464,6 +529,9 @@ export default function AdminDocuments() {
                 )}
                 {editor.content?.trim() && (
                   <button type="button" onClick={downloadTxt} className="btn-outline !py-1 !text-xs"><Download className="h-3.5 w-3.5" /> .txt</button>
+                )}
+                {editor.content?.trim() && (
+                  <button type="button" onClick={downloadPdf} className="btn-outline !py-1 !text-xs" title="Download as PDF (rendered — headings, bold, math)"><FileDown className="h-3.5 w-3.5" /> PDF</button>
                 )}
                 <button type="button" onClick={() => setShowMath((v) => !v)} className={`!py-1 !text-xs ${showMath ? "btn-primary" : "btn-outline"}`} title="Insert math">
                   <Sigma className="h-3.5 w-3.5" /> Math
