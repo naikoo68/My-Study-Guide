@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { X, Globe, Download, CheckCircle2, AlertTriangle, Loader2, Server, KeyRound, FileText, Upload } from "lucide-react";
-import { aiService } from "../../services";
+import { X, Globe, Download, CheckCircle2, AlertTriangle, Loader2, Server, KeyRound, FileText, Upload, Files } from "lucide-react";
+import { aiService, documentService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
 
 const LETTERS = ["A", "B", "C", "D"];
@@ -9,7 +9,7 @@ const LETTERS = ["A", "B", "C", "D"];
 // questions already present (it does not invent them) and returns them in the
 // app's format for preview → insert. Reuses the same onUpload handler as the
 // bulk-upload / AI-generate modals.
-export default function AiImport({ open, onClose, onUpload, title = "Import Questions (PDF, Web or Text)", sections = [] }) {
+export default function AiImport({ open, onClose, onUpload, title = "Import Questions (PDF, Web or Text)", sections = [], documents = false }) {
   const { user } = useAuth();
   const isClient = user?.role === "client" && user?.aiAccess;
   const canChooseSource = isClient && user?.aiAllowInbuilt !== false && user?.aiAllowSelf !== false;
@@ -25,12 +25,21 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
   const [msg, setMsg] = useState("");
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfProgress, setPdfProgress] = useState(null); // { page, total }
+  const [docList, setDocList] = useState([]); // saved documents (when `documents` enabled)
+  const [docId, setDocId] = useState("");
 
   useEffect(() => {
     if (!open) return;
     setMsg("");
     setPreview([]);
+    setDocId("");
   }, [open]);
+
+  // When enabled, load the saved-document list so the user can pick one as the source.
+  useEffect(() => {
+    if (!open || !documents) return;
+    documentService.list().then(setDocList).catch(() => setDocList([]));
+  }, [open, documents]);
 
   // (Re)load status for the chosen source so the model list / key count match.
   useEffect(() => {
@@ -74,6 +83,22 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
       setMsg(`PDF read failed: ${err.message}. Check your connection and try again.`);
     } finally {
       setPdfBusy(false);
+    }
+  };
+
+  // Load a saved document's text into the box below, ready for extraction.
+  const pickDoc = async (id) => {
+    setDocId(id);
+    if (!id) return;
+    setMsg("Loading document…");
+    try {
+      const doc = await documentService.get(id);
+      const body = (doc?.content || "").trim();
+      if (!body) { setMsg("That document has no text to use."); return; }
+      setText((prev) => (prev.trim() ? `${prev.trim()}\n\n${body}` : body));
+      setMsg(`✓ Loaded “${doc.title}”. Now click “Extract Questions”.`);
+    } catch (e) {
+      setMsg(e.message || "Couldn't load that document.");
     }
   };
 
@@ -192,7 +217,8 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
         ) : (
           <>
             <div className="mb-3 rounded-xl bg-slate-50 p-3 text-xs text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
-              Upload a <b>PDF</b>, paste a page link, <b>or</b> paste the questions text. The AI reads the content and
+              {documents ? <><b>Pick a saved document</b>, upload a <b>PDF</b>, </> : <>Upload a <b>PDF</b>, </>}
+              paste a page link, <b>or</b> paste the questions text. The AI reads the content and
               extracts the questions into your format — review before inserting. Only import content you have the right to use.
               {typeof status?.keys === "number" && (
                 <span className="ml-1 font-semibold text-emerald-600 dark:text-emerald-400">
@@ -217,6 +243,25 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
                   <option value="">— No subject —</option>
                   {sections.map((s, i) => <option key={i} value={s}>{s}</option>)}
                 </select>
+              </div>
+            )}
+
+            {documents && (
+              <div className="mb-3">
+                <label className="mb-1 flex items-center gap-1 text-sm font-semibold"><Files className="h-4 w-4 text-brand-600" /> Use a saved document</label>
+                {docList.length ? (
+                  <select className="input" value={docId} onChange={(e) => pickDoc(e.target.value)}>
+                    <option value="">— Pick a document —</option>
+                    {docList.map((d) => (
+                      <option key={d._id} value={d._id}>{d.title}{d.pages ? ` (${d.pages}p)` : ""}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="text-xs text-slate-400">No saved documents yet — add some in Admin → Documents.</p>
+                )}
+                <div className="my-3 flex items-center gap-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" /> or <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+                </div>
               </div>
             )}
 

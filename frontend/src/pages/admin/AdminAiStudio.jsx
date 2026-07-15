@@ -132,8 +132,9 @@ export default function AdminAiStudio() {
           <Sparkles className="h-6 w-6 text-brand-600" /> AI Generator
         </h1>
         <p className="text-slate-500 dark:text-slate-400">
-          Generate questions with AI or import them from a PDF / web page / text — saved straight into the
-          destination you choose below.
+          Turn content into quiz/test questions with AI: pick a <b>saved document</b>, upload a PDF, or paste text/a
+          link — the AI reads it, writes questions with answers, and you insert them straight into the destination
+          you choose below. Or generate fresh questions from a topic.
         </p>
       </div>
 
@@ -167,7 +168,7 @@ export default function AdminAiStudio() {
             <Wand2 className="h-4 w-4" /> Generate with AI
           </button>
           <button onClick={() => { setMsg(""); setImportOpen(true); }} disabled={!ready} className="btn-outline disabled:opacity-50">
-            <Globe className="h-4 w-4" /> Import (PDF / Web / Text)
+            <Globe className="h-4 w-4" /> From Document / PDF / Web / Text
           </button>
           {!ready && <span className="flex items-center gap-1 text-sm text-slate-400"><ArrowRight className="h-4 w-4" /> pick a destination first</span>}
         </div>
@@ -181,7 +182,8 @@ export default function AdminAiStudio() {
       />
       <AiImport
         open={importOpen}
-        title={`Import — ${cfg.label}`}
+        documents
+        title={`Questions from a source — ${cfg.label}`}
         onClose={() => setImportOpen(false)}
         onUpload={onUpload}
       />
