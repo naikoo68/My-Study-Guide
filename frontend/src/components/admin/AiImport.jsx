@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { X, Globe, Download, CheckCircle2, AlertTriangle, Loader2, Server, KeyRound } from "lucide-react";
+import { X, Globe, Download, CheckCircle2, AlertTriangle, Loader2, Server, KeyRound, FileText, Upload } from "lucide-react";
 import { aiService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
 
@@ -9,7 +9,7 @@ const LETTERS = ["A", "B", "C", "D"];
 // questions already present (it does not invent them) and returns them in the
 // app's format for preview → insert. Reuses the same onUpload handler as the
 // bulk-upload / AI-generate modals.
-export default function AiImport({ open, onClose, onUpload, title = "Import Questions from Web", sections = [] }) {
+export default function AiImport({ open, onClose, onUpload, title = "Import Questions (PDF, Web or Text)", sections = [] }) {
   const { user } = useAuth();
   const isClient = user?.role === "client" && user?.aiAccess;
   const canChooseSource = isClient && user?.aiAllowInbuilt !== false && user?.aiAllowSelf !== false;
@@ -23,6 +23,8 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
   const [busy, setBusy] = useState(false);
   const [inserting, setInserting] = useState(false);
   const [msg, setMsg] = useState("");
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfProgress, setPdfProgress] = useState(null); // { page, total }
 
   useEffect(() => {
     if (!open) return;
@@ -43,6 +45,37 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
   }, [open, source, isClient]);
 
   if (!open) return null;
+
+  // Read a PDF in the browser, pull out its text, and drop it into the box below
+  // so the normal AI extraction runs on it. pdf.js is loaded on demand.
+  const onPdf = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // let the same file be picked again later
+    if (!file) return;
+    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+      setMsg("Please choose a PDF file.");
+      return;
+    }
+    setPdfBusy(true);
+    setPdfProgress(null);
+    setMsg(`Reading “${file.name}”…`);
+    try {
+      const { extractPdfText } = await import("../../lib/pdf");
+      let total = 0;
+      const extracted = await extractPdfText(file, (page, t) => { total = t; setPdfProgress({ page, total: t }); });
+      if (!extracted) {
+        setMsg("Couldn't read any text — this PDF looks like scanned images (no selectable text). Try a text-based PDF or paste the text.");
+        return;
+      }
+      // Append so multiple PDFs / pasted text can be combined before extracting.
+      setText((prev) => (prev.trim() ? `${prev.trim()}\n\n${extracted}` : extracted));
+      setMsg(`✓ Read ${total || "?"} page(s) from “${file.name}”. Now click “Extract Questions”.`);
+    } catch (err) {
+      setMsg(`PDF read failed: ${err.message}. Check your connection and try again.`);
+    } finally {
+      setPdfBusy(false);
+    }
+  };
 
   const extract = async () => {
     if (!url.trim() && !text.trim()) {
@@ -159,8 +192,8 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
         ) : (
           <>
             <div className="mb-3 rounded-xl bg-slate-50 p-3 text-xs text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
-              Paste a page link <b>or</b> the copied questions text. The AI extracts the questions into your format —
-              review before inserting. Only import content you have the right to use.
+              Upload a <b>PDF</b>, paste a page link, <b>or</b> paste the questions text. The AI reads the content and
+              extracts the questions into your format — review before inserting. Only import content you have the right to use.
               {typeof status?.keys === "number" && (
                 <span className="ml-1 font-semibold text-emerald-600 dark:text-emerald-400">
                   {status.keys} API key{status.keys === 1 ? "" : "s"} active.
@@ -187,6 +220,23 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
               </div>
             )}
 
+            <label className="mb-1 block text-sm font-semibold">Upload a PDF</label>
+            <label className={`flex cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed px-4 py-4 text-sm transition ${pdfBusy ? "border-brand-400 text-brand-600" : "border-slate-300 text-slate-500 hover:border-brand-400 hover:text-brand-600 dark:border-slate-600 dark:text-slate-400"}`}>
+              <input type="file" accept="application/pdf,.pdf" className="hidden" onChange={onPdf} disabled={pdfBusy} />
+              {pdfBusy ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> Reading PDF{pdfProgress ? ` — page ${pdfProgress.page}/${pdfProgress.total}` : "…"}</>
+              ) : (
+                <><Upload className="h-4 w-4" /> Choose a PDF <span className="text-slate-400">— its text is extracted for the AI</span></>
+              )}
+            </label>
+            <p className="mt-1 flex items-center gap-1 text-xs text-slate-400">
+              <FileText className="h-3.5 w-3.5" /> Works with text-based PDFs (question papers, notes). Scanned image PDFs have no selectable text.
+            </p>
+
+            <div className="my-3 flex items-center gap-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
+              <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" /> or <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+            </div>
+
             <label className="mb-1 block text-sm font-semibold">Page URL (optional)</label>
             <input
               className="input"
@@ -195,14 +245,17 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
               onChange={(e) => setUrl(e.target.value)}
             />
 
-            <label className="mb-1 mt-3 block text-sm font-semibold">Or paste the questions text</label>
+            <label className="mb-1 block text-sm font-semibold">Extracted or pasted text</label>
             <textarea
               rows={6}
               className="input resize-y font-mono text-xs"
-              placeholder={"Paste questions here, e.g.\n1. What is the powerhouse of the cell?\nA) Nucleus  B) Mitochondria  C) Ribosome  D) Golgi\nAns: B"}
+              placeholder={"PDF text appears here after upload — or paste questions directly, e.g.\n1. What is the powerhouse of the cell?\nA) Nucleus  B) Mitochondria  C) Ribosome  D) Golgi\nAns: B"}
               value={text}
               onChange={(e) => setText(e.target.value)}
             />
+            {text.trim() && (
+              <p className="mt-1 text-xs text-slate-400">{text.trim().length.toLocaleString()} characters ready. Edit if needed, then Extract Questions.</p>
+            )}
             <p className="mt-1 text-xs text-slate-400">
               Tip: pasting the text works more reliably than a URL — many sites block automated reading.
             </p>
