@@ -23,11 +23,12 @@ const MODES = {
     ],
     submit: (source, s) => testService.toMyTest(source._id, { practiceStream: s.stream, practiceSubject: s.subject }),
   },
-  // My Quiz (practice) → platform Quiz
+  // My Quiz (practice) → platform Quiz — choose Stream ▸ Subject ▸ Topic ▸ Session
   toQuiz: {
     title: "Move to Quiz",
     levels: [
-      { key: "subject", label: "Choose subject…", load: () => contentService.subjects() },
+      { key: "stream", label: "Choose stream…", load: () => contentService.streams() },
+      { key: "subject", label: "Choose subject…", load: (v) => contentService.subjectsByStream(v) },
       { key: "topic", label: "Choose topic…", load: (v) => contentService.topics(v), labelKey: "title" },
       { key: "session", label: "Choose session…", load: (v) => contentService.sessions(v), labelKey: "title" },
     ],
@@ -61,7 +62,8 @@ const MODES = {
   moveQuiz: {
     title: "Move quiz to another session",
     levels: [
-      { key: "subject", label: "Choose subject…", load: () => contentService.subjects() },
+      { key: "stream", label: "Choose stream…", load: () => contentService.streams() },
+      { key: "subject", label: "Choose subject…", load: (v) => contentService.subjectsByStream(v) },
       { key: "topic", label: "Choose topic…", load: (v) => contentService.topics(v), labelKey: "title" },
       { key: "session", label: "Choose session…", load: (v) => contentService.sessions(v), labelKey: "title" },
     ],
@@ -153,7 +155,7 @@ export default function ConvertModal({ open, mode, source, onClose, onDone }) {
                 </select>
                 {emptyLoaded && (
                   <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
-                    Nothing here yet — create one first{i === 0 ? (mode === "toTestSeries" ? " (add an Exam in Test Series)" : mode === "toQuiz" ? " (add a Subject in Content)" : "") : ""}.
+                    Nothing here yet — create one first{i === 0 ? (mode === "toTestSeries" ? " (add an Exam under Test Series)" : (mode === "toQuiz" || mode === "moveQuiz") ? " (add a Stream under Content)" : "") : ""}.
                   </p>
                 )}
               </div>
