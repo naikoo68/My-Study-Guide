@@ -12,9 +12,7 @@ import DuplicatesModal from "../../components/admin/DuplicatesModal";
 import QuestionView from "../../components/admin/QuestionView";
 import WeightageFill from "../../components/admin/WeightageFill";
 import PickFromBank from "../../components/admin/PickFromBank";
-import MoveItemModal from "../../components/admin/MoveItemModal";
-import ConvertModal from "../../components/admin/ConvertModal";
-import { Files, Move, Shuffle } from "lucide-react";
+import { Files } from "lucide-react";
 
 const KINDS = [
   { key: "quiz", label: "My Quiz", icon: ListChecks },
@@ -48,8 +46,6 @@ export default function AdminPractice({ clientMode = false }) {
   const [importOpen, setImportOpen] = useState(false);
   const [weightOpen, setWeightOpen] = useState(false); // add by subject (weightage)
   const [bankOpen, setBankOpen] = useState(false); // hand-pick questions from the bank
-  const [moveTarget, setMoveTarget] = useState(null); // item being moved
-  const [convert, setConvert] = useState(null); // { mode, source } cross-module convert
   const [dupOpen, setDupOpen] = useState(false);
   const [dupScope, setDupScope] = useState({ params: null, name: "" }); // duplicate-scan target
   const [viewQ, setViewQ] = useState(null);
@@ -279,15 +275,6 @@ export default function AdminPractice({ clientMode = false }) {
                       <Files className="h-4 w-4" />
                     </button>
                   )}
-                  {(view === "subjects" || view === "topics") && (
-                    <button
-                      onClick={() => setMoveTarget({ type: view === "subjects" ? "subject" : "topic", node: item })}
-                      title={`Move ${view === "subjects" ? "subject to another stream" : "topic to another subject"}`}
-                      className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30"
-                    >
-                      <Move className="h-4 w-4" />
-                    </button>
-                  )}
                   {view !== "items" && (
                     <button onClick={() => setModal({ type: view === "streams" ? "stream" : view === "subjects" ? "subject" : "topic", mode: "edit", data: item })} className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30"><Pencil className="h-4 w-4" /></button>
                   )}
@@ -297,24 +284,6 @@ export default function AdminPractice({ clientMode = false }) {
               {view === "items" && (
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button onClick={() => openQuestions(item)} className="btn-outline py-1.5 text-xs"><HelpCircle className="h-3.5 w-3.5" /> Questions</button>
-                  <button
-                    onClick={() => setConvert({
-                      source: item,
-                      options: kind === "quiz"
-                        ? [
-                            { mode: "moveMyQuiz", label: "Another My Quiz place (Stream ▸ Subject ▸ Topic)" },
-                            ...(!clientMode ? [{ mode: "toQuiz", label: "Convert to a platform Quiz" }] : []),
-                          ]
-                        : [
-                            { mode: "moveMyTest", label: "Another My Test place (Stream ▸ Subject)" },
-                            ...(!clientMode ? [{ mode: "toTestSeries", label: "Convert to a platform Test Series" }] : []),
-                          ],
-                    })}
-                    className="btn-outline py-1.5 text-xs"
-                    title="Move this item — choose a destination"
-                  >
-                    <Move className="h-3.5 w-3.5" /> Move
-                  </button>
                   {!clientMode && (
                     <button onClick={() => openAccess(item)} className="btn-outline py-1.5 text-xs"><Users className="h-3.5 w-3.5" /> Visibility</button>
                   )}
@@ -453,24 +422,6 @@ export default function AdminPractice({ clientMode = false }) {
           </div>
         </div>
       )}
-
-      <MoveItemModal
-        open={!!moveTarget}
-        type={moveTarget?.type}
-        node={moveTarget?.node}
-        kind={kind}
-        onClose={() => setMoveTarget(null)}
-        onDone={() => load(view)}
-      />
-
-      <ConvertModal
-        open={!!convert}
-        mode={convert?.mode}
-        options={convert?.options}
-        source={convert?.source}
-        onClose={() => setConvert(null)}
-        onDone={() => load(view)}
-      />
 
       <WeightageFill
         open={weightOpen}

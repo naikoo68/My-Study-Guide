@@ -29,9 +29,6 @@ import {
   updateQuestion,
   deleteQuestion,
   findDuplicates,
-  moveSubject,
-  moveTopic,
-  moveQuiz,
 } from "../controllers/contentController.js";
 import { protect, authorize, optionalAuth } from "../middleware/auth.js";
 
@@ -51,14 +48,12 @@ router.get("/streams/:streamId/subjects", listStreamSubjects);
 router.get("/subjects", listSubjects);
 router.post("/subjects", ...admin, createSubject);
 router.put("/subjects/:id", ...admin, updateSubject);
-router.patch("/subjects/:id/move", ...admin, moveSubject);
 router.delete("/subjects/:id", ...admin, deleteSubject);
 
 // Topics (within a subject)
 router.get("/subjects/:subjectId/topics", listTopics);
 router.post("/topics", ...admin, createTopic);
 router.put("/topics/:id", ...admin, updateTopic);
-router.patch("/topics/:id/move", ...admin, moveTopic);
 router.delete("/topics/:id", ...admin, deleteTopic);
 
 // Sessions (within a topic)
@@ -71,7 +66,6 @@ router.delete("/sessions/:id", ...admin, deleteSession);
 router.get("/sessions/:sessionId/quizzes", listQuizzes);
 router.post("/quizzes", ...admin, createQuiz);
 router.put("/quizzes/:id", ...admin, updateQuiz);
-router.patch("/quizzes/:id/move", ...admin, moveQuiz);
 router.delete("/quizzes/:id", ...admin, deleteQuiz);
 router.get("/quizzes/:quizId/questions", optionalAuth, listQuizQuestions);
 

@@ -202,47 +202,6 @@ export async function deleteQuiz(req, res) {
   res.json({ message: "Quiz and its questions deleted" });
 }
 
-/* ---------------- Move (re-parent) within the quiz hierarchy ---------------- */
-
-// PATCH /api/subjects/:id/move  { stream } — move a subject to another stream.
-// Topics/sessions/quizzes/questions reference the subject (not the stream), so
-// no cascade is needed.
-export async function moveSubject(req, res) {
-  const subject = await Subject.findByIdAndUpdate(req.params.id, { stream: req.body.stream }, { new: true });
-  if (!subject) return res.status(404).json({ message: "Subject not found" });
-  res.json({ message: "Subject moved", _id: subject._id });
-}
-
-// PATCH /api/topics/:id/move  { subject } — move a topic to another subject.
-// Its sessions, quizzes and questions inherit the new subject.
-export async function moveTopic(req, res) {
-  const topic = await Topic.findById(req.params.id);
-  if (!topic) return res.status(404).json({ message: "Topic not found" });
-  const newSubject = req.body.subject;
-  if (!newSubject) return res.status(400).json({ message: "Choose a target subject." });
-  topic.subject = newSubject;
-  await topic.save();
-  const sessionIds = (await Session.find({ topic: topic._id }).select("_id")).map((s) => s._id);
-  await Session.updateMany({ topic: topic._id }, { $set: { subject: newSubject } });
-  await Quiz.updateMany({ session: { $in: sessionIds } }, { $set: { subject: newSubject } });
-  await Question.updateMany({ session: { $in: sessionIds } }, { $set: { subject: newSubject } });
-  res.json({ message: "Topic moved", _id: topic._id });
-}
-
-// PATCH /api/quizzes/:id/move  { session } — move a quiz to another session
-// (and, implicitly, that session's subject). Its questions follow.
-export async function moveQuiz(req, res) {
-  const quiz = await Quiz.findById(req.params.id);
-  if (!quiz) return res.status(404).json({ message: "Quiz not found" });
-  const session = await Session.findById(req.body.session);
-  if (!session) return res.status(400).json({ message: "Choose a target session." });
-  quiz.session = session._id;
-  quiz.subject = session.subject;
-  await quiz.save();
-  await Question.updateMany({ quiz: quiz._id }, { $set: { session: session._id, subject: session.subject } });
-  res.json({ message: "Quiz moved", _id: quiz._id });
-}
-
 // GET /api/quizzes/:quizId/questions — practice questions (with answers)
 export async function listQuizQuestions(req, res) {
   // Block students whose quiz access was disabled by an admin.

@@ -27,10 +27,6 @@ export const contentService = {
   quizQuestions: (quizId) => api.get(`/quizzes/${quizId}/questions`),
   questions: (sessionId) => api.get(`/sessions/${sessionId}/questions`),
   allQuestions: () => api.get("/questions"),
-  // move (re-parent) within the quiz hierarchy
-  moveSubject: (id, stream) => api.patch(`/subjects/${id}/move`, { stream }),
-  moveTopic: (id, subject) => api.patch(`/topics/${id}/move`, { subject }),
-  moveQuiz: (id, session) => api.patch(`/quizzes/${id}/move`, { session }),
   // streams (admin)
   createStream: (data) => api.post("/streams", data),
   updateStream: (id, data) => api.put(`/streams/${id}`, data),
@@ -103,11 +99,6 @@ export const testService = {
   deleteQuestion: (id, qid) => api.del(`/tests/${id}/questions/${qid}`),
   // pull questions from the quiz/practice bank into a test
   populate: (id, plan) => api.post(`/tests/${id}/populate`, plan), // { quizPlan, practicePlan }
-  // cross-module conversion (admin): My Test ↔ platform Test Series
-  toTestSeries: (id, data) => api.patch(`/tests/${id}/to-test-series`, data), // { exam, post }
-  toMyTest: (id, data) => api.patch(`/tests/${id}/to-my-test`, data), // { practiceStream, practiceSubject }
-  toQuiz: (id, data) => api.patch(`/tests/${id}/to-quiz`, data), // My Quiz → platform Quiz { session }
-  quizToMyQuiz: (id, data) => api.patch(`/tests/from-quiz/${id}/to-my-quiz`, data), // Quiz → My Quiz { practiceStream, practiceSubject, practiceTopic }
 };
 
 // ---- Practice Quizzes (My Quiz / My Test Series) ----
@@ -145,10 +136,6 @@ export const practiceService = {
   adminItems: (subjectId, kind) => api.get(`/practice/subjects/${subjectId}/items${kind ? `?kind=${kind}` : ""}`),
   adminTopicItems: (topicId) => api.get(`/practice/topics/${topicId}/items`),
   createItem: (data) => api.post("/practice/items", data),
-  // move an item (My Quiz / My Test) to a different stream/subject/topic
-  moveItem: (id, target) => api.patch(`/practice/items/${id}/move`, target),
-  moveSubject: (id, stream) => api.patch(`/practice/subjects/${id}/move`, { stream }),
-  moveTopic: (id, subject) => api.patch(`/practice/topics/${id}/move`, { subject }),
 };
 
 // ---- Dashboard / analytics ----

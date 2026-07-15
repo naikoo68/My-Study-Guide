@@ -8,8 +8,6 @@ import AiGenerate from "../../components/admin/AiGenerate";
 import QuestionFormModal from "../../components/admin/QuestionFormModal";
 import QuestionView from "../../components/admin/QuestionView";
 import { questionDateText, searchQuestions } from "../../lib/questions";
-import ConvertModal from "../../components/admin/ConvertModal";
-import { Move } from "lucide-react";
 import DuplicatesModal from "../../components/admin/DuplicatesModal";
 import AiImport from "../../components/admin/AiImport";
 import { Sparkles, Files, Globe } from "lucide-react";
@@ -36,7 +34,6 @@ export default function AdminContent() {
   const [topic, setTopic] = useState(null);
   const [session, setSession] = useState(null);
   const [quiz, setQuiz] = useState(null);
-  const [moveNode, setMoveNode] = useState(null); // { source, options } move / convert
 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -395,25 +392,6 @@ export default function AdminContent() {
                     <Eye className="h-4 w-4" />
                   </button>
                 )}
-                {(view === "subjects" || view === "topics" || view === "quizzes") && (
-                  <button
-                    onClick={() => setMoveNode({
-                      source: { _id: item._id, name: item.name || item.title },
-                      options: view === "subjects"
-                        ? [{ mode: "moveSubject", label: "Another stream" }]
-                        : view === "topics"
-                        ? [{ mode: "moveTopic", label: "Another subject" }]
-                        : [
-                            { mode: "moveQuiz", label: "Another session (in Content)" },
-                            { mode: "toMyQuiz", label: "Convert to a My Quiz (practice)" },
-                          ],
-                    })}
-                    title={`Move this ${view === "subjects" ? "subject" : view === "topics" ? "topic" : "quiz"} — choose a destination`}
-                    className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30"
-                  >
-                    <Move className="h-4 w-4" />
-                  </button>
-                )}
                 <button onClick={() => openEdit(item)} title="Edit" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30">
                   <Pencil className="h-4 w-4" />
                 </button>
@@ -442,14 +420,6 @@ export default function AdminContent() {
           onSave={save}
         />
       ))}
-
-      <ConvertModal
-        open={!!moveNode}
-        options={moveNode?.options}
-        source={moveNode?.source}
-        onClose={() => setMoveNode(null)}
-        onDone={() => { setMoveNode(null); load(view); }}
-      />
 
       <BulkUploadQuestions
         open={bulkOpen}
