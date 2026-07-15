@@ -1,7 +1,7 @@
 import { Router } from "express";
 import {
   aiStatus, generateQuestions, jobStatus, extractQuestions,
-  listKeys, createKey, updateKey, deleteKey, testKey, importEnvKeys, testAllKeys, listKeyModels,
+  listKeys, createKey, bulkCreateKeys, updateKey, deleteKey, testKey, importEnvKeys, testAllKeys, listKeyModels,
 } from "../controllers/aiController.js";
 import { protect, authorize } from "../middleware/auth.js";
 
@@ -19,6 +19,7 @@ router.post("/extract", ...manage, extractQuestions);
 // AI key management (admin)
 router.get("/keys", ...admin, listKeys);
 router.post("/keys", ...admin, createKey);
+router.post("/keys/bulk", ...admin, bulkCreateKeys); // add many keys at once (shared preset)
 router.post("/keys/import", ...admin, importEnvKeys); // import Render env keys into the DB
 router.post("/keys/test-all", ...admin, testAllKeys); // test every key at once
 router.put("/keys/:id", ...admin, updateKey);

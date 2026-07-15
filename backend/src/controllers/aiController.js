@@ -1018,6 +1018,52 @@ export async function createKey(req, res) {
   res.status(201).json(keyToClient(doc));
 }
 
+// POST /api/ai/keys/bulk (admin) — add MANY keys in one go, all sharing the same
+// provider preset (baseUrl / models / creditLimit). Accepts `keys` as an array
+// OR a single string with keys separated by newlines, commas or spaces. Blank
+// entries, duplicates within the paste, and keys already stored are skipped.
+export async function bulkCreateKeys(req, res) {
+  const { keys, baseUrl, models, creditLimit, label } = req.body || {};
+  const raw = Array.isArray(keys) ? keys : String(keys || "").split(/[\s,]+/);
+
+  // Clean + de-duplicate the pasted keys (API keys never contain spaces/commas).
+  const cleaned = [];
+  const seenInput = new Set();
+  for (const k of raw) {
+    const v = String(k || "").trim();
+    if (!v || seenInput.has(v)) continue;
+    seenInput.add(v);
+    cleaned.push(v);
+  }
+  if (!cleaned.length) return res.status(400).json({ message: "Paste at least one API key." });
+
+  const existing = new Set((await AiKey.find().select("key").lean()).map((k) => (k.key || "").trim()));
+  const baseUrlClean =
+    String(baseUrl || "").trim() || "https://generativelanguage.googleapis.com/v1beta/openai";
+  const modelsClean = String(models || "").trim() || "gemini-2.5-flash";
+  const limitClean = Math.max(0, parseInt(creditLimit, 10) || 0);
+  const labelBase = String(label || "").trim();
+
+  let order = await AiKey.countDocuments();
+  const created = [];
+  let skipped = 0;
+  for (const key of cleaned) {
+    if (existing.has(key)) { skipped += 1; continue; }
+    const doc = await AiKey.create({
+      label: labelBase ? `${labelBase} ${created.length + 1}` : "",
+      baseUrl: baseUrlClean,
+      models: modelsClean,
+      key,
+      creditLimit: limitClean,
+      enabled: true,
+      order: order++,
+    });
+    existing.add(key);
+    created.push(keyToClient(doc));
+  }
+  res.status(201).json({ created: created.length, skipped, keys: created });
+}
+
 // PUT /api/ai/keys/:id (admin) — key is only replaced when a new one is provided.
 export async function updateKey(req, res) {
   const { label, baseUrl, models, enabled, key, order, creditLimit, resetUsage } = req.body || {};

@@ -232,6 +232,7 @@ export const aiService = {
   keys: {
     list: () => api.get("/ai/keys"),
     create: (data) => api.post("/ai/keys", data),
+    bulkCreate: (data) => api.post("/ai/keys/bulk", data), // add many keys at once (shared preset)
     update: (id, data) => api.put(`/ai/keys/${id}`, data),
     remove: (id) => api.del(`/ai/keys/${id}`),
     test: (id) => api.post(`/ai/keys/${id}/test`),

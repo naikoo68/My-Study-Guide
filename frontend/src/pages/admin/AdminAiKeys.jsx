@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { KeyRound, Plus, Trash2, Pencil, X, CheckCircle2, XCircle, Loader2, RefreshCw, Power, Download, List } from "lucide-react";
+import { KeyRound, Plus, Trash2, Pencil, X, CheckCircle2, XCircle, Loader2, RefreshCw, Power, Download, List, Layers } from "lucide-react";
 import { aiService } from "../../services";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 
@@ -19,6 +19,8 @@ const PRESETS = [
 ];
 
 const blank = { label: "", baseUrl: GEMINI_BASE, models: "gemini-2.5-flash", key: "", creditLimit: "" };
+// Bulk-add defaults: one shared preset applied to every pasted key.
+const blankBulk = { label: "", baseUrl: GEMINI_BASE, models: "gemini-2.5-flash", creditLimit: "", keysText: "" };
 
 // Compact number formatter (1234567 -> "1.23M", 12345 -> "12.3K").
 const fmt = (n) => {
@@ -38,6 +40,10 @@ export default function AdminAiKeys() {
   const [modal, setModal] = useState(null); // { mode:"add"|"edit", data }
   const [form, setForm] = useState(blank);
   const [saving, setSaving] = useState(false);
+  const [bulkModal, setBulkModal] = useState(false);
+  const [bulkForm, setBulkForm] = useState(blankBulk);
+  const [bulkSaving, setBulkSaving] = useState(false);
+  const [bulkResult, setBulkResult] = useState(null); // { created, skipped } after a bulk add
   const [testing, setTesting] = useState({}); // id -> bool
   const [busy, setBusy] = useState({}); // id -> bool (toggle/delete)
   const [bulkBusy, setBulkBusy] = useState(""); // "" | "test" | "import"
@@ -84,6 +90,42 @@ export default function AdminAiKeys() {
       setError(err.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const openBulk = () => { setBulkForm(blankBulk); setBulkResult(null); setBulkModal(true); };
+
+  // Split the textarea into individual keys (one per line; commas/spaces also
+  // work). API keys never contain spaces, so this is safe.
+  const parseBulkKeys = (text) => {
+    const seen = new Set();
+    return String(text || "")
+      .split(/[\s,]+/)
+      .map((s) => s.trim())
+      .filter((s) => s && !seen.has(s) && seen.add(s));
+  };
+
+  const saveBulk = async (e) => {
+    e.preventDefault();
+    const list = parseBulkKeys(bulkForm.keysText);
+    if (!list.length) { setError("Paste at least one API key (one per line)."); return; }
+    setBulkSaving(true);
+    setError("");
+    try {
+      const res = await aiService.keys.bulkCreate({
+        keys: list,
+        baseUrl: bulkForm.baseUrl,
+        models: bulkForm.models,
+        creditLimit: bulkForm.creditLimit,
+        label: bulkForm.label,
+      });
+      setBulkResult({ created: res?.created || 0, skipped: res?.skipped || 0 });
+      setBulkForm((f) => ({ ...f, keysText: "" })); // clear pasted keys, keep the preset
+      load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBulkSaving(false);
     }
   };
 
@@ -220,6 +262,7 @@ export default function AdminAiKeys() {
               {bulkBusy === "import" ? <><Loader2 className="h-4 w-4 animate-spin" /> Importing…</> : <><Download className="h-4 w-4" /> Import server keys</>}
             </button>
           )}
+          <button onClick={openBulk} className="btn-outline"><Layers className="h-4 w-4" /> Bulk add</button>
           <button onClick={openAdd} className="btn-primary"><Plus className="h-4 w-4" /> Add API Key</button>
         </div>
       </div>
@@ -426,6 +469,86 @@ export default function AdminAiKeys() {
             <div className="mt-6 flex justify-end gap-3">
               <button type="button" onClick={() => setModal(null)} className="btn-outline">Cancel</button>
               <button type="submit" disabled={saving} className="btn-primary">{saving ? "Saving..." : modal.mode === "add" ? "Add Key" : "Save Changes"}</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {bulkModal && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4">
+          <form onSubmit={saveBulk} className="my-8 w-full max-w-lg animate-scale-in card p-6">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-lg font-bold"><Layers className="h-5 w-5 text-brand-600" /> Bulk add API keys</h3>
+              <button type="button" onClick={() => setBulkModal(null)}><X className="h-5 w-5" /></button>
+            </div>
+
+            <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
+              Paste several keys of the <b>same provider</b> — one per line. They'll all share the
+              preset below. Adding several keys on the same model turns them into quota fallbacks.
+            </p>
+
+            <div className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-semibold">Provider preset</label>
+                <div className="flex flex-wrap gap-2">
+                  {PRESETS.map((p) => (
+                    <button key={p.label} type="button" onClick={() => setBulkForm((f) => ({ ...f, baseUrl: p.baseUrl, models: p.models, label: f.label || p.label }))}
+                      className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 hover:border-brand-500 hover:text-brand-600 dark:border-slate-700 dark:text-slate-300">
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-semibold">Label prefix <span className="font-normal text-slate-400">(optional)</span></label>
+                <input className="input" value={bulkForm.label} onChange={(e) => setBulkForm({ ...bulkForm, label: e.target.value })} placeholder="e.g. Gemini — keys are numbered “Gemini 1”, “Gemini 2”…" />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-semibold">Base URL</label>
+                <input className="input" value={bulkForm.baseUrl} onChange={(e) => setBulkForm({ ...bulkForm, baseUrl: e.target.value })} placeholder={GEMINI_BASE} />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-semibold">Model(s)</label>
+                <input className="input" value={bulkForm.models} onChange={(e) => setBulkForm({ ...bulkForm, models: e.target.value })} placeholder="gemini-2.5-flash" />
+                <p className="mt-1 text-xs text-slate-400">Comma-separate multiple models. Applied to every key in the paste.</p>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-semibold">Credit limit <span className="font-normal text-slate-400">(tokens, optional)</span></label>
+                <input type="number" min="0" className="input" value={bulkForm.creditLimit} onChange={(e) => setBulkForm({ ...bulkForm, creditLimit: e.target.value })} placeholder="e.g. 1000000" />
+                <p className="mt-1 text-xs text-slate-400">Same budget applied to each key. Leave blank/0 if unknown.</p>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-semibold">API keys <span className="font-normal text-slate-400">(one per line)</span></label>
+                <textarea
+                  className="input min-h-[140px] font-mono text-xs"
+                  value={bulkForm.keysText}
+                  onChange={(e) => setBulkForm({ ...bulkForm, keysText: e.target.value })}
+                  placeholder={"AIzaSy...key1\nAIzaSy...key2\nAIzaSy...key3"}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <p className="mt-1 text-xs text-slate-400">
+                  {parseBulkKeys(bulkForm.keysText).length} key(s) detected. Duplicates and keys already added are skipped automatically.
+                </p>
+              </div>
+
+              {bulkResult && (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-300">
+                  Added <b>{bulkResult.created}</b> key(s){bulkResult.skipped ? <>, skipped <b>{bulkResult.skipped}</b> duplicate(s)</> : null}.
+                </div>
+              )}
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button type="button" onClick={() => setBulkModal(null)} className="btn-outline">Close</button>
+              <button type="submit" disabled={bulkSaving || parseBulkKeys(bulkForm.keysText).length === 0} className="btn-primary">
+                {bulkSaving ? <><Loader2 className="h-4 w-4 animate-spin" /> Adding…</> : <>Add {parseBulkKeys(bulkForm.keysText).length || ""} key(s)</>}
+              </button>
             </div>
           </form>
         </div>
