@@ -1,4 +1,6 @@
 import { forwardRef } from "react";
+import katex from "katex";
+import "katex/dist/katex.min.css";
 
 // Renders note text as natural-looking HANDWRITING on a clean A4 sheet, using
 // handwriting fonts and multiple "gel pen" colours (title/section/body/bold/
@@ -36,7 +38,13 @@ function renderInline(text, key) {
     if (m.index > last) parts.push(<span key={`${key}-t${i}`}>{text.slice(last, m.index)}</span>);
     if (m[1] != null) parts.push(<span key={`${key}-b${i}`} style={{ color: INK.bold, fontWeight: 700 }}>{m[1]}</span>);
     else if (m[2] != null) parts.push(<span key={`${key}-h${i}`} style={{ background: "#fff59d", borderRadius: 3, padding: "0 2px" }}>{m[2]}</span>);
-    else parts.push(<span key={`${key}-m${i}`}>{m[3]}</span>);
+    else parts.push(
+      <span
+        key={`${key}-m${i}`}
+        style={{ fontFamily: "'KaTeX_Main', 'Times New Roman', serif" }}
+        dangerouslySetInnerHTML={{ __html: katex.renderToString(m[3], { throwOnError: false }) }}
+      />
+    );
     last = INLINE_RE.lastIndex;
     i += 1;
   }

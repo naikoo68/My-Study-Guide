@@ -1,7 +1,28 @@
 import { useRef, useState } from "react";
-import { Sparkles, Loader2, Download, FileDown, Feather, Trash2 } from "lucide-react";
+import { Sparkles, Loader2, Download, FileDown, Feather, Trash2, Sigma } from "lucide-react";
 import { aiService } from "../../services";
 import HandwrittenSheet from "../../components/ui/HandwrittenSheet";
+import RichText from "../../components/ui/RichText";
+
+// Inline-math toolbar: LaTeX snippets render via KaTeX inside $…$; plain symbols
+// are inserted as-is.
+const MATH_BTNS = [
+  { t: "$ $", ins: ["$", "$"], title: "Wrap selection in inline math" },
+  { t: "x²", ins: ["$x^{2}$"] },
+  { t: "xₙ", ins: ["$x_{n}$"] },
+  { t: "a⁄b", ins: ["$\\frac{a}{b}$"] },
+  { t: "√", ins: ["$\\sqrt{x}$"] },
+  { t: "Σ", ins: ["$\\sum_{i=1}^{n}$"] },
+  { t: "∫", ins: ["$\\int_{a}^{b}$"] },
+  { t: "×", ins: ["×"] },
+  { t: "÷", ins: ["÷"] },
+  { t: "π", ins: ["π"] },
+  { t: "≤", ins: ["≤"] },
+  { t: "≥", ins: ["≥"] },
+  { t: "≠", ins: ["≠"] },
+  { t: "°", ins: ["°"] },
+  { t: "→", ins: ["→"] },
+];
 
 // html2canvas (CDN) — rasterises the handwritten A4 sheet for PNG / PDF export.
 async function loadHtml2Canvas() {
@@ -23,9 +44,30 @@ export default function AdminNotes() {
   const [hwBusy, setHwBusy] = useState(""); // "png" | "pdf"
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
+  const [showMath, setShowMath] = useState(false); // inline-math toolbar
+  const [view, setView] = useState("handwritten"); // "handwritten" | "rendered"
   const hwRef = useRef(null);
+  const rrRef = useRef(null);
+  const taRef = useRef(null);
 
   const hasContent = content.trim().length > 0;
+  const activeRef = view === "handwritten" ? hwRef : rrRef;
+
+  // Insert text at the textarea caret (wrapping the selection when `after` given).
+  const insertMath = (before, after = "") => {
+    const ta = taRef.current;
+    const val = content;
+    const start = ta?.selectionStart ?? val.length;
+    const end = ta?.selectionEnd ?? start;
+    const sel = val.slice(start, end);
+    setContent(val.slice(0, start) + before + sel + after + val.slice(end));
+    requestAnimationFrame(() => {
+      if (!ta) return;
+      ta.focus();
+      const pos = start + before.length + sel.length + after.length;
+      ta.setSelectionRange(pos, pos);
+    });
+  };
 
   const generate = async () => {
     const t = topic.trim();
@@ -50,13 +92,14 @@ export default function AdminNotes() {
   };
 
   const exportSheet = async (kind) => {
-    if (!hwRef.current || !hasContent) return;
+    const el = activeRef.current;
+    if (!el || !hasContent) return;
     setHwBusy(kind);
     setError("");
     try {
       if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch { /* ignore */ } }
       const html2canvas = await loadHtml2Canvas();
-      const canvas = await html2canvas(hwRef.current, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
+      const canvas = await html2canvas(el, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
       const dataUrl = canvas.toDataURL("image/png");
       const name = (topic || "notes").replace(/[^\w.-]+/g, "_");
       if (kind === "png") {
@@ -111,13 +154,30 @@ export default function AdminNotes() {
 
       {/* Editable notes text */}
       <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
-        <div className="mb-1 flex items-center justify-between">
+        <div className="mb-1 flex items-center justify-between gap-2">
           <label className="text-sm font-semibold">Notes text</label>
-          {hasContent && (
-            <button type="button" onClick={() => { setContent(""); setMsg(""); }} className="btn-outline !py-1 !text-xs"><Trash2 className="h-3.5 w-3.5" /> Clear</button>
-          )}
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => setShowMath((v) => !v)} className={`!py-1 !text-xs ${showMath ? "btn-primary" : "btn-outline"}`} title="Insert inline math ($…$)">
+              <Sigma className="h-3.5 w-3.5" /> Math
+            </button>
+            {hasContent && (
+              <button type="button" onClick={() => { setContent(""); setMsg(""); }} className="btn-outline !py-1 !text-xs"><Trash2 className="h-3.5 w-3.5" /> Clear</button>
+            )}
+          </div>
         </div>
+        {showMath && (
+          <div className="mb-2 flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-800/60">
+            {MATH_BTNS.map((b, i) => (
+              <button key={i} type="button" onClick={() => insertMath(...b.ins)} title={b.title || ""}
+                className="rounded-md border border-slate-200 bg-white px-2 py-1 font-mono text-xs hover:border-brand-400 hover:text-brand-600 dark:border-slate-600 dark:bg-slate-900">
+                {b.t}
+              </button>
+            ))}
+            <span className="ml-auto self-center text-[11px] text-slate-400">Wrap maths in $…$ — renders in the preview &amp; download</span>
+          </div>
+        )}
         <textarea
+          ref={taRef}
           rows={8}
           className="input resize-y font-mono text-xs"
           placeholder={"Generate notes above, or type/paste them here.\nUse # Heading, ## Sub-heading, - bullet, **bold**, ==highlight==, $math$."}
@@ -130,23 +190,37 @@ export default function AdminNotes() {
       {/* Handwritten preview + downloads */}
       <div className="rounded-xl border border-slate-200 bg-slate-200/70 p-4 dark:border-slate-700 dark:bg-slate-800">
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Paper:</span>
           <div className="flex overflow-hidden rounded-lg border border-slate-300 dark:border-slate-600">
-            <button type="button" onClick={() => setPaper("unruled")} className={`px-2.5 py-1 text-xs font-semibold ${paper === "unruled" ? "bg-brand-600 text-white" : "bg-white text-slate-600 dark:bg-slate-900 dark:text-slate-300"}`}>Unruled</button>
-            <button type="button" onClick={() => setPaper("ruled")} className={`px-2.5 py-1 text-xs font-semibold ${paper === "ruled" ? "bg-brand-600 text-white" : "bg-white text-slate-600 dark:bg-slate-900 dark:text-slate-300"}`}>Ruled</button>
+            <button type="button" onClick={() => setView("handwritten")} className={`px-2.5 py-1 text-xs font-semibold ${view === "handwritten" ? "bg-brand-600 text-white" : "bg-white text-slate-600 dark:bg-slate-900 dark:text-slate-300"}`}>Handwritten</button>
+            <button type="button" onClick={() => setView("rendered")} className={`px-2.5 py-1 text-xs font-semibold ${view === "rendered" ? "bg-brand-600 text-white" : "bg-white text-slate-600 dark:bg-slate-900 dark:text-slate-300"}`}>Rendered</button>
           </div>
+          {view === "handwritten" && (
+            <>
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Paper:</span>
+              <div className="flex overflow-hidden rounded-lg border border-slate-300 dark:border-slate-600">
+                <button type="button" onClick={() => setPaper("unruled")} className={`px-2.5 py-1 text-xs font-semibold ${paper === "unruled" ? "bg-brand-600 text-white" : "bg-white text-slate-600 dark:bg-slate-900 dark:text-slate-300"}`}>Unruled</button>
+                <button type="button" onClick={() => setPaper("ruled")} className={`px-2.5 py-1 text-xs font-semibold ${paper === "ruled" ? "bg-brand-600 text-white" : "bg-white text-slate-600 dark:bg-slate-900 dark:text-slate-300"}`}>Ruled</button>
+              </div>
+            </>
+          )}
           <button type="button" onClick={() => exportSheet("png")} disabled={!!hwBusy || !hasContent} className="btn-outline !py-1 !text-xs">
             {hwBusy === "png" ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> PNG…</> : <><Download className="h-3.5 w-3.5" /> Download PNG</>}
           </button>
           <button type="button" onClick={() => exportSheet("pdf")} disabled={!!hwBusy || !hasContent} className="btn-outline !py-1 !text-xs">
             {hwBusy === "pdf" ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> PDF…</> : <><FileDown className="h-3.5 w-3.5" /> Download PDF</>}
           </button>
-          <span className="ml-auto text-[11px] text-slate-400">Live preview — realistic handwriting on A4</span>
+          <span className="ml-auto text-[11px] text-slate-400">{view === "handwritten" ? "Handwriting on A4 — math rendered" : "Typeset preview — math rendered"}</span>
         </div>
         <div className="max-h-[80vh] overflow-auto">
-          {hasContent
-            ? <HandwrittenSheet ref={hwRef} text={content} paper={paper} />
-            : <p className="py-10 text-center text-sm text-slate-400">Your handwritten notes will appear here.</p>}
+          {!hasContent ? (
+            <p className="py-10 text-center text-sm text-slate-400">Your notes will appear here.</p>
+          ) : view === "handwritten" ? (
+            <HandwrittenSheet ref={hwRef} text={content} paper={paper} />
+          ) : (
+            <div ref={rrRef} className="mx-auto w-full max-w-[794px] rounded-sm bg-white p-[48px] text-slate-900 shadow-lg sm:min-h-[1050px]">
+              <RichText paged={false}>{content}</RichText>
+            </div>
+          )}
         </div>
       </div>
     </div>
