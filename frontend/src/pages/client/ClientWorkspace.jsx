@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { GraduationCap, LogOut, Moon, Sun, ZoomIn, ZoomOut, LayoutDashboard, Wrench, ArrowRightLeft, Sparkles, FileText } from "lucide-react";
+import { GraduationCap, LogOut, Moon, Sun, ZoomIn, ZoomOut, LayoutDashboard, Wrench, ArrowRightLeft, Sparkles, FileText, Feather } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
 import { useSettings } from "../../context/SettingsContext";
@@ -11,6 +11,7 @@ import ClientDashboard from "./ClientDashboard";
 import ClientUpgrade from "./ClientUpgrade";
 import ClientAiSettings from "./ClientAiSettings";
 import AdminDocuments from "../admin/AdminDocuments";
+import AdminNotes from "../admin/AdminNotes";
 
 // The self-service CLIENT workspace. A client only ever sees the My Practice
 // section (their own private content) — no other part of the site. It reuses
@@ -42,6 +43,7 @@ export default function ClientWorkspace() {
     ...(user?.aiAccess ? [
       { key: "ai", label: "AI", Icon: Sparkles },
       { key: "documents", label: "Documents", Icon: FileText },
+      { key: "notes", label: "Notes", Icon: Feather },
     ] : []),
   ];
 
@@ -116,6 +118,8 @@ export default function ClientWorkspace() {
           <ClientAiSettings />
         ) : tab === "documents" ? (
           <AdminDocuments />
+        ) : tab === "notes" ? (
+          <AdminNotes />
         ) : (
           <AdminPractice clientMode />
         )}

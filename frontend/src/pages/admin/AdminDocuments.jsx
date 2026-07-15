@@ -1,18 +1,11 @@
 import { useEffect, useState, useRef } from "react";
-import { FileText, Upload, Plus, Pencil, Trash2, X, Loader2, Save, Download, ScanText, Maximize2, Minimize2, Copy, Check, Wand2, Eraser, Eye, Pencil as PencilIcon, FileDown, Type, PenLine, Feather, Sparkles, Image as ImageIcon } from "lucide-react";
+import { FileText, Upload, Plus, Pencil, Trash2, X, Loader2, Save, Download, ScanText, Maximize2, Minimize2, Copy, Check, Wand2, Eraser, Eye, Pencil as PencilIcon, FileDown, Type, PenLine } from "lucide-react";
 import katex from "katex";
 import { documentService, aiService } from "../../services";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 import { questionsToCsv } from "../../components/admin/BulkUploadQuestions";
 import RichText from "../../components/ui/RichText";
 import RichEditor from "../../components/ui/RichEditor";
-import HandwrittenSheet from "../../components/ui/HandwrittenSheet";
-
-// html2canvas (CDN) — rasterises the handwritten A4 sheet for PNG/PDF export.
-async function loadHtml2Canvas() {
-  const mod = await import(/* @vite-ignore */ "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/+esm");
-  return mod?.default || mod;
-}
 
 // Is this string HTML (from the Word editor) rather than plain text?
 const isHtml = (s) => /<\/?[a-z][\s\S]*>/i.test(String(s || ""));
@@ -231,14 +224,7 @@ export default function AdminDocuments() {
   const [seedKey, setSeedKey] = useState(0); // bump to push programmatic content into the Word editor
   const [converting, setConverting] = useState(""); // "" | "text" | "csv"
   const [convertMsg, setConvertMsg] = useState("");
-  const [handwritten, setHandwritten] = useState(false); // show the handwritten A4 view
-  const [paper, setPaper] = useState("unruled"); // "unruled" | "ruled"
-  const [hwBusy, setHwBusy] = useState(""); // "png" | "pdf"
-  const [notesOpen, setNotesOpen] = useState(false); // topic input for "Generate notes"
-  const [notesTopic, setNotesTopic] = useState("");
-  const [notesBusy, setNotesBusy] = useState(false);
   const taRef = useRef(null);
-  const hwRef = useRef(null);
 
   const bumpSeed = () => setSeedKey((k) => k + 1);
   const useRich = docMode === "rich" && !richFailed;
@@ -247,7 +233,7 @@ export default function AdminDocuments() {
 
   // Reset transient editor UI whenever the editor closes.
   useEffect(() => {
-    if (!editor) { setFullscreen(false); setShowMath(false); setPreview(false); setConvertMsg(""); setHandwritten(false); setNotesOpen(false); setNotesTopic(""); }
+    if (!editor) { setFullscreen(false); setShowMath(false); setPreview(false); setConvertMsg(""); }
   }, [editor]);
 
   // Insert text at the textarea caret (wrapping the selection when `after` given).
@@ -337,71 +323,6 @@ export default function AdminDocuments() {
     setConvertMsg(removed
       ? `✓ Cleaned — removed ${removed} boilerplate line(s) (file numbers, stamps, page markers).`
       : "Nothing to clean — no boilerplate lines found.");
-  };
-
-  // Generate study notes on a topic with AI, drop them into the document, and
-  // show them in the handwritten A4 view.
-  const runGenerateNotes = async () => {
-    const topic = notesTopic.trim();
-    if (!topic) { setError("Enter a topic for the notes."); return; }
-    setNotesBusy(true);
-    setConvertMsg("Generating study notes…");
-    try {
-      const { notes } = await aiService.notes({ topic });
-      if (notes && notes.trim()) {
-        setEditor((ed) => {
-          const b = ed || { ...blank };
-          return { ...b, title: b.title?.trim() ? b.title : topic, content: notes };
-        });
-        bumpSeed();
-        setHandwritten(true);
-        setNotesOpen(false);
-        setNotesTopic("");
-        setConvertMsg("✓ Notes generated — view as handwritten, edit, save, or download as PNG/PDF.");
-      } else {
-        setConvertMsg("No notes were returned — try a more specific topic.");
-      }
-    } catch (e) {
-      setConvertMsg(e.message || "Couldn't generate notes.");
-    } finally {
-      setNotesBusy(false);
-    }
-  };
-
-  // Rasterise the handwritten A4 sheet, then download it as a PNG image or as an
-  // A4 PDF (image wrapped in a print page). Both look like a scanned sheet.
-  const exportHandwritten = async (kind) => {
-    if (!hwRef.current) return;
-    setHwBusy(kind);
-    setError("");
-    try {
-      if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch { /* ignore */ } }
-      const html2canvas = await loadHtml2Canvas();
-      const canvas = await html2canvas(hwRef.current, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
-      const dataUrl = canvas.toDataURL("image/png");
-      const name = (editor?.title || "notes").replace(/[^\w.-]+/g, "_");
-      if (kind === "png") {
-        const a = document.createElement("a");
-        a.href = dataUrl;
-        a.download = `${name}.png`;
-        a.click();
-      } else {
-        const win = window.open("", "_blank");
-        if (!win) { setError("Allow pop-ups for this site to download the PDF."); return; }
-        win.document.write(
-          `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(editor?.title || "notes")}</title>` +
-          `<style>@page{size:A4;margin:0}html,body{margin:0;padding:0}img{width:100%;display:block}</style></head><body>` +
-          `<img src="${dataUrl}">` +
-          `<scr` + `ipt>window.onload=function(){setTimeout(function(){window.focus();window.print();},300)};</scr` + `ipt>` +
-          `</body></html>`
-        );
-        win.document.close();
-      }
-    } catch (e) {
-      setError(`Couldn't create the ${kind.toUpperCase()}: ${e.message}`);
-    } finally {
-      setHwBusy("");
-    }
   };
 
   const copyText = async () => {
@@ -605,7 +526,6 @@ export default function AdminDocuments() {
             <input type="file" accept="application/pdf,.pdf" className="hidden" onChange={onPdf} disabled={pdfBusy} />
             {pdfBusy ? <><Loader2 className="h-4 w-4 animate-spin" /> Reading{pdfProgress ? ` ${pdfProgress.page}/${pdfProgress.total}` : "…"}</> : <><Upload className="h-4 w-4" /> Upload PDF</>}
           </label>
-          <button onClick={() => { openNew(); setNotesOpen(true); }} className="btn-outline text-brand-600"><Sparkles className="h-4 w-4" /> Generate notes</button>
           <button onClick={openNew} className="btn-outline"><Plus className="h-4 w-4" /> New note</button>
         </div>
       </div>
@@ -696,9 +616,6 @@ export default function AdminDocuments() {
                   title={useRich ? "Word editor (click for the plain-text editor)" : "Plain-text editor (click for the Word editor)"}>
                   <PenLine className="h-3.5 w-3.5" /> {useRich ? "Word editor" : "Plain text"}
                 </button>
-                <button type="button" onClick={() => setHandwritten((v) => !v)} className={`!py-1 !text-xs ${handwritten ? "btn-primary" : "btn-outline"}`} title="Handwritten notes — realistic handwriting on A4 (download as PNG/PDF)">
-                  <Feather className="h-3.5 w-3.5" /> Handwritten
-                </button>
                 {!useRich && (
                   <button type="button" onClick={() => setShowMath((v) => !v)} className={`!py-1 !text-xs ${showMath ? "btn-primary" : "btn-outline"}`} title="Formatting: bold, italic, headings, lists, math">
                     <Type className="h-3.5 w-3.5" /> Format
@@ -733,44 +650,7 @@ export default function AdminDocuments() {
               </div>
             )}
 
-            {notesOpen && (
-              <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-brand-200 bg-brand-50 p-2 dark:border-brand-900/40 dark:bg-brand-900/20">
-                <Sparkles className="h-4 w-4 flex-shrink-0 text-brand-600" />
-                <input
-                  className="input flex-1 !py-1 !text-sm"
-                  placeholder="Topic for AI notes — e.g. Photosynthesis, Mughal Empire, Newton's laws of motion…"
-                  value={notesTopic}
-                  onChange={(e) => setNotesTopic(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") runGenerateNotes(); }}
-                />
-                <button type="button" onClick={runGenerateNotes} disabled={notesBusy} className="btn-primary !py-1 !text-xs">
-                  {notesBusy ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating…</> : <><Sparkles className="h-3.5 w-3.5" /> Generate</>}
-                </button>
-                <button type="button" onClick={() => setNotesOpen(false)} className="btn-outline !py-1 !text-xs">Cancel</button>
-              </div>
-            )}
-
-            {handwritten ? (
-              <div className={`overflow-auto rounded-lg border border-slate-200 bg-slate-200/70 p-4 dark:border-slate-700 dark:bg-slate-800 ${fullscreen ? "min-h-0 flex-1" : "max-h-[72vh]"}`}>
-                <div className="mb-3 flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Paper:</span>
-                  <div className="flex overflow-hidden rounded-lg border border-slate-300 dark:border-slate-600">
-                    <button type="button" onClick={() => setPaper("unruled")} className={`px-2.5 py-1 text-xs font-semibold ${paper === "unruled" ? "bg-brand-600 text-white" : "bg-white text-slate-600 dark:bg-slate-900 dark:text-slate-300"}`}>Unruled</button>
-                    <button type="button" onClick={() => setPaper("ruled")} className={`px-2.5 py-1 text-xs font-semibold ${paper === "ruled" ? "bg-brand-600 text-white" : "bg-white text-slate-600 dark:bg-slate-900 dark:text-slate-300"}`}>Ruled</button>
-                  </div>
-                  <button type="button" onClick={() => exportHandwritten("png")} disabled={!!hwBusy || !hasContent} className="btn-outline !py-1 !text-xs">
-                    {hwBusy === "png" ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> PNG…</> : <><ImageIcon className="h-3.5 w-3.5" /> Download PNG</>}
-                  </button>
-                  <button type="button" onClick={() => exportHandwritten("pdf")} disabled={!!hwBusy || !hasContent} className="btn-outline !py-1 !text-xs">
-                    {hwBusy === "pdf" ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> PDF…</> : <><FileDown className="h-3.5 w-3.5" /> Download PDF</>}
-                  </button>
-                  <span className="ml-auto text-[11px] text-slate-400">Handwriting on A4 — edit the text in the editor, then return here</span>
-                </div>
-                {hasContent
-                  ? <HandwrittenSheet ref={hwRef} text={contentText} paper={paper} />
-                  : <p className="text-sm text-slate-400">Nothing to render yet — add or generate some text first.</p>}
-              </div>
-            ) : preview ? (
+            {preview ? (
               <div
                 className={`overflow-auto rounded-lg border border-slate-200 bg-slate-200/70 p-4 text-sm leading-relaxed dark:border-slate-700 dark:bg-slate-800 ${fullscreen ? "min-h-0 flex-1" : "max-h-[72vh]"}`}
                 onDoubleClick={() => setPreview(false)}
@@ -810,21 +690,16 @@ export default function AdminDocuments() {
                 {contentText.length.toLocaleString()} characters
                 {editor.sourceName ? ` · from ${editor.sourceName}${editor.pages ? ` (${editor.pages} pages)` : ""}` : ""}
               </p>
-              <div className="flex flex-wrap gap-2">
-                <button type="button" onClick={() => setNotesOpen((v) => !v)} className="btn-outline !py-1 !text-xs" title="Generate study notes on a topic with AI">
-                  <Sparkles className="h-3.5 w-3.5" /> Generate notes
-                </button>
-                {hasContent && (
-                  <>
-                    <button type="button" onClick={() => runConvert("text")} disabled={!!converting} className="btn-outline !py-1 !text-xs">
-                      {converting === "text" ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Converting…</> : <><Wand2 className="h-3.5 w-3.5" /> Convert to questions</>}
-                    </button>
-                    <button type="button" onClick={() => runConvert("csv")} disabled={!!converting} className="btn-outline !py-1 !text-xs" title="Output in your bulk-upload CSV format (all question types, with answers)">
-                      {converting === "csv" ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Converting…</> : <><FileText className="h-3.5 w-3.5" /> To my format (CSV)</>}
-                    </button>
-                  </>
-                )}
-              </div>
+              {hasContent && (
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={() => runConvert("text")} disabled={!!converting} className="btn-outline !py-1 !text-xs">
+                    {converting === "text" ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Converting…</> : <><Wand2 className="h-3.5 w-3.5" /> Convert to questions</>}
+                  </button>
+                  <button type="button" onClick={() => runConvert("csv")} disabled={!!converting} className="btn-outline !py-1 !text-xs" title="Output in your bulk-upload CSV format (all question types, with answers)">
+                    {converting === "csv" ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Converting…</> : <><FileText className="h-3.5 w-3.5" /> To my format (CSV)</>}
+                  </button>
+                </div>
+              )}
             </div>
             {convertMsg && <p className="mt-1 text-xs font-medium text-slate-500 dark:text-slate-400">{convertMsg}</p>}
 

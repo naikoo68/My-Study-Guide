@@ -69,6 +69,7 @@ const AdminCoupons = lazy(() => import("./pages/admin/AdminCoupons"));
 const AdminAiKeys = lazy(() => import("./pages/admin/AdminAiKeys"));
 const AdminAiStudio = lazy(() => import("./pages/admin/AdminAiStudio"));
 const AdminDocuments = lazy(() => import("./pages/admin/AdminDocuments"));
+const AdminNotes = lazy(() => import("./pages/admin/AdminNotes"));
 
 // Wraps a lazily-loaded page in a Suspense boundary with a loading fallback.
 const S = (Comp) => (
@@ -162,6 +163,7 @@ const router = createHashRouter([
       { path: "notices", element: S(AdminNotices) },
       { path: "ai-generator", element: S(AdminAiStudio) },
       { path: "documents", element: S(AdminDocuments) },
+      { path: "notes", element: S(AdminNotes) },
       { path: "ai-keys", element: S(AdminAiKeys) },
       { path: "customization", element: S(AdminCustomization) },
     ],
