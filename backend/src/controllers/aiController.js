@@ -326,6 +326,9 @@ function normalize(list) {
         explanation: asStr(q?.explanation).trim(),
         optionExplanations: oe,
         status: "published",
+        // Source question number (from a numbered paper), used only to de-duplicate
+        // during extraction so the count matches the source exactly. Not persisted.
+        n: Number.isFinite(Number(q?.n)) ? Number(q.n) : null,
       };
 
       if (type === "matching" || type === "pair" || type === "pairselect") {
@@ -952,6 +955,7 @@ function buildExtractPrompt(sourceText) {
     "",
     "MOST IMPORTANT: capture EVERY question in the material below — do not skip, summarise or merge any. If the text contains 40 questions, return all 40, in their original order.",
     "Equally important: do NOT invent questions, do NOT repeat/duplicate a question, and do NOT split one question (or its sub-parts/options) into multiple questions. The number you return must NOT exceed the number actually present in the text.",
+    "The source questions are NUMBERED (1, 2, 3, …). For EACH question, include its exact source number as an integer field \"n\". Return EXACTLY ONE object per numbered question — if the text has questions numbered up to 50, return 50 objects with n = 1..50. Never merge two numbers into one object and never split one number into two.",
     "",
     "Output ONLY actual questions — NOTHING else. A valid question has a stem AND answer options. IGNORE and never output: titles, headings, exam/booklet names, exam-centre or hall names (e.g. \"Clerical Hall JKSSB\"), file/reference/computer numbers (e.g. \"8233675/2026/0/0\", \"File No. …\"), page numbers, \"Set-A\", \"P.T.O.\", maximum marks, time/duration, roll-number/candidate fields, invigilator or signature lines, general instructions, section headers, and watermarks. If a line or block is not a real question with options, drop it entirely.",
     "",
@@ -1005,9 +1009,12 @@ async function runExtractionJob(id, { endpoints, model, chunks, owner = null }) 
       }
       for (const q of normalize(parseQuestions(r.content))) {
         if (!isRealQuestion(q)) continue; // keep ONLY genuine questions — drop headers/instructions/etc.
-        const sig = extractSig(q);
-        if (seen.has(sig)) continue; // skip duplicates across chunks
-        seen.add(sig);
+        // For numbered papers, de-duplicate by the SOURCE question number so the
+        // count matches exactly (no duplicate/split inflation). Fall back to the
+        // fuzzy text signature when there's no reliable number.
+        const key = q.n != null ? `n:${q.n}` : extractSig(q);
+        if (seen.has(key)) continue; // skip duplicates across chunks
+        seen.add(key);
         collected.push(q);
       }
       save({ questions: collected.slice() });
