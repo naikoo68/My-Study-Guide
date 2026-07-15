@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { FileText, Upload, Plus, Pencil, Trash2, X, Loader2, Save, Download, ScanText, Maximize2, Minimize2, Copy, Check, Sigma, Wand2 } from "lucide-react";
 import { documentService, aiService } from "../../services";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
+import { questionsToCsv } from "../../components/admin/BulkUploadQuestions";
 
 const LETTERS = ["A", "B", "C", "D"];
 const COL_A = ["1", "2", "3", "4", "5", "6", "7", "8"];
@@ -90,7 +91,7 @@ export default function AdminDocuments() {
   const [fullscreen, setFullscreen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showMath, setShowMath] = useState(false);
-  const [converting, setConverting] = useState(false);
+  const [converting, setConverting] = useState(""); // "" | "text" | "csv"
   const [convertMsg, setConvertMsg] = useState("");
   const taRef = useRef(null);
 
@@ -117,11 +118,15 @@ export default function AdminDocuments() {
   };
 
   // Convert the document text into the app's typed questions (preview only).
-  // Convert the document text into clean, numbered questions WITHOUT answers,
-  // written back into the text box so it can be saved and copied.
-  const convertToQuestions = async () => {
+  // Convert the document text into questions, written back into the text box so
+  // it can be saved and copied. Two output formats:
+  //   "text" → clean, ANSWER-FREE readable text (type-aware: matching → Column
+  //            A/B, statement → numbered statements, assertion → A/R, etc.).
+  //   "csv"  → your bulk-upload CSV format (all question types, WITH answers)
+  //            via questionsToCsv() — ready to paste straight into Bulk Upload.
+  const runConvert = async (format) => {
     if (!editor?.content?.trim()) { setError("Add some text first."); return; }
-    setConverting(true);
+    setConverting(format);
     setConvertMsg("Converting to questions…");
     try {
       const { jobId } = await aiService.extract({ content: editor.content.trim() });
@@ -134,12 +139,13 @@ export default function AdminDocuments() {
         try { s = await aiService.job(jobId); } catch { continue; }
         if (s.status === "done") {
           const qs = s.questions || [];
-          // Clean, ANSWER-FREE text, formatted by each question's TYPE
-          // (matching → Column A/B, statement → numbered statements, assertion →
-          // A/R, pair/pairselect → pairs, table → rows), then its options.
-          const formatted = qs.map((q, idx) => formatQuestionText(q, idx)).join("\n\n");
-          if (formatted.trim()) setEditor((ed) => ({ ...ed, content: formatted }));
-          setConvertMsg(`✓ Converted ${qs.length} question(s) — answers removed. Review, then Save or Copy.`);
+          const out = format === "csv"
+            ? questionsToCsv(qs)
+            : qs.map((q, idx) => formatQuestionText(q, idx)).join("\n\n");
+          if (out.trim()) setEditor((ed) => ({ ...ed, content: out }));
+          setConvertMsg(format === "csv"
+            ? `✓ ${qs.length} question(s) in your bulk-upload (CSV) format — Save/Copy, or paste into Bulk Upload.`
+            : `✓ Converted ${qs.length} question(s) — answers removed. Review, then Save or Copy.`);
           done = true;
         } else if (s.status === "error") { setConvertMsg(s.error || "Conversion failed."); done = true; }
         else setConvertMsg(`Converting… ${s.count || 0} question(s) so far`);
@@ -148,7 +154,7 @@ export default function AdminDocuments() {
     } catch (e) {
       setConvertMsg(e.message || "Conversion failed.");
     } finally {
-      setConverting(false);
+      setConverting("");
     }
   };
 
@@ -431,9 +437,14 @@ export default function AdminDocuments() {
                 {editor.sourceName ? ` · from ${editor.sourceName}${editor.pages ? ` (${editor.pages} pages)` : ""}` : ""}
               </p>
               {editor.content?.trim() && (
-                <button type="button" onClick={convertToQuestions} disabled={converting} className="btn-outline !py-1 !text-xs">
-                  {converting ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Converting…</> : <><Wand2 className="h-3.5 w-3.5" /> Convert to questions</>}
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={() => runConvert("text")} disabled={!!converting} className="btn-outline !py-1 !text-xs">
+                    {converting === "text" ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Converting…</> : <><Wand2 className="h-3.5 w-3.5" /> Convert to questions</>}
+                  </button>
+                  <button type="button" onClick={() => runConvert("csv")} disabled={!!converting} className="btn-outline !py-1 !text-xs" title="Output in your bulk-upload CSV format (all question types, with answers)">
+                    {converting === "csv" ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Converting…</> : <><FileText className="h-3.5 w-3.5" /> To my format (CSV)</>}
+                  </button>
+                </div>
               )}
             </div>
             {convertMsg && <p className="mt-1 text-xs font-medium text-slate-500 dark:text-slate-400">{convertMsg}</p>}
