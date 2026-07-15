@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FileText, Upload, Plus, Pencil, Trash2, X, Loader2, Save, Download } from "lucide-react";
+import { FileText, Upload, Plus, Pencil, Trash2, X, Loader2, Save, Download, ScanText } from "lucide-react";
 import { documentService } from "../../services";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 
@@ -14,6 +14,10 @@ export default function AdminDocuments() {
   const [busyId, setBusyId] = useState("");
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfProgress, setPdfProgress] = useState(null); // { page, total }
+  const [pdfFile, setPdfFile] = useState(null); // kept so OCR can re-read a scanned PDF
+  const [scanned, setScanned] = useState(false);
+  const [ocrBusy, setOcrBusy] = useState(false);
+  const [ocrProgress, setOcrProgress] = useState(null);
 
   const load = () => {
     setLoading(true);
@@ -54,11 +58,21 @@ export default function AdminDocuments() {
     setPdfBusy(true);
     setPdfProgress(null);
     setError("");
+    setPdfFile(file);
+    setScanned(false);
+    const niceTitle = file.name.replace(/\.pdf$/i, "");
     try {
-      const { extractPdfText } = await import("../../lib/pdf");
+      const { extractPdfText, looksScanned } = await import("../../lib/pdf");
       let total = 0;
       const text = await extractPdfText(file, (page, t) => { total = t; setPdfProgress({ page, total: t }); });
-      const niceTitle = file.name.replace(/\.pdf$/i, "");
+      // Scanned/image PDFs (no real text layer) — open the editor so the OCR
+      // button is available, and don't fill it with the useless stamp text.
+      if (!text || looksScanned(text)) {
+        setScanned(true);
+        setEditor({ ...base, title: base.title?.trim() ? base.title : niceTitle, sourceName: file.name, pages: total });
+        setError(`“${file.name}” looks like a scanned PDF — use “Read with OCR” below to read the pages.`);
+        return;
+      }
       setEditor({
         ...base,
         title: base.title?.trim() ? base.title : niceTitle,
@@ -66,11 +80,39 @@ export default function AdminDocuments() {
         sourceName: file.name,
         pages: total,
       });
-      if (!text) setError("Couldn't read any text — this PDF looks like scanned images (no selectable text).");
     } catch (err) {
       setError(`PDF read failed: ${err.message}`);
     } finally {
       setPdfBusy(false);
+    }
+  };
+
+  // Read a scanned/image PDF with OCR (slower) into the editor's text.
+  const runOcr = async () => {
+    if (!pdfFile) return;
+    setOcrBusy(true);
+    setOcrProgress(null);
+    setError("");
+    try {
+      const { ocrPdfText } = await import("../../lib/pdf");
+      let total = 0;
+      const text = await ocrPdfText(pdfFile, (page, t) => { total = t; setOcrProgress({ page, total: t }); });
+      if (!text) { setError("OCR couldn't read any text from this PDF."); return; }
+      setEditor((ed) => {
+        const b = ed || { ...blank };
+        return {
+          ...b,
+          title: b.title?.trim() ? b.title : pdfFile.name.replace(/\.pdf$/i, ""),
+          content: b.content?.trim() ? `${b.content.trim()}\n\n${text}` : text,
+          sourceName: pdfFile.name,
+          pages: total,
+        };
+      });
+      setScanned(false);
+    } catch (e) {
+      setError(`OCR failed: ${e.message}`);
+    } finally {
+      setOcrBusy(false);
     }
   };
 
@@ -119,7 +161,7 @@ export default function AdminDocuments() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-extrabold"><FileText className="h-6 w-6 text-brand-600" /> Documents</h1>
-          <p className="text-slate-500 dark:text-slate-400">Upload a PDF to extract its text, or write a note — then save it here.</p>
+          <p className="text-slate-500 dark:text-slate-400">Upload a PDF to extract its text (scanned PDFs can be read with OCR), or write a note — then save it here.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <label className={`btn-primary cursor-pointer ${pdfBusy ? "pointer-events-none opacity-70" : ""}`}>
@@ -198,6 +240,11 @@ export default function AdminDocuments() {
                   <input type="file" accept="application/pdf,.pdf" className="hidden" onChange={onPdf} disabled={pdfBusy} />
                   {pdfBusy ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Reading{pdfProgress ? ` ${pdfProgress.page}/${pdfProgress.total}` : "…"}</> : <><Upload className="h-3.5 w-3.5" /> Load from PDF</>}
                 </label>
+                {pdfFile && (
+                  <button type="button" onClick={runOcr} disabled={ocrBusy || pdfBusy} className={`!py-1 !text-xs ${scanned ? "btn-primary" : "btn-outline"}`}>
+                    {ocrBusy ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> OCR {ocrProgress?.page || 0}/{ocrProgress?.total || "?"}</> : <><ScanText className="h-3.5 w-3.5" /> Read with OCR</>}
+                  </button>
+                )}
                 {editor.content?.trim() && (
                   <button type="button" onClick={downloadTxt} className="btn-outline !py-1 !text-xs"><Download className="h-3.5 w-3.5" /> .txt</button>
                 )}

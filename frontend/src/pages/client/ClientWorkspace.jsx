@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { GraduationCap, LogOut, Moon, Sun, ZoomIn, ZoomOut, LayoutDashboard, Wrench, ArrowRightLeft, Sparkles } from "lucide-react";
+import { GraduationCap, LogOut, Moon, Sun, ZoomIn, ZoomOut, LayoutDashboard, Wrench, ArrowRightLeft, Sparkles, FileText } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
 import { useSettings } from "../../context/SettingsContext";
@@ -10,6 +10,7 @@ import AdminMigration from "../admin/AdminMigration";
 import ClientDashboard from "./ClientDashboard";
 import ClientUpgrade from "./ClientUpgrade";
 import ClientAiSettings from "./ClientAiSettings";
+import AdminDocuments from "../admin/AdminDocuments";
 
 // The self-service CLIENT workspace. A client only ever sees the My Practice
 // section (their own private content) — no other part of the site. It reuses
@@ -37,8 +38,11 @@ export default function ClientWorkspace() {
     { key: "dashboard", label: "Dashboard", Icon: LayoutDashboard },
     { key: "build", label: "Build", Icon: Wrench },
     { key: "migrate", label: "Migrate", Icon: ArrowRightLeft },
-    // AI tab only appears when the admin has granted this client AI access.
-    ...(user?.aiAccess ? [{ key: "ai", label: "AI", Icon: Sparkles }] : []),
+    // AI + Documents tabs appear when the admin has granted this client AI access.
+    ...(user?.aiAccess ? [
+      { key: "ai", label: "AI", Icon: Sparkles },
+      { key: "documents", label: "Documents", Icon: FileText },
+    ] : []),
   ];
 
   return (
@@ -103,6 +107,8 @@ export default function ClientWorkspace() {
           <AdminMigration clientMode />
         ) : tab === "ai" ? (
           <ClientAiSettings />
+        ) : tab === "documents" ? (
+          <AdminDocuments />
         ) : (
           <AdminPractice clientMode />
         )}

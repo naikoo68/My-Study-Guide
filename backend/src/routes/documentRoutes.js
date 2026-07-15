@@ -9,12 +9,14 @@ import {
 import { protect, authorize } from "../middleware/auth.js";
 
 const router = Router();
-const admin = [protect, authorize("admin")];
+// Admin manages platform documents; clients manage their OWN — every controller
+// scopes strictly by owner, so the two pools never mix.
+const manage = [protect, authorize("admin", "client")];
 
-router.get("/", ...admin, listDocuments);
-router.get("/:id", ...admin, getDocument);
-router.post("/", ...admin, createDocument);
-router.put("/:id", ...admin, updateDocument);
-router.delete("/:id", ...admin, deleteDocument);
+router.get("/", ...manage, listDocuments);
+router.get("/:id", ...manage, getDocument);
+router.post("/", ...manage, createDocument);
+router.put("/:id", ...manage, updateDocument);
+router.delete("/:id", ...manage, deleteDocument);
 
 export default router;
