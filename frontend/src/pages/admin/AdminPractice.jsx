@@ -297,13 +297,24 @@ export default function AdminPractice({ clientMode = false }) {
               {view === "items" && (
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button onClick={() => openQuestions(item)} className="btn-outline py-1.5 text-xs"><HelpCircle className="h-3.5 w-3.5" /> Questions</button>
-                  <button onClick={() => setMoveTarget({ type: "item", node: item })} className="btn-outline py-1.5 text-xs" title="Move to another stream / subject / topic"><Move className="h-3.5 w-3.5" /> Move</button>
-                  {!clientMode && kind === "test" && (
-                    <button onClick={() => setConvert({ mode: "toTestSeries", source: item })} className="btn-outline py-1.5 text-xs" title="Convert this My Test into a platform Test Series"><Shuffle className="h-3.5 w-3.5" /> To Test Series</button>
-                  )}
-                  {!clientMode && kind === "quiz" && (
-                    <button onClick={() => setConvert({ mode: "toQuiz", source: item })} className="btn-outline py-1.5 text-xs" title="Convert this My Quiz into a platform Quiz"><Shuffle className="h-3.5 w-3.5" /> To Quiz</button>
-                  )}
+                  <button
+                    onClick={() => setConvert({
+                      source: item,
+                      options: kind === "quiz"
+                        ? [
+                            { mode: "moveMyQuiz", label: "Another My Quiz place (Stream ▸ Subject ▸ Topic)" },
+                            ...(!clientMode ? [{ mode: "toQuiz", label: "Convert to a platform Quiz" }] : []),
+                          ]
+                        : [
+                            { mode: "moveMyTest", label: "Another My Test place (Stream ▸ Subject)" },
+                            ...(!clientMode ? [{ mode: "toTestSeries", label: "Convert to a platform Test Series" }] : []),
+                          ],
+                    })}
+                    className="btn-outline py-1.5 text-xs"
+                    title="Move this item — choose a destination"
+                  >
+                    <Move className="h-3.5 w-3.5" /> Move
+                  </button>
                   {!clientMode && (
                     <button onClick={() => openAccess(item)} className="btn-outline py-1.5 text-xs"><Users className="h-3.5 w-3.5" /> Visibility</button>
                   )}
@@ -455,6 +466,7 @@ export default function AdminPractice({ clientMode = false }) {
       <ConvertModal
         open={!!convert}
         mode={convert?.mode}
+        options={convert?.options}
         source={convert?.source}
         onClose={() => setConvert(null)}
         onDone={() => load(view)}
