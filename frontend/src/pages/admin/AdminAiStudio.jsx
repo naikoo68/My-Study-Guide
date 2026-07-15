@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Sparkles, Wand2, Globe, ArrowRight } from "lucide-react";
 import { practiceService, contentService, examService, testService } from "../../services";
 import AiGenerate from "../../components/admin/AiGenerate";

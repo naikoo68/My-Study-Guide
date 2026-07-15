@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Plus, Pencil, Trash2, Eye, EyeOff, X, CalendarClock, Users, Search, Upload, HelpCircle, ChevronRight, GraduationCap, Briefcase, Copy, Download, Sparkles, Globe, Library, Clock, Scale } from "lucide-react";
 import { questionDateText, searchQuestions } from "../../lib/questions";
-import { testService, contentService, examService, practiceService } from "../../services";
+import { testService, contentService, examService } from "../../services";
 import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 import BulkUploadQuestions, { questionsToCsv } from "../../components/admin/BulkUploadQuestions";

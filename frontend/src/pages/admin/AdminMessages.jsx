@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Mail, MailOpen, Trash2, Search, CheckCircle2, Reply } from "lucide-react";
+import { Mail, MailOpen, Trash2, Search, Reply } from "lucide-react";
 import { messageService } from "../../services";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 

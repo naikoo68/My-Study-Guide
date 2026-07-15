@@ -20,7 +20,6 @@ import {
   ArrowRightLeft,
   LogOut,
   Menu,
-  X,
   Moon,
   Sun,
   Home,
