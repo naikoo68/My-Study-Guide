@@ -4,6 +4,7 @@ import { aiService, documentService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
 
 const LETTERS = ["A", "B", "C", "D"];
+const BATCH = 20; // group extracted questions into batches of this size for insertion
 
 // Import questions FROM another website or pasted text. The AI extracts the
 // questions already present (it does not invent them) and returns them in the
@@ -22,6 +23,7 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
   const [preview, setPreview] = useState([]);
   const [busy, setBusy] = useState(false);
   const [inserting, setInserting] = useState(false);
+  const [insertingIdx, setInsertingIdx] = useState(-1); // which batch is being inserted
   const [msg, setMsg] = useState("");
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfProgress, setPdfProgress] = useState(null); // { page, total }
@@ -156,6 +158,23 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
       setMsg(e.message || "Import failed.");
     } finally {
       setBusy(false);
+    }
+  };
+
+  // Insert just one batch. The inserted questions are removed from the preview
+  // so they can't be inserted twice — lets you save a big import batch by batch.
+  const insertBatch = async (items, idx) => {
+    if (!items.length || insertingIdx !== -1 || inserting) return;
+    setInsertingIdx(idx);
+    setMsg("");
+    try {
+      const res = await onUpload(items, { section });
+      setPreview((prev) => prev.filter((q) => !items.includes(q)));
+      setMsg(`✓ Inserted ${res?.inserted ?? items.length} question(s) from this batch.`);
+    } catch (e) {
+      setMsg(e.message || "Insert failed.");
+    } finally {
+      setInsertingIdx(-1);
     }
   };
 
@@ -313,29 +332,50 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
             </button>
 
             {preview.length > 0 && (
-              <div className="mt-4">
-                <p className="mb-2 inline-flex items-center gap-1 text-sm font-semibold text-emerald-600 dark:text-emerald-400">
-                  <CheckCircle2 className="h-4 w-4" /> {preview.length} question(s) ready to insert
+              <div className="mt-4 space-y-3">
+                <p className="inline-flex items-center gap-1 text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+                  <CheckCircle2 className="h-4 w-4" /> {preview.length} question(s) ready — insert each batch below, or all at once.
                 </p>
-                <div className="max-h-64 space-y-2 overflow-y-auto rounded-xl border border-slate-200 p-2 dark:border-slate-700">
-                  {preview.map((q, i) => (
-                    <div key={i} className="rounded-lg bg-slate-50 p-2 text-xs dark:bg-slate-800/60">
-                      <div className="flex items-center gap-2">
-                        <span className="rounded bg-brand-100 px-1.5 py-0.5 font-semibold uppercase text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">{q.type}</span>
-                        <span className="text-slate-400">{q.difficulty}</span>
-                        <span className="ml-auto font-semibold text-emerald-600 dark:text-emerald-400">Ans: {LETTERS[q.correct] || "?"}</span>
+                {Array.from({ length: Math.ceil(preview.length / BATCH) }).map((_, bi) => {
+                  const start = bi * BATCH;
+                  const items = preview.slice(start, start + BATCH);
+                  return (
+                    <div key={bi} className="rounded-xl border border-slate-200 dark:border-slate-700">
+                      <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-3 py-2 dark:border-slate-800">
+                        <span className="text-sm font-semibold">
+                          Batch {bi + 1} <span className="font-normal text-slate-400">· {items.length} question(s)</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => insertBatch(items, bi)}
+                          disabled={insertingIdx !== -1 || inserting}
+                          className="btn-primary !py-1 !text-xs"
+                        >
+                          {insertingIdx === bi ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Inserting…</> : <>Insert these {items.length}</>}
+                        </button>
                       </div>
-                      <p className="mt-1 font-medium text-slate-700 dark:text-slate-200">{i + 1}. {q.text}</p>
-                      <ul className="mt-1 grid grid-cols-2 gap-x-3 text-slate-500 dark:text-slate-400">
-                        {(q.options || []).map((o, j) => (
-                          <li key={j} className={j === q.correct ? "font-semibold text-emerald-600 dark:text-emerald-400" : ""}>
-                            {LETTERS[j]}. {o}
-                          </li>
+                      <div className="max-h-56 space-y-2 overflow-y-auto p-2">
+                        {items.map((q, i) => (
+                          <div key={i} className="rounded-lg bg-slate-50 p-2 text-xs dark:bg-slate-800/60">
+                            <div className="flex items-center gap-2">
+                              <span className="rounded bg-brand-100 px-1.5 py-0.5 font-semibold uppercase text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">{q.type}</span>
+                              <span className="text-slate-400">{q.difficulty}</span>
+                              <span className="ml-auto font-semibold text-emerald-600 dark:text-emerald-400">Ans: {LETTERS[q.correct] || "?"}</span>
+                            </div>
+                            <p className="mt-1 font-medium text-slate-700 dark:text-slate-200">{start + i + 1}. {q.text}</p>
+                            <ul className="mt-1 grid grid-cols-2 gap-x-3 text-slate-500 dark:text-slate-400">
+                              {(q.options || []).map((o, j) => (
+                                <li key={j} className={j === q.correct ? "font-semibold text-emerald-600 dark:text-emerald-400" : ""}>
+                                  {LETTERS[j]}. {o}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
                         ))}
-                      </ul>
+                      </div>
                     </div>
-                  ))}
-                </div>
+                  );
+                })}
               </div>
             )}
           </>
@@ -346,8 +386,8 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
         <div className="mt-6 flex justify-end gap-3">
           <button type="button" onClick={onClose} className="btn-outline">Close</button>
           {status?.enabled && preview.length > 0 && (
-            <button type="button" onClick={insert} disabled={inserting} className="btn-primary">
-              {inserting ? <><Loader2 className="h-4 w-4 animate-spin" /> Inserting…</> : `Insert ${preview.length} Question(s)`}
+            <button type="button" onClick={insert} disabled={inserting || insertingIdx !== -1} className="btn-primary">
+              {inserting ? <><Loader2 className="h-4 w-4 animate-spin" /> Inserting…</> : `Insert all ${preview.length}`}
             </button>
           )}
         </div>
