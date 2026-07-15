@@ -866,10 +866,18 @@ function splitByQuestions(text, perChunk = QUESTIONS_PER_CHUNK) {
   return { count: blocks.length, chunks };
 }
 
-// Signature to de-duplicate questions collected across chunks/sections.
+// Signature to de-duplicate questions collected across chunks/sections. Strips
+// ALL non-alphanumerics and sorts the options/columns so the SAME question
+// extracted twice (with minor whitespace/punctuation/order differences from the
+// chunk overlap or OCR) collapses to one — fixing over-counts like 80 -> 84.
+// Options are still part of the key so distinct questions that share a generic
+// stem ("Which of the following is correct?") are NOT wrongly merged.
 function extractSig(q) {
-  const opts = (Array.isArray(q.options) ? q.options : []).map((o) => String(o).toLowerCase().trim()).join("|");
-  return `${String(q.text).toLowerCase().replace(/\s+/g, " ").trim()}##${opts}`;
+  const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const stem = norm(q.text).slice(0, 200);
+  const opts = (Array.isArray(q.options) ? q.options : []).map(norm).filter(Boolean).sort().join("|");
+  const cols = [...(q.columnA || []), ...(q.columnB || [])].map(norm).filter(Boolean).sort().join("|");
+  return `${stem}##${opts}##${cols}`;
 }
 
 // Fetch a web page and reduce it to readable plain text.
@@ -913,7 +921,8 @@ function buildExtractPrompt(sourceText) {
   return [
     'You extract questions from an exam/quiz document. Return ONLY JSON: {"questions":[...]}.',
     "",
-    "MOST IMPORTANT: capture EVERY question in the material below — do not skip, summarise, merge or invent any. If the text contains 40 questions, return all 40, in their original order. Missing questions is the worst possible outcome.",
+    "MOST IMPORTANT: capture EVERY question in the material below — do not skip, summarise or merge any. If the text contains 40 questions, return all 40, in their original order.",
+    "Equally important: do NOT invent questions, do NOT repeat/duplicate a question, and do NOT split one question (or its sub-parts/options) into multiple questions. The number you return must NOT exceed the number actually present in the text.",
     "",
     "Extract ONLY actual questions. IGNORE everything that is not a question: titles, headings, exam/booklet names, exam-centre or hall names (e.g. \"Clerical Hall JKSSB\"), file/reference/computer numbers (e.g. \"8233675/2026/0/0\", \"File No. …\"), page numbers, \"Set-A\", \"P.T.O.\", roll-number / candidate fields, invigilator or signature lines, general instructions, and watermarks. Never output any of these as a question.",
     "",
