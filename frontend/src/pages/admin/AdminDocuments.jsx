@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { FileText, Upload, Plus, Pencil, Trash2, X, Loader2, Save, Download, ScanText, Maximize2, Minimize2, Copy, Check, Sigma, Wand2, Eraser, Eye, Pencil as PencilIcon, FileDown } from "lucide-react";
+import { FileText, Upload, Plus, Pencil, Trash2, X, Loader2, Save, Download, ScanText, Maximize2, Minimize2, Copy, Check, Wand2, Eraser, Eye, Pencil as PencilIcon, FileDown, Type } from "lucide-react";
 import katex from "katex";
 import { documentService, aiService } from "../../services";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
@@ -12,7 +12,7 @@ const escapeHtml = (s) =>
   String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 function inlineToHtml(text) {
-  const regex = /\$\$([^$]+)\$\$|\$([^$]+)\$|\*\*([^*]+)\*\*|__([^_]+)__/g;
+  const regex = /\$\$([^$]+)\$\$|\$([^$]+)\$|<u>([\s\S]*?)<\/u>|\*\*([^*]+)\*\*|__([^_]+)__|~~([^~]+)~~|\*([^*\n]+)\*|_([^_\n]+)_/g;
   let out = "";
   let last = 0;
   let m;
@@ -21,8 +21,14 @@ function inlineToHtml(text) {
     if (m[1] != null || m[2] != null) {
       try { out += katex.renderToString(m[1] ?? m[2], { throwOnError: false, displayMode: m[1] != null }); }
       catch { out += escapeHtml(m[0]); }
+    } else if (m[3] != null) {
+      out += `<u>${escapeHtml(m[3])}</u>`;
+    } else if (m[4] != null || m[5] != null) {
+      out += `<strong>${escapeHtml(m[4] ?? m[5])}</strong>`;
+    } else if (m[6] != null) {
+      out += `<del>${escapeHtml(m[6])}</del>`;
     } else {
-      out += `<strong>${escapeHtml(m[3] ?? m[4])}</strong>`;
+      out += `<em>${escapeHtml(m[7] ?? m[8])}</em>`;
     }
     last = regex.lastIndex;
   }
@@ -36,6 +42,8 @@ function contentToHtml(text) {
     .map((line) => {
       const h = line.match(/^\s*(#{1,6})\s*(.+?)\s*$/);
       if (h) return `<p class="h h${h[1].length}">${inlineToHtml(h[2])}</p>`;
+      const b = line.match(/^\s*[-*]\s+(.*)$/);
+      if (b) return `<p class="li">&bull; ${inlineToHtml(b[1])}</p>`;
       if (line.trim() === "") return '<div class="sp"></div>';
       return `<p>${inlineToHtml(line)}</p>`;
     })
@@ -153,6 +161,21 @@ const MATH_BTNS = [
   { t: "→", ins: ["→"] },
 ];
 
+// Word-like text-formatting buttons. `wrap` surrounds the selection; `line`
+// prefixes the current line. All produce plain-text markers that the Render
+// view and PDF export format (and that stay compatible with Convert/Copy/Clean).
+const FORMAT_BTNS = [
+  { t: "B", title: "Bold", wrap: ["**", "**"], cls: "font-bold" },
+  { t: "I", title: "Italic", wrap: ["*", "*"], cls: "italic" },
+  { t: "U", title: "Underline", wrap: ["<u>", "</u>"], cls: "underline" },
+  { t: "S", title: "Strikethrough", wrap: ["~~", "~~"], cls: "line-through" },
+  { t: "H1", title: "Heading 1", line: "# " },
+  { t: "H2", title: "Heading 2", line: "## " },
+  { t: "H3", title: "Heading 3", line: "### " },
+  { t: "• List", title: "Bullet list", line: "- " },
+  { t: "1. List", title: "Numbered list", line: "1. " },
+];
+
 const blank = { id: null, title: "", content: "", sourceName: "", pages: 0 };
 
 export default function AdminDocuments() {
@@ -194,6 +217,23 @@ export default function AdminDocuments() {
       if (!ta) return;
       ta.focus();
       const pos = start + before.length + sel.length + after.length;
+      ta.setSelectionRange(pos, pos);
+    });
+  };
+
+  // Prefix the current line (heading / list marker), skipping if already there.
+  const applyLinePrefix = (prefix) => {
+    const ta = taRef.current;
+    const val = editor?.content || "";
+    const caret = ta?.selectionStart ?? val.length;
+    const lineStart = val.lastIndexOf("\n", caret - 1) + 1;
+    if (val.slice(lineStart).startsWith(prefix)) return; // already applied
+    const next = val.slice(0, lineStart) + prefix + val.slice(lineStart);
+    setEditor((ed) => ({ ...ed, content: next }));
+    requestAnimationFrame(() => {
+      if (!ta) return;
+      ta.focus();
+      const pos = caret + prefix.length;
       ta.setSelectionRange(pos, pos);
     });
   };
@@ -417,6 +457,7 @@ export default function AdminDocuments() {
       `h1.title{font-size:22px;margin:0 0 16px;border-bottom:1px solid #e2e8f0;padding-bottom:8px}` +
       `p{margin:0 0 6px;white-space:pre-wrap;word-wrap:break-word}` +
       `.h{font-weight:700;margin:12px 0 4px}.h1{font-size:20px}.h2{font-size:18px}.h3,.h4,.h5,.h6{font-size:15px}` +
+      `.li{padding-left:1em;text-indent:-0.5em}` +
       `.sp{height:8px}` +
       `@media print{body{margin:0}}` +
       `</style></head><body>` +
@@ -533,8 +574,8 @@ export default function AdminDocuments() {
                 {editor.content?.trim() && (
                   <button type="button" onClick={downloadPdf} className="btn-outline !py-1 !text-xs" title="Download as PDF (rendered — headings, bold, math)"><FileDown className="h-3.5 w-3.5" /> PDF</button>
                 )}
-                <button type="button" onClick={() => setShowMath((v) => !v)} className={`!py-1 !text-xs ${showMath ? "btn-primary" : "btn-outline"}`} title="Insert math">
-                  <Sigma className="h-3.5 w-3.5" /> Math
+                <button type="button" onClick={() => setShowMath((v) => !v)} className={`!py-1 !text-xs ${showMath ? "btn-primary" : "btn-outline"}`} title="Formatting: bold, italic, headings, lists, math">
+                  <Type className="h-3.5 w-3.5" /> Format
                 </button>
                 {editor.content?.trim() && (
                   <button type="button" onClick={() => setPreview((v) => !v)} className={`!py-1 !text-xs ${preview ? "btn-primary" : "btn-outline"}`} title={preview ? "Back to editing" : "Render — show $…$ math in its actual form"}>
@@ -548,14 +589,22 @@ export default function AdminDocuments() {
             </div>
 
             {showMath && (
-              <div className="mb-2 flex flex-wrap gap-1 rounded-lg border border-slate-200 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-800/60">
+              <div className="mb-2 flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-800/60">
+                {FORMAT_BTNS.map((b, i) => (
+                  <button key={`f${i}`} type="button" title={b.title}
+                    onClick={() => (b.wrap ? insertMath(...b.wrap) : applyLinePrefix(b.line))}
+                    className={`rounded-md border border-slate-200 bg-white px-2 py-1 text-xs hover:border-brand-400 hover:text-brand-600 dark:border-slate-600 dark:bg-slate-900 ${b.cls || ""}`}>
+                    {b.t}
+                  </button>
+                ))}
+                <span className="mx-1 h-5 w-px self-center bg-slate-300 dark:bg-slate-600" />
                 {MATH_BTNS.map((b, i) => (
-                  <button key={i} type="button" onClick={() => insertMath(...b.ins)} title={b.title || ""}
+                  <button key={`m${i}`} type="button" onClick={() => insertMath(...b.ins)} title={b.title || ""}
                     className="rounded-md border border-slate-200 bg-white px-2 py-1 font-mono text-xs hover:border-brand-400 hover:text-brand-600 dark:border-slate-600 dark:bg-slate-900">
                     {b.t}
                   </button>
                 ))}
-                <span className="ml-auto self-center text-[11px] text-slate-400">Use $…$ for inline math</span>
+                <span className="ml-auto self-center text-[11px] text-slate-400">Select text, then a button · or use the Render/PDF buttons to see it formatted</span>
               </div>
             )}
 

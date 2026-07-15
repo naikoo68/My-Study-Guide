@@ -2,38 +2,50 @@ import katex from "katex";
 import "katex/dist/katex.min.css";
 
 // Lightweight renderer for DOCUMENT text: turns the raw text (as stored) into
-// its formatted "actual form" for previews. It understands:
-//   - Headings:  #, ##, ###, #### …  → shown in BOLD (bigger for #/##).
-//   - Bold:      **text**  or  __text__  → bold.
-//   - Math:      $…$ (inline) and $$…$$ (block) → rendered with KaTeX.
+// its formatted "actual form" for previews. It understands a Word-like subset:
+//   - Headings:  #, ##, ###, #### …           → bold (bigger for #/##).
+//   - Bold:      **text**  or  __text__        → bold.
+//   - Italic:    *text*    or  _text_          → italic.
+//   - Underline: <u>text</u>                    → underline.
+//   - Strike:    ~~text~~                        → strikethrough.
+//   - Lists:     "- item" / "* item"            → bullet;  "1. item" stays numbered.
+//   - Math:      $…$ (inline) and $$…$$ (block)  → KaTeX.
 // Anything else is plain text; line breaks are preserved.
 //
 // Documents are always SAVED as raw text (so they stay editable, convertible
 // and copyable); this component only affects how they are DISPLAYED.
 
-// Render one line's inline tokens: math ($…$ / $$…$$) and bold (**…** / __…__).
+// Order matters: $$ before $, ** before *, __ before _.
+const INLINE_RE =
+  /\$\$([^$]+)\$\$|\$([^$]+)\$|<u>([\s\S]*?)<\/u>|\*\*([^*]+)\*\*|__([^_]+)__|~~([^~]+)~~|\*([^*\n]+)\*|_([^_\n]+)_/g;
+
 function renderInline(text, keyPrefix) {
   const parts = [];
-  const regex = /\$\$([^$]+)\$\$|\$([^$]+)\$|\*\*([^*]+)\*\*|__([^_]+)__/g;
   let last = 0;
   let m;
   let i = 0;
-  while ((m = regex.exec(text)) !== null) {
+  INLINE_RE.lastIndex = 0;
+  while ((m = INLINE_RE.exec(text)) !== null) {
     if (m.index > last) parts.push(<span key={`${keyPrefix}-t${i}`}>{text.slice(last, m.index)}</span>);
     if (m[1] != null || m[2] != null) {
-      const value = m[1] ?? m[2];
       parts.push(
         <span
           key={`${keyPrefix}-m${i}`}
           dangerouslySetInnerHTML={{
-            __html: katex.renderToString(value, { throwOnError: false, displayMode: m[1] != null }),
+            __html: katex.renderToString(m[1] ?? m[2], { throwOnError: false, displayMode: m[1] != null }),
           }}
         />
       );
+    } else if (m[3] != null) {
+      parts.push(<u key={`${keyPrefix}-u${i}`}>{m[3]}</u>);
+    } else if (m[4] != null || m[5] != null) {
+      parts.push(<strong key={`${keyPrefix}-b${i}`}>{m[4] ?? m[5]}</strong>);
+    } else if (m[6] != null) {
+      parts.push(<del key={`${keyPrefix}-s${i}`}>{m[6]}</del>);
     } else {
-      parts.push(<strong key={`${keyPrefix}-b${i}`}>{m[3] ?? m[4]}</strong>);
+      parts.push(<em key={`${keyPrefix}-i${i}`}>{m[7] ?? m[8]}</em>);
     }
-    last = regex.lastIndex;
+    last = INLINE_RE.lastIndex;
     i += 1;
   }
   if (last < text.length) parts.push(<span key={`${keyPrefix}-t${i}`}>{text.slice(last)}</span>);
@@ -54,6 +66,12 @@ export default function RichText({ children, className = "" }) {
             <p key={idx} className={`font-bold ${size}`}>
               {renderInline(h[2], idx)}
             </p>
+          );
+        }
+        const b = line.match(/^\s*[-*]\s+(.*)$/);
+        if (b) {
+          return (
+            <p key={idx} className="pl-4 -indent-2">• {renderInline(b[1], idx)}</p>
           );
         }
         if (line.trim() === "") return <div key={idx} className="h-2" />;
