@@ -50,6 +50,11 @@ app.get("/api/health", (req, res) =>
   res.json({
     status: "ok",
     service: "my-study-guide-api",
+    // Bump this whenever backend code changes so we can verify Render actually
+    // redeployed: open /api/health and check `version`. If it's older than the
+    // latest, the backend did NOT deploy and server-side fixes aren't live.
+    version: "2026-07-15-ai-import-v2",
+    features: ["ai-scope", "ai-key-owner", "extract-batches", "matching-labels", "documents"],
     mailConfigured: isMailConfigured(),
     uploadConfigured: isCloudinaryConfigured(),
   })
