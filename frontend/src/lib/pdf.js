@@ -57,6 +57,7 @@ function stripBoilerplate(text) {
     /file\s*no[.:]/i, // "File No. JKSSB-…"
     /generated\s+from\s+\w*office/i, // "Generated from eOffice/Office by …"
     /\bcomputer\s*no\b/i, // "(Computer No. 7593614)"
+    /\d{4,}\s*\/\s*\d{2,4}\s*\/\s*\d+\s*\/\s*\d+/, // reference no. like "8233675/2026/0/0 Clerical Hall JKSSB"
   ];
   const out = [];
   for (const raw of String(text || "").split("\n")) {
