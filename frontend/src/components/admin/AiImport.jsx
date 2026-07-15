@@ -122,7 +122,7 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
       // Poll the background job — it processes every section of the source.
       const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       let done = false;
-      for (let i = 0; i < 150 && !done; i++) {
+      for (let i = 0; i < 240 && !done; i++) {
         await sleep(2000);
         let s;
         try {

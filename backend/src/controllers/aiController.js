@@ -781,10 +781,15 @@ export function jobStatus(req, res) {
    questions already present and returns them in the app schema for preview. */
 
 const MAX_SOURCE_CHARS = 400000; // overall cap on pasted/fetched material
-const SOURCE_CHUNK_CHARS = 11000; // size of each piece sent to the model per call
+// Smaller pieces per call so the JSON reply (which lists many questions) does
+// not hit the model's output-token limit and get truncated — truncation was
+// silently dropping the tail questions of every chunk.
+const SOURCE_CHUNK_CHARS = 6000; // size of each piece sent to the model per call
+const SOURCE_CHUNK_OVERLAP = 500; // repeat a little of the previous piece so a question split across a boundary is still captured whole (duplicates are removed later)
 
 // Split large source text into chunks, breaking on natural boundaries so a
-// question isn't cut in half. Handles multi-section pages in one import.
+// question isn't cut in half. Handles multi-section pages in one import. Each
+// piece overlaps the previous one slightly so boundary questions aren't lost.
 function splitSource(text, size) {
   const chunks = [];
   let i = 0;
@@ -796,7 +801,8 @@ function splitSource(text, size) {
       if (brk > size * 0.5) end = i + brk + 1;
     }
     chunks.push(text.slice(i, end).trim());
-    i = end;
+    if (end >= text.length) break;
+    i = Math.max(end - SOURCE_CHUNK_OVERLAP, i + 1); // step back for overlap, but always move forward
   }
   return chunks.filter(Boolean);
 }
@@ -846,14 +852,23 @@ async function fetchPageText(url) {
 
 function buildExtractPrompt(sourceText) {
   return [
-    'Extract EVERY exam/quiz question found in the material below and return them in the required JSON object {"questions":[...]}.',
-    "Rules:",
-    "- Only extract questions that are actually present — do NOT invent new questions.",
-    "- Reproduce each question's stem and options faithfully.",
-    "- If fewer than 4 options exist, complete them sensibly to 4; if more, keep the 4 most relevant.",
-    "- If the correct answer is indicated (marked, 'Ans:', bold, an answer key, etc.), set \"correct\" to it; otherwise pick the best correct option.",
-    "- Add a short explanation and brief per-option notes where possible.",
-    "- Preserve Assertion/Reason, matching columns, and tables using the proper fields.",
+    'You extract questions from an exam/quiz document. Return ONLY JSON: {"questions":[...]}.',
+    "",
+    "MOST IMPORTANT: capture EVERY question in the material below — do not skip, summarise, merge or invent any. If the text contains 40 questions, return all 40, in their original order. Missing questions is the worst possible outcome.",
+    "",
+    "Reproduce each question exactly as written (same wording, same options). For each one set:",
+    '- "text": the full question stem, verbatim.',
+    '- "type": choose the type that matches how the question actually looks:',
+    '    • "assertion" — an Assertion (A) and Reason (R) pair → put them in "assertion" and "reason".',
+    '    • "statement" — a "consider the following statements" question → put each statement verbatim in "columnA" (array).',
+    '    • "matching" — match List/Column I with List/Column II → left items in "columnA", right items in "columnB".',
+    '    • "table" — data laid out as a table → each row as an array inside "tableRows".',
+    '    • "mcq" — everything else: ordinary multiple choice, true/false, fill-in-the-blank, numerical/integer-answer, etc.',
+    '- "options": the answer choices exactly as printed (4 for MCQ). For true/false use ["True","False","",""]. If more than 4 are printed, keep the 4 real ones. If the source genuinely has no printed options, give the most sensible 4.',
+    '- "correct": 0-based index of the right option when the source shows it (answer key, bold, "Ans", tick); otherwise your best answer.',
+    '- "explanation": at most ONE short sentence, and only when obvious.',
+    "",
+    "Keep everything BRIEF — do NOT write per-option notes or long explanations. Verbose output makes questions get cut off and lost, which must not happen.",
     "",
     "SOURCE MATERIAL:",
     sourceText,
@@ -864,7 +879,7 @@ function buildExtractPrompt(sourceText) {
 // (de-duplicated), so a multi-section page is imported in one go.
 async function runExtractionJob(id, { endpoints, model, chunks, owner = null }) {
   const job = genJobs.get(id);
-  const deadline = Date.now() + 5 * 60 * 1000; // 5-minute budget
+  const deadline = Date.now() + 8 * 60 * 1000; // 8-minute budget (smaller chunks = more calls)
   const collected = [];
   const seen = new Set();
   let lastError = null;
