@@ -436,7 +436,8 @@ export async function quizToMyQuiz(req, res) {
   const item = await TestSeries.create({
     name: quiz.title, owner: null, practice: true, practiceKind: "quiz",
     practiceStream: stream._id, practiceSubject: subject._id, practiceTopic: topic._id,
-    category: "Full-Length", status: "published", visibleToAll: false,
+    category: "Full-Length", duration: 15, marks: 0, difficulty: quiz.difficulty || "Medium",
+    status: "published", visibleToAll: false,
   });
 
   if (req.body.copy) {
