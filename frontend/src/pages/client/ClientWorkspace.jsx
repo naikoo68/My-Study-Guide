@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { GraduationCap, LogOut, Moon, Sun, ZoomIn, ZoomOut, LayoutDashboard, Wrench, ArrowRightLeft, Sparkles, FileText } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
@@ -22,7 +22,7 @@ export default function ClientWorkspace() {
   const { settings } = useSettings();
   const { zoom, zoomIn, zoomOut } = useZoom();
   const navigate = useNavigate();
-  const [tab, setTab] = useState("dashboard"); // "dashboard" (practice) | "build"
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [showUpgrade, setShowUpgrade] = useState(false); // opened voluntarily from the dashboard
 
@@ -44,6 +44,13 @@ export default function ClientWorkspace() {
       { key: "documents", label: "Documents", Icon: FileText },
     ] : []),
   ];
+
+  // The active tab lives in the URL (?tab=…) so a refresh restores it instead
+  // of dropping back to the Dashboard. Unknown/empty → Dashboard.
+  const allowedTabs = tabs.map((t) => t.key);
+  const paramTab = searchParams.get("tab");
+  const tab = allowedTabs.includes(paramTab) ? paramTab : "dashboard";
+  const setTab = (key) => setSearchParams(key && key !== "dashboard" ? { tab: key } : {});
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">

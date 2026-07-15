@@ -36,9 +36,15 @@ export function AuthProvider({ children }) {
     authService
       .me()
       .then((res) => active && persist(res.user))
-      .catch(() => {
-        clearToken();
-        active && persist(null);
+      .catch((err) => {
+        // Only sign out on a REAL auth failure (expired/invalid token). On a
+        // transient error — network blip or a free-tier server still waking up
+        // (the api layer surfaces these without a 401/403) — keep the cached
+        // session so refreshing a page doesn't kick the user out to login.
+        if (active && (err?.status === 401 || err?.status === 403)) {
+          clearToken();
+          persist(null);
+        }
       })
       .finally(() => active && setLoading(false));
     return () => {
