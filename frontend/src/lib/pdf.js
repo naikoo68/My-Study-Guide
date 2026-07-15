@@ -46,6 +46,38 @@ function itemsToText(items) {
     .join("\n");
 }
 
+// Remove exam-paper / eOffice boilerplate that isn't part of any question:
+// the file-number stamp, "Generated from eOffice by … on <date>", "Computer No.",
+// and page markers like "(Set-A)", "(15)" and "[P.T.O.]". OCR garbles these
+// (e.g. "Office" for "eOffice", "J8K", "BISHAL!"), so matching is lenient. Set
+// markers only match when parenthesised or hyphenated so a real "set A" inside a
+// question is never removed.
+function stripBoilerplate(text) {
+  const dropLine = [
+    /file\s*no[.:]/i, // "File No. JKSSB-…"
+    /generated\s+from\s+\w*office/i, // "Generated from eOffice/Office by …"
+    /\bcomputer\s*no\b/i, // "(Computer No. 7593614)"
+  ];
+  const out = [];
+  for (const raw of String(text || "").split("\n")) {
+    let line = raw.trim();
+    if (!line) continue;
+    if (dropLine.some((re) => re.test(line))) continue; // whole stamp line
+    // Strip page-turn / set markers wherever they appear (never real content).
+    line = line
+      .replace(/\(\s*set\s*-?\s*[a-d]\s*\)/gi, "") // (Set-A) / (Set A)
+      .replace(/\bset-[a-d]\b/gi, "") // Set-A
+      .replace(/\[?\s*p\.?\s*t\.?\s*o\.?\s*\d*\s*\]?/gi, "") // [P.T.O.15] / P.T.O
+      .replace(/\s{2,}/g, " ")
+      .trim();
+    // Drop lines that are now only a bare page number like "(15)" or "15".
+    const bare = line.replace(/[()[\]]/g, "").trim();
+    if (!bare || /^\d{1,4}$/.test(bare)) continue;
+    out.push(line);
+  }
+  return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 // Extract plain text from a PDF File/Blob. onProgress(page, totalPages) fires
 // once per page so the caller can show progress. Returns the combined text
 // (empty string for image-only / scanned PDFs that have no selectable text).
@@ -64,11 +96,7 @@ export async function extractPdfText(file, onProgress) {
   } finally {
     try { await pdf.cleanup(); } catch { /* ignore */ }
   }
-  return pages
-    .join("\n\n")
-    .replace(/[ \t]+/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  return stripBoilerplate(pages.join("\n\n").replace(/[ \t]+/g, " "));
 }
 
 
@@ -127,9 +155,5 @@ export async function ocrPdfText(file, onProgress) {
     try { await worker.terminate(); } catch { /* ignore */ }
     try { await pdf.cleanup(); } catch { /* ignore */ }
   }
-  return pages
-    .join("\n\n")
-    .replace(/[ \t]+/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  return stripBoilerplate(pages.join("\n\n").replace(/[ \t]+/g, " "));
 }
