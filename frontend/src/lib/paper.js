@@ -177,8 +177,16 @@ export function printPaper(title, questions, opts) {
 let html2pdfPromise = null;
 function loadHtml2Pdf() {
   if (html2pdfPromise) return html2pdfPromise;
-  html2pdfPromise = import(/* @vite-ignore */ "https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.3/+esm")
-    .then((m) => m?.default || m?.html2pdf || (typeof window !== "undefined" ? window.html2pdf : null));
+  html2pdfPromise = new Promise((resolve, reject) => {
+    if (typeof window !== "undefined" && typeof window.html2pdf === "function") return resolve(window.html2pdf);
+    if (typeof document === "undefined") return reject(new Error("no document"));
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.3/dist/html2pdf.bundle.min.js";
+    s.async = true;
+    s.onload = () => resolve(window.html2pdf);
+    s.onerror = () => reject(new Error("Failed to load the PDF generator"));
+    document.head.appendChild(s);
+  });
   return html2pdfPromise;
 }
 function ensureKatexCss() {

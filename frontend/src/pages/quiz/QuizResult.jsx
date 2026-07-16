@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
 import { Link, useLocation, useParams, Navigate } from "react-router-dom";
 import { Doughnut, Bar } from "react-chartjs-2";
 import "../../lib/chartSetup";
@@ -17,8 +17,6 @@ import {
   Award,
   Search,
   X,
-  Maximize,
-  Minimize,
 } from "lucide-react";
 import PaperExport from "../../components/admin/PaperExport";
 import StatCard from "../../components/ui/StatCard";
@@ -45,23 +43,6 @@ export default function QuizResult() {
   const { subjectId, topicId, sessionId, quizId } = useParams();
   const [showReview, setShowReview] = useState(false);
   const [reviewSearch, setReviewSearch] = useState("");
-  const [fullscreen, setFullscreen] = useState(false);
-  const containerRef = useRef(null);
-
-  const toggleFullscreen = () => {
-    if (!fullscreen) {
-      setFullscreen(true);
-      containerRef.current?.requestFullscreen?.().catch(() => {});
-    } else {
-      setFullscreen(false);
-      if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
-    }
-  };
-  useEffect(() => {
-    const onChange = () => { if (!document.fullscreenElement) setFullscreen(false); };
-    document.addEventListener("fullscreenchange", onChange);
-    return () => document.removeEventListener("fullscreenchange", onChange);
-  }, []);
 
   if (!state) {
     // Direct visit without a submission — redirect back.
@@ -128,7 +109,7 @@ export default function QuizResult() {
   };
 
   return (
-    <div ref={containerRef} className={fullscreen ? "fixed inset-0 z-[60] overflow-y-auto bg-slate-50 px-4 py-8 dark:bg-slate-950" : "container-page py-10"}>
+    <div className="container-page py-10">
       <Watermark />
       {/* Header banner */}
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-brand-700 via-brand-600 to-accent-500 p-8 text-center text-white">
@@ -208,9 +189,6 @@ export default function QuizResult() {
           <RefreshCw className="h-4 w-4" /> Retake Quiz
         </Link>
         <FeedbackButton context="quiz" source={source || `${subjectName || "Quiz"} (Quiz)`} label="Give Feedback" className="btn-outline" />
-        <button onClick={toggleFullscreen} className="btn-outline" title={fullscreen ? "Exit full screen" : "Full screen"}>
-          {fullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />} {fullscreen ? "Exit" : "Full screen"}
-        </button>
         <Link to={`/quiz/${subjectId}/${topicId}/${sessionId}`} className="btn-ghost">
           Back to Quizzes
         </Link>

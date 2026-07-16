@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { FileDown, X, Loader2, Download } from "lucide-react";
+import { FileDown, X, Loader2, Download, Maximize2, Minimize2 } from "lucide-react";
 import { printPaper, buildPaperHtml, savePdf } from "../../lib/paper";
 import { useSettings } from "../../context/SettingsContext";
 
@@ -17,6 +17,7 @@ export default function PaperExport({ title = "Question Paper", questions = null
   const [perPage, setPerPage] = useState(0); // 0 = auto (as many as fit per page)
   const [border, setBorder] = useState("single"); // none | single | thick | double
   const [previewMode, setPreviewMode] = useState("paper"); // "paper" | "key"
+  const [previewFull, setPreviewFull] = useState(false); // full-screen PDF preview
 
   const { settings } = useSettings();
 
@@ -61,7 +62,7 @@ export default function PaperExport({ title = "Question Paper", questions = null
 
   const mode = paperOnly ? "paper" : previewMode; // which doc the preview/save uses
   const [saving, setSaving] = useState(false);
-  const openModal = async () => { await ensure(); setOpen(true); };
+  const openModal = async () => { await ensure(); setPreviewFull(false); setOpen(true); };
 
   // Download the PDF file automatically. Falls back to the print window if the
   // in-browser PDF generator can't load.
@@ -100,7 +101,22 @@ export default function PaperExport({ title = "Question Paper", questions = null
         {!compact && <> {label}</>}
       </button>
 
-      {open && (
+      {open && previewFull && (
+        <div className="fixed inset-0 z-[80] flex flex-col bg-slate-900">
+          <div className="flex items-center justify-between gap-2 bg-slate-800 px-4 py-2 text-white">
+            <span className="truncate text-sm font-semibold">{mode === "key" ? `${title} — Answer Key` : title}</span>
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={save} disabled={saving} className="btn-primary !py-1 !text-xs">
+                {saving ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating…</> : <><Download className="h-3.5 w-3.5" /> Download PDF</>}
+              </button>
+              <button type="button" onClick={() => setPreviewFull(false)} className="btn-outline !py-1 !text-xs !text-white"><Minimize2 className="h-3.5 w-3.5" /> Exit</button>
+            </div>
+          </div>
+          <iframe title="PDF full-screen preview" srcDoc={previewHtml} className="min-h-0 flex-1 w-full bg-white" />
+        </div>
+      )}
+
+      {open && !previewFull && (
         <div className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto bg-black/50 p-4" onClick={() => setOpen(false)}>
           <div className="my-8 w-full max-w-2xl animate-scale-in card p-6" onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 flex items-center justify-between gap-2">
@@ -146,12 +162,15 @@ export default function PaperExport({ title = "Question Paper", questions = null
                 {/* Preview: what does the PDF look like? */}
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                   <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Preview</p>
-                  {!paperOnly && (
-                    <div className="inline-flex overflow-hidden rounded-lg border border-slate-300 text-xs font-semibold dark:border-slate-600">
-                      <button type="button" onClick={() => setPreviewMode("paper")} className={`px-3 py-1 ${mode === "paper" ? "bg-brand-600 text-white" : "bg-white text-slate-600 dark:bg-slate-900 dark:text-slate-300"}`}>Question paper</button>
-                      <button type="button" onClick={() => setPreviewMode("key")} className={`px-3 py-1 ${mode === "key" ? "bg-brand-600 text-white" : "bg-white text-slate-600 dark:bg-slate-900 dark:text-slate-300"}`}>Answer key</button>
-                    </div>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {!paperOnly && (
+                      <div className="inline-flex overflow-hidden rounded-lg border border-slate-300 text-xs font-semibold dark:border-slate-600">
+                        <button type="button" onClick={() => setPreviewMode("paper")} className={`px-3 py-1 ${mode === "paper" ? "bg-brand-600 text-white" : "bg-white text-slate-600 dark:bg-slate-900 dark:text-slate-300"}`}>Question paper</button>
+                        <button type="button" onClick={() => setPreviewMode("key")} className={`px-3 py-1 ${mode === "key" ? "bg-brand-600 text-white" : "bg-white text-slate-600 dark:bg-slate-900 dark:text-slate-300"}`}>Answer key</button>
+                      </div>
+                    )}
+                    <button type="button" onClick={() => setPreviewFull(true)} className="btn-outline !py-1 !text-xs" title="View full screen"><Maximize2 className="h-3.5 w-3.5" /> Full screen</button>
+                  </div>
                 </div>
                 <div className="mb-2 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
                   <iframe title="PDF preview" srcDoc={previewHtml} className="h-[56vh] w-full bg-white" />
