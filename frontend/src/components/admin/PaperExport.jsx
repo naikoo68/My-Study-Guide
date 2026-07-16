@@ -1,7 +1,6 @@
-import { useEffect, useState } from "react";
-import { FileDown, KeyRound, Eye, X, Loader2 } from "lucide-react";
-import { printPaper, answerLetter } from "../../lib/paper";
-import MathText from "../ui/MathText";
+import { useEffect, useMemo, useState } from "react";
+import { FileDown, KeyRound, X, Loader2, Download } from "lucide-react";
+import { printPaper, buildPaperHtml } from "../../lib/paper";
 import { useSettings } from "../../context/SettingsContext";
 
 // Download a quiz/test as a QUESTION PAPER (PDF, no answers) or ANSWER KEY (PDF,
@@ -17,6 +16,7 @@ export default function PaperExport({ title = "Question Paper", questions = null
   const [err, setErr] = useState("");
   const [perPage, setPerPage] = useState(0); // 0 = auto (as many as fit per page)
   const [border, setBorder] = useState("single"); // none | single | thick | double
+  const [previewMode, setPreviewMode] = useState("paper"); // "paper" | "key"
 
   const { settings } = useSettings();
 
@@ -59,9 +59,18 @@ export default function PaperExport({ title = "Question Paper", questions = null
     }
   };
 
+  const mode = paperOnly ? "paper" : previewMode; // which doc the preview/save uses
   const openModal = async () => { await ensure(); setOpen(true); };
   const paper = () => { if (!printPaper(title, list, opts(false))) window.alert("Allow pop-ups for this site to download the PDF."); };
   const key = () => { if (!printPaper(`${title} — Answer Key`, list, opts(true))) window.alert("Allow pop-ups for this site to download the PDF."); };
+  const save = () => (mode === "key" ? key() : paper());
+
+  // Live preview HTML (no auto-print) reflecting the chosen layout options.
+  const previewHtml = useMemo(
+    () => buildPaperHtml(mode === "key" ? `${title} — Answer Key` : title, list, { ...opts(mode === "key"), autoPrint: false }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [title, list, mode, perPage, border, wmLabel, wmOpacity, wmSize, brand]
+  );
 
   return (
     <>
@@ -121,36 +130,30 @@ export default function PaperExport({ title = "Question Paper", questions = null
                     </label>
                   </div>
                 </div>
-                <div className="mb-4 flex flex-wrap gap-2">
-                  <button onClick={paper} className="btn-primary"><FileDown className="h-4 w-4" /> Question paper (PDF)</button>
-                  {!paperOnly && <button onClick={key} className="btn-outline"><KeyRound className="h-4 w-4" /> Answer key (PDF)</button>}
-                </div>
-                {wmLabel && <p className="mb-3 text-[11px] text-slate-400">Watermark “{wmLabel}” is added to every page.</p>}
-
-                {paperOnly ? (
-                  <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">The answer key for a test is available after you attempt and submit it.</p>
-                ) : (
-                <>
-                <p className="mb-2 flex items-center gap-2 text-sm font-semibold"><Eye className="h-4 w-4 text-slate-400" /> Answer key ({list.length} question{list.length === 1 ? "" : "s"})</p>
-                <div className="mb-3 flex flex-wrap gap-2">
-                  {list.map((q, i) => (
-                    <span key={q._id || i} className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold dark:bg-slate-800">
-                      <span className="text-slate-500">{i + 1}.</span> <span className="text-emerald-600 dark:text-emerald-400">{answerLetter(q)}</span>
-                    </span>
-                  ))}
-                </div>
-                <div className="max-h-[45vh] space-y-2 overflow-y-auto pr-1">
-                  {list.map((q, i) => (
-                    <div key={q._id || i} className="rounded-lg border border-slate-200 p-2.5 text-sm dark:border-slate-700">
-                      <p><b>{i + 1}.</b> <MathText>{q.text}</MathText></p>
-                      <p className="mt-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                        Answer: {answerLetter(q)}{q.options?.[q.correct] ? <> — <MathText>{q.options[q.correct]}</MathText></> : null}
-                      </p>
+                {/* Preview: what does the PDF look like? */}
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Preview</p>
+                  {!paperOnly && (
+                    <div className="inline-flex overflow-hidden rounded-lg border border-slate-300 text-xs font-semibold dark:border-slate-600">
+                      <button type="button" onClick={() => setPreviewMode("paper")} className={`px-3 py-1 ${mode === "paper" ? "bg-brand-600 text-white" : "bg-white text-slate-600 dark:bg-slate-900 dark:text-slate-300"}`}>Question paper</button>
+                      <button type="button" onClick={() => setPreviewMode("key")} className={`px-3 py-1 ${mode === "key" ? "bg-brand-600 text-white" : "bg-white text-slate-600 dark:bg-slate-900 dark:text-slate-300"}`}>Answer key</button>
                     </div>
-                  ))}
+                  )}
                 </div>
-                </>
-                )}
+                <div className="mb-2 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
+                  <iframe title="PDF preview" srcDoc={previewHtml} className="h-[56vh] w-full bg-white" />
+                </div>
+                <p className="mb-3 text-[11px] text-slate-400">
+                  This is how the PDF will look ({Number(perPage) > 0 ? `≈ ${Math.max(1, Math.ceil(list.length / Number(perPage)))} page(s)` : "auto pages"}, {border === "none" ? "no border" : `${border} border`}). Watermark “{wmLabel}” is on every page.
+                  {paperOnly && " The answer key is available after the test is submitted."}
+                </p>
+
+                <div className="flex flex-wrap justify-end gap-2">
+                  <button type="button" onClick={() => setOpen(false)} className="btn-outline">Close</button>
+                  <button type="button" onClick={save} className="btn-primary">
+                    {mode === "key" ? <KeyRound className="h-4 w-4" /> : <Download className="h-4 w-4" />} Save as PDF (external)
+                  </button>
+                </div>
               </>
             )}
           </div>
