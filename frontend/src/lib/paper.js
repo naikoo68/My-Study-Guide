@@ -80,7 +80,10 @@ function watermarkHtml(label) {
   return `<div class="wm" aria-hidden="true"><div class="wm-in">${spans}</div></div>`;
 }
 
-export function buildPaperHtml(title, questions, { withAnswers = false, brand = "My Study Guide", perPage = 0, watermark = "", watermarkOpacity = 0.12, watermarkSize = 16 } = {}) {
+export function buildPaperHtml(title, questions, { withAnswers = false, brand = "My Study Guide", perPage = 0, watermark = "", watermarkOpacity = 0.12, watermarkSize = 16, border = "single" } = {}) {
+  const borderCss = border === "none" ? "none" : border === "double" ? "3px double #1e293b" : border === "thick" ? "3px solid #1e293b" : "1.6px solid #1e293b";
+  const borderRadius = border === "none" ? "0" : "10px";
+  const pagePad = border === "none" ? "6px 2px 20px" : "20px 24px 26px";
   const list = Array.isArray(questions) ? questions : [];
   const kind = withAnswers ? "ANSWER KEY" : "QUESTION PAPER";
   const blocks = list.map((q, i) => questionBlock(q, i, withAnswers));
@@ -124,7 +127,7 @@ export function buildPaperHtml(title, questions, { withAnswers = false, brand = 
     `@page{size:A4;margin:12mm}*{box-sizing:border-box}` +
     `body{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;color:#0f172a;line-height:1.5;margin:0}` +
     // Each page is its own bordered A4 frame — reliable page breaks between them.
-    `.page{position:relative;z-index:1;border:1.6px solid #1e293b;border-radius:10px;padding:20px 24px 26px}` +
+    `.page{position:relative;z-index:1;border:${borderCss};border-radius:${borderRadius};padding:${pagePad}}` +
     `.page + .page{margin-top:18px}` +
     `.hdr{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}` +
     `.brand{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#2563eb;margin:0 0 2px}` +

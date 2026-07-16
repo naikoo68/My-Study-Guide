@@ -16,6 +16,7 @@ export default function PaperExport({ title = "Question Paper", questions = null
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [perPage, setPerPage] = useState(0); // 0 = auto (as many as fit per page)
+  const [border, setBorder] = useState("single"); // none | single | thick | double
 
   const { settings } = useSettings();
 
@@ -33,6 +34,7 @@ export default function PaperExport({ title = "Question Paper", questions = null
   const opts = (withAnswers) => ({
     withAnswers,
     perPage: Number(perPage) || 0,
+    border,
     watermark: wmLabel,
     watermarkOpacity: wmOpacity,
     watermarkSize: wmSize,
@@ -90,20 +92,35 @@ export default function PaperExport({ title = "Question Paper", questions = null
               <p className="py-6 text-center text-sm text-slate-500">No questions to export.</p>
             ) : (
               <>
-                <label className="mb-3 flex flex-wrap items-center gap-2 text-sm">
-                  <span className="font-semibold">Questions per page:</span>
-                  <select value={perPage} onChange={(e) => setPerPage(Number(e.target.value))} className="input !w-auto !py-1 !text-sm">
-                    <option value={0}>Auto (fit as many as possible)</option>
-                    <option value={5}>5 per page</option>
-                    <option value={10}>10 per page</option>
-                    <option value={15}>15 per page</option>
-                    <option value={20}>20 per page</option>
-                    <option value={1}>1 per page</option>
-                  </select>
-                  <span className="text-xs text-slate-400">
-                    {Number(perPage) > 0 ? `≈ ${Math.max(1, Math.ceil(list.length / Number(perPage)))} page(s)` : ""}
-                  </span>
-                </label>
+                <div className="mb-4 rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+                  <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-400">PDF layout</p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="text-sm">
+                      <span className="mb-1 block font-semibold">Page break — questions per page</span>
+                      <select value={perPage} onChange={(e) => setPerPage(Number(e.target.value))} className="input !py-1 !text-sm">
+                        <option value={0}>Auto (fit as many as possible)</option>
+                        <option value={1}>1 per page</option>
+                        <option value={5}>5 per page</option>
+                        <option value={10}>10 per page</option>
+                        <option value={15}>15 per page</option>
+                        <option value={20}>20 per page</option>
+                      </select>
+                      <span className="mt-1 block text-xs text-slate-400">
+                        {Number(perPage) > 0 ? `≈ ${Math.max(1, Math.ceil(list.length / Number(perPage)))} page(s)` : "One continuous flow"}
+                      </span>
+                    </label>
+                    <label className="text-sm">
+                      <span className="mb-1 block font-semibold">Border</span>
+                      <select value={border} onChange={(e) => setBorder(e.target.value)} className="input !py-1 !text-sm">
+                        <option value="single">Single (thin)</option>
+                        <option value="thick">Thick</option>
+                        <option value="double">Double line</option>
+                        <option value="none">No border</option>
+                      </select>
+                      <span className="mt-1 block text-xs text-slate-400">Frame around each page</span>
+                    </label>
+                  </div>
+                </div>
                 <div className="mb-4 flex flex-wrap gap-2">
                   <button onClick={paper} className="btn-primary"><FileDown className="h-4 w-4" /> Question paper (PDF)</button>
                   {!paperOnly && <button onClick={key} className="btn-outline"><KeyRound className="h-4 w-4" /> Answer key (PDF)</button>}
