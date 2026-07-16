@@ -35,8 +35,8 @@ function questionBlock(q, idx, withAnswers) {
   const B = (q.columnB || []).map((x) => String(x)).filter((x) => x.trim());
 
   if (q.type === "assertion") {
-    if (q.assertion) parts.push(`<p class="sub"><b>Assertion (A):</b> ${inline(q.assertion)}</p>`);
-    if (q.reason) parts.push(`<p class="sub"><b>Reason (R):</b> ${inline(q.reason)}</p>`);
+    if (q.assertion) parts.push(`<p class="sub2"><b>Assertion (A):</b> ${inline(q.assertion)}</p>`);
+    if (q.reason) parts.push(`<p class="sub2"><b>Reason (R):</b> ${inline(q.reason)}</p>`);
   } else if (q.type === "statement") {
     parts.push(`<div class="lst">${A.map((s, i) => `<div>${i + 1}. ${inline(s)}</div>`).join("")}</div>`);
   } else if (q.type === "pair" || q.type === "pairselect") {
@@ -72,34 +72,54 @@ function questionBlock(q, idx, withAnswers) {
   return parts.join("");
 }
 
-export function buildPaperHtml(title, questions, { withAnswers = false } = {}) {
+export function buildPaperHtml(title, questions, { withAnswers = false, brand = "My Study Guide" } = {}) {
   const list = Array.isArray(questions) ? questions : [];
   let body = "";
   if (withAnswers) {
     const grid = list.map((q, i) => `<span class="cell"><b>${i + 1}.</b> ${answerLetter(q)}</span>`).join("");
-    body += `<h2 class="kh">Answer Key</h2><div class="grid">${grid}</div><hr class="rule">`;
+    body += `<h2 class="kh">Answer Key at a glance</h2><div class="grid">${grid}</div><hr class="rule2">`;
   }
   body += list.map((q, i) => questionBlock(q, i, withAnswers)).join("");
 
+  const kind = withAnswers ? "ANSWER KEY" : "QUESTION PAPER";
+  const fields = withAnswers
+    ? ""
+    : `<div class="fields"><span>Name: <b class="line">&nbsp;</b></span><span>Roll No: <b class="line sm">&nbsp;</b></span><span>Date: <b class="line sm">&nbsp;</b></span><span>Marks: <b class="line xs">&nbsp;</b></span></div>`;
+
   const css =
-    `@page{size:A4;margin:16mm}*{box-sizing:border-box}` +
+    `@page{size:A4;margin:12mm}*{box-sizing:border-box}` +
     `body{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;color:#0f172a;line-height:1.5;margin:0}` +
-    `h1{font-size:20px;margin:0 0 4px}.meta{color:#64748b;font-size:12px;margin:0 0 14px}` +
-    `.q{margin:0 0 14px;page-break-inside:avoid}.stem{margin:0 0 4px}.sub{margin:2px 0}` +
+    // Bordered "sheet" frame around the whole paper
+    `.sheet{border:1.6px solid #1e293b;border-radius:10px;padding:20px 24px 26px}` +
+    `.hdr{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}` +
+    `.brand{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#2563eb;margin:0 0 2px}` +
+    `h1{font-size:20px;margin:0}.sub{color:#64748b;font-size:12px;margin:3px 0 0}` +
+    `.badge{flex-shrink:0;border:1.5px solid #1e293b;border-radius:999px;padding:4px 12px;font-size:11px;font-weight:800;letter-spacing:.06em}` +
+    `.fields{display:flex;flex-wrap:wrap;gap:8px 22px;margin:12px 0 0;font-size:13px;color:#334155}` +
+    `.line{display:inline-block;border-bottom:1px solid #94a3b8;min-width:150px}.line.sm{min-width:90px}.line.xs{min-width:60px}` +
+    `.rule{border:none;border-top:2px solid #1e293b;margin:12px 0 16px}.rule2{border:none;border-top:1px solid #cbd5e1;margin:10px 0 16px}` +
+    `.q{margin:0 0 14px;page-break-inside:avoid}.stem{margin:0 0 4px}.sub2{margin:2px 0}` +
     `.lst>div{margin:1px 0}.match{display:flex;gap:28px;margin:4px 0}.match .ch{font-weight:700;font-size:12px;text-transform:uppercase;color:#475569}` +
     `.opts{margin:4px 0 0 16px}.opt{margin:2px 0}.opt.correct{color:#15803d;font-weight:600}` +
     `.ans{margin:4px 0 0 16px;color:#15803d;font-weight:600}.exp{margin:2px 0 0 16px;color:#334155;font-size:13px}` +
     `.tbl{border-collapse:collapse;margin:4px 0}.tbl td{border:1px solid #cbd5e1;padding:3px 8px;font-size:13px}` +
-    `.kh{font-size:16px;margin:12px 0 6px}.grid{display:flex;flex-wrap:wrap;gap:6px 18px;margin:0 0 10px;font-size:13px}.cell{white-space:nowrap}` +
-    `.rule{border:none;border-top:1px solid #e2e8f0;margin:8px 0 16px}` +
-    `@media screen{body{max-width:210mm;margin:16px auto;padding:0 16mm}}`;
+    `.kh{font-size:15px;margin:0 0 6px}.grid{display:flex;flex-wrap:wrap;gap:6px 18px;margin:0 0 6px;font-size:13px}.cell{white-space:nowrap}` +
+    `.foot{margin-top:14px;border-top:1px solid #e2e8f0;padding-top:8px;text-align:center;font-size:11px;color:#94a3b8}` +
+    `@media screen{body{background:#f1f5f9;padding:16px}.sheet{max-width:210mm;margin:0 auto;background:#fff}}`;
 
   return (
-    `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title>` +
+    `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)} — ${kind}</title>` +
     `<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" crossorigin="anonymous">` +
     `<style>${css}</style></head><body>` +
-    `<h1>${esc(title)}</h1><p class="meta">${list.length} question(s)${withAnswers ? " · Answer Key (with answers &amp; explanations)" : " · Question paper"}</p>` +
+    `<div class="sheet">` +
+    `<div class="hdr"><div><p class="brand">${esc(brand)}</p><h1>${esc(title)}</h1>` +
+    `<p class="sub">${list.length} question(s)${withAnswers ? " · with answers &amp; explanations" : ""}</p></div>` +
+    `<span class="badge">${kind}</span></div>` +
+    fields +
+    `<hr class="rule">` +
     body +
+    `<div class="foot">${esc(brand)} · ${kind === "ANSWER KEY" ? "Answer Key" : "Question Paper"}</div>` +
+    `</div>` +
     `<scr` + `ipt>window.onload=function(){setTimeout(function(){window.focus();window.print();},400)};</scr` + `ipt>` +
     `</body></html>`
   );
