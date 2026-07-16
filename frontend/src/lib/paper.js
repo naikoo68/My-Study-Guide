@@ -147,8 +147,13 @@ function compose(title, questions, opts = {}) {
   // dense page fits an A4 sheet at FULL WIDTH — no CSS transform (html2canvas
   // ignores transforms → clipping) and no width-shrinking. Structural sizes
   // (page/frame/border) stay fixed so the border is identical on every page.
-  const ts = Math.max(0.3, Math.min(2.2, Number(typeScale) || 1));
+  const ts = Math.max(0.1, Math.min(2.2, Number(typeScale) || 1));
   const z = (nn) => `${Math.round(nn * ts * 1000) / 1000}px`;
+  // When fixedPages is set (preview + PDF), each .page is locked to exactly A4
+  // and clips overflow — so the on-screen preview shows EXACTLY what the PDF
+  // captures (true WYSIWYG). Otherwise pages grow with content (print fallback).
+  const pageHeightCss = opts.fixedPages ? "height:1123px;overflow:hidden" : "min-height:1123px";
+  const frameOverflowCss = opts.fixedPages ? "overflow:hidden;" : "";
   const borderCss = border === "none" ? "none" : border === "double" ? `3px double ${brandColor}` : border === "thick" ? `3px solid ${brandColor}` : `1.6px solid ${hexA(brandColor, 0.65)}`;
   const borderRadius = border === "none" ? "0" : "10px";
   const pagePad = border === "none" ? "10px 4px 22px" : "20px 24px 26px";
@@ -186,8 +191,8 @@ function compose(title, questions, opts = {}) {
     // outer MARGIN. It GROWS with its content (min-height, no clipping); the PDF
     // generator fits each rendered page onto one A4 sheet (shrinking dense pages
     // so nothing is ever cut off).
-    `.page{position:relative;background:#fff;padding:34px;display:flex;flex-direction:column;width:794px;min-height:1123px;margin:0 auto}` +
-    `.frame{flex:1;position:relative;border:${borderCss};border-radius:${borderRadius};padding:${pagePad}}` +
+    `.page{position:relative;background:#fff;padding:34px;display:flex;flex-direction:column;width:794px;${pageHeightCss};margin:0 auto}` +
+    `.frame{flex:1;position:relative;${frameOverflowCss}border:${borderCss};border-radius:${borderRadius};padding:${pagePad}}` +
     `.page + .page{margin-top:18px}.pc{position:relative;z-index:1}` +
     `.hdr{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}` +
     `.brand{font-size:${z(11)};font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:${brandColor};margin:0 0 2px}` +
@@ -274,6 +279,13 @@ export async function paginateByLength(title, questions, opts = {}) {
     `<div class="paperroot"><section class="page"><div class="frame"><div class="pc" id="__pcmeas"></div></div></section></div>`;
   document.body.appendChild(meas);
   try {
+    // Load KaTeX CSS + math fonts FIRST, so formulas/tables are measured at
+    // their real rendered height. Otherwise math/tables are underestimated,
+    // pages get over-packed, and the bottom content is clipped in the PDF
+    // (the "tables/formulas don't match the preview" bug).
+    ensureKatexCss();
+    await ensureKatexFonts();
+    await new Promise((r) => setTimeout(r, 40));
     const frame = meas.querySelector(".frame");
     const pc = meas.querySelector("#__pcmeas");
     if (!frame || !pc) return [[...list.keys()]];
@@ -283,7 +295,7 @@ export async function paginateByLength(title, questions, opts = {}) {
     const hFull = measure(fullHeader);
     const hSlim = measure(slimHeader);
     const hFoot = measure(footer) + 16; // + footer's top margin
-    const SAFETY = 22; // guard against rounding / collapsed margins
+    const SAFETY = 30; // guard against rounding / collapsed margins
     // Each question's vertical footprint (+ its bottom margin).
     const qH = list.map((q, i) => measure(questionBlock(q, i, withAnswers)) + 15);
     const usableFor = (pi) => Math.max(120, availH - hFoot - (pi === 0 ? hFull : hSlim) - SAFETY);
