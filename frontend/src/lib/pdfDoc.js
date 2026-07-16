@@ -61,6 +61,8 @@ export async function buildDocPdf(blocks, opts = {}) {
     pageNumbers = true,
     watermark = "",
     brand = "",
+    border = "none", // none | single | thick | double
+    borderColor = "#334155",
   } = opts;
   const list = Array.isArray(blocks) ? blocks : [];
 
@@ -146,10 +148,25 @@ export async function buildDocPdf(blocks, opts = {}) {
     y += lineH(size) * (b.type === "paragraph" ? 0.5 : 0.4);
   }
 
-  // Final pass: watermark + page numbers on every page.
+  // Final pass: page border + watermark + page numbers on every page.
   const total = pdf.getNumberOfPages();
+  const bInset = 8; // mm from the page edge
   for (let p = 1; p <= total; p++) {
     pdf.setPage(p);
+    if (border && border !== "none") {
+      const [br, bg, bb] = hexToRgb(borderColor);
+      pdf.setDrawColor(br, bg, bb);
+      const w = pageW - bInset * 2;
+      const h = pageH - bInset * 2;
+      if (border === "double") {
+        pdf.setLineWidth(0.5);
+        pdf.rect(bInset, bInset, w, h);
+        pdf.rect(bInset + 1.6, bInset + 1.6, w - 3.2, h - 3.2);
+      } else {
+        pdf.setLineWidth(border === "thick" ? 1.3 : 0.4);
+        pdf.rect(bInset, bInset, w, h);
+      }
+    }
     if (watermark) {
       if (pdf.saveGraphicsState) pdf.saveGraphicsState();
       try { if (pdf.GState) pdf.setGState(new pdf.GState({ opacity: 0.08 })); } catch { /* ignore */ }
@@ -163,7 +180,9 @@ export async function buildDocPdf(blocks, opts = {}) {
       pdf.setFont(fontFamily, "normal");
       pdf.setFontSize(9);
       pdf.setTextColor(150, 150, 150);
-      pdf.text(`${brand ? brand + " \u00b7 " : ""}Page ${p} of ${total}`, pageW / 2, pageH - 8, { align: "center" });
+      // Keep the number inside the frame when a border is drawn.
+      const numY = border && border !== "none" ? pageH - bInset - 4 : pageH - 8;
+      pdf.text(`${brand ? brand + " \u00b7 " : ""}Page ${p} of ${total}`, pageW / 2, numY, { align: "center" });
     }
   }
 

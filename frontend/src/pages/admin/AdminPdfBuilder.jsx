@@ -1,13 +1,46 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   FileText, Download, Loader2, Plus, Trash2, Copy, ArrowUp, ArrowDown,
   Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, AlignJustify,
+  BookOpen, Search, X, ChevronLeft,
 } from "lucide-react";
 import { useSettings } from "../../context/SettingsContext";
+import { searchService, contentService, testService, practiceService } from "../../services";
 import { buildDocPdf, DOC_FONTS, DOC_BLOCK_TYPES } from "../../lib/pdfDoc";
 
 let _id = 1;
 const uid = () => `b${_id++}_${Date.now().toString(36)}`;
+
+const LETTERS = ["A", "B", "C", "D", "E", "F"];
+const clean = (s) => String(s == null ? "" : s).replace(/\$/g, "").replace(/[ \t]+/g, " ").trim();
+
+// Turn a quiz/test question into an editable multi-line text block, optionally
+// including the answer + explanation ("description").
+function questionToText(q, i, withAnswers) {
+  const lines = [`${i + 1}. ${clean(q.text)}`];
+  const A = (q.columnA || []).map((x) => clean(x)).filter(Boolean);
+  const B = (q.columnB || []).map((x) => clean(x)).filter(Boolean);
+  if (q.type === "assertion") {
+    if (q.assertion) lines.push(`Assertion (A): ${clean(q.assertion)}`);
+    if (q.reason) lines.push(`Reason (R): ${clean(q.reason)}`);
+  } else if (q.type === "statement") {
+    A.forEach((s, k) => lines.push(`   ${k + 1}. ${s}`));
+  } else if (q.type === "matching") {
+    A.forEach((x, k) => lines.push(`   A${k + 1}. ${x}`));
+    B.forEach((x, k) => lines.push(`   ${LETTERS[k] || k + 1}. ${x}`));
+  } else if (q.type === "pair" || q.type === "pairselect") {
+    const n = Math.max(A.length, B.length);
+    for (let k = 0; k < n; k++) lines.push(`   ${k + 1}. ${A[k] || ""} — ${B[k] || ""}`);
+  }
+  (q.options || []).forEach((o, k) => { const t = clean(o); if (t) lines.push(`${LETTERS[k] || k + 1}) ${t}`); });
+  if (withAnswers) {
+    const ans = typeof q.correct === "number" && q.correct >= 0 ? LETTERS[q.correct] || "?" : "\u2014";
+    lines.push(`Answer: ${ans}`);
+    const exp = clean(q.explanation);
+    if (exp) lines.push(`Explanation: ${exp}`);
+  }
+  return lines.join("\n");
+}
 
 const defaultsFor = (typeId) => {
   const t = DOC_BLOCK_TYPES.find((x) => x.id === typeId) || DOC_BLOCK_TYPES[2];
@@ -36,8 +69,17 @@ export default function AdminPdfBuilder() {
   const [margin, setMargin] = useState(20);
   const [pageNumbers, setPageNumbers] = useState(true);
   const [useWatermark, setUseWatermark] = useState(false);
+  const [border, setBorder] = useState("single"); // none | single | thick | double
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  // Import-from-quiz/test picker.
+  const [importOpen, setImportOpen] = useState(false);
+  const [iq, setIq] = useState("");
+  const [iResults, setIResults] = useState([]);
+  const [iLoading, setILoading] = useState(false);
+  const [selected, setSelected] = useState(null); // chosen quiz/test awaiting mode choice
+  const [importing, setImporting] = useState(false);
+  const [importErr, setImportErr] = useState("");
   const [blocks, setBlocks] = useState(() => [
     { ...defaultsFor("heading"), text: "Document title" },
     { ...defaultsFor("paragraph"), text: "Start writing here. Use the buttons on the left to add headings, paragraphs, bullet lists, dividers, spacers and page breaks — then download a crisp, selectable PDF." },
@@ -76,12 +118,69 @@ export default function AdminPdfBuilder() {
         pageNumbers,
         watermark: useWatermark ? wmText : "",
         brand,
+        border,
       });
       if (!ok) setErr("Couldn't generate the PDF. Please try again.");
     } catch (e) {
       setErr(e?.message || "Couldn't generate the PDF.");
     } finally {
       setBusy(false);
+    }
+  };
+
+  // Debounced search for quizzes & tests (admin token → whole library).
+  useEffect(() => {
+    if (!importOpen) return;
+    const query = iq.trim();
+    if (query.length < 2) { setIResults([]); return; }
+    let cancelled = false;
+    setILoading(true);
+    const t = setTimeout(async () => {
+      try {
+        const r = await searchService.query(query);
+        const allow = new Set(["Quiz", "Test", "My Quiz", "My Test"]);
+        const hits = (r?.results || []).filter((x) => allow.has(x.type));
+        if (!cancelled) setIResults(hits);
+      } catch {
+        if (!cancelled) setIResults([]);
+      } finally {
+        if (!cancelled) setILoading(false);
+      }
+    }, 300);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [iq, importOpen]);
+
+  const openImport = () => { setImportOpen(true); setSelected(null); setIq(""); setIResults([]); setImportErr(""); };
+
+  // Fetch the chosen quiz/test's questions and append them as editable blocks.
+  const runImport = async (item, withAnswers) => {
+    setImporting(true);
+    setImportErr("");
+    try {
+      let arr = [];
+      if (item.type === "Quiz") {
+        const r = await contentService.quizQuestions(item.id);
+        arr = Array.isArray(r) ? r : (r?.questions || []);
+      } else {
+        try {
+          const r = await testService.getQuestions(item.id);
+          arr = Array.isArray(r) ? r : (r?.questions || []);
+        } catch { arr = []; }
+        if (!arr.length && item.type === "My Quiz") {
+          try { const p = await practiceService.quizPlay(item.id); arr = Array.isArray(p) ? p : (p?.questions || []); } catch { /* ignore */ }
+        }
+      }
+      if (!arr.length) { setImportErr("Couldn't load questions for that item (it may be empty)."); return; }
+      const heading = { ...defaultsFor("heading"), text: clean(item.title) || (withAnswers ? "Answer Key" : "Question Paper") };
+      const sub = { ...defaultsFor("subheading"), text: withAnswers ? "With answers & explanations" : "Question paper", fontSize: 12, bold: false, color: "#64748b" };
+      const qBlocks = arr.map((q, i) => ({ ...defaultsFor("paragraph"), text: questionToText(q, i, withAnswers) }));
+      setBlocks((b) => [...b, heading, sub, ...qBlocks]);
+      setTitle(clean(item.title) || title);
+      setImportOpen(false);
+    } catch (e) {
+      setImportErr(e?.message || "Import failed.");
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -120,6 +219,15 @@ export default function AdminPdfBuilder() {
             <span className="mb-1 block font-semibold">Page margin: {margin} mm</span>
             <input type="range" min={10} max={35} value={margin} onChange={(e) => setMargin(Number(e.target.value))} className="w-full" />
           </label>
+          <label className="text-sm">
+            <span className="mb-1 block font-semibold">Page border</span>
+            <select value={border} onChange={(e) => setBorder(e.target.value)} className="input !py-1.5 !text-sm">
+              <option value="none">No border</option>
+              <option value="single">Single (thin)</option>
+              <option value="thick">Thick</option>
+              <option value="double">Double line</option>
+            </select>
+          </label>
           <div className="flex items-end gap-4 text-sm">
             <label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={pageNumbers} onChange={(e) => setPageNumbers(e.target.checked)} /> Page numbers</label>
             <label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={useWatermark} onChange={(e) => setUseWatermark(e.target.checked)} /> Watermark</label>
@@ -131,6 +239,9 @@ export default function AdminPdfBuilder() {
         {/* Editor */}
         <div>
           <div className="mb-2 flex flex-wrap gap-2">
+            <button type="button" onClick={openImport} className="btn-primary !py-1 !text-xs">
+              <BookOpen className="h-3.5 w-3.5" /> Import from Quiz / Test
+            </button>
             {DOC_BLOCK_TYPES.map((t) => (
               <button key={t.id} type="button" onClick={() => addBlock(t.id)} className="btn-outline !py-1 !text-xs">
                 <Plus className="h-3.5 w-3.5" /> {t.label}
@@ -160,14 +271,83 @@ export default function AdminPdfBuilder() {
           <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-400">Preview (A4)</p>
           <div className="max-h-[75vh] overflow-auto rounded-xl bg-slate-200 p-4 dark:bg-slate-800">
             <div
-              className="mx-auto bg-white text-slate-900 shadow-lg"
+              className="relative mx-auto bg-white text-slate-900 shadow-lg"
               style={{ width: "794px", minHeight: "1123px", padding: previewPadPx, fontFamily: fontCss }}
             >
+              {border !== "none" && (
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute"
+                  style={{
+                    inset: "30px",
+                    border: border === "thick" ? "4px solid #334155" : border === "double" ? "4px double #334155" : "1.5px solid #334155",
+                  }}
+                />
+              )}
               {blocks.map((b) => <PreviewBlock key={b.id} b={b} fontCss={fontCss} />)}
             </div>
           </div>
         </div>
       </div>
+
+      {/* Import from a quiz / test */}
+      {importOpen && (
+        <div className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-black/50 p-4" onClick={() => setImportOpen(false)}>
+          <div className="my-10 w-full max-w-lg animate-scale-in card p-5" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-lg font-bold"><BookOpen className="h-5 w-5 text-brand-600" /> Import from Quiz / Test</h3>
+              <button type="button" onClick={() => setImportOpen(false)}><X className="h-5 w-5" /></button>
+            </div>
+
+            {importErr && <p className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">{importErr}</p>}
+
+            {!selected ? (
+              <>
+                <div className="mb-3 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
+                  <Search className="h-4 w-4 text-slate-400" />
+                  <input autoFocus value={iq} onChange={(e) => setIq(e.target.value)} placeholder="Search your quizzes and tests…" className="w-full bg-transparent text-sm outline-none" />
+                  {iLoading && <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
+                </div>
+                <div className="max-h-72 space-y-1 overflow-y-auto">
+                  {iq.trim().length < 2 ? (
+                    <p className="py-6 text-center text-sm text-slate-400">Type at least 2 characters to find a quiz or test.</p>
+                  ) : !iResults.length && !iLoading ? (
+                    <p className="py-6 text-center text-sm text-slate-400">No quizzes or tests match “{iq.trim()}”.</p>
+                  ) : (
+                    iResults.map((item) => (
+                      <button key={`${item.type}-${item.id}`} type="button" onClick={() => { setSelected(item); setImportErr(""); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800">
+                        <span className={`flex-shrink-0 rounded-md px-2 py-0.5 text-xs font-bold ${item.type.includes("Test") ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"}`}>{item.type}</span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-semibold">{item.title}</span>
+                          {item.subtitle && <span className="block truncate text-xs text-slate-400">{item.subtitle}</span>}
+                        </span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <button type="button" onClick={() => setSelected(null)} className="mb-3 inline-flex items-center gap-1 text-sm font-semibold text-brand-600 hover:underline"><ChevronLeft className="h-4 w-4" /> Back to search</button>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">{selected.type}</p>
+                <p className="mb-4 text-base font-bold">{selected.title}</p>
+                <p className="mb-2 text-sm text-slate-500">How should it be imported?</p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <button type="button" disabled={importing} onClick={() => runImport(selected, false)} className="rounded-xl border border-slate-300 p-3 text-left hover:border-brand-500 hover:bg-brand-50 disabled:opacity-50 dark:border-slate-600 dark:hover:bg-slate-800">
+                    <span className="block font-bold">Without answers</span>
+                    <span className="block text-xs text-slate-400">Question paper only</span>
+                  </button>
+                  <button type="button" disabled={importing} onClick={() => runImport(selected, true)} className="rounded-xl border border-brand-600 bg-brand-600 p-3 text-left text-white hover:bg-brand-700 disabled:opacity-50">
+                    <span className="block font-bold">With answers &amp; description</span>
+                    <span className="block text-xs text-white/80">Answers + explanations</span>
+                  </button>
+                </div>
+                {importing && <p className="mt-3 flex items-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Importing questions…</p>}
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
