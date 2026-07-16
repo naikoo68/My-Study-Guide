@@ -38,7 +38,10 @@ function inline(text) {
   let m;
   while ((m = re.exec(t)) !== null) {
     if (m.index > last) out += esc(t.slice(last, m.index));
-    try { out += katex.renderToString(m[1] ?? m[2], { throwOnError: false, displayMode: m[1] != null }); }
+    // output:"html" (not the default htmlAndMathml): the hidden MathML copy is
+    // hidden with CSS `clip`, which html2canvas can't apply — so it would get
+    // rendered as duplicated/garbled text in the PDF. HTML-only avoids that.
+    try { out += katex.renderToString(m[1] ?? m[2], { throwOnError: false, displayMode: m[1] != null, output: "html" }); }
     catch { out += esc(m[0]); }
     last = re.lastIndex;
   }
@@ -251,6 +254,22 @@ function ensureKatexCss() {
   document.head.appendChild(l);
 }
 
+// Force the KaTeX web fonts to finish loading. html2canvas snapshots
+// synchronously, so if these lazy-loaded fonts aren't ready the math glyphs
+// (fraction bars, roots, symbols, math italics) fall back to a system font and
+// look wrong. We explicitly request each family/style.
+async function ensureKatexFonts() {
+  if (typeof document === "undefined" || !document.fonts || !document.fonts.load) return;
+  const fams = ["KaTeX_Main", "KaTeX_Math", "KaTeX_Size1", "KaTeX_Size2", "KaTeX_Size3", "KaTeX_Size4", "KaTeX_AMS", "KaTeX_Caligraphic", "KaTeX_Fraktur", "KaTeX_SansSerif", "KaTeX_Script", "KaTeX_Typewriter"];
+  try {
+    await Promise.all(fams.flatMap((f) => [
+      document.fonts.load(`16px "${f}"`),
+      document.fonts.load(`italic 16px "${f}"`),
+      document.fonts.load(`bold 16px "${f}"`),
+    ]));
+  } catch { /* ignore */ }
+}
+
 // Build the PDF and download it AUTOMATICALLY (no print dialog). Renders EACH
 // page section at its NATURAL size (no CSS transform — that broke html2canvas)
 // and fits it onto one A4 sheet: normal pages fill the width; dense pages are
@@ -271,8 +290,10 @@ export async function savePdf(title, questions, opts = {}) {
   document.body.appendChild(wrap);
 
   try {
+    await new Promise((r) => setTimeout(r, 150)); // let the KaTeX stylesheet apply
+    await ensureKatexFonts(); // make sure math fonts are loaded before snapshot
     if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch { /* ignore */ } }
-    await new Promise((r) => setTimeout(r, 250)); // let CSS/fonts apply
+    await new Promise((r) => setTimeout(r, 150)); // final settle
     const pageEls = wrap.querySelectorAll(".page");
     if (!pageEls.length) return false;
     // Normalise EVERY page to the tallest page's height so all pages render at
