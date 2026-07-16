@@ -216,7 +216,9 @@ export async function savePdf(title, questions, opts = {}) {
   wrap.style.cssText = "position:fixed;left:-10000px;top:0;background:#ffffff;z-index:-1";
   // Force every .page to be exactly A4 (794×1123 px @96dpi) so each renders as
   // one full A4 sheet.
-  wrap.innerHTML = `<style>${css} .page{width:794px;min-height:1123px;margin:0 !important}</style><div class="paperroot">${pages}</div>`;
+  // Force every .page to EXACTLY A4 (794×1123px @96dpi = 210×297mm aspect) so
+  // each renders as one full A4 sheet with no distortion or gaps.
+  wrap.innerHTML = `<style>${css} .page{width:794px;height:1123px;overflow:hidden;margin:0 !important}.page+.page{margin-top:0 !important}</style><div class="paperroot">${pages}</div>`;
   document.body.appendChild(wrap);
 
   try {
@@ -224,16 +226,15 @@ export async function savePdf(title, questions, opts = {}) {
     await new Promise((r) => setTimeout(r, 250)); // let CSS/fonts apply
     const pageEls = wrap.querySelectorAll(".page");
     if (!pageEls.length) return false;
-    const pdf = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
-    const A4W = 210, A4H = 297;
+    const pdf = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait", compress: true });
+    const A4W = 210, A4H = 297; // mm
     for (let i = 0; i < pageEls.length; i++) {
       // eslint-disable-next-line no-await-in-loop
-      const canvas = await html2canvas(pageEls[i], { scale: 2.5, useCORS: true, backgroundColor: "#ffffff", logging: false });
+      const canvas = await html2canvas(pageEls[i], { scale: 2.5, useCORS: true, backgroundColor: "#ffffff", logging: false, width: 794, height: 1123, windowWidth: 794 });
       const imgData = canvas.toDataURL("image/jpeg", 0.95);
-      let w = A4W, h = (canvas.height * A4W) / canvas.width;
-      if (h > A4H) { h = A4H; w = (canvas.width * A4H) / canvas.height; } // fit within A4
       if (i > 0) pdf.addPage();
-      pdf.addImage(imgData, "JPEG", (A4W - w) / 2, 0, w, h);
+      // Fill the whole A4 page (canvas is A4 aspect → no distortion).
+      pdf.addImage(imgData, "JPEG", 0, 0, A4W, A4H);
     }
     pdf.save(`${String(title || "paper").replace(/[^\w.-]+/g, "_")}.pdf`);
     return true;
