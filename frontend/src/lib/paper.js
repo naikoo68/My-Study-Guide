@@ -72,25 +72,25 @@ function questionBlock(q, idx, withAnswers) {
   return parts.join("");
 }
 
-// A diagonal, tiled watermark that prints on EVERY page (position:fixed repeats
-// per printed page in Chrome/print-to-PDF).
-function watermarkHtml(label) {
+// A diagonal, tiled watermark placed INSIDE each page (so it appears on every
+// page in both print and the generated PDF).
+function pageWatermark(label) {
   if (!label) return "";
-  const spans = Array.from({ length: 240 }).map(() => `<span>${esc(label)}</span>`).join("");
-  return `<div class="wm" aria-hidden="true"><div class="wm-in">${spans}</div></div>`;
+  const spans = Array.from({ length: 300 }).map(() => `<span>${esc(label)}</span>`).join("");
+  return `<div class="pwm" aria-hidden="true"><div class="in">${spans}</div></div>`;
 }
 
-export function buildPaperHtml(title, questions, { withAnswers = false, brand = "My Study Guide", perPage = 0, watermark = "", watermarkOpacity = 0.12, watermarkSize = 16, border = "single", autoPrint = true } = {}) {
+// Build the shared CSS + page sections for a paper/answer-key.
+function compose(title, questions, opts = {}) {
+  const { withAnswers = false, brand = "My Study Guide", perPage = 0, watermark = "", watermarkOpacity = 0.12, watermarkSize = 16, border = "single" } = opts;
   const borderCss = border === "none" ? "none" : border === "double" ? "3px double #1e293b" : border === "thick" ? "3px solid #1e293b" : "1.6px solid #1e293b";
   const borderRadius = border === "none" ? "0" : "10px";
-  const pagePad = border === "none" ? "6px 2px 20px" : "20px 24px 26px";
+  const pagePad = border === "none" ? "10px 4px 22px" : "20px 24px 26px";
   const list = Array.isArray(questions) ? questions : [];
   const kind = withAnswers ? "ANSWER KEY" : "QUESTION PAPER";
   const blocks = list.map((q, i) => questionBlock(q, i, withAnswers));
   const n = Number(perPage) || 0;
 
-  // Split into page chunks. n>0 → exactly n questions per page; n=0 → one chunk
-  // that the browser paginates automatically.
   const chunks = [];
   if (n > 0) { for (let i = 0; i < blocks.length; i += n) chunks.push(blocks.slice(i, i + n)); }
   else chunks.push(blocks);
@@ -99,36 +99,32 @@ export function buildPaperHtml(title, questions, { withAnswers = false, brand = 
   const fields = withAnswers
     ? ""
     : `<div class="fields"><span>Name: <b class="line">&nbsp;</b></span><span>Roll No: <b class="line sm">&nbsp;</b></span><span>Date: <b class="line sm">&nbsp;</b></span><span>Marks: <b class="line xs">&nbsp;</b></span></div>`;
-
   const grid = withAnswers
     ? `<h2 class="kh">Answer Key at a glance</h2><div class="grid">${list.map((q, i) => `<span class="cell"><b>${i + 1}.</b> ${answerLetter(q)}</span>`).join("")}</div><hr class="rule2">`
     : "";
-
   const fullHeader = (
     `<div class="hdr"><div><p class="brand">${esc(brand)}</p><h1>${esc(title)}</h1>` +
     `<p class="sub">${list.length} question(s)${withAnswers ? " · with answers &amp; explanations" : ""}</p></div>` +
-    `<span class="badge">${kind}</span></div>` +
-    fields + `<hr class="rule">`
+    `<span class="badge">${kind}</span></div>` + fields + `<hr class="rule">`
   );
   const slimHeader = `<div class="shdr"><span>${esc(brand)} — ${esc(title)}</span><span>${kind}</span></div><hr class="rule2">`;
-
+  const wm = pageWatermark(watermark);
   const pageCount = chunks.length;
   const pages = chunks
     .map((chunk, pi) =>
-      `<section class="page">` +
+      `<section class="page">${wm}<div class="pc">` +
       (pi === 0 ? fullHeader + grid : slimHeader) +
       chunk.join("") +
       `<div class="foot">${esc(brand)} · ${withAnswers ? "Answer Key" : "Question Paper"}${pageCount > 1 ? ` · Page ${pi + 1} of ${pageCount}` : ""}</div>` +
-      `</section>`
+      `</div></section>`
     )
     .join("");
 
   const css =
     `@page{size:A4;margin:12mm}*{box-sizing:border-box}` +
     `body{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;color:#0f172a;line-height:1.5;margin:0}` +
-    // Each page is its own bordered A4 frame — reliable page breaks between them.
-    `.page{position:relative;z-index:1;border:${borderCss};border-radius:${borderRadius};padding:${pagePad}}` +
-    `.page + .page{margin-top:18px}` +
+    `.page{position:relative;overflow:hidden;border:${borderCss};border-radius:${borderRadius};padding:${pagePad}}` +
+    `.page + .page{margin-top:18px}.pc{position:relative;z-index:1}` +
     `.hdr{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}` +
     `.brand{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#2563eb;margin:0 0 2px}` +
     `h1{font-size:20px;margin:0}.sub{color:#64748b;font-size:12px;margin:3px 0 0}` +
@@ -144,31 +140,88 @@ export function buildPaperHtml(title, questions, { withAnswers = false, brand = 
     `.tbl{border-collapse:collapse;margin:4px 0}.tbl td{border:1px solid #cbd5e1;padding:3px 8px;font-size:13px}` +
     `.kh{font-size:15px;margin:0 0 6px}.grid{display:flex;flex-wrap:wrap;gap:6px 18px;margin:0 0 6px;font-size:13px}.cell{white-space:nowrap}` +
     `.foot{margin-top:14px;border-top:1px solid #e2e8f0;padding-top:8px;text-align:center;font-size:11px;color:#94a3b8}` +
-    // Watermark on every page (fixed elements repeat per printed page)
-    `.wm{position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none}` +
-    `.wm-in{position:absolute;left:50%;top:50%;width:240vw;transform:translate(-50%,-50%) rotate(-24deg);display:flex;flex-wrap:wrap;justify-content:center;gap:56px;opacity:${watermarkOpacity}}` +
-    `.wm-in span{white-space:nowrap;font-weight:800;text-transform:uppercase;letter-spacing:.2em;color:#94a3b8;font-size:${watermarkSize}px}` +
+    // Per-page watermark (behind the content).
+    `.pwm{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0}` +
+    `.pwm .in{position:absolute;inset:-25%;transform:rotate(-24deg);display:flex;flex-wrap:wrap;align-content:flex-start;justify-content:center;gap:44px;opacity:${watermarkOpacity}}` +
+    `.pwm .in span{white-space:nowrap;font-weight:800;text-transform:uppercase;letter-spacing:.2em;color:#94a3b8;font-size:${watermarkSize}px}` +
     `*{-webkit-print-color-adjust:exact;print-color-adjust:exact}` +
-    // Force a page break after every bordered page except the last.
     `@media print{.page{break-after:page;page-break-after:always}.page:last-child{break-after:auto;page-break-after:auto}.page+.page{margin-top:0}}` +
-    `@media screen{body{background:#f1f5f9;padding:16px}.page{max-width:210mm;margin-left:auto;margin-right:auto}}`;
+    `@media screen{body{background:#f1f5f9;padding:16px}.page{max-width:210mm;margin-left:auto;margin-right:auto;background:#fff}}`;
 
+  return { css, pages, kind };
+}
+
+export function buildPaperHtml(title, questions, opts = {}) {
+  const { css, pages, kind } = compose(title, questions, opts);
+  const autoPrint = opts.autoPrint !== false;
   return (
     `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)} — ${kind}</title>` +
     `<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" crossorigin="anonymous">` +
     `<style>${css}</style></head><body>` +
-    watermarkHtml(watermark) +
     pages +
     (autoPrint ? `<scr` + `ipt>window.onload=function(){setTimeout(function(){window.focus();window.print();},400)};</scr` + `ipt>` : "") +
     `</body></html>`
   );
 }
 
-// Open the paper/answer-key in a print window. Returns false if pop-up blocked.
+// Open the paper/answer-key in a print window (fallback). Returns false if the
+// pop-up was blocked.
 export function printPaper(title, questions, opts) {
   const win = window.open("", "_blank");
   if (!win) return false;
   win.document.write(buildPaperHtml(title, questions, opts));
   win.document.close();
   return true;
+}
+
+let html2pdfPromise = null;
+function loadHtml2Pdf() {
+  if (html2pdfPromise) return html2pdfPromise;
+  html2pdfPromise = import(/* @vite-ignore */ "https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.3/+esm")
+    .then((m) => m?.default || m?.html2pdf || (typeof window !== "undefined" ? window.html2pdf : null));
+  return html2pdfPromise;
+}
+function ensureKatexCss() {
+  if (typeof document === "undefined" || document.getElementById("katex-cdn-css")) return;
+  const l = document.createElement("link");
+  l.id = "katex-cdn-css";
+  l.rel = "stylesheet";
+  l.href = "https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css";
+  l.crossOrigin = "anonymous";
+  document.head.appendChild(l);
+}
+
+// Generate the PDF and download it AUTOMATICALLY as a real .pdf file (no print
+// dialog). Resolves true on success, false if it couldn't (caller can fall back
+// to printPaper).
+export async function savePdf(title, questions, opts = {}) {
+  let html2pdf;
+  try { html2pdf = await loadHtml2Pdf(); } catch { return false; }
+  if (typeof html2pdf !== "function") return false;
+  ensureKatexCss();
+  const { css, pages } = compose(title, questions, opts);
+  const wrap = document.createElement("div");
+  wrap.style.cssText = "position:fixed;left:-10000px;top:0;width:794px;background:#ffffff;z-index:-1";
+  wrap.innerHTML = `<style>${css}</style><div class="paperroot">${pages}</div>`;
+  document.body.appendChild(wrap);
+  try {
+    if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch { /* ignore */ } }
+    await new Promise((r) => setTimeout(r, 200)); // let CSS/fonts apply
+    await html2pdf()
+      .set({
+        margin: [10, 10, 10, 10],
+        filename: `${String(title || "paper").replace(/[^\w.-]+/g, "_")}.pdf`,
+        image: { type: "jpeg", quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff", windowWidth: 794 },
+        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+        pagebreak: { mode: ["css", "legacy"], before: ".page" },
+      })
+      .from(wrap.querySelector(".paperroot"))
+      .save();
+    return true;
+  } catch {
+    return false;
+  } finally {
+    wrap.remove();
+  }
 }

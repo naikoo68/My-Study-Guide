@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { FileDown, KeyRound, X, Loader2, Download } from "lucide-react";
-import { printPaper, buildPaperHtml } from "../../lib/paper";
+import { FileDown, X, Loader2, Download } from "lucide-react";
+import { printPaper, buildPaperHtml, savePdf } from "../../lib/paper";
 import { useSettings } from "../../context/SettingsContext";
 
 // Download a quiz/test as a QUESTION PAPER (PDF, no answers) or ANSWER KEY (PDF,
@@ -60,10 +60,23 @@ export default function PaperExport({ title = "Question Paper", questions = null
   };
 
   const mode = paperOnly ? "paper" : previewMode; // which doc the preview/save uses
+  const [saving, setSaving] = useState(false);
   const openModal = async () => { await ensure(); setOpen(true); };
-  const paper = () => { if (!printPaper(title, list, opts(false))) window.alert("Allow pop-ups for this site to download the PDF."); };
-  const key = () => { if (!printPaper(`${title} — Answer Key`, list, opts(true))) window.alert("Allow pop-ups for this site to download the PDF."); };
-  const save = () => (mode === "key" ? key() : paper());
+
+  // Download the PDF file automatically. Falls back to the print window if the
+  // in-browser PDF generator can't load.
+  const save = async () => {
+    const t = mode === "key" ? `${title} — Answer Key` : title;
+    setSaving(true);
+    try {
+      const ok = await savePdf(t, list, opts(mode === "key"));
+      if (!ok && !printPaper(t, list, opts(mode === "key"))) {
+        window.alert("Couldn't generate the PDF. Allow pop-ups and try again.");
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
 
   // Live preview HTML (no auto-print) reflecting the chosen layout options.
   const previewHtml = useMemo(
@@ -150,8 +163,8 @@ export default function PaperExport({ title = "Question Paper", questions = null
 
                 <div className="flex flex-wrap justify-end gap-2">
                   <button type="button" onClick={() => setOpen(false)} className="btn-outline">Close</button>
-                  <button type="button" onClick={save} className="btn-primary">
-                    {mode === "key" ? <KeyRound className="h-4 w-4" /> : <Download className="h-4 w-4" />} Save as PDF (external)
+                  <button type="button" onClick={save} disabled={saving} className="btn-primary">
+                    {saving ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating…</> : <><Download className="h-4 w-4" /> Download PDF</>}
                   </button>
                 </div>
               </>

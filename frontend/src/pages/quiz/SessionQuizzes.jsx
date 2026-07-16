@@ -3,7 +3,6 @@ import { Link, useParams } from "react-router-dom";
 import { ChevronLeft, Play, HelpCircle, ListChecks } from "lucide-react";
 import { contentService } from "../../services";
 import Badge from "../../components/ui/Badge";
-import PaperExport from "../../components/admin/PaperExport";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 
 export default function SessionQuizzes() {
@@ -63,14 +62,9 @@ export default function SessionQuizzes() {
               <p className="mt-1 flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400">
                 <HelpCircle className="h-4 w-4" /> {q.questions} questions
               </p>
-              <div className="mt-auto space-y-2 pt-3">
-                <Link to={`/quiz/${subjectId}/${topicId}/${sessionId}/${q._id}`} className="btn-primary w-full">
-                  <Play className="h-4 w-4" /> Start Quiz
-                </Link>
-                <div className="flex justify-center">
-                  <PaperExport title={q.title || "Quiz"} label="Download / Answer key" load={() => contentService.quizQuestions(q._id)} />
-                </div>
-              </div>
+              <Link to={`/quiz/${subjectId}/${topicId}/${sessionId}/${q._id}`} className="btn-primary mt-auto w-full">
+                <Play className="h-4 w-4" /> Start Quiz
+              </Link>
             </div>
           ))}
         </div>
