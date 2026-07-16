@@ -124,9 +124,10 @@ function compose(title, questions, opts = {}) {
     `@page{size:A4;margin:12mm}*{box-sizing:border-box}` +
     `body{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;color:#0f172a;line-height:1.5;margin:0}` +
     // .page is the full A4 sheet with an outer MARGIN; .frame is the bordered
-    // box inset from the page edges by that margin.
-    `.page{position:relative;overflow:hidden;background:#fff;padding:34px}` +
-    `.frame{position:relative;overflow:hidden;height:100%;border:${borderCss};border-radius:${borderRadius};padding:${pagePad}}` +
+    // box inset from the page edges by that margin. The frame grows with its
+    // content (never clips), and fills the sheet when content is short.
+    `.page{position:relative;background:#fff;padding:34px;display:flex;flex-direction:column}` +
+    `.frame{flex:1 0 auto;position:relative;border:${borderCss};border-radius:${borderRadius};padding:${pagePad}}` +
     `.page + .page{margin-top:18px}.pc{position:relative;z-index:1}` +
     `.hdr{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}` +
     `.brand{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#2563eb;margin:0 0 2px}` +
@@ -149,7 +150,7 @@ function compose(title, questions, opts = {}) {
     `.pwm .in span{white-space:nowrap;font-weight:800;text-transform:uppercase;letter-spacing:.2em;color:#94a3b8;font-size:${watermarkSize}px}` +
     `*{-webkit-print-color-adjust:exact;print-color-adjust:exact}` +
     `@media print{.page{break-after:page;page-break-after:always}.page:last-child{break-after:auto;page-break-after:auto}.page+.page{margin-top:0}}` +
-    `@media screen{body{background:#f1f5f9;padding:16px}.page{max-width:210mm;margin-left:auto;margin-right:auto;background:#fff}}`;
+    `@media screen{body{background:#f1f5f9;padding:16px}.page{max-width:210mm;min-height:1123px;margin-left:auto;margin-right:auto;background:#fff}}`;
 
   return { css, pages, kind };
 }
@@ -221,7 +222,7 @@ export async function savePdf(title, questions, opts = {}) {
   // one full A4 sheet.
   // Force every .page to EXACTLY A4 (794×1123px @96dpi = 210×297mm aspect) so
   // each renders as one full A4 sheet with no distortion or gaps.
-  wrap.innerHTML = `<style>${css} .page{width:794px;height:1123px;overflow:hidden;margin:0 !important}.page+.page{margin-top:0 !important}</style><div class="paperroot">${pages}</div>`;
+  wrap.innerHTML = `<style>${css} .page{width:794px;min-height:1123px;margin:0 !important}.page+.page{margin-top:0 !important}</style><div class="paperroot">${pages}</div>`;
   document.body.appendChild(wrap);
 
   try {
@@ -233,11 +234,14 @@ export async function savePdf(title, questions, opts = {}) {
     const A4W = 210, A4H = 297; // mm
     for (let i = 0; i < pageEls.length; i++) {
       // eslint-disable-next-line no-await-in-loop
-      const canvas = await html2canvas(pageEls[i], { scale: 2.5, useCORS: true, backgroundColor: "#ffffff", logging: false, width: 794, height: 1123, windowWidth: 794 });
+      const canvas = await html2canvas(pageEls[i], { scale: 2.5, useCORS: true, backgroundColor: "#ffffff", logging: false, windowWidth: 794 });
       const imgData = canvas.toDataURL("image/jpeg", 0.95);
+      // Fit the rendered page within A4, keeping aspect so NOTHING is clipped.
+      // Short pages fill the width; an over-full page is scaled down to fit.
+      let w = A4W, h = (canvas.height * A4W) / canvas.width;
+      if (h > A4H) { h = A4H; w = (canvas.width * A4H) / canvas.height; }
       if (i > 0) pdf.addPage();
-      // Fill the whole A4 page (canvas is A4 aspect → no distortion).
-      pdf.addImage(imgData, "JPEG", 0, 0, A4W, A4H);
+      pdf.addImage(imgData, "JPEG", (A4W - w) / 2, 0, w, h);
     }
     pdf.save(`${String(title || "paper").replace(/[^\w.-]+/g, "_")}.pdf`);
     return true;
