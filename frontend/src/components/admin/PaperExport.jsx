@@ -21,13 +21,13 @@ export default function PaperExport({ title = "Question Paper", questions = null
 
   useEffect(() => { if (Array.isArray(questions)) setList(questions); }, [questions]);
 
-  // Watermark on every page — matches the site watermark settings.
-  const wmEnabled = settings?.watermarkEnabled !== false;
+  // Watermark is ALWAYS added to downloaded PDFs (independent of the on-screen
+  // watermark toggle), using the configured text or the site name.
   const wmText = (settings?.watermarkText || "").trim() || `${settings?.siteName || "My Study Guide"} \u00a9`;
   const wmYear = new Date().getFullYear();
-  const wmLabel = wmEnabled ? (wmText.includes("\u00a9") ? `${wmText} ${wmYear}` : `${wmText} \u00a9 ${wmYear}`) : "";
-  const wmOpacity = Math.min(0.5, Math.max(0.04, (Number(settings?.watermarkOpacity) || 10) / 100));
-  const wmSize = Math.min(40, Math.max(10, Number(settings?.watermarkSize) || 16));
+  const wmLabel = wmText.includes("\u00a9") ? `${wmText} ${wmYear}` : `${wmText} \u00a9 ${wmYear}`;
+  const wmOpacity = Math.min(0.5, Math.max(0.08, (Number(settings?.watermarkOpacity) || 12) / 100));
+  const wmSize = Math.min(40, Math.max(12, Number(settings?.watermarkSize) || 16));
   const brand = (settings?.siteName || "My Study Guide").trim();
 
   const opts = (withAnswers) => ({
