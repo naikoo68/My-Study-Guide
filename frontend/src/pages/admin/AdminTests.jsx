@@ -11,7 +11,6 @@ import SubjectPlanEditor from "../../components/admin/SubjectPlanEditor";
 import PickFromBank from "../../components/admin/PickFromBank";
 import WeightageFill from "../../components/admin/WeightageFill";
 import DuplicatesModal from "../../components/admin/DuplicatesModal";
-import PaperExport from "../../components/admin/PaperExport";
 import { Files } from "lucide-react";
 import QuestionFormModal from "../../components/admin/QuestionFormModal";
 import QuestionView from "../../components/admin/QuestionView";
@@ -429,7 +428,6 @@ export default function AdminTests() {
                       <button onClick={() => openQuestions(t)} title="Manage questions" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30">
                         <HelpCircle className="h-4 w-4" />
                       </button>
-                      <PaperExport compact title={t.name} load={() => testService.getQuestions(t._id)} />
                       <button onClick={() => setBulkTest(t)} title="Bulk upload questions" className="rounded-lg p-2 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30">
                         <Upload className="h-4 w-4" />
                       </button>
@@ -790,7 +788,6 @@ export default function AdminTests() {
                   <button onClick={() => downloadCsv(selectedTq.length ? tq.filter((q) => selectedTq.includes(q._id)) : tq, qTest?.name || "test")} className="btn-outline">
                     <Download className="h-4 w-4" /> Download CSV{selectedTq.length ? ` (${selectedTq.length})` : ""}
                   </button>
-                  <PaperExport title={qTest?.name || "Test"} questions={tq} />
                 </>
               )}
               {tq.length > 0 && (

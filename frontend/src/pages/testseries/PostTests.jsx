@@ -4,6 +4,7 @@ import { Clock, FileText, Award, Play, Lock, CheckCircle2, Layers, ChevronLeft }
 import { useAuth } from "../../context/AuthContext";
 import { examService, testService } from "../../services";
 import Badge from "../../components/ui/Badge";
+import PaperExport from "../../components/admin/PaperExport";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 
 const categories = ["All", "Full-Length", "Subject-wise", "Chapter-wise", "Previous Year"];
@@ -124,9 +125,14 @@ export default function PostTests() {
               )}
 
               {user ? (
-                <Link to={`/test-series/attempt/${t._id}`} className="btn-primary mt-5 w-full">
-                  <Play className="h-4 w-4" /> Start Test
-                </Link>
+                <div className="mt-5 space-y-2">
+                  <Link to={`/test-series/attempt/${t._id}`} className="btn-primary w-full">
+                    <Play className="h-4 w-4" /> Start Test
+                  </Link>
+                  <div className="flex justify-center">
+                    <PaperExport title={t.name || "Test"} label="Download question paper" paperOnly load={() => testService.get(t._id)} />
+                  </div>
+                </div>
               ) : (
                 <Link to="/login" className="btn-outline mt-5 w-full">
                   <Lock className="h-4 w-4" /> Login to Start

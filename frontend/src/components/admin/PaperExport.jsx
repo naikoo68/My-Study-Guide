@@ -9,7 +9,7 @@ import MathText from "../ui/MathText";
 // Pass either `questions` (already loaded, admin data incl. `correct`) OR a
 // `load` async function that fetches them on demand (for list rows). Renders a
 // single button that opens a small chooser modal.
-export default function PaperExport({ title = "Question Paper", questions = null, load = null, compact = false, label = "Paper / Key" }) {
+export default function PaperExport({ title = "Question Paper", questions = null, load = null, compact = false, label = "Paper / Key", paperOnly = false }) {
   const [open, setOpen] = useState(false);
   const [list, setList] = useState(Array.isArray(questions) ? questions : []);
   const [busy, setBusy] = useState(false);
@@ -70,9 +70,13 @@ export default function PaperExport({ title = "Question Paper", questions = null
               <>
                 <div className="mb-4 flex flex-wrap gap-2">
                   <button onClick={paper} className="btn-primary"><FileDown className="h-4 w-4" /> Question paper (PDF)</button>
-                  <button onClick={key} className="btn-outline"><KeyRound className="h-4 w-4" /> Answer key (PDF)</button>
+                  {!paperOnly && <button onClick={key} className="btn-outline"><KeyRound className="h-4 w-4" /> Answer key (PDF)</button>}
                 </div>
 
+                {paperOnly ? (
+                  <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">The answer key for a test is available after you attempt and submit it.</p>
+                ) : (
+                <>
                 <p className="mb-2 flex items-center gap-2 text-sm font-semibold"><Eye className="h-4 w-4 text-slate-400" /> Answer key ({list.length} question{list.length === 1 ? "" : "s"})</p>
                 <div className="mb-3 flex flex-wrap gap-2">
                   {list.map((q, i) => (
@@ -91,6 +95,8 @@ export default function PaperExport({ title = "Question Paper", questions = null
                     </div>
                   ))}
                 </div>
+                </>
+                )}
               </>
             )}
           </div>

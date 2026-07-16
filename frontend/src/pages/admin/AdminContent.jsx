@@ -10,7 +10,6 @@ import QuestionView from "../../components/admin/QuestionView";
 import { questionDateText, searchQuestions } from "../../lib/questions";
 import DuplicatesModal from "../../components/admin/DuplicatesModal";
 import AiImport from "../../components/admin/AiImport";
-import PaperExport from "../../components/admin/PaperExport";
 import { Sparkles, Files, Globe } from "lucide-react";
 
 const COLORS = [
@@ -263,7 +262,6 @@ export default function AdminContent() {
               <button onClick={() => downloadCsv(selected.length ? items.filter((q) => selected.includes(q._id)) : items, quiz?.title || "quiz")} disabled={!items.length} className="btn-outline">
                 <Download className="h-4 w-4" /> Download CSV{selected.length ? ` (${selected.length})` : ""}
               </button>
-              <PaperExport title={quiz?.title || "Quiz"} questions={items} />
             </>
           )}
           <button onClick={openAdd} className="btn-primary">
@@ -370,9 +368,6 @@ export default function AdminContent() {
                   >
                     <Files className="h-4 w-4" />
                   </button>
-                )}
-                {view === "quizzes" && (
-                  <PaperExport compact title={item.title || "Quiz"} load={() => contentService.quizQuestions(item._id)} />
                 )}
                 {view !== "questions" && (
                   <button

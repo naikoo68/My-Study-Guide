@@ -36,6 +36,7 @@ import { useZoom } from "../../context/ZoomContext";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 import { questionDateText, searchQuestions } from "../../lib/questions";
 import { shuffleAll, toOriginalIndex, makeSeed } from "../../lib/shuffleOptions";
+import PaperExport from "../../components/admin/PaperExport";
 
 const optionLabels = ["A", "B", "C", "D"];
 
@@ -223,6 +224,7 @@ export default function PracticeQuizPlay() {
             <button onClick={() => setShowReview((v) => !v)} className="btn-accent">
               <Lightbulb className="h-4 w-4" /> {showReview ? "Hide Answers" : "Review Answers"}
             </button>
+            <PaperExport title={title || "Practice Quiz"} questions={questions} />
             {isClient ? (
               <button onClick={() => navigate("/client")} className="btn-primary">Back to My Practice</button>
             ) : (

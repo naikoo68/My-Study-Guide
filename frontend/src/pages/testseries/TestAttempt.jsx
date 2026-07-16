@@ -30,6 +30,7 @@ import FeedbackButton from "../../components/ui/FeedbackButton";
 import { useZoom } from "../../context/ZoomContext";
 import { questionDateText, searchQuestions } from "../../lib/questions";
 import { shuffleAll, shuffleQuestion, toOriginalIndex, toDisplayIndex, makeSeed } from "../../lib/shuffleOptions";
+import PaperExport from "../../components/admin/PaperExport";
 
 // Roman numerals for Column B labels (I, II, III, IV…)
 function toRoman(n) {
@@ -277,6 +278,7 @@ export default function TestAttempt() {
                   {showReview ? "Hide" : "Review"} Answers
                 </button>
               )}
+              {review.length > 0 && <PaperExport title={test.name || "Test"} questions={review} />}
               <FeedbackButton context="test" source={testSource} label="Give Feedback" className="btn-outline" />
               {isClient ? (
                 <button onClick={() => navigate("/client")} className="btn-primary">Back to My Practice</button>
