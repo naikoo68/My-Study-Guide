@@ -29,6 +29,7 @@ import Watermark from "../../components/ui/Watermark";
 import FeedbackButton from "../../components/ui/FeedbackButton";
 import { useZoom } from "../../context/ZoomContext";
 import { questionDateText, searchQuestions } from "../../lib/questions";
+import { shuffleAll, shuffleQuestion, toOriginalIndex, toDisplayIndex, makeSeed } from "../../lib/shuffleOptions";
 
 // Roman numerals for Column B labels (I, II, III, IV…)
 function toRoman(n) {
@@ -72,6 +73,7 @@ export default function TestAttempt() {
   const [showReview, setShowReview] = useState(false);
   const [reviewSearch, setReviewSearch] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [seed] = useState(makeSeed()); // per-attempt option shuffle
   const containerRef = useRef(null);
 
   // Load the test + its questions (answers hidden by the API).
@@ -91,12 +93,12 @@ export default function TestAttempt() {
           return sec ? plan.length : plan.length + 1; // unknown section, then unassigned
         };
         const qs = [...(t.questions || [])].sort((a, b) => rank(a.section) - rank(b.section));
-        setQuestions(qs);
+        setQuestions(shuffleAll(qs, seed)); // reshuffle options for this attempt
         setRemaining((t.duration || 30) * 60);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [testId]);
+  }, [testId, seed]);
 
   useEffect(load, [load]);
 
@@ -106,7 +108,7 @@ export default function TestAttempt() {
     setConfirmOpen(false);
     const byId = {};
     questions.forEach((q, i) => {
-      if (answers[i] !== undefined) byId[q._id] = answers[i];
+      if (answers[i] !== undefined) byId[q._id] = toOriginalIndex(q, answers[i]);
     });
     const elapsed = (test?.duration || 0) * 60 - remaining;
     try {
@@ -242,8 +244,13 @@ export default function TestAttempt() {
       { l: "Wrong", v: result.incorrect, c: "text-rose-600 dark:text-rose-400" },
       { l: "Skipped", v: result.skipped, c: "text-amber-600 dark:text-amber-400" },
     ];
-    // Searchable review list — keep the original index for numbering.
-    const reviewEntries = review.map((r, i) => ({ ...r, _idx: i }));
+    // Searchable review list — keep the original index for numbering. Re-apply
+    // the SAME per-attempt shuffle so the review shows options in the exact
+    // order the user saw during the test (correct & chosen remapped to match).
+    const reviewEntries = review.map((r, i) => {
+      const s = shuffleQuestion(r, seed);
+      return { ...s, chosen: toDisplayIndex(s, r.chosen), _idx: i };
+    });
     const reviewResults = searchQuestions(reviewEntries, reviewSearch);
     const reviewShown = reviewResults || reviewEntries;
     return (

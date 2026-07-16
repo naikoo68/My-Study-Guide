@@ -32,6 +32,7 @@ import FeedbackButton from "../../components/ui/FeedbackButton";
 import { useZoom } from "../../context/ZoomContext";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 import { questionDateText } from "../../lib/questions";
+import { shuffleAll, toOriginalIndex, makeSeed } from "../../lib/shuffleOptions";
 
 const optionLabels = ["A", "B", "C", "D"];
 
@@ -83,6 +84,9 @@ export default function QuizPlay() {
   const [seconds, setSeconds] = useState(saved.seconds || 0); // total elapsed
   const [timerMode, setTimerMode] = useState(saved.timerMode ?? null); // null=not chosen, "off", or seconds
   const [qTime, setQTime] = useState(saved.qTime ?? 0); // remaining for current question
+  // Seed for per-attempt option shuffling — persisted so a refresh resumes the
+  // SAME order; a new attempt (storage cleared on submit) gets a new order.
+  const [seed] = useState(() => (typeof saved.seed === "number" ? saved.seed : makeSeed()));
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
@@ -124,7 +128,7 @@ export default function QuizPlay() {
       contentService.quizzes(sessionId).catch(() => []),
     ])
       .then(([qs, subjects, topics, sessions, quizzes]) => {
-        setQuestions(qs);
+        setQuestions(shuffleAll(qs, seed)); // reshuffle options for this attempt
         const subj = subjects.find?.((s) => s._id === subjectId);
         const top = topics.find?.((t) => t._id === topicId);
         const ses = sessions.find?.((s) => s._id === sessionId);
@@ -134,7 +138,7 @@ export default function QuizPlay() {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [quizId, subjectId]);
+  }, [quizId, subjectId, seed]);
 
   useEffect(load, [load]);
 
@@ -177,10 +181,10 @@ export default function QuizPlay() {
     if (!loading && started) {
       localStorage.setItem(
         storageKey,
-        JSON.stringify({ answers, timedOut, bookmarks, seconds, current, timerMode, qTime })
+        JSON.stringify({ answers, timedOut, bookmarks, seconds, current, timerMode, qTime, seed })
       );
     }
-  }, [answers, timedOut, bookmarks, seconds, current, timerMode, qTime, storageKey, loading, started]);
+  }, [answers, timedOut, bookmarks, seconds, current, timerMode, qTime, seed, storageKey, loading, started]);
 
   const submit = useCallback(async () => {
     setSubmitting(true);
@@ -230,7 +234,9 @@ export default function QuizPlay() {
 
     const byId = {};
     questions.forEach((qq, i) => {
-      if (answers[i] !== undefined) byId[qq._id] = answers[i];
+      // Map the chosen DISPLAY index back to the original stored index so the
+      // server (which scores against Question.correct) grades correctly.
+      if (answers[i] !== undefined) byId[qq._id] = toOriginalIndex(qq, answers[i]);
     });
     try {
       await quizService.submit(quizId, byId, seconds);

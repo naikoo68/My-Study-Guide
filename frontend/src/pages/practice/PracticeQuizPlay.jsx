@@ -35,6 +35,7 @@ import FeedbackButton from "../../components/ui/FeedbackButton";
 import { useZoom } from "../../context/ZoomContext";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 import { questionDateText, searchQuestions } from "../../lib/questions";
+import { shuffleAll, toOriginalIndex, makeSeed } from "../../lib/shuffleOptions";
 
 const optionLabels = ["A", "B", "C", "D"];
 
@@ -84,6 +85,7 @@ export default function PracticeQuizPlay() {
   const [result, setResult] = useState(null);
   const [showReview, setShowReview] = useState(false);
   const [reviewSearch, setReviewSearch] = useState("");
+  const [seed] = useState(makeSeed()); // per-attempt option shuffle
   const [fullscreen, setFullscreen] = useState(false);
   const containerRef = useRef(null);
   const { zoom, zoomIn, zoomOut } = useZoom();
@@ -112,12 +114,12 @@ export default function PracticeQuizPlay() {
     practiceService
       .quizPlay(itemId)
       .then((data) => {
-        setQuestions(data.questions || []);
+        setQuestions(shuffleAll(data.questions || [], seed)); // reshuffle options
         setTitle(data.name || "Practice Quiz");
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [itemId]);
+  }, [itemId, seed]);
   useEffect(load, [load]);
 
   // Total elapsed timer.
@@ -152,7 +154,7 @@ export default function PracticeQuizPlay() {
     setSubmitting(true);
     const byId = {};
     questions.forEach((qq, i) => {
-      if (answers[i] !== undefined) byId[qq._id] = answers[i];
+      if (answers[i] !== undefined) byId[qq._id] = toOriginalIndex(qq, answers[i]);
     });
     let graded = null;
     try {
