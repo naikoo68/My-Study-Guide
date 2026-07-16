@@ -103,14 +103,39 @@ export default function PaperExport({ title = "Question Paper", questions = null
 
       {open && previewFull && (
         <div className="fixed inset-0 z-[80] flex flex-col bg-slate-900">
-          <div className="flex items-center justify-between gap-2 bg-slate-800 px-4 py-2 text-white">
-            <span className="truncate text-sm font-semibold">{mode === "key" ? `${title} — Answer Key` : title}</span>
-            <div className="flex items-center gap-2">
-              <button type="button" onClick={save} disabled={saving} className="btn-primary !py-1 !text-xs">
-                {saving ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating…</> : <><Download className="h-3.5 w-3.5" /> Download PDF</>}
-              </button>
-              <button type="button" onClick={() => setPreviewFull(false)} className="btn-outline !py-1 !text-xs !text-white"><Minimize2 className="h-3.5 w-3.5" /> Exit</button>
-            </div>
+          <div className="flex flex-wrap items-center gap-2 bg-slate-800 px-4 py-2 text-white">
+            <span className="mr-auto truncate text-sm font-semibold">{mode === "key" ? `${title} — Answer Key` : title}</span>
+            {!paperOnly && (
+              <div className="inline-flex overflow-hidden rounded-lg border border-slate-600 text-xs font-semibold">
+                <button type="button" onClick={() => setPreviewMode("paper")} className={`px-2.5 py-1 ${mode === "paper" ? "bg-brand-600 text-white" : "bg-slate-900 text-slate-300"}`}>Paper</button>
+                <button type="button" onClick={() => setPreviewMode("key")} className={`px-2.5 py-1 ${mode === "key" ? "bg-brand-600 text-white" : "bg-slate-900 text-slate-300"}`}>Answer key</button>
+              </div>
+            )}
+            <label className="flex items-center gap-1 text-xs">
+              <span className="text-slate-300">Per page</span>
+              <select value={perPage} onChange={(e) => setPerPage(Number(e.target.value))} className="rounded-md border border-slate-600 bg-slate-900 px-2 py-1 text-xs text-white">
+                <option value={0}>Auto</option>
+                <option value={1}>1</option>
+                <option value={5}>5</option>
+                <option value={10}>10</option>
+                <option value={15}>15</option>
+                <option value={20}>20</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-1 text-xs">
+              <span className="text-slate-300">Border</span>
+              <select value={border} onChange={(e) => setBorder(e.target.value)} className="rounded-md border border-slate-600 bg-slate-900 px-2 py-1 text-xs text-white">
+                <option value="single">Single</option>
+                <option value="thick">Thick</option>
+                <option value="double">Double</option>
+                <option value="none">None</option>
+              </select>
+            </label>
+            <span className="text-[11px] text-slate-400">{Number(perPage) > 0 ? `≈ ${Math.max(1, Math.ceil(list.length / Number(perPage)))} pages` : ""}</span>
+            <button type="button" onClick={save} disabled={saving} className="btn-primary !py-1 !text-xs">
+              {saving ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating…</> : <><Download className="h-3.5 w-3.5" /> Download PDF</>}
+            </button>
+            <button type="button" onClick={() => setPreviewFull(false)} className="btn-outline !py-1 !text-xs !text-white"><Minimize2 className="h-3.5 w-3.5" /> Exit</button>
           </div>
           <iframe title="PDF full-screen preview" srcDoc={previewHtml} className="min-h-0 flex-1 w-full bg-white" />
         </div>
