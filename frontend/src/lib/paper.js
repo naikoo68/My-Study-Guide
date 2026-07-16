@@ -117,7 +117,14 @@ function compose(title, questions, opts = {}) {
     brandColor = "#2563eb",
     accentColor = "#f97316",
     fontFamily = 'Georgia, "Times New Roman", "Cambria", serif',
+    typeScale = 1,
   } = opts;
+  // typeScale genuinely reflows the CONTENT smaller (font sizes + spacing) so a
+  // dense page fits an A4 sheet at FULL WIDTH — no CSS transform (html2canvas
+  // ignores transforms → clipping) and no width-shrinking. Structural sizes
+  // (page/frame/border) stay fixed so the border is identical on every page.
+  const ts = Math.max(0.35, Math.min(1, Number(typeScale) || 1));
+  const z = (nn) => `${Math.round(nn * ts * 1000) / 1000}px`;
   const borderCss = border === "none" ? "none" : border === "double" ? `3px double ${brandColor}` : border === "thick" ? `3px solid ${brandColor}` : `1.6px solid ${hexA(brandColor, 0.65)}`;
   const borderRadius = border === "none" ? "0" : "10px";
   const pagePad = border === "none" ? "10px 4px 22px" : "20px 24px 26px";
@@ -157,7 +164,7 @@ function compose(title, questions, opts = {}) {
 
   const css =
     `@page{size:A4;margin:12mm}*{box-sizing:border-box}` +
-    `body{font-family:${fontFamily};color:#0f172a;line-height:1.55;margin:0}` +
+    `body{font-family:${fontFamily};color:#0f172a;line-height:1.55;margin:0;font-size:${z(16)}}` +
     // .page is an A4-proportioned sheet (794px wide = 210mm) with a comfortable
     // outer MARGIN. It GROWS with its content (min-height, no clipping); the PDF
     // generator fits each rendered page onto one A4 sheet (shrinking dense pages
@@ -166,34 +173,34 @@ function compose(title, questions, opts = {}) {
     `.frame{flex:1;position:relative;border:${borderCss};border-radius:${borderRadius};padding:${pagePad}}` +
     `.page + .page{margin-top:18px}.pc{position:relative;z-index:1}` +
     `.hdr{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}` +
-    `.brand{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:${brandColor};margin:0 0 2px}` +
-    `h1{font-size:21px;margin:0;color:${brandColor}}.sub{color:#64748b;font-size:12px;margin:3px 0 0}` +
-    `.badge{flex-shrink:0;background:${brandColor};color:#fff;border-radius:999px;padding:5px 13px;font-size:11px;font-weight:800;letter-spacing:.06em}` +
-    `.shdr{display:flex;justify-content:space-between;gap:12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:${brandColor}}` +
-    `.fields{display:flex;flex-wrap:wrap;gap:8px 22px;margin:12px 0 0;font-size:13px;color:#334155}` +
+    `.brand{font-size:${z(11)};font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:${brandColor};margin:0 0 2px}` +
+    `h1{font-size:${z(21)};margin:0;color:${brandColor}}.sub{color:#64748b;font-size:${z(12)};margin:${z(3)} 0 0}` +
+    `.badge{flex-shrink:0;background:${brandColor};color:#fff;border-radius:999px;padding:${z(5)} ${z(13)};font-size:${z(11)};font-weight:800;letter-spacing:.06em}` +
+    `.shdr{display:flex;justify-content:space-between;gap:12px;font-size:${z(11)};font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:${brandColor}}` +
+    `.fields{display:flex;flex-wrap:wrap;gap:${z(8)} ${z(22)};margin:${z(12)} 0 0;font-size:${z(13)};color:#334155}` +
     `.line{display:inline-block;border-bottom:1px solid #94a3b8;min-width:150px}.line.sm{min-width:90px}.line.xs{min-width:60px}` +
-    `.rule{border:none;border-top:2px solid ${brandColor};margin:12px 0 16px}.rule2{border:none;border-top:1px solid ${hexA(brandColor, 0.35)};margin:8px 0 14px}` +
-    `.q{margin:0 0 15px;page-break-inside:avoid;break-inside:avoid}.stem{margin:0 0 5px}` +
+    `.rule{border:none;border-top:2px solid ${brandColor};margin:${z(12)} 0 ${z(16)}}.rule2{border:none;border-top:1px solid ${hexA(brandColor, 0.35)};margin:${z(8)} 0 ${z(14)}}` +
+    `.q{margin:0 0 ${z(15)};page-break-inside:avoid;break-inside:avoid}.stem{margin:0 0 ${z(5)}}` +
     `.qn{color:${brandColor};font-weight:800;margin-right:2px}` +
     // Difficulty chips.
-    `.chip{display:inline-block;vertical-align:middle;border-radius:999px;padding:1px 9px;font-size:10.5px;font-weight:800;letter-spacing:.03em;border:1px solid;line-height:1.5}` +
+    `.chip{display:inline-block;vertical-align:middle;border-radius:999px;padding:${z(1)} ${z(9)};font-size:${z(10.5)};font-weight:800;letter-spacing:.03em;border:1px solid;line-height:1.5}` +
     `.d-easy{background:${DIFF.Easy.bg};color:${DIFF.Easy.fg};border-color:${DIFF.Easy.bd}}` +
     `.d-medium{background:${DIFF.Medium.bg};color:${DIFF.Medium.fg};border-color:${DIFF.Medium.bd}}` +
     `.d-hard{background:${DIFF.Hard.bg};color:${DIFF.Hard.fg};border-color:${DIFF.Hard.bd}}` +
     // Coloured Column A / B (and statement / assertion) boxes.
-    `.box{border-radius:9px;padding:8px 12px;margin:5px 0;font-size:14px}` +
+    `.box{border-radius:9px;padding:${z(8)} ${z(12)};margin:${z(5)} 0;font-size:${z(14)}}` +
     `.boxA{background:${hexA(brandColor, 0.07)};border:1px solid ${hexA(brandColor, 0.3)}}` +
     `.boxB{background:${hexA(accentColor, 0.09)};border:1px solid ${hexA(accentColor, 0.32)}}` +
-    `.box .lst>div{margin:2px 0}.bx-h{display:inline-block;font-weight:800;margin-right:6px}` +
+    `.box .lst>div{margin:${z(2)} 0}.bx-h{display:inline-block;font-weight:800;margin-right:6px}` +
     `.boxA .bx-h{color:${brandColor}}.boxB .bx-h{color:${accentColor}}` +
-    `.match{display:flex;gap:16px;margin:5px 0}.match .box{flex:1}` +
-    `.match .ch{font-weight:800;font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}` +
+    `.match{display:flex;gap:${z(16)};margin:${z(5)} 0}.match .box{flex:1}` +
+    `.match .ch{font-weight:800;font-size:${z(11)};text-transform:uppercase;letter-spacing:.05em;margin-bottom:${z(4)}}` +
     `.chA{color:${brandColor}}.chB{color:${accentColor}}` +
-    `.opts{margin:5px 0 0 16px}.opt{margin:2px 0}.opt.correct{color:#15803d;font-weight:700}` +
-    `.ans{margin:5px 0 0 16px;color:#15803d;font-weight:700}.exp{margin:2px 0 0 16px;color:#334155;font-size:13px}` +
-    `.tbl{border-collapse:collapse;margin:5px 0}.tbl td{border:1px solid #cbd5e1;padding:3px 8px;font-size:13px}` +
-    `.kh{font-size:15px;margin:0 0 6px;color:${brandColor}}.grid{display:flex;flex-wrap:wrap;gap:6px 18px;margin:0 0 6px;font-size:13px}.cell{white-space:nowrap}` +
-    `.foot{margin-top:16px;border-top:1px solid ${hexA(brandColor, 0.2)};padding-top:8px;text-align:center;font-size:11px;color:#94a3b8}` +
+    `.opts{margin:${z(5)} 0 0 ${z(16)}}.opt{margin:${z(2)} 0}.opt.correct{color:#15803d;font-weight:700}` +
+    `.ans{margin:${z(5)} 0 0 ${z(16)};color:#15803d;font-weight:700}.exp{margin:${z(2)} 0 0 ${z(16)};color:#334155;font-size:${z(13)}}` +
+    `.tbl{border-collapse:collapse;margin:${z(5)} 0}.tbl td{border:1px solid #cbd5e1;padding:${z(3)} ${z(8)};font-size:${z(13)}}` +
+    `.kh{font-size:${z(15)};margin:0 0 ${z(6)};color:${brandColor}}.grid{display:flex;flex-wrap:wrap;gap:${z(6)} ${z(18)};margin:0 0 ${z(6)};font-size:${z(13)}}.cell{white-space:nowrap}` +
+    `.foot{margin-top:${z(16)};border-top:1px solid ${hexA(brandColor, 0.2)};padding-top:${z(8)};text-align:center;font-size:${z(11)};color:#94a3b8}` +
     // Per-page watermark (behind the content).
     `.pwm{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0}` +
     `.pwm .in{position:absolute;inset:-25%;transform:rotate(-24deg);display:flex;flex-wrap:wrap;align-content:flex-start;justify-content:center;gap:44px;opacity:${watermarkOpacity}}` +
@@ -270,11 +277,48 @@ async function ensureKatexFonts() {
   } catch { /* ignore */ }
 }
 
-// Build the PDF and download it AUTOMATICALLY (no print dialog). Renders EACH
-// page section at its NATURAL size (no CSS transform — that broke html2canvas)
-// and fits it onto one A4 sheet: normal pages fill the width; dense pages are
-// scaled down so every question stays on the sheet. A chosen page count maps
-// 1:1 to A4 pages. Returns true on success, false to fall back to print.
+// Render the composed pages into an off-screen wrapper (fixed A4 pages) and wait
+// for CSS + math fonts. Returns the wrapper element.
+async function mountPaper(css, pages) {
+  const wrap = document.createElement("div");
+  wrap.style.cssText = "position:fixed;left:-10000px;top:0;background:#ffffff;z-index:-1";
+  // Lock every page to EXACTLY A4 (794×1123px) with clipping, so the render maps
+  // 1:1 to a full-width A4 sheet.
+  wrap.innerHTML =
+    `<style>${css} .page{margin:0 !important;min-height:0 !important;height:1123px !important}` +
+    `.page+.page{margin-top:0 !important}.frame{overflow:hidden !important}</style>` +
+    `<div class="paperroot">${pages}</div>`;
+  document.body.appendChild(wrap);
+  await new Promise((r) => setTimeout(r, 150)); // let the KaTeX stylesheet apply
+  await ensureKatexFonts(); // make sure math fonts are loaded before snapshot
+  if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch { /* ignore */ } }
+  await new Promise((r) => setTimeout(r, 150)); // final settle
+  return wrap;
+}
+
+// How much does the densest page overflow its A4 frame? Returns the largest
+// ratio of needed-height / available-height across pages (>1 means overflow).
+function measureOverflow(wrap) {
+  let ratio = 1;
+  wrap.querySelectorAll(".page").forEach((p) => {
+    const frame = p.querySelector(".frame");
+    const pc = p.querySelector(".pc");
+    if (!frame || !pc) return;
+    const cs = getComputedStyle(frame);
+    const availH = frame.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    if (availH > 0 && pc.scrollHeight > availH) ratio = Math.max(ratio, pc.scrollHeight / availH);
+  });
+  return ratio;
+}
+
+// Build the PDF and download it AUTOMATICALLY (no print dialog).
+//
+// Each page is a fixed A4 sheet (794×1123px). If content overflows, we REFLOW
+// it smaller by lowering the typography scale (font sizes + spacing) — a genuine
+// re-layout, NOT a CSS transform (html2canvas ignores transforms and would clip)
+// and NOT a width shrink (the page always fills the full A4 width). A single
+// scale is used for every page, so text size and border thickness stay uniform.
+// A chosen questions-per-page maps 1:1 to A4 pages. Returns false to fall back.
 export async function savePdf(title, questions, opts = {}) {
   if (typeof document === "undefined") return false;
   let libs;
@@ -283,52 +327,38 @@ export async function savePdf(title, questions, opts = {}) {
   if (typeof html2canvas !== "function" || typeof jsPDF !== "function") return false;
   ensureKatexCss();
 
-  const { css, pages } = compose(title, questions, opts);
-  const wrap = document.createElement("div");
-  wrap.style.cssText = "position:fixed;left:-10000px;top:0;background:#ffffff;z-index:-1";
-  wrap.innerHTML = `<style>${css} .page{margin:0 !important}.page+.page{margin-top:0 !important}</style><div class="paperroot">${pages}</div>`;
-  document.body.appendChild(wrap);
-
+  // Pass 1: render at full size and measure the worst overflow.
+  let composed = compose(title, questions, opts);
+  let wrap = await mountPaper(composed.css, composed.pages);
   try {
-    await new Promise((r) => setTimeout(r, 150)); // let the KaTeX stylesheet apply
-    await ensureKatexFonts(); // make sure math fonts are loaded before snapshot
-    if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch { /* ignore */ } }
-    await new Promise((r) => setTimeout(r, 150)); // final settle
+    const ratio = measureOverflow(wrap);
+    // Pass 2: if any page overflows, re-render everything at a fitting scale so
+    // the densest page fits — full width, nothing clipped, uniform text/borders.
+    if (ratio > 1.001) {
+      const typeScale = Math.max(0.4, (1 / ratio) * 0.97);
+      wrap.remove();
+      composed = compose(title, questions, { ...opts, typeScale });
+      wrap = await mountPaper(composed.css, composed.pages);
+    }
+
     const pageEls = wrap.querySelectorAll(".page");
     if (!pageEls.length) return false;
-    // Normalise EVERY page to the tallest page's height so all pages render at
-    // the SAME dimensions. This makes each page fit onto A4 with an identical
-    // scale — so the border thickness and text size are uniform across pages
-    // (a page's content just leaves more/less blank space, never a resized
-    // frame). Never below A4 (1123px) and never clipped.
-    let maxH = 1123;
-    pageEls.forEach((p) => { p.style.height = "auto"; });
-    pageEls.forEach((p) => { maxH = Math.max(maxH, Math.ceil(p.offsetHeight)); });
-    pageEls.forEach((p) => { p.style.height = `${maxH}px`; });
-    await new Promise((r) => setTimeout(r, 40)); // let the reflow settle
     const pdf = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait", compress: true });
     const A4W = 210, A4H = 297; // mm
-    // Compute the fit ONCE (all pages share dimensions → identical placement).
-    const ratio = maxH / 794; // height / width of every page
-    let w = A4W;
-    let h = A4W * ratio;
-    let x = 0;
-    const y = 0;
-    if (h > A4H) { h = A4H; w = A4H / ratio; x = (A4W - w) / 2; }
     for (let i = 0; i < pageEls.length; i++) {
-      // Every page is now 794 × maxH px → renders identically and fits A4 the
-      // same way, giving uniform borders and text across all pages.
+      // Every page is a fixed 794×1123 (A4) box → render and place it filling the
+      // whole A4 sheet at full width.
       // eslint-disable-next-line no-await-in-loop
-      const canvas = await html2canvas(pageEls[i], { scale: 2.5, useCORS: true, backgroundColor: "#ffffff", logging: false, windowWidth: 794 });
+      const canvas = await html2canvas(pageEls[i], { scale: 2.5, useCORS: true, backgroundColor: "#ffffff", logging: false, width: 794, height: 1123, windowWidth: 794 });
       const imgData = canvas.toDataURL("image/jpeg", 0.95);
       if (i > 0) pdf.addPage();
-      pdf.addImage(imgData, "JPEG", x, y, w, h);
+      pdf.addImage(imgData, "JPEG", 0, 0, A4W, A4H);
     }
     pdf.save(`${String(title || "paper").replace(/[^\w.-]+/g, "_")}.pdf`);
     return true;
   } catch {
     return false;
   } finally {
-    wrap.remove();
+    if (wrap) wrap.remove();
   }
 }
