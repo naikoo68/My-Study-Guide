@@ -21,10 +21,11 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { practiceService, searchService } from "../../services";
+import { practiceService, searchService, testService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
 import Badge from "../../components/ui/Badge";
 import QuestionView from "../../components/admin/QuestionView";
+import PaperExport from "../../components/admin/PaperExport";
 import { Loading, ErrorState } from "../../components/ui/AsyncState";
 
 const previewText = (t, n = 100) => {
@@ -146,6 +147,12 @@ export default function ClientDashboard({ onBuild, onUpgrade }) {
     if (item.kind === "quiz") navigate(`/practice/quiz/play/${item._id}`);
     else navigate(`/test-series/attempt/${item._id}`);
   };
+
+  // Load questions (with answers) for the paper/answer-key download — the client
+  // owns this practice content, so the full data is available.
+  const paperLoad = (item) => (item.kind === "quiz"
+    ? () => practiceService.quizPlay(item._id)
+    : () => testService.getQuestions(item._id));
 
   const expired = isExpired(user?.expiresAt);
 
@@ -367,14 +374,17 @@ export default function ClientDashboard({ onBuild, onUpgrade }) {
                           <span className="inline-flex items-center gap-1"><HelpCircle className="h-3 w-3" /> {item.questionCount} Qs</span>
                           {item.kind === "test" && <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" /> {item.duration} min</span>}
                         </div>
-                        <button
-                          onClick={() => play(item)}
-                          disabled={empty}
-                          title={empty ? "Add questions to this first" : cta}
-                          className="btn-primary mt-3 w-full py-1.5 text-xs disabled:opacity-50"
-                        >
-                          <Play className="h-3.5 w-3.5" /> {empty ? "No questions" : cta}
-                        </button>
+                        <div className="mt-3 flex items-center gap-2">
+                          <button
+                            onClick={() => play(item)}
+                            disabled={empty}
+                            title={empty ? "Add questions to this first" : cta}
+                            className="btn-primary flex-1 py-1.5 text-xs disabled:opacity-50"
+                          >
+                            <Play className="h-3.5 w-3.5" /> {empty ? "No questions" : cta}
+                          </button>
+                          {!empty && <PaperExport compact title={item.name} load={paperLoad(item)} />}
+                        </div>
                       </div>
                     );
                   })}
@@ -440,14 +450,17 @@ export default function ClientDashboard({ onBuild, onUpgrade }) {
                     {item.kind === "test" && <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" /> {item.duration} min</span>}
                     {item.difficulty && <Badge variant={item.difficulty}>{item.difficulty}</Badge>}
                   </div>
-                  <button
-                    onClick={() => play(item)}
-                    disabled={empty}
-                    title={empty ? "Add questions to this first" : cta}
-                    className="btn-primary mt-3 w-full py-1.5 text-xs disabled:opacity-50"
-                  >
-                    <Play className="h-3.5 w-3.5" /> {empty ? "No questions" : cta}
-                  </button>
+                  <div className="mt-3 flex items-center gap-2">
+                    <button
+                      onClick={() => play(item)}
+                      disabled={empty}
+                      title={empty ? "Add questions to this first" : cta}
+                      className="btn-primary flex-1 py-1.5 text-xs disabled:opacity-50"
+                    >
+                      <Play className="h-3.5 w-3.5" /> {empty ? "No questions" : cta}
+                    </button>
+                    {!empty && <PaperExport compact title={item.name} load={paperLoad(item)} />}
+                  </div>
                 </div>
               );
             })}
