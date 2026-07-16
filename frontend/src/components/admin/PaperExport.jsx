@@ -106,7 +106,7 @@ export default function PaperExport({ title = "Question Paper", questions = null
 
   // Live preview HTML (no auto-print) reflecting the chosen layout options.
   const previewHtml = useMemo(
-    () => buildPaperHtml(mode === "key" ? `${title} — Answer Key` : title, list, { ...opts(mode === "key"), autoPrint: false, fixedPages: true }),
+    () => buildPaperHtml(mode === "key" ? `${title} — Answer Key` : title, list, { ...opts(mode === "key"), autoPrint: false }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [title, list, mode, perPage, border, wmLabel, wmOpacity, wmSize, brand, brandColor, accentColor, autoGroups, textScale]
   );
