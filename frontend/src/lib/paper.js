@@ -275,22 +275,31 @@ export async function savePdf(title, questions, opts = {}) {
     await new Promise((r) => setTimeout(r, 250)); // let CSS/fonts apply
     const pageEls = wrap.querySelectorAll(".page");
     if (!pageEls.length) return false;
+    // Normalise EVERY page to the tallest page's height so all pages render at
+    // the SAME dimensions. This makes each page fit onto A4 with an identical
+    // scale — so the border thickness and text size are uniform across pages
+    // (a page's content just leaves more/less blank space, never a resized
+    // frame). Never below A4 (1123px) and never clipped.
+    let maxH = 1123;
+    pageEls.forEach((p) => { p.style.height = "auto"; });
+    pageEls.forEach((p) => { maxH = Math.max(maxH, Math.ceil(p.offsetHeight)); });
+    pageEls.forEach((p) => { p.style.height = `${maxH}px`; });
+    await new Promise((r) => setTimeout(r, 40)); // let the reflow settle
     const pdf = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait", compress: true });
     const A4W = 210, A4H = 297; // mm
+    // Compute the fit ONCE (all pages share dimensions → identical placement).
+    const ratio = maxH / 794; // height / width of every page
+    let w = A4W;
+    let h = A4W * ratio;
+    let x = 0;
+    const y = 0;
+    if (h > A4H) { h = A4H; w = A4H / ratio; x = (A4W - w) / 2; }
     for (let i = 0; i < pageEls.length; i++) {
-      // Render the page at its natural pixel size (794px wide, height grows with
-      // content), then fit it onto A4.
+      // Every page is now 794 × maxH px → renders identically and fits A4 the
+      // same way, giving uniform borders and text across all pages.
       // eslint-disable-next-line no-await-in-loop
       const canvas = await html2canvas(pageEls[i], { scale: 2.5, useCORS: true, backgroundColor: "#ffffff", logging: false, windowWidth: 794 });
-      const iw = canvas.width, ih = canvas.height;
       const imgData = canvas.toDataURL("image/jpeg", 0.95);
-      // Fit to width; if the page is taller than A4, fit to height instead and
-      // centre it horizontally (so a dense page shrinks — nothing is clipped).
-      let w = A4W;
-      let h = iw ? (ih * A4W) / iw : A4H;
-      let x = 0;
-      const y = 0;
-      if (h > A4H) { h = A4H; w = ih ? (iw * A4H) / ih : A4W; x = (A4W - w) / 2; }
       if (i > 0) pdf.addPage();
       pdf.addImage(imgData, "JPEG", x, y, w, h);
     }
