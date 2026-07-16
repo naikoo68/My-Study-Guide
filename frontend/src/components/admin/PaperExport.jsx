@@ -19,6 +19,8 @@ export default function PaperExport({ title = "Question Paper", questions = null
   const [previewMode, setPreviewMode] = useState("paper"); // "paper" | "key"
   const [previewFull, setPreviewFull] = useState(false); // full-screen PDF preview
   const [autoGroups, setAutoGroups] = useState(null); // length-based page grouping (Auto)
+  const [textScale, setTextScale] = useState(1); // manual text-size multiplier (+/-)
+  const bumpText = (d) => setTextScale((s) => Math.min(1.6, Math.max(0.6, Math.round((s + d) * 100) / 100)));
 
   const { settings } = useSettings();
 
@@ -42,6 +44,7 @@ export default function PaperExport({ title = "Question Paper", questions = null
     perPage: Number(perPage) || 0,
     // In Auto mode (perPage 0) pass the measured length-based page grouping.
     groups: Number(perPage) > 0 ? undefined : (autoGroups || undefined),
+    typeScale: textScale, // manual text-size adjustment (+/-)
     border,
     watermark: wmLabel,
     watermarkOpacity: wmOpacity,
@@ -84,7 +87,7 @@ export default function PaperExport({ title = "Question Paper", questions = null
       .catch(() => { if (!cancelled) setAutoGroups(null); });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [title, list, mode, perPage, border, wmSize, brand, brandColor, accentColor]);
+  }, [title, list, mode, perPage, border, wmSize, brand, brandColor, accentColor, textScale]);
 
   // Download the PDF file automatically. Falls back to the print window if the
   // in-browser PDF generator can't load.
@@ -105,7 +108,7 @@ export default function PaperExport({ title = "Question Paper", questions = null
   const previewHtml = useMemo(
     () => buildPaperHtml(mode === "key" ? `${title} — Answer Key` : title, list, { ...opts(mode === "key"), autoPrint: false }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [title, list, mode, perPage, border, wmLabel, wmOpacity, wmSize, brand, brandColor, accentColor, autoGroups]
+    [title, list, mode, perPage, border, wmLabel, wmOpacity, wmSize, brand, brandColor, accentColor, autoGroups, textScale]
   );
 
   // Estimated page count: fixed per-page → simple division; Auto → the measured
@@ -159,6 +162,14 @@ export default function PaperExport({ title = "Question Paper", questions = null
                 <option value="none">None</option>
               </select>
             </label>
+            <div className="flex items-center gap-1 text-xs">
+              <span className="text-slate-300">Text</span>
+              <div className="inline-flex overflow-hidden rounded-md border border-slate-600">
+                <button type="button" onClick={() => bumpText(-0.1)} disabled={textScale <= 0.6} title="Smaller text" className="bg-slate-900 px-2 py-1 font-bold text-white disabled:opacity-40">A−</button>
+                <span className="bg-slate-800 px-2 py-1 tabular-nums text-white">{Math.round(textScale * 100)}%</span>
+                <button type="button" onClick={() => bumpText(0.1)} disabled={textScale >= 1.6} title="Larger text" className="bg-slate-900 px-2 py-1 font-bold text-white disabled:opacity-40">A+</button>
+              </div>
+            </div>
             <span className="text-[11px] text-slate-400">{estPages ? `${estPages} page${estPages > 1 ? "s" : ""}` : "measuring…"}</span>
             <button type="button" onClick={save} disabled={saving} className="btn-primary !py-1 !text-xs">
               {saving ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating…</> : <><Download className="h-3.5 w-3.5" /> Download PDF</>}
@@ -212,6 +223,16 @@ export default function PaperExport({ title = "Question Paper", questions = null
                       </select>
                       <span className="mt-1 block text-xs text-slate-400">Frame around each page</span>
                     </label>
+                    <div className="text-sm">
+                      <span className="mb-1 block font-semibold">Text size</span>
+                      <div className="flex items-center gap-2">
+                        <button type="button" onClick={() => bumpText(-0.1)} disabled={textScale <= 0.6} title="Smaller text" className="btn-outline !px-3 !py-1 !text-sm font-bold disabled:opacity-40">A−</button>
+                        <span className="min-w-[3.25rem] text-center text-sm font-semibold tabular-nums">{Math.round(textScale * 100)}%</span>
+                        <button type="button" onClick={() => bumpText(0.1)} disabled={textScale >= 1.6} title="Larger text" className="btn-outline !px-3 !py-1 !text-sm font-bold disabled:opacity-40">A+</button>
+                        {textScale !== 1 && <button type="button" onClick={() => setTextScale(1)} className="ml-1 text-xs font-semibold text-brand-600 hover:underline">Reset</button>}
+                      </div>
+                      <span className="mt-1 block text-xs text-slate-400">Manually enlarge or shrink all text</span>
+                    </div>
                   </div>
                 </div>
                 {/* Preview: what does the PDF look like? */}

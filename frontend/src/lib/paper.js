@@ -147,7 +147,7 @@ function compose(title, questions, opts = {}) {
   // dense page fits an A4 sheet at FULL WIDTH — no CSS transform (html2canvas
   // ignores transforms → clipping) and no width-shrinking. Structural sizes
   // (page/frame/border) stay fixed so the border is identical on every page.
-  const ts = Math.max(0.35, Math.min(1, Number(typeScale) || 1));
+  const ts = Math.max(0.3, Math.min(2.2, Number(typeScale) || 1));
   const z = (nn) => `${Math.round(nn * ts * 1000) / 1000}px`;
   const borderCss = border === "none" ? "none" : border === "double" ? `3px double ${brandColor}` : border === "thick" ? `3px solid ${brandColor}` : `1.6px solid ${hexA(brandColor, 0.65)}`;
   const borderRadius = border === "none" ? "0" : "10px";
@@ -417,7 +417,10 @@ export async function savePdf(title, questions, opts = {}) {
     // Pass 2: if any page overflows, re-render everything at a fitting scale so
     // the densest page fits — full width, nothing clipped, uniform text/borders.
     if (ratio > 1.001) {
-      const typeScale = Math.max(0.4, (1 / ratio) * 0.97);
+      // Shrink relative to the user's chosen size (never override it upward),
+      // only as a safety net when a page still overflows.
+      const baseTs = Number(effOpts.typeScale) || 1;
+      const typeScale = Math.max(0.4, (baseTs / ratio) * 0.97);
       wrap.remove();
       composed = compose(title, questions, { ...effOpts, typeScale });
       wrap = await mountPaper(composed.css, composed.pages);
