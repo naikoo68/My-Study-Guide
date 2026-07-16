@@ -104,6 +104,30 @@ function pageWatermark(label) {
   return `<div class="pwm" aria-hidden="true"><div class="in">${spans}</div></div>`;
 }
 
+// The full first-page header (brand, title, badge, name/date fields or the
+// answer-key grid) and the slim continuation header for later pages.
+function paperHeaders(title, list, opts = {}) {
+  const { withAnswers = false, brand = "My Study Guide" } = opts;
+  const kind = withAnswers ? "ANSWER KEY" : "QUESTION PAPER";
+  const fields = withAnswers
+    ? ""
+    : `<div class="fields"><span>Name: <b class="line">&nbsp;</b></span><span>Roll No: <b class="line sm">&nbsp;</b></span><span>Date: <b class="line sm">&nbsp;</b></span><span>Marks: <b class="line xs">&nbsp;</b></span></div>`;
+  const grid = withAnswers
+    ? `<h2 class="kh">Answer Key at a glance</h2><div class="grid">${list.map((q, i) => `<span class="cell"><b>${i + 1}.</b> ${answerLetter(q)}</span>`).join("")}</div><hr class="rule2">`
+    : "";
+  const fullHeader =
+    `<div class="hdr"><div><p class="brand">${esc(brand)}</p><h1>${esc(title)}</h1>` +
+    `<p class="sub">${list.length} question(s)${withAnswers ? " · with answers &amp; explanations" : ""}</p></div>` +
+    `<span class="badge">${kind}</span></div>` + fields + `<hr class="rule">` + grid;
+  const slimHeader = `<div class="shdr"><span>${esc(brand)} — ${esc(title)}</span><span>${kind}</span></div><hr class="rule2">`;
+  return { fullHeader, slimHeader, kind };
+}
+
+function paperFooter(opts = {}, pi = 0, pageCount = 1) {
+  const { withAnswers = false, brand = "My Study Guide" } = opts;
+  return `<div class="foot">${esc(brand)} · ${withAnswers ? "Answer Key" : "Question Paper"}${pageCount > 1 ? ` · Page ${pi + 1} of ${pageCount}` : ""}</div>`;
+}
+
 // Build the shared CSS + page sections for a paper/answer-key.
 function compose(title, questions, opts = {}) {
   const {
@@ -129,35 +153,28 @@ function compose(title, questions, opts = {}) {
   const borderRadius = border === "none" ? "0" : "10px";
   const pagePad = border === "none" ? "10px 4px 22px" : "20px 24px 26px";
   const list = Array.isArray(questions) ? questions : [];
-  const kind = withAnswers ? "ANSWER KEY" : "QUESTION PAPER";
   const blocks = list.map((q, i) => questionBlock(q, i, withAnswers));
   const n = Number(perPage) || 0;
+  // `groups` (array of arrays of question indices) is the measurement-based
+  // auto-pagination: each group = one page, filled by actual text length. When
+  // present it overrides the fixed perPage chunking.
+  const groups = Array.isArray(opts.groups) && opts.groups.length ? opts.groups : null;
 
   const chunks = [];
-  if (n > 0) { for (let i = 0; i < blocks.length; i += n) chunks.push(blocks.slice(i, i + n)); }
+  if (groups) { groups.forEach((g) => chunks.push((g || []).map((i) => blocks[i]).filter(Boolean))); }
+  else if (n > 0) { for (let i = 0; i < blocks.length; i += n) chunks.push(blocks.slice(i, i + n)); }
   else chunks.push(blocks);
   if (!chunks.length) chunks.push([]);
 
-  const fields = withAnswers
-    ? ""
-    : `<div class="fields"><span>Name: <b class="line">&nbsp;</b></span><span>Roll No: <b class="line sm">&nbsp;</b></span><span>Date: <b class="line sm">&nbsp;</b></span><span>Marks: <b class="line xs">&nbsp;</b></span></div>`;
-  const grid = withAnswers
-    ? `<h2 class="kh">Answer Key at a glance</h2><div class="grid">${list.map((q, i) => `<span class="cell"><b>${i + 1}.</b> ${answerLetter(q)}</span>`).join("")}</div><hr class="rule2">`
-    : "";
-  const fullHeader = (
-    `<div class="hdr"><div><p class="brand">${esc(brand)}</p><h1>${esc(title)}</h1>` +
-    `<p class="sub">${list.length} question(s)${withAnswers ? " · with answers &amp; explanations" : ""}</p></div>` +
-    `<span class="badge">${kind}</span></div>` + fields + `<hr class="rule">`
-  );
-  const slimHeader = `<div class="shdr"><span>${esc(brand)} — ${esc(title)}</span><span>${kind}</span></div><hr class="rule2">`;
+  const { fullHeader, slimHeader, kind } = paperHeaders(title, list, opts);
   const wm = pageWatermark(watermark);
   const pageCount = chunks.length;
   const pages = chunks
     .map((chunk, pi) =>
       `<section class="page"><div class="frame">${wm}<div class="pc">` +
-      (pi === 0 ? fullHeader + grid : slimHeader) +
+      (pi === 0 ? fullHeader : slimHeader) +
       chunk.join("") +
-      `<div class="foot">${esc(brand)} · ${withAnswers ? "Answer Key" : "Question Paper"}${pageCount > 1 ? ` · Page ${pi + 1} of ${pageCount}` : ""}</div>` +
+      paperFooter(opts, pi, pageCount) +
       `</div></div></section>`
     )
     .join("");
@@ -233,6 +250,60 @@ export function printPaper(title, questions, opts) {
   win.document.write(buildPaperHtml(title, questions, opts));
   win.document.close();
   return true;
+}
+
+// Decide page breaks by ACTUAL TEXT LENGTH: measure every question at the
+// normal (readable) font size and greedily fill each A4 page until the next
+// question wouldn't fit, then start a new page. Returns an array of pages, each
+// an array of question indices. The number of pages therefore follows the total
+// length of the content — no fixed "per page" count and no shrinking just to
+// hit a number. Long questions simply take more room; short ones pack tighter.
+export async function paginateByLength(title, questions, opts = {}) {
+  const list = Array.isArray(questions) ? questions : [];
+  if (typeof document === "undefined" || list.length === 0) return [[]];
+  if (list.length === 1) return [[0]];
+  const withAnswers = !!opts.withAnswers;
+  const { css } = compose(title, [], { ...opts, groups: null, perPage: 0 });
+  const { fullHeader, slimHeader } = paperHeaders(title, list, opts);
+  const footer = paperFooter(opts, 0, 2);
+
+  const meas = document.createElement("div");
+  meas.style.cssText = "position:fixed;left:-10000px;top:0;visibility:hidden;z-index:-1";
+  meas.innerHTML =
+    `<style>${css} .page{height:1123px !important;min-height:0 !important}.frame{overflow:hidden !important}</style>` +
+    `<div class="paperroot"><section class="page"><div class="frame"><div class="pc" id="__pcmeas"></div></div></section></div>`;
+  document.body.appendChild(meas);
+  try {
+    const frame = meas.querySelector(".frame");
+    const pc = meas.querySelector("#__pcmeas");
+    if (!frame || !pc) return [[...list.keys()]];
+    const fcs = getComputedStyle(frame);
+    const availH = Math.max(240, frame.clientHeight - parseFloat(fcs.paddingTop) - parseFloat(fcs.paddingBottom));
+    const measure = (html) => { pc.innerHTML = html; return pc.scrollHeight; };
+    const hFull = measure(fullHeader);
+    const hSlim = measure(slimHeader);
+    const hFoot = measure(footer) + 16; // + footer's top margin
+    const SAFETY = 22; // guard against rounding / collapsed margins
+    // Each question's vertical footprint (+ its bottom margin).
+    const qH = list.map((q, i) => measure(questionBlock(q, i, withAnswers)) + 15);
+    const usableFor = (pi) => Math.max(120, availH - hFoot - (pi === 0 ? hFull : hSlim) - SAFETY);
+
+    const groups = [];
+    let cur = [];
+    let used = 0;
+    let pi = 0;
+    for (let i = 0; i < list.length; i++) {
+      if (cur.length && used + qH[i] > usableFor(pi)) { groups.push(cur); cur = []; used = 0; pi += 1; }
+      cur.push(i);
+      used += qH[i];
+    }
+    if (cur.length) groups.push(cur);
+    return groups.length ? groups : [[...list.keys()]];
+  } catch {
+    return [[...list.keys()]];
+  } finally {
+    meas.remove();
+  }
 }
 
 function loadScript(src, ready) {
@@ -327,8 +398,19 @@ export async function savePdf(title, questions, opts = {}) {
   if (typeof html2canvas !== "function" || typeof jsPDF !== "function") return false;
   ensureKatexCss();
 
+  // Auto mode (no fixed per-page count and no caller-supplied groups): decide
+  // page breaks by real text length so each A4 page is filled to a readable
+  // extent and the page count follows the content.
+  let effOpts = opts;
+  if (!Number(opts.perPage) && !Array.isArray(opts.groups)) {
+    try {
+      const groups = await paginateByLength(title, questions, opts);
+      if (groups && groups.length) effOpts = { ...opts, groups };
+    } catch { /* fall back to single flow */ }
+  }
+
   // Pass 1: render at full size and measure the worst overflow.
-  let composed = compose(title, questions, opts);
+  let composed = compose(title, questions, effOpts);
   let wrap = await mountPaper(composed.css, composed.pages);
   try {
     const ratio = measureOverflow(wrap);
@@ -337,7 +419,7 @@ export async function savePdf(title, questions, opts = {}) {
     if (ratio > 1.001) {
       const typeScale = Math.max(0.4, (1 / ratio) * 0.97);
       wrap.remove();
-      composed = compose(title, questions, { ...opts, typeScale });
+      composed = compose(title, questions, { ...effOpts, typeScale });
       wrap = await mountPaper(composed.css, composed.pages);
     }
 

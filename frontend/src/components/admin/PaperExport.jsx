@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { FileDown, X, Loader2, Download, Maximize2, Minimize2 } from "lucide-react";
-import { printPaper, buildPaperHtml, savePdf } from "../../lib/paper";
+import { printPaper, buildPaperHtml, savePdf, paginateByLength } from "../../lib/paper";
 import { useSettings } from "../../context/SettingsContext";
 
 // Download a quiz/test as a QUESTION PAPER (PDF, no answers) or ANSWER KEY (PDF,
@@ -14,10 +14,11 @@ export default function PaperExport({ title = "Question Paper", questions = null
   const [list, setList] = useState(Array.isArray(questions) ? questions : []);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const [perPage, setPerPage] = useState(10); // questions per page (default 10)
+  const [perPage, setPerPage] = useState(0); // 0 = Auto: fit by text length
   const [border, setBorder] = useState("single"); // none | single | thick | double
   const [previewMode, setPreviewMode] = useState("paper"); // "paper" | "key"
   const [previewFull, setPreviewFull] = useState(false); // full-screen PDF preview
+  const [autoGroups, setAutoGroups] = useState(null); // length-based page grouping (Auto)
 
   const { settings } = useSettings();
 
@@ -39,6 +40,8 @@ export default function PaperExport({ title = "Question Paper", questions = null
   const opts = (withAnswers) => ({
     withAnswers,
     perPage: Number(perPage) || 0,
+    // In Auto mode (perPage 0) pass the measured length-based page grouping.
+    groups: Number(perPage) > 0 ? undefined : (autoGroups || undefined),
     border,
     watermark: wmLabel,
     watermarkOpacity: wmOpacity,
@@ -70,6 +73,19 @@ export default function PaperExport({ title = "Question Paper", questions = null
   const [saving, setSaving] = useState(false);
   const openModal = async () => { await ensure(); setPreviewFull(false); setOpen(true); };
 
+  // Auto mode: measure the questions and group them into pages by text length,
+  // so the preview and the PDF break pages identically. Recomputed whenever the
+  // content or layout options change.
+  useEffect(() => {
+    if (Number(perPage) > 0 || !list.length) { setAutoGroups(null); return; }
+    let cancelled = false;
+    paginateByLength(mode === "key" ? `${title} — Answer Key` : title, list, opts(mode === "key"))
+      .then((g) => { if (!cancelled) setAutoGroups(g); })
+      .catch(() => { if (!cancelled) setAutoGroups(null); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [title, list, mode, perPage, border, wmSize, brand, brandColor, accentColor]);
+
   // Download the PDF file automatically. Falls back to the print window if the
   // in-browser PDF generator can't load.
   const save = async () => {
@@ -89,8 +105,14 @@ export default function PaperExport({ title = "Question Paper", questions = null
   const previewHtml = useMemo(
     () => buildPaperHtml(mode === "key" ? `${title} — Answer Key` : title, list, { ...opts(mode === "key"), autoPrint: false }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [title, list, mode, perPage, border, wmLabel, wmOpacity, wmSize, brand, brandColor, accentColor]
+    [title, list, mode, perPage, border, wmLabel, wmOpacity, wmSize, brand, brandColor, accentColor, autoGroups]
   );
+
+  // Estimated page count: fixed per-page → simple division; Auto → the measured
+  // length-based grouping (null while still measuring).
+  const estPages = Number(perPage) > 0
+    ? Math.max(1, Math.ceil(list.length / Number(perPage)))
+    : (autoGroups ? autoGroups.length : null);
 
   return (
     <>
@@ -120,7 +142,7 @@ export default function PaperExport({ title = "Question Paper", questions = null
             <label className="flex items-center gap-1 text-xs">
               <span className="text-slate-300">Per page</span>
               <select value={perPage} onChange={(e) => setPerPage(Number(e.target.value))} className="rounded-md border border-slate-600 bg-slate-900 px-2 py-1 text-xs text-white">
-                <option value={0}>Auto</option>
+                <option value={0}>Auto (by length)</option>
                 <option value={1}>1</option>
                 <option value={5}>5</option>
                 <option value={10}>10</option>
@@ -137,7 +159,7 @@ export default function PaperExport({ title = "Question Paper", questions = null
                 <option value="none">None</option>
               </select>
             </label>
-            <span className="text-[11px] text-slate-400">{Number(perPage) > 0 ? `≈ ${Math.max(1, Math.ceil(list.length / Number(perPage)))} pages` : ""}</span>
+            <span className="text-[11px] text-slate-400">{estPages ? `${estPages} page${estPages > 1 ? "s" : ""}` : "measuring…"}</span>
             <button type="button" onClick={save} disabled={saving} className="btn-primary !py-1 !text-xs">
               {saving ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating…</> : <><Download className="h-3.5 w-3.5" /> Download PDF</>}
             </button>
@@ -167,7 +189,7 @@ export default function PaperExport({ title = "Question Paper", questions = null
                     <label className="text-sm">
                       <span className="mb-1 block font-semibold">Page break — questions per page</span>
                       <select value={perPage} onChange={(e) => setPerPage(Number(e.target.value))} className="input !py-1 !text-sm">
-                        <option value={0}>Auto (fit as many as possible)</option>
+                        <option value={0}>Auto — fit by text length (recommended)</option>
                         <option value={1}>1 per page</option>
                         <option value={5}>5 per page</option>
                         <option value={10}>10 per page</option>
@@ -175,7 +197,9 @@ export default function PaperExport({ title = "Question Paper", questions = null
                         <option value={20}>20 per page</option>
                       </select>
                       <span className="mt-1 block text-xs text-slate-400">
-                        {Number(perPage) > 0 ? `≈ ${Math.max(1, Math.ceil(list.length / Number(perPage)))} page(s)` : "One continuous flow"}
+                        {Number(perPage) > 0
+                          ? `≈ ${estPages} page(s)`
+                          : (estPages ? `${estPages} page(s) — packed by text length` : "Measuring text length…")}
                       </span>
                     </label>
                     <label className="text-sm">
@@ -207,7 +231,7 @@ export default function PaperExport({ title = "Question Paper", questions = null
                   <iframe title="PDF preview" srcDoc={previewHtml} className="h-[56vh] w-full bg-white" />
                 </div>
                 <p className="mb-3 text-[11px] text-slate-400">
-                  This is how the PDF will look ({Number(perPage) > 0 ? `≈ ${Math.max(1, Math.ceil(list.length / Number(perPage)))} page(s)` : "auto pages"}, {border === "none" ? "no border" : `${border} border`}). Watermark “{wmLabel}” is on every page.
+                  This is how the PDF will look ({estPages ? `${estPages} page(s)` : "measuring…"}{Number(perPage) > 0 ? "" : ", packed by text length"}, {border === "none" ? "no border" : `${border} border`}). Watermark “{wmLabel}” is on every page.
                   {paperOnly && " The answer key is available after the test is submitted."}
                 </p>
 
