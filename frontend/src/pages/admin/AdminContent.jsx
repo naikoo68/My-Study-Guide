@@ -371,6 +371,9 @@ export default function AdminContent() {
                     <Files className="h-4 w-4" />
                   </button>
                 )}
+                {view === "quizzes" && (
+                  <PaperExport compact title={item.title || "Quiz"} load={() => contentService.quizQuestions(item._id)} />
+                )}
                 {view !== "questions" && (
                   <button
                     onClick={() =>

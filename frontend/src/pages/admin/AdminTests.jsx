@@ -429,6 +429,7 @@ export default function AdminTests() {
                       <button onClick={() => openQuestions(t)} title="Manage questions" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30">
                         <HelpCircle className="h-4 w-4" />
                       </button>
+                      <PaperExport compact title={t.name} load={() => testService.getQuestions(t._id)} />
                       <button onClick={() => setBulkTest(t)} title="Bulk upload questions" className="rounded-lg p-2 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30">
                         <Upload className="h-4 w-4" />
                       </button>
