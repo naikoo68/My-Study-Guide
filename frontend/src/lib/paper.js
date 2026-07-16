@@ -174,37 +174,72 @@ export function printPaper(title, questions, opts) {
   return true;
 }
 
-// Produce the PDF using the browser's NATIVE renderer (real, crisp, selectable
-// text — an actual PDF, not a rasterised image). Renders into a HIDDEN iframe
-// and triggers its print dialog, where the user picks "Save as PDF" — so no
-// visible extra tab opens. Returns true if it started, false to fall back.
-export function savePdf(title, questions, opts = {}) {
-  if (typeof document === "undefined") return false;
-  try {
-    const html = buildPaperHtml(title, questions, { ...opts, autoPrint: false });
-    const iframe = document.createElement("iframe");
-    iframe.setAttribute("aria-hidden", "true");
-    iframe.style.cssText = "position:fixed;right:0;bottom:0;width:1px;height:1px;border:0;opacity:0;visibility:hidden";
-    document.body.appendChild(iframe);
-    const win = iframe.contentWindow;
-    const doc = win?.document || iframe.contentDocument;
-    if (!doc) { iframe.remove(); return false; }
+function loadScript(src, ready) {
+  return new Promise((resolve, reject) => {
+    if (ready()) return resolve();
+    const s = document.createElement("script");
+    s.src = src;
+    s.async = true;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error(`Failed to load ${src}`));
+    document.head.appendChild(s);
+  });
+}
+async function loadPdfLibs() {
+  await loadScript("https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js", () => typeof window !== "undefined" && !!window.html2canvas);
+  await loadScript("https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js", () => typeof window !== "undefined" && window.jspdf && !!window.jspdf.jsPDF);
+  return { html2canvas: window.html2canvas, jsPDF: window.jspdf && window.jspdf.jsPDF };
+}
+function ensureKatexCss() {
+  if (typeof document === "undefined" || document.getElementById("katex-cdn-css")) return;
+  const l = document.createElement("link");
+  l.id = "katex-cdn-css";
+  l.rel = "stylesheet";
+  l.href = "https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css";
+  l.crossOrigin = "anonymous";
+  document.head.appendChild(l);
+}
 
-    let printed = false;
-    const fire = () => {
-      if (printed) return;
-      printed = true;
-      try { iframe.contentWindow.focus(); iframe.contentWindow.print(); } catch { /* ignore */ }
-      setTimeout(() => { try { iframe.remove(); } catch { /* ignore */ } }, 60000);
-    };
-    iframe.onload = () => setTimeout(fire, 500); // wait for KaTeX CSS/fonts
-    doc.open();
-    doc.write(html);
-    doc.close();
-    // Fallback in case onload doesn't fire for a document.write'd iframe.
-    setTimeout(fire, 1600);
+// Build the PDF and download it AUTOMATICALLY (no print dialog). Renders EACH
+// page section separately and adds it as its own A4 page, so a chosen page
+// count maps 1:1 to A4 pages. Returns true on success, false to fall back.
+export async function savePdf(title, questions, opts = {}) {
+  if (typeof document === "undefined") return false;
+  let libs;
+  try { libs = await loadPdfLibs(); } catch { return false; }
+  const { html2canvas, jsPDF } = libs || {};
+  if (typeof html2canvas !== "function" || typeof jsPDF !== "function") return false;
+  ensureKatexCss();
+
+  const { css, pages } = compose(title, questions, opts);
+  const wrap = document.createElement("div");
+  wrap.style.cssText = "position:fixed;left:-10000px;top:0;background:#ffffff;z-index:-1";
+  // Force every .page to be exactly A4 (794×1123 px @96dpi) so each renders as
+  // one full A4 sheet.
+  wrap.innerHTML = `<style>${css} .page{width:794px;min-height:1123px;margin:0 !important}</style><div class="paperroot">${pages}</div>`;
+  document.body.appendChild(wrap);
+
+  try {
+    if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch { /* ignore */ } }
+    await new Promise((r) => setTimeout(r, 250)); // let CSS/fonts apply
+    const pageEls = wrap.querySelectorAll(".page");
+    if (!pageEls.length) return false;
+    const pdf = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
+    const A4W = 210, A4H = 297;
+    for (let i = 0; i < pageEls.length; i++) {
+      // eslint-disable-next-line no-await-in-loop
+      const canvas = await html2canvas(pageEls[i], { scale: 2.5, useCORS: true, backgroundColor: "#ffffff", logging: false });
+      const imgData = canvas.toDataURL("image/jpeg", 0.95);
+      let w = A4W, h = (canvas.height * A4W) / canvas.width;
+      if (h > A4H) { h = A4H; w = (canvas.width * A4H) / canvas.height; } // fit within A4
+      if (i > 0) pdf.addPage();
+      pdf.addImage(imgData, "JPEG", (A4W - w) / 2, 0, w, h);
+    }
+    pdf.save(`${String(title || "paper").replace(/[^\w.-]+/g, "_")}.pdf`);
     return true;
   } catch {
     return false;
+  } finally {
+    wrap.remove();
   }
 }
