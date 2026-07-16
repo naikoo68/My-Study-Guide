@@ -72,14 +72,29 @@ function questionBlock(q, idx, withAnswers) {
   return parts.join("");
 }
 
-export function buildPaperHtml(title, questions, { withAnswers = false, brand = "My Study Guide" } = {}) {
+// A diagonal, tiled watermark that prints on EVERY page (position:fixed repeats
+// per printed page in Chrome/print-to-PDF).
+function watermarkHtml(label) {
+  if (!label) return "";
+  const spans = Array.from({ length: 240 }).map(() => `<span>${esc(label)}</span>`).join("");
+  return `<div class="wm" aria-hidden="true"><div class="wm-in">${spans}</div></div>`;
+}
+
+export function buildPaperHtml(title, questions, { withAnswers = false, brand = "My Study Guide", perPage = 0, watermark = "", watermarkOpacity = 0.1, watermarkSize = 16 } = {}) {
   const list = Array.isArray(questions) ? questions : [];
   let body = "";
   if (withAnswers) {
     const grid = list.map((q, i) => `<span class="cell"><b>${i + 1}.</b> ${answerLetter(q)}</span>`).join("");
     body += `<h2 class="kh">Answer Key at a glance</h2><div class="grid">${grid}</div><hr class="rule2">`;
   }
-  body += list.map((q, i) => questionBlock(q, i, withAnswers)).join("");
+  const blocks = list.map((q, i) => questionBlock(q, i, withAnswers));
+  const n = Number(perPage) || 0;
+  if (n > 0) {
+    // Force a page break after every `n` questions.
+    body += blocks.map((b, i) => ((i + 1) % n === 0 && i + 1 < blocks.length ? `${b}<div class="pb"></div>` : b)).join("");
+  } else {
+    body += blocks.join("");
+  }
 
   const kind = withAnswers ? "ANSWER KEY" : "QUESTION PAPER";
   const fields = withAnswers
@@ -105,12 +120,20 @@ export function buildPaperHtml(title, questions, { withAnswers = false, brand = 
     `.tbl{border-collapse:collapse;margin:4px 0}.tbl td{border:1px solid #cbd5e1;padding:3px 8px;font-size:13px}` +
     `.kh{font-size:15px;margin:0 0 6px}.grid{display:flex;flex-wrap:wrap;gap:6px 18px;margin:0 0 6px;font-size:13px}.cell{white-space:nowrap}` +
     `.foot{margin-top:14px;border-top:1px solid #e2e8f0;padding-top:8px;text-align:center;font-size:11px;color:#94a3b8}` +
-    `@media screen{body{background:#f1f5f9;padding:16px}.sheet{max-width:210mm;margin:0 auto;background:#fff}}`;
+    `.pb{break-after:page;page-break-after:always;height:0}` +
+    // Watermark on every page (fixed elements repeat per printed page)
+    `.wm{position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none}` +
+    `.wm-in{position:absolute;left:50%;top:50%;width:240vw;transform:translate(-50%,-50%) rotate(-24deg);display:flex;flex-wrap:wrap;justify-content:center;gap:56px;opacity:${watermarkOpacity}}` +
+    `.wm-in span{white-space:nowrap;font-weight:800;text-transform:uppercase;letter-spacing:.2em;color:#94a3b8;font-size:${watermarkSize}px}` +
+    `.sheet{position:relative;z-index:1}` +
+    `*{-webkit-print-color-adjust:exact;print-color-adjust:exact}` +
+    `@media screen{body{background:#f1f5f9;padding:16px}.sheet{max-width:210mm;margin:0 auto}}`;
 
   return (
     `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)} — ${kind}</title>` +
     `<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" crossorigin="anonymous">` +
     `<style>${css}</style></head><body>` +
+    watermarkHtml(watermark) +
     `<div class="sheet">` +
     `<div class="hdr"><div><p class="brand">${esc(brand)}</p><h1>${esc(title)}</h1>` +
     `<p class="sub">${list.length} question(s)${withAnswers ? " · with answers &amp; explanations" : ""}</p></div>` +
