@@ -80,7 +80,7 @@ function watermarkHtml(label) {
   return `<div class="wm" aria-hidden="true"><div class="wm-in">${spans}</div></div>`;
 }
 
-export function buildPaperHtml(title, questions, { withAnswers = false, brand = "My Study Guide", perPage = 0, watermark = "", watermarkOpacity = 0.12, watermarkSize = 16, border = "single" } = {}) {
+export function buildPaperHtml(title, questions, { withAnswers = false, brand = "My Study Guide", perPage = 0, watermark = "", watermarkOpacity = 0.12, watermarkSize = 16, border = "single", autoPrint = true } = {}) {
   const borderCss = border === "none" ? "none" : border === "double" ? "3px double #1e293b" : border === "thick" ? "3px solid #1e293b" : "1.6px solid #1e293b";
   const borderRadius = border === "none" ? "0" : "10px";
   const pagePad = border === "none" ? "6px 2px 20px" : "20px 24px 26px";
@@ -159,7 +159,7 @@ export function buildPaperHtml(title, questions, { withAnswers = false, brand = 
     `<style>${css}</style></head><body>` +
     watermarkHtml(watermark) +
     pages +
-    `<scr` + `ipt>window.onload=function(){setTimeout(function(){window.focus();window.print();},400)};</scr` + `ipt>` +
+    (autoPrint ? `<scr` + `ipt>window.onload=function(){setTimeout(function(){window.focus();window.print();},400)};</scr` + `ipt>` : "") +
     `</body></html>`
   );
 }
