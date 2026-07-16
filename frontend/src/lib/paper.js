@@ -156,8 +156,10 @@ function compose(title, questions, opts = {}) {
   return { css, pages, kind };
 }
 
-// Scale each page's content (.pc) to fit its fixed A4 frame — shrinks when a
-// page is over-full, enlarges (capped) when it's sparse. Never clips.
+// Scale each page's content (.pc) to fit its fixed A4 frame — ITERATIVELY
+// shrinks an over-full page until everything fits (so e.g. 20 questions on one
+// page all appear, just smaller), and enlarges a sparse page (capped). It never
+// clips. Widening the layout as it scales keeps the text filling the page width.
 export function fitPaperPages(root) {
   const scope = root || (typeof document !== "undefined" ? document : null);
   if (!scope) return;
@@ -166,17 +168,29 @@ export function fitPaperPages(root) {
     const f = p.querySelector(".frame");
     const c = p.querySelector(".pc");
     if (!f || !c) return;
+    c.style.transformOrigin = "top left";
     c.style.transform = "none";
     c.style.width = "";
     const cs = getComputedStyle(f);
     const aw = f.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
     const ah = f.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
     if (aw <= 0 || ah <= 0) return;
-    const nh = c.scrollHeight;
+    c.style.width = aw + "px";
+    let nh = c.scrollHeight;
     if (nh <= 0) return;
-    let s = ah / nh;
-    s = Math.max(0.4, Math.min(1.35, s)) * 0.98; // clamp + small safety margin
-    c.style.transformOrigin = "top left";
+    let s;
+    if (nh <= ah) {
+      s = Math.min(1.35, ah / nh); // sparse → enlarge (capped)
+    } else {
+      s = 1;
+      for (let k = 0; k < 16; k++) {
+        c.style.width = aw / s + "px";
+        const h = c.scrollHeight * s;
+        if (h <= ah) break;
+        s = s * (ah / h) * 0.96; // shrink toward fit, damped to avoid overshoot
+        if (s < 0.1) { s = 0.1; break; }
+      }
+    }
     c.style.width = aw / s + "px";
     c.style.transform = "scale(" + s + ")";
   });
@@ -184,7 +198,8 @@ export function fitPaperPages(root) {
 
 // Inline version of the fit routine for the preview/print HTML document.
 const FIT_INLINE =
-  `(function(){function fit(){var P=document.querySelectorAll('.page');for(var i=0;i<P.length;i++){var p=P[i],f=p.querySelector('.frame'),c=p.querySelector('.pc');if(!f||!c)continue;c.style.transform='none';c.style.width='';var cs=getComputedStyle(f);var aw=f.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight);var ah=f.clientHeight-parseFloat(cs.paddingTop)-parseFloat(cs.paddingBottom);if(aw<=0||ah<=0)continue;var nh=c.scrollHeight;if(nh<=0)continue;var s=ah/nh;s=Math.max(0.4,Math.min(1.35,s))*0.98;c.style.transformOrigin='top left';c.style.width=(aw/s)+'px';c.style.transform='scale('+s+')';}}` +
+  `(function(){function one(f,c){c.style.transformOrigin='top left';c.style.transform='none';c.style.width='';var cs=getComputedStyle(f);var aw=f.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight);var ah=f.clientHeight-parseFloat(cs.paddingTop)-parseFloat(cs.paddingBottom);if(aw<=0||ah<=0)return;c.style.width=aw+'px';var nh=c.scrollHeight;if(nh<=0)return;var s;if(nh<=ah){s=Math.min(1.35,ah/nh);}else{s=1;for(var k=0;k<16;k++){c.style.width=(aw/s)+'px';var h=c.scrollHeight*s;if(h<=ah)break;s=s*(ah/h)*0.96;if(s<0.1){s=0.1;break;}}}c.style.width=(aw/s)+'px';c.style.transform='scale('+s+')';}` +
+  `function fit(){var P=document.querySelectorAll('.page');for(var i=0;i<P.length;i++){var f=P[i].querySelector('.frame'),c=P[i].querySelector('.pc');if(f&&c)one(f,c);}}` +
   `if(document.readyState!=='loading')fit();else document.addEventListener('DOMContentLoaded',fit);` +
   `window.addEventListener('load',function(){setTimeout(fit,150);});` +
   `if(document.fonts&&document.fonts.ready){document.fonts.ready.then(function(){setTimeout(fit,60);});}})();`;
