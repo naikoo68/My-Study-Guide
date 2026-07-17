@@ -1529,6 +1529,69 @@ export async function extendExplanations(req, res) {
   res.json({ jobId: id, requested: questions.length, model: chosen.model });
 }
 
+// POST /api/ai/extend-explanation  (admin or owning client) — extend ONE
+// question's explanation right away (synchronous, with a few retries) and
+// return the updated explanation. Body: { questionId, model?, notes?, mode? }.
+export async function extendOneExplanation(req, res) {
+  const scope = resolveScope(req.user, req.body?.mode);
+  if (scope.denied) {
+    return res.status(403).json({ message: "AI access is not enabled for your account. Please contact the administrator." });
+  }
+  const chosen = await resolveModel(String(req.body?.model || "").trim(), scope);
+  if (!chosen || !chosen.endpoints.length) {
+    return res.status(400).json({
+      message: scope.mode === "self"
+        ? "No API keys added yet. Add at least one key in the AI tab."
+        : "AI is not configured. Add an API key in Admin → AI Keys.",
+    });
+  }
+
+  const own = ownerFilter(req);
+  const q = await Question.findOne({ _id: req.body?.questionId, ...own })
+    .select("_id type text options correct columnA columnB assertion reason explanation optionExplanations")
+    .lean();
+  if (!q) return res.status(404).json({ message: "Question not found (or not your content)." });
+
+  const notes = String(req.body?.notes || "").trim();
+  let parsed = null;
+  let lastError = null;
+  // A few attempts so a bad/truncated JSON reply is retried, not lost.
+  for (let attempt = 0; attempt < 3 && !parsed; attempt++) {
+    const r = await callWithFallback({
+      endpoints: chosen.endpoints,
+      model: chosen.model,
+      systemPrompt: EXTEND_SYSTEM_PROMPT,
+      userPrompt: buildExtendPrompt(q, notes),
+      maxTokens: 4000,
+      owner: scope.owner,
+    });
+    if (!r.ok) {
+      lastError = r;
+      if ([401, 403].includes(r.status)) break; // key dead — stop
+      continue;
+    }
+    const p = parseExplanationJson(r.content);
+    if (p && p.explanation) parsed = p;
+  }
+
+  if (!parsed) {
+    const msg = lastError?.status === 429
+      ? "AI quota/rate limit reached. Wait a minute and try again."
+      : `The AI didn't return a usable explanation${lastError ? ` (error ${lastError.status || 0})` : ""}. Try again.`;
+    return res.status(502).json({ message: msg });
+  }
+
+  const set = { explanation: parsed.explanation };
+  if (Array.isArray(parsed.optionExplanations)) {
+    const oe = parsed.optionExplanations.slice(0, 4);
+    while (oe.length < 4) oe.push("");
+    if (typeof q.correct === "number" && q.correct >= 0 && q.correct < 4) oe[q.correct] = "";
+    set.optionExplanations = oe;
+  }
+  await Question.updateOne({ _id: q._id }, { $set: set });
+  res.json({ _id: q._id, explanation: set.explanation, optionExplanations: set.optionExplanations || q.optionExplanations });
+}
+
 
 /* --------------------------- AI key management (admin) --------------------------- */
 

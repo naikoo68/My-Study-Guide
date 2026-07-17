@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Pencil, Trash2, Eye, X, Search, ChevronRight, Copy, Download, Clock, Upload, Sparkles, Globe, Library, Wand2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Eye, X, Search, ChevronRight, Copy, Download, Clock, Upload, Sparkles, Globe, Library, Wand2, Loader2 } from "lucide-react";
 import { Files } from "lucide-react";
 import { questionDateText, searchQuestions } from "../../lib/questions";
 import Badge from "../ui/Badge";
@@ -32,6 +32,8 @@ export default function ManageTestQuestions({
   onImportWeb,
   onPickFromBank,
   onExtendExplanations,
+  onExtendQuestion,
+  extendingId,
 }) {
   const [activeSubject, setActiveSubject] = useState(null);
   const [selectedTq, setSelectedTq] = useState([]);
@@ -290,6 +292,11 @@ export default function ManageTestQuestions({
                   </div>
                 </div>
                 <div className="flex flex-shrink-0 gap-1">
+                  {onExtendQuestion && (
+                    <button onClick={() => onExtendQuestion(item)} disabled={extendingId === item._id} title="Extend this explanation with AI" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 disabled:opacity-50 dark:hover:bg-brand-900/30">
+                      {extendingId === item._id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
+                    </button>
+                  )}
                   <button onClick={() => onViewQuestion(item)} title="View" className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700"><Eye className="h-4 w-4" /></button>
                   <button onClick={() => onEditQuestion(item)} title="Edit" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30"><Pencil className="h-4 w-4" /></button>
                   <button onClick={() => onDeleteQuestion(item._id)} title="Delete" className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30"><Trash2 className="h-4 w-4" /></button>

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { Plus, Pencil, Trash2, X, ChevronRight, FolderOpen, Layers, BookOpen, HelpCircle, ListChecks, Upload, Eye, Copy, Download, GraduationCap, Search, Clock } from "lucide-react";
-import { contentService } from "../../services";
+import { contentService, aiService } from "../../services";
 import { loadNav, saveNav } from "../../lib/navState";
 import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
@@ -12,7 +12,7 @@ import { questionDateText, searchQuestions } from "../../lib/questions";
 import DuplicatesModal from "../../components/admin/DuplicatesModal";
 import AiImport from "../../components/admin/AiImport";
 import ExtendExplanationsModal from "../../components/admin/ExtendExplanationsModal";
-import { Sparkles, Files, Globe, Wand2 } from "lucide-react";
+import { Sparkles, Files, Globe, Wand2, Loader2 } from "lucide-react";
 
 const COLORS = [
   "from-blue-500 to-indigo-600",
@@ -47,7 +47,8 @@ export default function AdminContent() {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
-  const [extendOpen, setExtendOpen] = useState(false); // AI extend-explanations
+  const [extendOpen, setExtendOpen] = useState(false); // AI extend-explanations (whole quiz)
+  const [extendingQId, setExtendingQId] = useState(null); // per-question extend in progress
   const [dupOpen, setDupOpen] = useState(false);
   const [dupScope, setDupScope] = useState({ id: "all", name: "" }); // which subject the duplicate scan targets
   const [saving, setSaving] = useState(false);
@@ -68,6 +69,19 @@ export default function AdminContent() {
       load("questions");
     } catch (e) {
       setError(e.message);
+    }
+  };
+
+  // Extend ONE question's explanation with AI, then refresh the list.
+  const extendOneQuestion = async (item) => {
+    setExtendingQId(item._id);
+    try {
+      await aiService.extendOne({ questionId: item._id });
+      load("questions");
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setExtendingQId(null);
     }
   };
 
@@ -417,6 +431,11 @@ export default function AdminContent() {
                 {view === "questions" && (
                   <button onClick={() => setViewQ(item)} title="View" className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700">
                     <Eye className="h-4 w-4" />
+                  </button>
+                )}
+                {view === "questions" && (
+                  <button onClick={() => extendOneQuestion(item)} disabled={extendingQId === item._id} title="Extend this explanation with AI" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 disabled:opacity-50 dark:hover:bg-brand-900/30">
+                    {extendingQId === item._id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
                   </button>
                 )}
                 <button onClick={() => openEdit(item)} title="Edit" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30">

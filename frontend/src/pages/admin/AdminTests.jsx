@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Plus, Pencil, Trash2, Eye, EyeOff, X, CalendarClock, Users, Search, Upload, HelpCircle, ChevronRight, GraduationCap, Briefcase, Copy, Download, Sparkles, Globe, Library, Scale, Share2 } from "lucide-react";
-import { testService, contentService, examService } from "../../services";
+import { testService, contentService, examService, aiService } from "../../services";
 import { loadNav, saveNav } from "../../lib/navState";
 import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
@@ -62,6 +62,7 @@ export default function AdminTests() {
   const [dupTest, setDupTest] = useState(null); // find-duplicates within a test
   const [shareTest, setShareTest] = useState(null); // public share-link modal target
   const [extendTest, setExtendTest] = useState(null); // AI extend-explanations target
+  const [extendingQId, setExtendingQId] = useState(null); // per-question extend in progress
 
   // Manual subject plan (typed) for the create/edit popup
   const [composition, setComposition] = useState([]);
@@ -792,6 +793,15 @@ export default function AdminTests() {
               onImportWeb={(subject) => { setImportTest({ ...qTest, _forceSection: subject }); }}
               onPickFromBank={(subject) => { setBankTest({ ...qTest, _forceSection: subject }); }}
               onExtendExplanations={() => setExtendTest(qTest)}
+              onExtendQuestion={async (item) => {
+                setExtendingQId(item._id);
+                try {
+                  await aiService.extendOne({ questionId: item._id });
+                  await reloadTq();
+                } catch (e) { setError(e.message); }
+                finally { setExtendingQId(null); }
+              }}
+              extendingId={extendingQId}
             />
           </div>
         </div>

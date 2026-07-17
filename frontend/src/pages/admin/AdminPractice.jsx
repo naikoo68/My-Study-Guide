@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Plus, Pencil, Trash2, X, ChevronRight, GraduationCap, FolderOpen, ListChecks, FileStack, HelpCircle, Users, Search, Share2 } from "lucide-react";
-import { practiceService, testService, contentService } from "../../services";
+import { practiceService, testService, contentService, aiService } from "../../services";
 import { loadNav, saveNav } from "../../lib/navState";
 import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
@@ -62,6 +62,7 @@ export default function AdminPractice({ clientMode = false }) {
   const [viewAll, setViewAll] = useState(false);
   const [shareItem, setShareItem] = useState(null); // public share-link modal target (tests)
   const [extendItem, setExtendItem] = useState(null); // AI extend-explanations target
+  const [extendingQId, setExtendingQId] = useState(null); // per-question extend in progress
   // Which subject a question-adding tool should target (set when opened from a
   // subject inside the manager). "" / "__unassigned__" means no subject.
   const [forceSection, setForceSection] = useState("");
@@ -336,6 +337,15 @@ export default function AdminPractice({ clientMode = false }) {
               onImportWeb={(subject) => { setForceSection(subject); setImportOpen(true); }}
               onPickFromBank={(subject) => { setForceSection(subject); setBankOpen(true); }}
               onExtendExplanations={() => setExtendItem(qItem)}
+              onExtendQuestion={async (item) => {
+                setExtendingQId(item._id);
+                try {
+                  await aiService.extendOne({ questionId: item._id });
+                  await reloadTq();
+                } catch (e) { setError(e.message); }
+                finally { setExtendingQId(null); }
+              }}
+              extendingId={extendingQId}
             />
           </div>
         </div>
