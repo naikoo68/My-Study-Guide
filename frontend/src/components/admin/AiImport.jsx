@@ -81,33 +81,48 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
 
   if (!open) return null;
 
-  const onPdf = async (e) => {
+  // Read an uploaded file. PDFs use pdf.js (with an OCR fallback for scans);
+  // Word/PowerPoint/Excel/CSV/text use lib/docs. The extracted text is appended
+  // to the source box so you can then Extract or Generate from it.
+  const onFile = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
-    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
-      setMsg("Please choose a PDF file.");
-      return;
-    }
+    const name = file.name.toLowerCase();
+    const isPdf = file.type === "application/pdf" || name.endsWith(".pdf");
+    const nextLabel = task === "generate" ? "Generate Questions" : "Extract Questions";
     setPdfBusy(true);
     setPdfProgress(null);
-    setPdfFile(file);
     setScanned(false);
     setMsg(`Reading “${file.name}”…`);
     try {
-      const { extractPdfText, looksScanned } = await import("../../lib/pdf");
-      let total = 0;
-      const extracted = await extractPdfText(file, (page, t) => { total = t; setPdfProgress({ page, total: t }); });
-      if (!extracted || looksScanned(extracted)) {
-        setScanned(true);
-        setMsg(`“${file.name}” looks like a SCANNED PDF — the pages are images, so only ${extracted ? "a header/stamp" : "no text"} could be read. Use “Read scanned PDF with OCR” below.`);
-        return;
+      if (isPdf) {
+        setPdfFile(file); // enables the OCR button for scanned PDFs
+        const { extractPdfText, looksScanned } = await import("../../lib/pdf");
+        let total = 0;
+        const extracted = await extractPdfText(file, (page, t) => { total = t; setPdfProgress({ page, total: t }); });
+        if (!extracted || looksScanned(extracted)) {
+          setScanned(true);
+          setMsg(`“${file.name}” looks like a SCANNED PDF — the pages are images, so only ${extracted ? "a header/stamp" : "no text"} could be read. Use “Read scanned PDF with OCR” below.`);
+          return;
+        }
+        const combined = text.trim() ? `${text.trim()}\n\n${extracted}` : extracted;
+        setText(combined);
+        setMsg(`✓ Read ${total || "?"} page(s) from “${file.name}” — now click “${nextLabel}”.`);
+      } else {
+        setPdfFile(null); // OCR only applies to PDFs
+        const { extractDocText } = await import("../../lib/docs");
+        const extracted = (await extractDocText(file)).trim();
+        if (!extracted) {
+          setMsg(`Couldn't read any text from “${file.name}”. If it's a scanned/image file, save it as PDF and use OCR.`);
+          return;
+        }
+        const combined = text.trim() ? `${text.trim()}\n\n${extracted}` : extracted;
+        setText(combined);
+        setMsg(`✓ Read “${file.name}” (${extracted.length.toLocaleString()} characters) — now click “${nextLabel}”.`);
       }
-      const combined = text.trim() ? `${text.trim()}\n\n${extracted}` : extracted;
-      setText(combined);
-      setMsg(`✓ Read ${total || "?"} page(s) from “${file.name}” — now click “Extract Questions”.`);
     } catch (err) {
-      setMsg(`PDF read failed: ${err.message}. Check your connection and try again.`);
+      setMsg(`Couldn't read “${file.name}”: ${err.message}`);
     } finally {
       setPdfBusy(false);
     }
@@ -413,7 +428,7 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
         ) : (
           <>
             <div className="mb-3 rounded-xl bg-slate-50 p-3 text-xs text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
-              {documents ? <><b>Pick a saved document</b>, upload a <b>PDF</b>, </> : <>Upload a <b>PDF</b>, </>}
+              {documents ? <><b>Pick a saved document</b>, upload a <b>file</b> (PDF, Word, PPT, Excel, CSV, text), </> : <>Upload a <b>file</b> (PDF, Word, PPT, Excel, CSV, text), </>}
               paste a page link, <b>or</b> paste the questions text, then <b>Extract Questions</b>. Review the results and insert them.
               {typeof status?.keys === "number" && (
                 <span className="ml-1 font-semibold text-emerald-600 dark:text-emerald-400"> {status.keys} API key{status.keys === 1 ? "" : "s"} active.</span>
@@ -473,17 +488,23 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
               </div>
             )}
 
-            <label className="mb-1 block text-sm font-semibold">Upload a PDF</label>
+            <label className="mb-1 block text-sm font-semibold">Upload a document</label>
             <label className={`flex cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed px-4 py-4 text-sm transition ${pdfBusy ? "border-brand-400 text-brand-600" : "border-slate-300 text-slate-500 hover:border-brand-400 hover:text-brand-600 dark:border-slate-600 dark:text-slate-400"}`}>
-              <input type="file" accept="application/pdf,.pdf" className="hidden" onChange={onPdf} disabled={pdfBusy} />
+              <input
+                type="file"
+                accept=".pdf,.docx,.pptx,.xlsx,.csv,.tsv,.txt,.md,.markdown,.json,.rtf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain,text/csv"
+                className="hidden"
+                onChange={onFile}
+                disabled={pdfBusy}
+              />
               {pdfBusy ? (
-                <><Loader2 className="h-4 w-4 animate-spin" /> Reading PDF{pdfProgress ? ` — page ${pdfProgress.page}/${pdfProgress.total}` : "…"}</>
+                <><Loader2 className="h-4 w-4 animate-spin" /> Reading{pdfProgress ? ` — page ${pdfProgress.page}/${pdfProgress.total}` : "…"}</>
               ) : (
-                <><Upload className="h-4 w-4" /> Choose a PDF <span className="text-slate-400">— its text is extracted for the AI</span></>
+                <><Upload className="h-4 w-4" /> Choose a file <span className="text-slate-400">— PDF, Word, PPT, Excel, CSV, text</span></>
               )}
             </label>
             <p className="mt-1 flex items-center gap-1 text-xs text-slate-400">
-              <FileText className="h-3.5 w-3.5" /> Text-based PDFs read instantly. Scanned/image PDFs (no selectable text) need OCR below.
+              <FileText className="h-3.5 w-3.5" /> PDF, Word (.docx), PowerPoint (.pptx), Excel (.xlsx), CSV & text read instantly. Scanned/image PDFs need OCR below.
             </p>
 
             {pdfFile && (
