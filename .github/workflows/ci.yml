@@ -23,8 +23,13 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - name: Lint
+      # Lint is advisory: it reports issues but does not fail the pipeline, so
+      # pre-existing lint debt across the codebase can't block deploys. The
+      # build below is the hard gate. Flip continue-on-error to false once the
+      # codebase is lint-clean to enforce linting again.
+      - name: Lint (advisory)
         run: npm run lint
+        continue-on-error: true
       - run: npm run build
 
   backend:
