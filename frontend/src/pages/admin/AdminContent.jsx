@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { Plus, Pencil, Trash2, X, ChevronRight, FolderOpen, Layers, BookOpen, HelpCircle, ListChecks, Upload, Eye, Copy, Download, GraduationCap, Search, Clock } from "lucide-react";
 import { contentService } from "../../services";
+import { loadNav, saveNav } from "../../lib/navState";
 import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 import BulkUploadQuestions, { questionsToCsv } from "../../components/admin/BulkUploadQuestions";
@@ -27,14 +28,17 @@ const VIEW_TYPE = { streams: "stream", subjects: "subject", topics: "topic", ses
 
 
 
+const NAV_KEY = "mpm-admin-content-nav"; // remembers drill-down position across refreshes
+
 export default function AdminContent() {
-  // Drill-down context
-  const [view, setView] = useState("streams"); // streams | subjects | topics | sessions | quizzes | questions
-  const [stream, setStream] = useState(null);
-  const [subject, setSubject] = useState(null);
-  const [topic, setTopic] = useState(null);
-  const [session, setSession] = useState(null);
-  const [quiz, setQuiz] = useState(null);
+  // Drill-down context — restored from sessionStorage so a refresh keeps you
+  // exactly where you were (e.g. inside a topic), instead of jumping to Streams.
+  const [view, setView] = useState(() => loadNav(NAV_KEY).view || "streams"); // streams | subjects | topics | sessions | quizzes | questions
+  const [stream, setStream] = useState(() => loadNav(NAV_KEY).stream || null);
+  const [subject, setSubject] = useState(() => loadNav(NAV_KEY).subject || null);
+  const [topic, setTopic] = useState(() => loadNav(NAV_KEY).topic || null);
+  const [session, setSession] = useState(() => loadNav(NAV_KEY).session || null);
+  const [quiz, setQuiz] = useState(() => loadNav(NAV_KEY).quiz || null);
 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -87,6 +91,11 @@ export default function AdminContent() {
   }, [stream, subject, topic, session, quiz]);
 
   useEffect(() => { setSelected([]); setSearch(""); load(view); /* eslint-disable-next-line */ }, [view]);
+
+  // Remember the current drill-down position so a page refresh restores it.
+  useEffect(() => {
+    saveNav(NAV_KEY, { view, stream, subject, topic, session, quiz });
+  }, [view, stream, subject, topic, session, quiz]);
 
   // Navigation
   const openStream = (s) => { setStream(s); setSubject(null); setTopic(null); setSession(null); setQuiz(null); setView("subjects"); };

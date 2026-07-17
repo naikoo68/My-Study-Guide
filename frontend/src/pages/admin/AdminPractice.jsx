@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Plus, Pencil, Trash2, X, ChevronRight, GraduationCap, FolderOpen, ListChecks, FileStack, HelpCircle, Users, Search, Share2 } from "lucide-react";
 import { practiceService, testService, contentService } from "../../services";
+import { loadNav, saveNav } from "../../lib/navState";
 import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 import QuestionFormModal from "../../components/admin/QuestionFormModal";
@@ -31,11 +32,14 @@ const KINDS = [
 // the per-student "Visibility" control (irrelevant — a client is the only
 // viewer) and add a "Practice" button so they can take their own quizzes/tests.
 export default function AdminPractice({ clientMode = false }) {
-  const [kind, setKind] = useState("quiz");
-  const [view, setView] = useState("streams"); // streams | subjects | topics | items
-  const [stream, setStream] = useState(null);
-  const [subject, setSubject] = useState(null);
-  const [topic, setTopic] = useState(null);
+  // Remember drill-down position across refreshes (separate keys for the admin
+  // panel and the client workspace so they never clash).
+  const NAV_KEY = clientMode ? "mpm-client-practice-nav" : "mpm-admin-practice-nav";
+  const [kind, setKind] = useState(() => loadNav(NAV_KEY).kind || "quiz");
+  const [view, setView] = useState(() => loadNav(NAV_KEY).view || "streams"); // streams | subjects | topics | items
+  const [stream, setStream] = useState(() => loadNav(NAV_KEY).stream || null);
+  const [subject, setSubject] = useState(() => loadNav(NAV_KEY).subject || null);
+  const [topic, setTopic] = useState(() => loadNav(NAV_KEY).topic || null);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -79,6 +83,11 @@ export default function AdminPractice({ clientMode = false }) {
     p.then(setItems).catch((e) => setError(e.message)).finally(() => setLoading(false));
   };
   useEffect(() => { load(view); /* eslint-disable-next-line */ }, [view, kind]);
+
+  // Remember the current drill-down position so a page refresh restores it.
+  useEffect(() => {
+    saveNav(NAV_KEY, { kind, view, stream, subject, topic });
+  }, [NAV_KEY, kind, view, stream, subject, topic]);
 
   const openStream = (s) => { setStream(s); setSubject(null); setTopic(null); setView("subjects"); };
   // My Quiz drills into Topics; My Test Series goes straight to items.

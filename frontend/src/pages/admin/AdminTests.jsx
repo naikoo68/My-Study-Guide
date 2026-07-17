@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Plus, Pencil, Trash2, Eye, EyeOff, X, CalendarClock, Users, Search, Upload, HelpCircle, ChevronRight, GraduationCap, Briefcase, Copy, Download, Sparkles, Globe, Library, Scale, Share2 } from "lucide-react";
 import { testService, contentService, examService } from "../../services";
+import { loadNav, saveNav } from "../../lib/navState";
 import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 import BulkUploadQuestions, { questionsToCsv } from "../../components/admin/BulkUploadQuestions";
@@ -22,11 +23,14 @@ const categories = ["Full-Length", "Subject-wise", "Chapter-wise", "Previous Yea
 // Subject names from a test's typed plan (for the "Add to subject" selectors).
 const sectionsOf = (t) => (t?.subjectPlan || []).map((p) => p.subject).filter(Boolean);
 
+const NAV_KEY = "mpm-admin-tests-nav"; // remembers drill-down position across refreshes
+
 export default function AdminTests() {
-  // Drill-down: exams → posts → tests
-  const [view, setView] = useState("exams"); // exams | posts | tests
-  const [exam, setExam] = useState(null);
-  const [post, setPost] = useState(null);
+  // Drill-down: exams → posts → tests. Restored from sessionStorage so a refresh
+  // keeps you at the same level (e.g. inside a post) instead of jumping to Exams.
+  const [view, setView] = useState(() => loadNav(NAV_KEY).view || "exams"); // exams | posts | tests
+  const [exam, setExam] = useState(() => loadNav(NAV_KEY).exam || null);
+  const [post, setPost] = useState(() => loadNav(NAV_KEY).post || null);
   const [list, setList] = useState([]); // exams or posts at the current level
 
   // Exam/Post add-edit modal
@@ -186,6 +190,11 @@ export default function AdminTests() {
 
   // Reload whenever the drill-down level changes.
   useEffect(load, [view]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Remember the current drill-down position so a page refresh restores it.
+  useEffect(() => {
+    saveNav(NAV_KEY, { view, exam, post });
+  }, [view, exam, post]);
 
   // Navigation
   const openExam = (e) => { setExam(e); setPost(null); setView("posts"); };
