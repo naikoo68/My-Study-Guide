@@ -71,4 +71,14 @@ questionSchema.index(
   }
 );
 
+// Lookup indexes for the hot query paths. Without these, listing a quiz's/
+// session's/test's questions, the per-subject count on every add, and the
+// duplicate scan all do FULL collection scans — which is why the app slowed
+// down as the question bank grew. Each index below matches a real query filter.
+questionSchema.index({ quiz: 1 });                 // GET quiz questions, quiz submit, move
+questionSchema.index({ session: 1 });              // GET session questions
+questionSchema.index({ subject: 1 });              // subject-based question mgmt + duplicates
+questionSchema.index({ owner: 1 });                // per-client question counts
+questionSchema.index({ testSeries: 1, section: 1 }); // test questions (prefix) + per-subject limit count
+
 export default mongoose.model("Question", questionSchema);
