@@ -271,7 +271,7 @@ export default function AdminUsers() {
                       </div>
                     </td>
                     <td className="px-5 py-3">
-                      <Badge variant={u.role === "admin" ? "accent" : "neutral"}>{u.role}</Badge>
+                      <Badge variant={u.role === "admin" ? "accent" : u.role === "client" ? "brand" : "neutral"}>{u.role}</Badge>
                     </td>
                     <td className="px-5 py-3">
                       <Badge variant={planVariant(u.plan)}>
@@ -355,6 +355,7 @@ export default function AdminUsers() {
                   <label className="mb-1.5 block text-sm font-medium">Role</label>
                   <select className="input" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
                     <option value="student">Student</option>
+                    <option value="client">Client</option>
                     <option value="admin">Admin</option>
                   </select>
                 </div>
