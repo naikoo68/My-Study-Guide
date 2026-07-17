@@ -645,40 +645,49 @@ export default function AdminTests() {
 
       <BulkUploadQuestions
         open={!!bulkTest}
-        title={`Bulk Upload Questions${bulkTest ? ` — ${bulkTest.name}` : ""}`}
+        title={`Bulk Upload Questions${bulkTest ? ` — ${bulkTest.name}${bulkTest._forceSection ? ` (${bulkTest._forceSection})` : ""}` : ""}`}
         sections={sectionsOf(bulkTest)}
-        onClose={() => setBulkTest(null)}
+        defaultSection={bulkTest?._forceSection && bulkTest._forceSection !== "__unassigned__" ? bulkTest._forceSection : ""}
+        onClose={() => { setBulkTest(null); if (qTest) reloadTq(); }}
         onUpload={async (questions, opts = {}) => {
+          const section = opts.section || (bulkTest?._forceSection && bulkTest._forceSection !== "__unassigned__" ? bulkTest._forceSection : "");
           if (opts.replace) {
             const existing = await testService.getQuestions(bulkTest._id);
             for (const q of existing) await testService.deleteQuestion(bulkTest._id, q._id);
           }
-          const res = await contentService.bulkQuestions(questions, { testSeries: bulkTest._id, section: opts.section || "" });
+          const res = await contentService.bulkQuestions(questions, { testSeries: bulkTest._id, section });
           load(); // refresh question counts
+          if (qTest) reloadTq();
           return res;
         }}
       />
 
       <AiGenerate
         open={!!aiTest}
-        title={`Generate with AI${aiTest ? ` — ${aiTest.name}` : ""}`}
+        title={`Generate with AI${aiTest ? ` — ${aiTest.name}${aiTest._forceSection ? ` (${aiTest._forceSection})` : ""}` : ""}`}
         sections={sectionsOf(aiTest)}
-        onClose={() => setAiTest(null)}
+        defaultSection={aiTest?._forceSection && aiTest._forceSection !== "__unassigned__" ? aiTest._forceSection : ""}
+        onClose={() => { setAiTest(null); if (qTest) reloadTq(); }}
         onUpload={async (questions, opts = {}) => {
-          const res = await contentService.bulkQuestions(questions, { testSeries: aiTest._id, section: opts.section || "" });
+          const section = opts.section || (aiTest?._forceSection && aiTest._forceSection !== "__unassigned__" ? aiTest._forceSection : "");
+          const res = await contentService.bulkQuestions(questions, { testSeries: aiTest._id, section });
           load(); // refresh question counts
+          if (qTest) reloadTq();
           return res;
         }}
       />
 
       <AiImport
         open={!!importTest}
-        title={`Import from Web${importTest ? ` — ${importTest.name}` : ""}`}
+        title={`Import from Web${importTest ? ` — ${importTest.name}${importTest._forceSection ? ` (${importTest._forceSection})` : ""}` : ""}`}
         sections={sectionsOf(importTest)}
-        onClose={() => setImportTest(null)}
+        defaultSection={importTest?._forceSection && importTest._forceSection !== "__unassigned__" ? importTest._forceSection : ""}
+        onClose={() => { setImportTest(null); if (qTest) reloadTq(); }}
         onUpload={async (questions, opts = {}) => {
-          const res = await contentService.bulkQuestions(questions, { testSeries: importTest._id, section: opts.section || "" });
+          const section = opts.section || (importTest?._forceSection && importTest._forceSection !== "__unassigned__" ? importTest._forceSection : "");
+          const res = await contentService.bulkQuestions(questions, { testSeries: importTest._id, section });
           load();
+          if (qTest) reloadTq();
           return res;
         }}
       />
@@ -687,9 +696,10 @@ export default function AdminTests() {
         open={!!bankTest}
         testId={bankTest?._id}
         plan={bankTest?.subjectPlan || []}
-        title={`Add from Quizzes / Practice${bankTest ? ` — ${bankTest.name}` : ""}`}
-        onClose={() => setBankTest(null)}
-        onDone={() => load()}
+        defaultSection={bankTest?._forceSection && bankTest._forceSection !== "__unassigned__" ? bankTest._forceSection : ""}
+        title={`Add from Quizzes / Practice${bankTest ? ` — ${bankTest.name}${bankTest._forceSection ? ` (${bankTest._forceSection})` : ""}` : ""}`}
+        onClose={() => { setBankTest(null); if (qTest) reloadTq(); }}
+        onDone={() => { load(); if (qTest) reloadTq(); }}
       />
 
       <WeightageFill
@@ -737,6 +747,10 @@ export default function AdminTests() {
               onDuplicates={() => setDupTest(qTest)}
               onCopyCsv={copyCsv}
               onDownloadCsv={(qs) => downloadCsv(qs, qTest?.name || "test")}
+              onBulkUpload={(subject) => { setBulkTest({ ...qTest, _forceSection: subject }); }}
+              onAiGenerate={(subject) => { setAiTest({ ...qTest, _forceSection: subject }); }}
+              onImportWeb={(subject) => { setImportTest({ ...qTest, _forceSection: subject }); }}
+              onPickFromBank={(subject) => { setBankTest({ ...qTest, _forceSection: subject }); }}
             />
           </div>
         </div>

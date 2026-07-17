@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Pencil, Trash2, Eye, X, Search, ChevronRight, Copy, Download, Clock } from "lucide-react";
+import { Plus, Pencil, Trash2, Eye, X, Search, ChevronRight, Copy, Download, Clock, Upload, Sparkles, Globe, Library } from "lucide-react";
 import { Files } from "lucide-react";
 import { questionDateText, searchQuestions } from "../../lib/questions";
 import { questionsToCsv } from "./BulkUploadQuestions";
@@ -10,7 +10,8 @@ import { Loading, EmptyState } from "../ui/AsyncState";
  * ManageTestQuestions — the modal content shown when you tap a test name.
  * If the test has subjects (subjectPlan), it shows a subject-based navigation:
  *   1) Subject list with progress bars (tap to drill in)
- *   2) Inside a subject: that subject's questions + Add button (disabled when full)
+ *   2) Inside a subject: that subject's questions + ALL add options (manual, bulk,
+ *      AI, import, bank) — each respects the subject's question limit.
  * If no subjects are defined, it shows a flat question list (original behavior).
  */
 export default function ManageTestQuestions({
@@ -27,6 +28,10 @@ export default function ManageTestQuestions({
   onDuplicates,
   onCopyCsv,
   onDownloadCsv,
+  onBulkUpload,
+  onAiGenerate,
+  onImportWeb,
+  onPickFromBank,
 }) {
   const [activeSubject, setActiveSubject] = useState(null);
   const [selectedTq, setSelectedTq] = useState([]);
@@ -179,8 +184,8 @@ export default function ManageTestQuestions({
         </div>
       )}
 
-      {/* Action buttons */}
-      <div className="mb-4 flex flex-wrap justify-end gap-2">
+      {/* Action buttons — ALL ways to add questions to this subject */}
+      <div className="mb-4 flex flex-wrap gap-2">
         {subjectQuestions.length > 0 && (
           <>
             <button onClick={onViewAll} className="btn-outline"><Eye className="h-4 w-4" /> View All</button>
@@ -193,19 +198,42 @@ export default function ManageTestQuestions({
             <button onClick={onDuplicates} className="btn-outline"><Files className="h-4 w-4" /> Duplicates</button>
           </>
         )}
-        {isSubjectFull ? (
-          <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
-            Subject full ({subjectPlanned}/{subjectPlanned})
-          </span>
-        ) : (
-          <button onClick={() => onAddQuestion(activeSubject)} className="btn-primary">
-            <Plus className="h-4 w-4" /> Add Question
-            {activeSubject && subjectPlanned > 0 && (
-              <span className="ml-1 rounded bg-white/20 px-1.5 py-0.5 text-xs">{subjectRemaining} left</span>
-            )}
-          </button>
-        )}
       </div>
+
+      {/* Add questions toolbar */}
+      {isSubjectFull ? (
+        <div className="mb-4 rounded-lg bg-emerald-50 px-4 py-3 text-center text-sm font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+          Subject full — {subjectPlanned}/{subjectPlanned} questions added
+        </div>
+      ) : (
+        <div className="mb-4 rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Add questions</span>
+            {activeSubject && subjectPlanned > 0 && (
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                {subjectRemaining} remaining
+              </span>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => onAddQuestion(activeSubject)} className="btn-primary py-2 text-sm">
+              <Plus className="h-4 w-4" /> Add Manually
+            </button>
+            <button onClick={() => onBulkUpload(activeSubject)} className="btn-outline py-2 text-sm">
+              <Upload className="h-4 w-4" /> Bulk Upload
+            </button>
+            <button onClick={() => onAiGenerate(activeSubject)} className="btn-outline py-2 text-sm">
+              <Sparkles className="h-4 w-4" /> AI Generate
+            </button>
+            <button onClick={() => onImportWeb(activeSubject)} className="btn-outline py-2 text-sm">
+              <Globe className="h-4 w-4" /> Import from Web
+            </button>
+            <button onClick={() => onPickFromBank(activeSubject)} className="btn-outline py-2 text-sm">
+              <Library className="h-4 w-4" /> Pick from Quizzes
+            </button>
+          </div>
+        </div>
+      )}
 
       {tqLoading ? (
         <Loading label="Loading questions..." />
