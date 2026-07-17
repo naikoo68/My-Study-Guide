@@ -16,7 +16,7 @@ const cleanQ = (q) => {
 // Manually pick questions from existing Quizzes / Practice and copy them into a
 // test. Drill down with the selects, tick the questions you want (across
 // multiple quizzes), then "Add to test".
-export default function PickFromBank({ open, onClose, testId, plan = [], title = "Add from Quizzes / Practice", onDone, practiceOnly = false }) {
+export default function PickFromBank({ open, onClose, testId, plan = [], title = "Add from Quizzes / Practice", onDone, practiceOnly = false, defaultSection = "" }) {
   const [tab, setTab] = useState(practiceOnly ? "practice" : "quiz"); // quiz | practice
   const [section, setSection] = useState(""); // subject to assign picked questions to
   const [questions, setQuestions] = useState([]);
@@ -47,11 +47,12 @@ export default function PickFromBank({ open, onClose, testId, plan = [], title =
     setChosen({});
     setQuestions([]);
     setMsg("");
-    setSection(plan[0]?.subject || "");
+    setSection(defaultSection || plan[0]?.subject || "");
     setSel({ subject: "", topic: "", session: "", quiz: "" });
     setPSel({ stream: "", subject: "", topic: "", item: "" });
     if (!practiceOnly) contentService.subjects().then(setSubjects).catch(() => setSubjects([]));
-  }, [open]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, defaultSection]);
 
   useEffect(() => {
     if (!open || tab !== "practice") return;

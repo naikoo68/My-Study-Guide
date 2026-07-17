@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, X, ChevronRight, GraduationCap, FolderOpen, ListChecks, FileStack, HelpCircle, Upload, Eye, Users, Copy, Search, Download, Sparkles, Globe, Clock, Scale, Library } from "lucide-react";
-import { questionDateText, searchQuestions } from "../../lib/questions";
+import { Plus, Pencil, Trash2, X, ChevronRight, GraduationCap, FolderOpen, ListChecks, FileStack, HelpCircle, Users, Search } from "lucide-react";
 import { practiceService, testService, contentService } from "../../services";
 import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
@@ -10,9 +9,15 @@ import AiGenerate from "../../components/admin/AiGenerate";
 import AiImport from "../../components/admin/AiImport";
 import DuplicatesModal from "../../components/admin/DuplicatesModal";
 import QuestionView from "../../components/admin/QuestionView";
-import WeightageFill from "../../components/admin/WeightageFill";
 import PickFromBank from "../../components/admin/PickFromBank";
+import ManageTestQuestions from "../../components/admin/ManageTestQuestions";
+import SubjectPlanEditor from "../../components/admin/SubjectPlanEditor";
 import { Files } from "lucide-react";
+
+// Subject names from a practice item's typed plan (for "add to subject" tools).
+const sectionsOf = (item) => (item?.subjectPlan || []).map((p) => p.subject).filter(Boolean);
+// Normalize a chosen subject: "__unassigned__" means "no subject".
+const normSection = (s) => (s && s !== "__unassigned__" ? s : "");
 
 const KINDS = [
   { key: "quiz", label: "My Quiz", icon: ListChecks },
@@ -44,14 +49,14 @@ export default function AdminPractice({ clientMode = false }) {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
-  const [weightOpen, setWeightOpen] = useState(false); // add by subject (weightage)
   const [bankOpen, setBankOpen] = useState(false); // hand-pick questions from the bank
   const [dupOpen, setDupOpen] = useState(false);
   const [dupScope, setDupScope] = useState({ params: null, name: "" }); // duplicate-scan target
   const [viewQ, setViewQ] = useState(null);
   const [viewAll, setViewAll] = useState(false);
-  const [selectedQ, setSelectedQ] = useState([]);
-  const [qSearch, setQSearch] = useState(""); // question search query
+  // Which subject a question-adding tool should target (set when opened from a
+  // subject inside the manager). "" / "__unassigned__" means no subject.
+  const [forceSection, setForceSection] = useState("");
 
   // Visibility management for one item
   const [access, setAccess] = useState(null); // { itemId, name, visibleToAll, users:[] }
@@ -107,35 +112,8 @@ export default function AdminPractice({ clientMode = false }) {
   // ---- Questions ----
   const openQuestions = (item) => {
     setQItem(item);
-    setSelectedQ([]);
-    setQSearch("");
     setTqLoading(true);
     testService.getQuestions(item._id).then(setTq).catch((e) => setError(e.message)).finally(() => setTqLoading(false));
-  };
-  const toggleSelectQ = (id) => setSelectedQ((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
-  const allQSelected = tq.length > 0 && selectedQ.length === tq.length;
-  const toggleAllQ = () => setSelectedQ(allQSelected ? [] : tq.map((q) => q._id));
-  const qResults = searchQuestions(tq, qSearch); // 40%+ matches (null when not searching)
-  const shownQ = qResults || tq;
-  const deleteSelectedQ = async () => {
-    if (!selectedQ.length || !window.confirm(`Delete ${selectedQ.length} selected question(s)? This cannot be undone.`)) return;
-    for (const id of selectedQ) await testService.deleteQuestion(qItem._id, id);
-    setSelectedQ([]);
-    await reloadTq();
-    load("items");
-  };
-  const csvQuestions = () => (selectedQ.length ? tq.filter((q) => selectedQ.includes(q._id)) : tq);
-  const downloadCsv = () => {
-    const list = csvQuestions();
-    if (!list.length) return;
-    const url = URL.createObjectURL(new Blob([questionsToCsv(list)], { type: "text/csv;charset=utf-8" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${String(qItem?.name || "questions").replace(/[^\w-]+/g, "_")}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
   };
   const reloadTq = () => testService.getQuestions(qItem._id).then(setTq).catch(() => {});
   const saveTestQuestion = async (payload) => {
@@ -154,11 +132,22 @@ export default function AdminPractice({ clientMode = false }) {
     await reloadTq();
     load("items");
   };
-  const copyCsv = async () => {
-    const list = csvQuestions();
-    if (!list.length) return;
+  // CSV helpers now receive the exact list of questions to export.
+  const copyCsv = async (list) => {
+    if (!list?.length) return;
     try { await navigator.clipboard.writeText(questionsToCsv(list)); window.alert(`Copied ${list.length} question(s) as CSV.`); }
     catch { window.alert("Clipboard blocked — use Download CSV."); }
+  };
+  const downloadCsv = (list) => {
+    if (!list?.length) return;
+    const url = URL.createObjectURL(new Blob([questionsToCsv(list)], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${String(qItem?.name || "questions").replace(/[^\w-]+/g, "_")}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   };
 
   // ---- Visibility / access ----
@@ -307,74 +296,30 @@ export default function AdminPractice({ clientMode = false }) {
               <h3 className="text-lg font-bold">Questions — {qItem.name}</h3>
               <button onClick={() => setQItem(null)}><X className="h-5 w-5" /></button>
             </div>
-            <div className="mb-4 flex flex-wrap justify-end gap-2">
-              {tq.length > 0 && <button onClick={() => setViewAll(true)} className="btn-outline"><Eye className="h-4 w-4" /> View All</button>}
-              {tq.length > 0 && <button onClick={copyCsv} className="btn-outline"><Copy className="h-4 w-4" /> Copy CSV{selectedQ.length ? ` (${selectedQ.length})` : ""}</button>}
-              {tq.length > 0 && <button onClick={downloadCsv} className="btn-outline"><Download className="h-4 w-4" /> Download CSV{selectedQ.length ? ` (${selectedQ.length})` : ""}</button>}
-              <button onClick={() => setBulkOpen(true)} className="btn-outline"><Upload className="h-4 w-4" /> Bulk Upload</button>
-              <button onClick={() => setAiOpen(true)} className="btn-outline text-brand-600"><Sparkles className="h-4 w-4" /> Generate with AI</button>
-              <button onClick={() => setImportOpen(true)} className="btn-outline text-brand-600"><Globe className="h-4 w-4" /> Import from Web</button>
-              {kind === "test" && (
-                <button onClick={() => setBankOpen(true)} className="btn-outline text-brand-600" title="Hand-pick specific questions from your quizzes / tests"><Library className="h-4 w-4" /> Pick questions</button>
-              )}
-              {kind === "test" && (
-                <button onClick={() => setWeightOpen(true)} className="btn-outline text-brand-600" title="Add by subject (weightage) — auto-pull N questions per subject from your quizzes"><Scale className="h-4 w-4" /> By subject</button>
-              )}
-              <button onClick={() => setTqModal({ mode: "add", data: null })} className="btn-primary"><Plus className="h-4 w-4" /> Add Question</button>
-            </div>
-            {tqLoading ? <Loading /> : tq.length === 0 ? <EmptyState message="No questions yet." /> : (
-              <>
-                <div className="mb-2 flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
-                  <Search className="h-4 w-4 flex-shrink-0 text-slate-400" />
-                  <input value={qSearch} onChange={(e) => setQSearch(e.target.value)} placeholder="Search questions…  (shows matches 40%–100%)" className="w-full bg-transparent text-sm outline-none" />
-                  {qSearch && <button onClick={() => setQSearch("")} title="Clear" className="flex-shrink-0 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><X className="h-4 w-4" /></button>}
-                </div>
-                <div className="mb-2 flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
-                  <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={allQSelected} onChange={toggleAllQ} className="h-4 w-4 accent-brand-600" /> Select all</label>
-                  {qResults && <span className="text-sm font-medium text-slate-500">{qResults.length} match{qResults.length === 1 ? "" : "es"} (40%+)</span>}
-                  {selectedQ.length > 0 && (<>
-                    <span className="text-sm text-slate-500">{selectedQ.length} selected</span>
-                    <button onClick={deleteSelectedQ} className="inline-flex items-center gap-1 text-sm font-semibold text-rose-600"><Trash2 className="h-4 w-4" /> Delete selected</button>
-                    <button onClick={() => setSelectedQ([])} className="text-sm text-slate-500 hover:underline">Clear</button>
-                  </>)}
-                </div>
-                {qResults && qResults.length === 0 && (
-                  <p className="rounded-lg border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500 dark:border-slate-700">No questions match “{qSearch}” at 40%+.</p>
-                )}
-                <div className="space-y-3">
-                  {shownQ.map((item, i) => (
-                    <div key={item._id} className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-                      <div className="flex min-w-0 items-start gap-2">
-                        <input type="checkbox" checked={selectedQ.includes(item._id)} onChange={() => toggleSelectQ(item._id)} className="mt-0.5 h-4 w-4 flex-shrink-0 accent-brand-600" />
-                        <div className="min-w-0">
-                          <p className="font-medium">Q{i + 1}. {item.text}</p>
-                          <div className="mt-1 flex flex-wrap items-center gap-2">
-                            {item._match != null && (
-                              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">{item._match}% match</span>
-                            )}
-                            <Badge variant={item.type === "matching" ? "accent" : "brand"}>{item.type === "matching" ? "Matching" : (item.type || "mcq") === "mcq" ? "MCQ" : item.type}</Badge>
-                            {item.difficulty && <Badge variant={item.difficulty}>{item.difficulty}</Badge>}
-                            {item.status && <Badge variant={item.status === "published" ? "brand" : "neutral"}>{item.status}</Badge>}
-                            {item.correct != null && (
-                              <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">Correct: {String.fromCharCode(65 + item.correct)}</span>
-                            )}
-                            {questionDateText(item) && (
-                              <span className="inline-flex items-center gap-1 text-xs text-slate-400"><Clock className="h-3 w-3" /> {questionDateText(item)}</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex flex-shrink-0 gap-1">
-                        <button onClick={() => setViewQ(item)} title="View" className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700"><Eye className="h-4 w-4" /></button>
-                        <button onClick={() => setTqModal({ mode: "edit", data: item })} title="Edit" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30"><Pencil className="h-4 w-4" /></button>
-                        <button onClick={() => removeTq(item._id)} title="Delete" className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30"><Trash2 className="h-4 w-4" /></button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-            <div className="mt-6 flex justify-end"><button onClick={() => setQItem(null)} className="btn-outline">Close</button></div>
+
+            <ManageTestQuestions
+              qTest={qItem}
+              tq={tq}
+              tqLoading={tqLoading}
+              onClose={() => setQItem(null)}
+              onAddQuestion={(subject) => setTqModal({ mode: "add", data: null, forceSection: subject })}
+              onEditQuestion={(item) => setTqModal({ mode: "edit", data: item })}
+              onDeleteQuestion={removeTq}
+              onDeleteSelected={async (ids) => {
+                for (const id of ids) await testService.deleteQuestion(qItem._id, id);
+                await reloadTq();
+                load("items");
+              }}
+              onViewQuestion={setViewQ}
+              onViewAll={() => setViewAll(true)}
+              onDuplicates={() => { setDupScope({ params: { testSeries: qItem._id }, name: qItem.name }); setDupOpen(true); }}
+              onCopyCsv={copyCsv}
+              onDownloadCsv={downloadCsv}
+              onBulkUpload={(subject) => { setForceSection(subject); setBulkOpen(true); }}
+              onAiGenerate={(subject) => { setForceSection(subject); setAiOpen(true); }}
+              onImportWeb={(subject) => { setForceSection(subject); setImportOpen(true); }}
+              onPickFromBank={(subject) => { setForceSection(subject); setBankOpen(true); }}
+            />
           </div>
         </div>
       )}
@@ -384,6 +329,8 @@ export default function AdminPractice({ clientMode = false }) {
           key={tqModal.mode === "edit" ? tqModal.data?._id : "new"}
           question={tqModal.mode === "edit" ? tqModal.data : null}
           saving={tqSaving}
+          sections={sectionsOf(qItem)}
+          defaultSection={normSection(tqModal.forceSection)}
           onClose={() => setTqModal(null)}
           onSave={saveTestQuestion}
         />
@@ -423,35 +370,30 @@ export default function AdminPractice({ clientMode = false }) {
         </div>
       )}
 
-      <WeightageFill
-        open={weightOpen}
-        testId={qItem?._id}
-        includeQuizBank={!clientMode}
-        title={`Add by subject (weightage) — ${qItem?.name || ""}`}
-        onClose={() => setWeightOpen(false)}
-        onDone={async () => { await reloadTq(); load(view); }}
-      />
-
       <PickFromBank
         open={bankOpen}
         testId={qItem?._id}
         plan={qItem?.subjectPlan || []}
         practiceOnly={clientMode}
-        title={`Hand-pick questions — ${qItem?.name || ""}`}
-        onClose={() => setBankOpen(false)}
+        defaultSection={normSection(forceSection)}
+        title={`Hand-pick questions — ${qItem?.name || ""}${normSection(forceSection) ? ` (${normSection(forceSection)})` : ""}`}
+        onClose={() => { setBankOpen(false); setForceSection(""); }}
         onDone={async () => { await reloadTq(); load(view); }}
       />
 
       <BulkUploadQuestions
         open={bulkOpen}
-        title={`Bulk Upload — ${qItem?.name || ""}`}
-        onClose={() => setBulkOpen(false)}
+        sections={sectionsOf(qItem)}
+        defaultSection={normSection(forceSection)}
+        title={`Bulk Upload — ${qItem?.name || ""}${normSection(forceSection) ? ` (${normSection(forceSection)})` : ""}`}
+        onClose={() => { setBulkOpen(false); setForceSection(""); }}
         onUpload={async (questions, opts = {}) => {
+          const section = opts.section || normSection(forceSection);
           if (opts.replace) {
             const existing = await testService.getQuestions(qItem._id);
             for (const q of existing) await testService.deleteQuestion(qItem._id, q._id);
           }
-          const res = await contentService.bulkQuestions(questions, { testSeries: qItem._id });
+          const res = await contentService.bulkQuestions(questions, { testSeries: qItem._id, section });
           await reloadTq();
           load("items");
           return res;
@@ -460,10 +402,13 @@ export default function AdminPractice({ clientMode = false }) {
 
       <AiGenerate
         open={aiOpen}
-        title={`Generate with AI — ${qItem?.name || ""}`}
-        onClose={() => setAiOpen(false)}
-        onUpload={async (questions) => {
-          const res = await contentService.bulkQuestions(questions, { testSeries: qItem._id });
+        sections={sectionsOf(qItem)}
+        defaultSection={normSection(forceSection)}
+        title={`Generate with AI — ${qItem?.name || ""}${normSection(forceSection) ? ` (${normSection(forceSection)})` : ""}`}
+        onClose={() => { setAiOpen(false); setForceSection(""); }}
+        onUpload={async (questions, opts = {}) => {
+          const section = opts.section || normSection(forceSection);
+          const res = await contentService.bulkQuestions(questions, { testSeries: qItem._id, section });
           await reloadTq();
           load("items");
           return res;
@@ -472,10 +417,13 @@ export default function AdminPractice({ clientMode = false }) {
 
       <AiImport
         open={importOpen}
-        title={`Import from Web — ${qItem?.name || ""}`}
-        onClose={() => setImportOpen(false)}
-        onUpload={async (questions) => {
-          const res = await contentService.bulkQuestions(questions, { testSeries: qItem._id });
+        sections={sectionsOf(qItem)}
+        defaultSection={normSection(forceSection)}
+        title={`Import from Web — ${qItem?.name || ""}${normSection(forceSection) ? ` (${normSection(forceSection)})` : ""}`}
+        onClose={() => { setImportOpen(false); setForceSection(""); }}
+        onUpload={async (questions, opts = {}) => {
+          const section = opts.section || normSection(forceSection);
+          const res = await contentService.bulkQuestions(questions, { testSeries: qItem._id, section });
           await reloadTq();
           load("items");
           return res;
@@ -544,10 +492,27 @@ function EntityForm({ type, data, kind, saving, onClose, onSave }) {
       ? { name: data.name || "", duration: data.duration || 15, marks: data.marks || 0, difficulty: data.difficulty || "Medium" }
       : { name: data.name || "", description: data.description || "" }
   );
+  // Manual subject blueprint for TEST items (subject name + planned count).
+  const [composition, setComposition] = useState(() =>
+    (data.subjectPlan || []).map((r) => ({ subject: r.subject || "", count: r.count ?? 0 }))
+  );
+  const isTestItem = type === "item" && kind === "test";
   const title = type === "item" ? (kind === "quiz" ? "Quiz" : "Test") : type === "stream" ? "Stream" : type === "topic" ? "Topic" : "Subject";
+
+  const submit = (e) => {
+    e.preventDefault();
+    const payload = { ...form };
+    if (isTestItem) {
+      payload.subjectPlan = composition
+        .filter((r) => r.subject?.trim())
+        .map((r) => ({ subject: r.subject.trim(), count: parseInt(r.count, 10) || 0 }));
+    }
+    onSave(payload);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4" onClick={onClose}>
-      <form onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); onSave(form); }} className="my-8 w-full max-w-md animate-scale-in card p-6">
+      <form onClick={(e) => e.stopPropagation()} onSubmit={submit} className="my-8 w-full max-w-md animate-scale-in card p-6">
         <div className="mb-4 flex items-center justify-between"><h3 className="text-lg font-bold">{data._id ? "Edit" : "Add"} {title}</h3><button type="button" onClick={onClose}><X className="h-5 w-5" /></button></div>
         <div className="space-y-4">
           <div><label className="mb-1.5 block text-sm font-medium">Name</label><input required className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
@@ -558,6 +523,16 @@ function EntityForm({ type, data, kind, saving, onClose, onSave }) {
               <div><label className="mb-1.5 block text-sm font-medium">Duration (min)</label><input type="number" className="input" value={form.duration} onChange={(e) => setForm({ ...form, duration: Number(e.target.value) })} /></div>
               <div><label className="mb-1.5 block text-sm font-medium">Marks</label><input type="number" className="input" value={form.marks} onChange={(e) => setForm({ ...form, marks: Number(e.target.value) })} /></div>
               <div><label className="mb-1.5 block text-sm font-medium">Difficulty</label><select className="input" value={form.difficulty} onChange={(e) => setForm({ ...form, difficulty: e.target.value })}><option>Easy</option><option>Medium</option><option>Hard</option></select></div>
+            </div>
+          )}
+          {isTestItem && (
+            <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+              <label className="mb-1 block text-sm font-semibold">Subjects &amp; questions per subject (optional)</label>
+              <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
+                Type your subjects and how many questions each. Afterwards, tap the test → tap a subject to add
+                questions (up to its limit).
+              </p>
+              <SubjectPlanEditor rows={composition} onChange={setComposition} />
             </div>
           )}
         </div>

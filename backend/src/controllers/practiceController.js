@@ -168,7 +168,7 @@ export async function listTopicItems(req, res) {
   res.json(items.map((t) => ({ ...t, questionCount: t.questions?.length || 0, questions: undefined })));
 }
 export async function createItem(req, res) {
-  const { name, practiceStream, practiceSubject, practiceTopic, practiceKind = "quiz", duration = 15, marks = 0, difficulty = "Medium" } = req.body;
+  const { name, practiceStream, practiceSubject, practiceTopic, practiceKind = "quiz", duration = 15, marks = 0, difficulty = "Medium", subjectPlan } = req.body;
   const item = await TestSeries.create({
     name,
     owner: ownerValue(req),
@@ -181,6 +181,9 @@ export async function createItem(req, res) {
     duration,
     marks,
     difficulty,
+    // Manual subject blueprint (subject name + planned question count) — drives
+    // the subject-based question manager and its per-subject limits.
+    subjectPlan: Array.isArray(subjectPlan) ? subjectPlan : [],
     status: "published",
     visibleToAll: false, // hidden by default — admin grants access per student
   });

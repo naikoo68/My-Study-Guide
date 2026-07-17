@@ -20,7 +20,7 @@ const Q_TYPES = [
 // Import questions from a saved document, a PDF (text or OCR), a web page, or
 // pasted text. The AI extracts the questions present (it doesn't invent them);
 // review, then insert — all at once or batch by batch.
-export default function AiImport({ open, onClose, onUpload, title = "Import Questions (PDF, Web or Text)", sections = [], documents = false }) {
+export default function AiImport({ open, onClose, onUpload, title = "Import Questions (PDF, Web or Text)", sections = [], documents = false, defaultSection = "" }) {
   const { user } = useAuth();
   const isClient = user?.role === "client" && user?.aiAccess;
   const canChooseSource = isClient && user?.aiAllowInbuilt !== false && user?.aiAllowSelf !== false;
@@ -31,7 +31,7 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
   const [difficulty, setDifficulty] = useState(""); // generate: "" = mix
   const [status, setStatus] = useState(null);
   const [model, setModel] = useState("");
-  const [section, setSection] = useState(sections[0] || "");
+  const [section, setSection] = useState(defaultSection || sections[0] || "");
   const [url, setUrl] = useState("");
   const [text, setText] = useState("");
   const [textFull, setTextFull] = useState(false); // full-screen editor for the source text
@@ -60,7 +60,9 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
     setDocId("");
     setPdfFile(null);
     setScanned(false);
-  }, [open]);
+    setSection(defaultSection || sections[0] || ""); // re-sync target subject on open
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, defaultSection]);
 
   useEffect(() => {
     if (!open || !documents) return;

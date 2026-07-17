@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { X, Upload, FileText, CheckCircle2, AlertTriangle } from "lucide-react";
 
 // Full CSV parser that respects double-quoted fields — which may contain
@@ -333,12 +333,17 @@ const TEMPLATE =
 
 // Reusable bulk-upload modal. `onUpload(questions)` should return a promise
 // (e.g. resolving to { inserted }). Used for both quizzes and test series.
-export default function BulkUploadQuestions({ open, onClose, onUpload, title = "Bulk Upload Questions", sections = [] }) {
+// `defaultSection` pre-selects the target subject (when opened from a subject).
+export default function BulkUploadQuestions({ open, onClose, onUpload, title = "Bulk Upload Questions", sections = [], defaultSection = "" }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [replace, setReplace] = useState(false); // remove existing questions first
-  const [section, setSection] = useState(sections[0] || ""); // subject to tag uploaded questions
+  const [section, setSection] = useState(defaultSection || sections[0] || ""); // subject to tag uploaded questions
+
+  // Re-sync the target subject each time the modal is (re)opened, since the
+  // component stays mounted between opens.
+  useEffect(() => { if (open) setSection(defaultSection || sections[0] || ""); /* eslint-disable-next-line */ }, [open, defaultSection]);
 
   if (!open) return null;
 

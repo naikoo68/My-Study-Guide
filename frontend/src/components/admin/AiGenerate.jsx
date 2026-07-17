@@ -19,7 +19,7 @@ const DIFFS = ["Easy", "Medium", "Hard"];
 // Reusable "Generate with AI" modal. Mirrors BulkUploadQuestions:
 // `onUpload(questions)` should return a promise (e.g. { inserted }). The AI
 // only PREVIEWS questions here — nothing is saved until the admin clicks Insert.
-export default function AiGenerate({ open, onClose, onUpload, title = "Generate Questions with AI", sections = [], existingQuestions = [] }) {
+export default function AiGenerate({ open, onClose, onUpload, title = "Generate Questions with AI", sections = [], existingQuestions = [], defaultSection = "" }) {
   const { user } = useAuth();
   // Clients granted BOTH sources may pick which one this generation uses.
   const isClient = user?.role === "client" && user?.aiAccess;
@@ -30,7 +30,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
   // duplicates earlier questions. Seeded from any existing questions passed in.
   const [avoidStems, setAvoidStems] = useState(() => (existingQuestions || []).filter(Boolean));
   const [model, setModel] = useState("");
-  const [section, setSection] = useState(sections[0] || ""); // subject to tag generated questions
+  const [section, setSection] = useState(defaultSection || sections[0] || ""); // subject to tag generated questions
   const [topic, setTopic] = useState("");
   // matrix[typeId] = { Easy, Medium, Hard } counts. Default: 5 medium MCQs.
   const [matrix, setMatrix] = useState({ mcq: { Easy: 0, Medium: 5, Hard: 0 } });
@@ -44,7 +44,9 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
     if (!open) return;
     setMsg("");
     setPreview([]);
-  }, [open]);
+    setSection(defaultSection || sections[0] || ""); // re-sync target subject on open
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, defaultSection]);
 
   // (Re)load status for the chosen source so the model list / active-key count
   // reflect that pool. Clients pass their source; admins always use built-in.
