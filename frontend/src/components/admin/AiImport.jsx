@@ -1,10 +1,21 @@
 import { useEffect, useState } from "react";
-import { X, Globe, Download, CheckCircle2, AlertTriangle, Loader2, Server, KeyRound, FileText, Upload, Files, ScanText, Maximize2, Minimize2, Plus } from "lucide-react";
+import { X, Globe, Download, CheckCircle2, AlertTriangle, Loader2, Server, KeyRound, FileText, Upload, Files, ScanText, Maximize2, Minimize2, Plus, Sparkles } from "lucide-react";
 import { aiService, documentService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
 
 const LETTERS = ["A", "B", "C", "D"];
 const BATCH = 20; // group the extracted questions into batches of this size for insertion
+
+// Question types the "Generate from source" mode can produce.
+const Q_TYPES = [
+  { id: "mcq", label: "MCQ" },
+  { id: "matching", label: "Matching" },
+  { id: "statement", label: "Statements" },
+  { id: "pair", label: "Pairs" },
+  { id: "pairselect", label: "Pair select" },
+  { id: "assertion", label: "Assertion & Reason" },
+  { id: "table", label: "Table" },
+];
 
 // Import questions from a saved document, a PDF (text or OCR), a web page, or
 // pasted text. The AI extracts the questions present (it doesn't invent them);
@@ -14,6 +25,10 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
   const isClient = user?.role === "client" && user?.aiAccess;
   const canChooseSource = isClient && user?.aiAllowInbuilt !== false && user?.aiAllowSelf !== false;
   const [source, setSource] = useState(user?.aiMode === "self" ? "self" : "inbuilt"); // "inbuilt" | "self"
+  const [task, setTask] = useState("extract"); // "extract" (pull existing) | "generate" (make new from source)
+  const [count, setCount] = useState(10); // generate: how many questions
+  const [qTypes, setQTypes] = useState(["mcq"]); // generate: which question types
+  const [difficulty, setDifficulty] = useState(""); // generate: "" = mix
   const [status, setStatus] = useState(null);
   const [model, setModel] = useState("");
   const [section, setSection] = useState(sections[0] || "");
@@ -218,6 +233,61 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
     }
   };
 
+  const toggleType = (id) =>
+    setQTypes((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]));
+
+  // GENERATE mode: make NEW questions FROM the link/paragraph — the chosen count
+  // and question types. Uses the same background job + polling as extraction.
+  const runGenerate = async () => {
+    if (!url.trim() && !text.trim()) {
+      setMsg("Add a link or paste a paragraph to generate questions from.");
+      return;
+    }
+    if (!qTypes.length) { setMsg("Pick at least one question type."); return; }
+    setBusy(true);
+    setPreview([]);
+    setDetected(0);
+    setMsg("Generating questions from your source…");
+    try {
+      const { jobId, requested } = await aiService.generate({
+        source: text.trim() || undefined,
+        url: url.trim() || undefined,
+        count: Number(count) || 10,
+        types: qTypes,
+        difficulty: difficulty || undefined,
+        model: model || undefined,
+        mode: isClient ? source : undefined,
+      });
+      if (!jobId) throw new Error("Could not start generation.");
+      if (requested) setDetected(requested);
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      let done = false;
+      for (let i = 0; i < 240 && !done; i++) {
+        await sleep(2000);
+        let s;
+        try { s = await aiService.job(jobId); } catch { continue; }
+        if (s.status === "done") {
+          const qs = s.questions || [];
+          setPreview(qs);
+          setMsg(qs.length
+            ? `✓ Generated ${qs.length}${requested ? ` of ${requested}` : ""} question(s). Review below, then insert.`
+            : "No questions were generated — try a longer source, a higher count, or different types.");
+          done = true;
+        } else if (s.status === "error") {
+          setMsg(s.error || "Generation failed.");
+          done = true;
+        } else {
+          setMsg(`Generating… ${s.count || 0} question(s) so far`);
+        }
+      }
+      if (!done) setMsg("Still working — try a smaller count.");
+    } catch (e) {
+      setMsg(e.message || "Generation failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   // Insert one batch of the extracted preview (removes them so they aren't
   // inserted twice), or use "Insert all".
   const insertBatch = async (items, idx) => {
@@ -334,6 +404,23 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
               )}
             </div>
 
+            {/* Choose what to do with the link / paragraph. */}
+            <div className="mb-3">
+              <div className="inline-flex w-full overflow-hidden rounded-xl border border-slate-200 text-sm font-semibold dark:border-slate-700">
+                <button type="button" onClick={() => setTask("extract")} className={`flex flex-1 items-center justify-center gap-2 px-3 py-2 ${task === "extract" ? "bg-brand-600 text-white" : "bg-white text-slate-600 dark:bg-slate-900 dark:text-slate-300"}`}>
+                  <ScanText className="h-4 w-4" /> Extract existing
+                </button>
+                <button type="button" onClick={() => setTask("generate")} className={`flex flex-1 items-center justify-center gap-2 px-3 py-2 ${task === "generate" ? "bg-brand-600 text-white" : "bg-white text-slate-600 dark:bg-slate-900 dark:text-slate-300"}`}>
+                  <Sparkles className="h-4 w-4" /> Generate new
+                </button>
+              </div>
+              <p className="mt-1 text-xs text-slate-400">
+                {task === "extract"
+                  ? "Pulls the questions already present in the link/paragraph."
+                  : "Creates NEW questions from the link/paragraph — you choose how many and which types."}
+              </p>
+            </div>
+
             {status?.models && status.models.length > 1 && (
               <div className="mb-3">
                 <label className="mb-1 block text-sm font-semibold">AI model</label>
@@ -400,7 +487,7 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
             <input className="input" placeholder="https://example.com/quiz-page" value={url} onChange={(e) => setUrl(e.target.value)} />
 
             <div className="mb-1 mt-3 flex items-center justify-between gap-2">
-              <label className="block text-sm font-semibold">Extracted or pasted text</label>
+              <label className="block text-sm font-semibold">{task === "generate" ? "Paragraph / source text" : "Extracted or pasted text"}</label>
               <button type="button" onClick={() => setTextFull(true)} className="btn-outline !py-1 !text-xs">
                 <Maximize2 className="h-3.5 w-3.5" /> Full screen
               </button>
@@ -416,8 +503,42 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
               <p className="mt-1 text-xs text-slate-400">{text.trim().length.toLocaleString()} characters ready.</p>
             )}
 
-            <button type="button" onClick={() => runExtract(false)} disabled={busy || busyMore} className="btn-primary mt-4 w-full">
-              {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Extracting…</> : <><Download className="h-4 w-4" /> Extract Questions</>}
+            {task === "generate" && (
+              <div className="mt-3 rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="text-sm">
+                    <span className="mb-1 block font-semibold">How many questions</span>
+                    <input type="number" min={1} max={50} value={count} onChange={(e) => setCount(Math.max(1, Math.min(50, Number(e.target.value) || 1)))} className="input !py-1.5 !text-sm" />
+                    <span className="mt-1 block text-xs text-slate-400">Up to 50 per run.</span>
+                  </label>
+                  <label className="text-sm">
+                    <span className="mb-1 block font-semibold">Difficulty</span>
+                    <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)} className="input !py-1.5 !text-sm">
+                      <option value="">Mixed</option>
+                      <option value="Easy">Easy</option>
+                      <option value="Medium">Medium</option>
+                      <option value="Hard">Hard</option>
+                    </select>
+                  </label>
+                </div>
+                <p className="mb-1 mt-3 text-sm font-semibold">Which question types</p>
+                <div className="flex flex-wrap gap-2">
+                  {Q_TYPES.map((t) => (
+                    <button key={t.id} type="button" onClick={() => toggleType(t.id)}
+                      className={`rounded-lg border px-2.5 py-1 text-xs font-semibold transition ${qTypes.includes(t.id) ? "border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-900/20 dark:text-brand-300" : "border-slate-200 text-slate-600 hover:border-brand-400 dark:border-slate-700 dark:text-slate-300"}`}>
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <button type="button" onClick={() => (task === "generate" ? runGenerate() : runExtract(false))} disabled={busy || busyMore} className="btn-primary mt-4 w-full">
+              {busy
+                ? <><Loader2 className="h-4 w-4 animate-spin" /> {task === "generate" ? "Generating…" : "Extracting…"}</>
+                : task === "generate"
+                  ? <><Sparkles className="h-4 w-4" /> Generate Questions</>
+                  : <><Download className="h-4 w-4" /> Extract Questions</>}
             </button>
 
             {preview.length > 0 && (
@@ -426,7 +547,7 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
                   <p className="inline-flex items-center gap-1 text-sm font-semibold text-emerald-600 dark:text-emerald-400">
                     <CheckCircle2 className="h-4 w-4" /> {preview.length}{detected ? ` of ~${detected}` : ""} question(s) ready — insert each batch below, or all at once.
                   </p>
-                  {(url.trim() || text.trim()) && (
+                  {task === "extract" && (url.trim() || text.trim()) && (
                     <button type="button" onClick={() => runExtract(true)} disabled={busy || busyMore || inserting || insertingIdx !== -1}
                       className="btn-outline !py-1 !text-xs"
                       title="Re-scan the same source and add only the questions that were missed (no duplicates)">

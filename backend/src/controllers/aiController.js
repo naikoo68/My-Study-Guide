@@ -174,8 +174,12 @@ Type-specific rules — each type needs specific extra fields AND a specific sty
 Do NOT prefix columnA / columnB / statement items with numbers or roman numerals (no "1.", "I.") — the app numbers Column A (1,2,3,4), Column B (I,II,III,IV) and statements (1,2,3) automatically.
 Never include image URLs. Keep questions factually correct and self-contained.`;
 
-function buildUserPrompt({ topic, count, difficulty, types, notes, plan, avoid }) {
-  const lines = [`Topic / syllabus: ${topic}.`];
+function buildUserPrompt({ topic, count, difficulty, types, notes, plan, avoid, source }) {
+  const lines = [];
+  if (source) {
+    lines.push(`Create the questions BASED ON the source material given at the end. Draw the facts and content from that material (you may use closely-related general knowledge to complete a question, but stay on the material's topics).`);
+  }
+  lines.push(`Topic / syllabus: ${topic}.`);
 
   if (Array.isArray(plan) && plan.length) {
     // Explicit per-bucket distribution (type × difficulty). List each bucket so
@@ -206,6 +210,9 @@ function buildUserPrompt({ topic, count, difficulty, types, notes, plan, avoid }
     lines.push(
       `IMPORTANT — these questions ALREADY EXIST. Do NOT repeat, restate or paraphrase any of them; generate ENTIRELY DIFFERENT questions covering other facts/aspects of the topic:\n${list}`
     );
+  }
+  if (source) {
+    lines.push(`SOURCE MATERIAL (base the questions on this):\n${source}`);
   }
   lines.push(`Return ONLY the JSON object {"questions":[...]}.`);
   return lines.join("\n");
@@ -547,7 +554,7 @@ function planGaps(planArr, collected, reserved) {
 }
 
 async function runGenerationJob(id, ctx) {
-  const { workers, model, topic, notes, plan, count, difficulty, types, target, avoid, owner = null } = ctx;
+  const { workers, model, topic, notes, plan, count, difficulty, types, target, avoid, owner = null, source = "" } = ctx;
   const job = genJobs.get(id);
   const deadline = Date.now() + 8 * 60 * 1000; // overall time budget
 
@@ -600,8 +607,8 @@ async function runGenerationJob(id, ctx) {
       const res = reserveChunk();
       if (!res) break; // nothing left to generate
       const prompt = plan
-        ? buildUserPrompt({ topic, notes, plan: res.chunk, avoid: avoidForPrompt })
-        : buildUserPrompt({ topic, notes, count: res.n, difficulty, types, avoid: avoidForPrompt });
+        ? buildUserPrompt({ topic, notes, plan: res.chunk, avoid: avoidForPrompt, source })
+        : buildUserPrompt({ topic, notes, count: res.n, difficulty, types, avoid: avoidForPrompt, source });
       const maxTokens = Math.min(16000, 1800 + res.n * 1000);
       attempts += 1;
       const r = await callProvider({ key: ep.key, baseUrl: ep.baseUrl, model: ep.model || model, userPrompt: prompt, maxTokens });
@@ -707,8 +714,27 @@ export async function generateQuestions(req, res) {
     model: p.models.includes(model) ? model : (p.models[0] || model),
   }));
 
-  const topic = String(req.body?.topic || "").trim();
-  if (!topic) return res.status(400).json({ message: "A topic is required." });
+  // Optional SOURCE MATERIAL: a pasted paragraph and/or a page URL to generate
+  // questions FROM. When present, a topic is not required (we derive one).
+  const genUrl = String(req.body?.url || "").trim();
+  let source = String(req.body?.source || "").trim();
+  if (genUrl) {
+    if (!/^https?:\/\//i.test(genUrl)) {
+      return res.status(400).json({ message: "Enter a valid http(s) URL, or paste the text instead." });
+    }
+    const page = await fetchPageText(genUrl);
+    if (!page.ok) {
+      return res.status(502).json({
+        message: `Couldn't read that page${page.status ? ` (HTTP ${page.status})` : ""}. ${page.error || "The site may block automated access — paste the text instead."}`,
+      });
+    }
+    source = `${source}\n\n${page.text}`.trim();
+  }
+  if (source) source = source.slice(0, 24000); // cap material sent on each call
+
+  let topic = String(req.body?.topic || "").trim();
+  if (!topic) topic = source ? "the provided source material" : "";
+  if (!topic) return res.status(400).json({ message: "A topic is required (or provide source material)." });
 
   const notes = String(req.body?.notes || "").trim();
 
@@ -757,7 +783,7 @@ export async function generateQuestions(req, res) {
     : [];
 
   // Fire-and-forget — the client polls /api/ai/job/:id for progress.
-  runGenerationJob(id, { workers, model, topic, notes, plan, count, difficulty, types, target, avoid, owner: scope.owner });
+  runGenerationJob(id, { workers, model, topic, notes, plan, count, difficulty, types, target, avoid, owner: scope.owner, source });
 
   res.json({ jobId: id, requested: target, model });
 }
