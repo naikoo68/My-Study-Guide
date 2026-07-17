@@ -128,6 +128,48 @@ async function callWithFallback({ endpoints, model, userPrompt, maxTokens, owner
 const TYPES = ["mcq", "matching", "statement", "pair", "pairselect", "assertion", "table"];
 const DIFFS = ["Easy", "Medium", "Hard"];
 
+// --- Semantic-ish duplicate detection (so the generator stops returning the
+// SAME fact reworded) -------------------------------------------------------
+// Common words carry no topic meaning — ignore them when comparing questions.
+const STOPWORDS = new Set(
+  ("the a an of to in on at for and or but is are was were be been being do does did which what who whom whose when where why how " +
+   "that this these those with without into from by as it its their his her they them following consider statement statements " +
+   "correct incorrect true false not all none only both about above given below choose select mark identify option options " +
+   "question answer among between will would can could should may might your you i we he she has have had than then there here")
+    .split(/\s+/)
+);
+
+// The set of meaningful words in a question stem (lower-cased, length ≥ 4,
+// stopwords removed) — used to measure topical overlap between two questions.
+function contentTokens(text) {
+  return new Set(
+    String(text || "")
+      .toLowerCase()
+      .replace(/\$[^$]*\$/g, " ") // drop inline math so wording, not symbols, is compared
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length >= 4 && !STOPWORDS.has(w))
+  );
+}
+
+// Jaccard overlap of two token sets (0 = nothing shared, 1 = identical).
+function jaccard(a, b) {
+  if (!a.size || !b.size) return 0;
+  let inter = 0;
+  for (const x of a) if (b.has(x)) inter += 1;
+  return inter / (a.size + b.size - inter);
+}
+
+// Normalised text of a question's CORRECT option (a strong "same fact" signal
+// for MCQ/table — a reworded duplicate keeps the same answer).
+function correctAnswerNorm(q) {
+  const opt = Array.isArray(q?.options) ? q.options[q?.correct] : "";
+  return String(opt || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+// Structured types have generic options ("Both A and R…") so answer-matching
+// there would wrongly merge distinct questions — only trust it for these.
+const ANSWER_DEDUP_TYPES = new Set(["mcq", "table"]);
+
 // Strip a leading list marker ("1.", "2)", "I.", "(iii)") from a column/statement
 // item — the app auto-numbers Column A (1,2,3,4) and Column B (I,II,III,IV).
 const stripListMarker = (x) =>
@@ -172,6 +214,7 @@ Type-specific rules — each type needs specific extra fields AND a specific sty
 - "assertion": include "assertion" (Assertion A text) and "reason" (Reason R text); "text" may be empty. The 4 "options" MUST be exactly: "Both A and R are true and R is the correct explanation of A", "Both A and R are true but R is NOT the correct explanation of A", "A is true but R is false", "A is false but R is true". In "explanation", separately evaluate Assertion (A) — state true/false and WHY with supporting facts — then separately evaluate Reason (R) — true/false and WHY — and finally explain the RELATIONSHIP: whether R correctly explains A and why.
 - "table": include "tableRows" (a 2D array; the first inner array is the header row). "text" is the intro. 4 normal options.
 Do NOT prefix columnA / columnB / statement items with numbers or roman numerals (no "1.", "I.") — the app numbers Column A (1,2,3,4), Column B (I,II,III,IV) and statements (1,2,3) automatically.
+VARIETY IS MANDATORY: within the set, every question must test a DIFFERENT fact / sub-topic and a DIFFERENT angle (definition, cause, effect, date or number, example, comparison, application, exception, sequence). NEVER ask about the same fact, entity or correct answer more than once, and NEVER reword or rephrase another question — a different sentence with the same meaning counts as a duplicate and is forbidden. Spread the questions across the full breadth of the topic rather than clustering on the few most obvious facts.
 Never include image URLs. Keep questions factually correct and self-contained.`;
 
 function buildUserPrompt({ topic, count, difficulty, types, notes, plan, avoid, source }) {
@@ -205,10 +248,13 @@ function buildUserPrompt({ topic, count, difficulty, types, notes, plan, avoid, 
   lines.push(
     `For every question write a rich, complete "explanation" that includes all relevant facts (dates, years, historical context, definitions, formulas with calculations, named laws/principles) — not a single line. Whenever a term/place/concept/option has a local or alternative name (common name, vernacular/Hindi/regional name, synonym, abbreviation's full form, or old name), add it in brackets. Write the explanation across several short lines — each point on its own line, not one paragraph. Vary which option (A/B/C/D) is correct across the set.`
   );
+  lines.push(
+    `VARIETY IS CRITICAL: make every question test a DISTINCT fact/sub-topic and a different angle (definition, cause, effect, date/number, example, comparison, application, exception). Do NOT ask about the same fact or the same correct answer twice, and do NOT reword/rephrase another question — a different sentence with the same meaning is a duplicate. Cover the full breadth of the topic, not just the most obvious facts.`
+  );
   if (Array.isArray(avoid) && avoid.length) {
-    const list = avoid.slice(0, 40).map((s, i) => `${i + 1}) ${String(s).slice(0, 120)}`).join("\n");
+    const list = avoid.slice(0, 60).map((s, i) => `${i + 1}) ${String(s).slice(0, 120)}`).join("\n");
     lines.push(
-      `IMPORTANT — these questions ALREADY EXIST. Do NOT repeat, restate or paraphrase any of them; generate ENTIRELY DIFFERENT questions covering other facts/aspects of the topic:\n${list}`
+      `IMPORTANT — these questions ALREADY EXIST. Do NOT repeat, restate, paraphrase, or ask the SAME FACT/answer as any of them even if worded differently; generate ENTIRELY DIFFERENT questions covering other facts/aspects of the topic:\n${list}`
     );
   }
   if (source) {
@@ -448,14 +494,14 @@ function retryWaitMs(headers, body) {
 }
 
 // One provider call with transient-error retries. Returns { ok, status, content, detail }.
-async function callProvider({ key, baseUrl, model, userPrompt, maxTokens, systemPrompt = SYSTEM_PROMPT }) {
+async function callProvider({ key, baseUrl, model, userPrompt, maxTokens, systemPrompt = SYSTEM_PROMPT, temperature = 0.6 }) {
   const payload = {
     model,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
     ],
-    temperature: 0.6,
+    temperature,
     max_tokens: maxTokens,
   };
   // Gemini burns budget on hidden "thinking" which truncates JSON — turn it off
@@ -564,7 +610,28 @@ async function runGenerationJob(id, ctx) {
   // guarantee; the prompt instruction just reduces wasted regeneration.
   const qSig = (q) => String(q?.text || q || "").toLowerCase().replace(/\s+/g, " ").trim();
   const seen = new Set((avoid || []).map(qSig).filter(Boolean));
-  const avoidForPrompt = (avoid || []).slice(0, 40);
+  const avoidForPrompt = (avoid || []).slice(0, 60);
+  // Content signatures for semantic-ish de-duplication: catch the SAME fact
+  // reworded (not just identical text). Seeded with the already-existing
+  // questions so re-runs don't repeat them either.
+  const sigList = [];
+  for (const s of avoid || []) {
+    const tk = contentTokens(s);
+    if (tk.size) sigList.push({ tk, ans: "" });
+  }
+  // Is this question a reworded duplicate of one we already have?
+  const isSemanticDup = (q) => {
+    const tk = contentTokens(q?.text);
+    if (!tk.size) return false;
+    const ans = ANSWER_DEDUP_TYPES.has(q?.type) ? correctAnswerNorm(q) : "";
+    for (const e of sigList) {
+      const j = jaccard(tk, e.tk);
+      if (j >= 0.85) return true; // near-identical wording
+      if (j >= 0.5 && ans && ans === e.ans) return true; // same fact + same answer, reworded
+    }
+    sigList.push({ tk, ans });
+    return false;
+  };
   const MAX_QUOTA_WAITS = 6; // per key: how many per-minute 429s we ride out before retiring it
   const MAX_ATTEMPTS = Math.ceil(target / CHUNK_SIZE) + 12 + (workers?.length || 1) * MAX_QUOTA_WAITS; // global safety cap
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -611,14 +678,17 @@ async function runGenerationJob(id, ctx) {
         : buildUserPrompt({ topic, notes, count: res.n, difficulty, types, avoid: avoidForPrompt, source });
       const maxTokens = Math.min(16000, 1800 + res.n * 1000);
       attempts += 1;
-      const r = await callProvider({ key: ep.key, baseUrl: ep.baseUrl, model: ep.model || model, userPrompt: prompt, maxTokens });
+      // Higher temperature for generation → more varied questions (extraction
+      // stays at the low default so it copies the source faithfully).
+      const r = await callProvider({ key: ep.key, baseUrl: ep.baseUrl, model: ep.model || model, userPrompt: prompt, maxTokens, temperature: 0.85 });
       release(res); // free the reservation — any shortfall gets re-targeted next round
       if (r.ok) {
         AiKey.updateOne({ key: ep.key, owner: owner ?? null }, { $inc: { usedRequests: 1, usedTokens: r.tokens || 0 } }).catch(() => {});
         for (const q of normalize(parseQuestions(r.content))) {
           if (collected.length >= target) break;
           const sig = qSig(q);
-          if (!sig || seen.has(sig)) continue; // skip blanks + any duplicate (this batch or earlier)
+          if (!sig || seen.has(sig)) continue; // skip blanks + exact duplicates
+          if (isSemanticDup(q)) continue; // skip the SAME fact reworded (semantic duplicate)
           seen.add(sig);
           collected.push(q);
         }
