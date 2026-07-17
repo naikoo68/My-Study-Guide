@@ -75,6 +75,7 @@ export default function AdminTests() {
   const [tqSaving, setTqSaving] = useState(false);
   const [viewQ, setViewQ] = useState(null); // single question preview
   const [viewAllQ, setViewAllQ] = useState(false); // all questions preview
+  const [studentView, setStudentView] = useState(false); // View All: admin vs student view
 
 
   const openQuestions = async (t) => {
@@ -835,22 +836,35 @@ export default function AdminTests() {
       {viewAllQ && (
         <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/50 p-4" onClick={() => setViewAllQ(false)}>
           <div onClick={(e) => e.stopPropagation()} className="my-8 w-full max-w-3xl animate-scale-in card p-6">
-            <div className="mb-4 flex items-center justify-between">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-lg font-bold">All questions{qTest ? ` — ${qTest.name}` : ""} ({tq.length})</h3>
-              <button onClick={() => setViewAllQ(false)}><X className="h-5 w-5" /></button>
+              <div className="flex items-center gap-2">
+                <div className="inline-flex overflow-hidden rounded-lg border border-slate-200 text-xs font-semibold dark:border-slate-700">
+                  <button onClick={() => setStudentView(false)} className={`px-3 py-1.5 ${!studentView ? "bg-brand-600 text-white" : "bg-white text-slate-600 dark:bg-slate-900 dark:text-slate-300"}`}>Admin view</button>
+                  <button onClick={() => setStudentView(true)} className={`px-3 py-1.5 ${studentView ? "bg-brand-600 text-white" : "bg-white text-slate-600 dark:bg-slate-900 dark:text-slate-300"}`}>Student view</button>
+                </div>
+                <button onClick={() => setViewAllQ(false)}><X className="h-5 w-5" /></button>
+              </div>
             </div>
+            {studentView && (
+              <p className="mb-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
+                Student view — answers &amp; explanations are hidden. Use “Reveal answer” on any question to expose it.
+              </p>
+            )}
             <div className="max-h-[70vh] space-y-4 overflow-y-auto pr-1">
               {tq.map((it, i) => (
                 <div key={it._id} className="relative rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-                  <div className="absolute right-2 top-2 z-10 flex gap-1">
-                    <button onClick={() => { setViewAllQ(false); setTqModal({ mode: "edit", data: it }); }} title="Edit" className="rounded-lg bg-white p-1.5 text-brand-600 shadow hover:bg-brand-50 dark:bg-slate-800 dark:hover:bg-brand-900/30">
-                      <Pencil className="h-4 w-4" />
-                    </button>
-                    <button onClick={() => removeTq(it._id)} title="Delete" className="rounded-lg bg-white p-1.5 text-rose-600 shadow hover:bg-rose-50 dark:bg-slate-800 dark:hover:bg-rose-900/30">
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                  <QuestionView q={it} index={i + 1} />
+                  {!studentView && (
+                    <div className="absolute right-2 top-2 z-10 flex gap-1">
+                      <button onClick={() => { setViewAllQ(false); setTqModal({ mode: "edit", data: it }); }} title="Edit" className="rounded-lg bg-white p-1.5 text-brand-600 shadow hover:bg-brand-50 dark:bg-slate-800 dark:hover:bg-brand-900/30">
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                      <button onClick={() => removeTq(it._id)} title="Delete" className="rounded-lg bg-white p-1.5 text-rose-600 shadow hover:bg-rose-50 dark:bg-slate-800 dark:hover:bg-rose-900/30">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )}
+                  <QuestionView q={it} index={i + 1} studentView={studentView} />
                 </div>
               ))}
             </div>
