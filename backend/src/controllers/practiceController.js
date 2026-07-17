@@ -284,6 +284,9 @@ export async function myItems(req, res) {
       marks: t.marks,
       difficulty: t.difficulty,
       questionCount: t.questions?.length || 0,
+      // The manual subject blueprint (GK, Accountancy, …) so the "Add to test"
+      // picker can offer the test's sub-subjects/sections.
+      subjectPlan: Array.isArray(t.subjectPlan) ? t.subjectPlan : [],
       stream: nodeInfo(t.practiceStream),
       subject: nodeInfo(t.practiceSubject),
       topic: nodeInfo(t.practiceTopic),
