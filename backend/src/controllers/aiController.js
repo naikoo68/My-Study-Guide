@@ -1498,7 +1498,13 @@ function parseExplanationJson(content) {
     const options = Array.isArray(obj.options) && obj.options.length === 4
       ? obj.options.map((x) => (x == null ? "" : String(x)))
       : null;
-    if (explanation || oe) return { explanation, optionExplanations: oe, correct, options };
+    // Optional re-wrapped stem/columns (used by Regenerate to fix math rendering
+    // in the question itself — same meaning, math wrapped in $...$). Extend
+    // ignores these.
+    const text = typeof obj.text === "string" && obj.text.trim() ? obj.text.trim() : null;
+    const columnA = Array.isArray(obj.columnA) ? obj.columnA.map((x) => (x == null ? "" : String(x))) : null;
+    const columnB = Array.isArray(obj.columnB) ? obj.columnB.map((x) => (x == null ? "" : String(x))) : null;
+    if (explanation || oe || options || text) return { explanation, optionExplanations: oe, correct, options, text, columnA, columnB };
   }
 
   // Couldn't parse as JSON at all — salvage the explanation with regex (from the
@@ -1734,9 +1740,11 @@ export async function extendOneExplanation(req, res) {
 const REGEN_SYSTEM_PROMPT = `You are an expert exam question editor. You are given ONE existing exam question (its stem, type, any columns/assertion/reason, and its CURRENT options — which may be wrong or may not fit the question). ANALYSE the question and produce the CORRECT set of answer options that truly fit it, the correct answer, and rich explanations.
 
 Respond with ONE valid JSON object and NOTHING else — no markdown, no code fences:
-{"options":["","","",""],"correct":0,"explanation":"...","optionExplanations":["","","",""]}
+{"text":"...","options":["","","",""],"correct":0,"explanation":"...","optionExplanations":["","","",""]}
 RULES:
-- Keep the question's WORDING, TYPE and any columns/assertion/reason UNCHANGED. Only (re)generate the 4 "options", the 0-based "correct" index, the "explanation" and the 4 "optionExplanations" so they correctly match the question.
+- Keep the question's MEANING, TYPE and what it asks UNCHANGED. Do NOT invent a different question or change the numbers/facts being asked.
+- FIX MATH RENDERING: if any math anywhere (stem, columns, options, explanation) is written as PLAIN TEXT, wrap it properly in $...$ so it renders — e.g. "3/4" → "$\\frac{3}{4}$", "x^2" → "$x^2$", "N/2" → "$\\frac{N}{2}$", "sqrt(2)" → "$\\sqrt{2}$", "25%" → "$25\\%$". Return the SAME stem in "text" (and, for matching/pair/statement, the SAME items in "columnA"/"columnB" with the SAME count) but with the math wrapped and any obvious typo/rendering issue fixed — meaning unchanged.
+- Regenerate the 4 "options", the 0-based "correct" index, the "explanation" and the 4 "optionExplanations" so they are correct and fit the question.
 - "options": EXACTLY 4, fitting the question TYPE, with ONE genuinely correct answer and three plausible-but-wrong distractors. Wrap any numeric option value or expression in $...$ so it renders as math (e.g. "$12.5$", "$\\frac{3}{4}$", "$2^{10}$", "$25\\%$"):
   • mcq / table: four answer choices.
   • matching: each option is a FULL mapping like "1-III, 2-I, 3-IV, 4-II"; exactly one is the correct complete mapping.
@@ -1760,7 +1768,7 @@ function buildRegenPrompt(q, notes) {
   const opts = Array.isArray(q.options) ? q.options : [];
   if (opts.length) lines.push(`Current options (may be WRONG — replace with correct ones that fit the question):\n${opts.map((o, i) => `${EXT_LETTERS[i] || i}) ${o}`).join("\n")}`);
   if (notes) lines.push(`MANDATORY user instructions (follow EXACTLY): ${notes}`);
-  lines.push(`Analyse THIS question and regenerate the 4 "options", the "correct" index, the "explanation" and the 4 "optionExplanations" so they correctly fit the question. Keep the stem, type and any columns/assertion/reason unchanged. Return ONLY one valid JSON object {"options":["","","",""],"correct":0,"explanation":"...","optionExplanations":["","","",""]}.`);
+  lines.push(`Analyse THIS question and FIX anything wrong: rebuild the 4 "options", the "correct" index, the "explanation" and the 4 "optionExplanations" so they are correct and fit the question, AND wrap any plain-text math so it renders. Return the SAME stem in "text" (and same-count "columnA"/"columnB" for matching/pair/statement) with math wrapped in $...$ — keep the meaning unchanged. Return ONLY one valid JSON object {"text":"...","options":["","","",""],"correct":0,"explanation":"...","optionExplanations":["","","",""]}.`);
   return lines.join("\n");
 }
 
@@ -1796,7 +1804,7 @@ export async function regenerateQuestion(req, res) {
       model: chosen.model,
       systemPrompt: REGEN_SYSTEM_PROMPT,
       userPrompt: buildRegenPrompt(q, notes),
-      maxTokens: 4000,
+      maxTokens: 8000, // full rebuild (stem + 4 options + explanation + 4 notes) — avoid truncation
       owner: scope.owner,
     });
     if (!r.ok) {
@@ -1805,7 +1813,8 @@ export async function regenerateQuestion(req, res) {
       continue;
     }
     const p = parseExplanationJson(r.content);
-    if (p && p.explanation) parsed = p; // require a real explanation (options applied via buildExtendSet)
+    // Accept a real rebuild: fresh options, an explanation, or a re-wrapped stem.
+    if (p && (p.explanation || (Array.isArray(p.options) && p.options.length === 4) || p.text)) parsed = p;
   }
 
   if (!parsed) {
@@ -1815,14 +1824,36 @@ export async function regenerateQuestion(req, res) {
     return res.status(502).json({ message: msg });
   }
 
-  const set = buildExtendSet(q, parsed); // applies options + correct + explanation + notes
+  // Apply everything the AI rebuilt: the re-wrapped stem/columns (same meaning,
+  // math wrapped so it RENDERS), fresh options + answer, and explanations.
+  const set = {};
+  if (parsed.explanation) set.explanation = parsed.explanation;
+  if (parsed.text) set.text = parsed.text;
+  if (Array.isArray(parsed.columnA) && Array.isArray(q.columnA) && parsed.columnA.length === q.columnA.length) set.columnA = parsed.columnA;
+  if (Array.isArray(parsed.columnB) && Array.isArray(q.columnB) && parsed.columnB.length === q.columnB.length) set.columnB = parsed.columnB;
+  const newCorrect = Number.isInteger(parsed.correct) && parsed.correct >= 0 && parsed.correct <= 3 ? parsed.correct : null;
+  const newOptions = Array.isArray(parsed.options) && parsed.options.length === 4 && parsed.options.every((s) => String(s).trim() !== "")
+    ? parsed.options.map((x) => String(x)) : null;
+  const canFixOptions = !q.type || ["mcq", "table", "pair", "pairselect", "statement", "matching"].includes(q.type);
+  if (newOptions && newCorrect != null && canFixOptions) set.options = newOptions;
+  if (newCorrect != null) set.correct = newCorrect;
+  const eff = newCorrect != null ? newCorrect : q.correct;
+  if (Array.isArray(parsed.optionExplanations)) {
+    const oe = parsed.optionExplanations.slice(0, 4);
+    while (oe.length < 4) oe.push("");
+    if (typeof eff === "number" && eff >= 0 && eff < 4) oe[eff] = "";
+    set.optionExplanations = oe;
+  }
+  if (!Object.keys(set).length) return res.status(502).json({ message: "The AI did not return any usable changes. Try again." });
+
   await Question.updateOne({ _id: q._id }, { $set: set });
   res.json({
     _id: q._id,
-    explanation: set.explanation,
-    optionExplanations: set.optionExplanations || q.optionExplanations,
-    correct: set.correct ?? q.correct,
+    text: set.text ?? q.text,
     options: set.options || q.options,
+    correct: set.correct ?? q.correct,
+    explanation: set.explanation ?? q.explanation,
+    optionExplanations: set.optionExplanations || q.optionExplanations,
   });
 }
 
