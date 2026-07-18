@@ -1612,9 +1612,12 @@ async function runExtendJob(id, { endpoints, model, questions, owner = null, not
       };
       await Promise.all(Array.from({ length: WORKERS }, (_, wi) => worker(wi)));
       pending = failed;
-      // Brief pause before retrying the stragglers (eases transient/quota errors).
+      // Pause before retrying the stragglers. On a quota hit (429) wait long
+      // enough for the per-minute limit to recover, so a single run gets through
+      // more before giving up; otherwise just a brief transient-error pause.
       if (pending.length && pass < MAX_PASSES - 1 && !keyDead && Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, 2000));
+        const wait = lastError?.status === 429 ? 40000 : 2000;
+        if (Date.now() + wait < deadline) await new Promise((r) => setTimeout(r, wait));
       }
     }
 
@@ -1669,7 +1672,11 @@ export async function extendExplanations(req, res) {
   else if (req.body?.quiz) filter = { quiz: req.body.quiz, ...own };
   if (!filter) return res.status(400).json({ message: "Provide a quiz or test to update." });
 
-  const questions = await Question.find(filter).select("_id type text options correct columnA columnB assertion reason explanation").lean();
+  // Process LEAST-RECENTLY-UPDATED first. Extending a question bumps its
+  // updatedAt, so when a run stops early on quota, clicking "Extend" again
+  // starts with the questions that were NOT reached last time — so repeated runs
+  // actually finish the whole quiz instead of re-doing the first few each time.
+  const questions = await Question.find(filter).sort("updatedAt").select("_id type text options correct columnA columnB tableRows assertion reason explanation").lean();
   if (!questions.length) return res.status(400).json({ message: "No questions found to update (or not your content)." });
 
   const notes = String(req.body?.notes || "").trim();
