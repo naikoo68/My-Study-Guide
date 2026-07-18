@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, X, ChevronRight, GraduationCap, FolderOpen, ListChecks, FileStack, HelpCircle, Users, Search, Share2, ClipboardList } from "lucide-react";
+import { Plus, Pencil, Trash2, X, ChevronRight, GraduationCap, FolderOpen, ListChecks, FileStack, HelpCircle, Users, Search, Share2, ClipboardList, RefreshCw, Loader2 } from "lucide-react";
 import { practiceService, testService, contentService, aiService } from "../../services";
 import { loadNav, saveNav } from "../../lib/navState";
 import Badge from "../../components/ui/Badge";
@@ -66,6 +66,7 @@ export default function AdminPractice({ clientMode = false }) {
   const [shareItem, setShareItem] = useState(null); // public share-link modal target (tests)
   const [extendItem, setExtendItem] = useState(null); // AI extend-explanations target
   const [extendingQId, setExtendingQId] = useState(null); // per-question extend in progress
+  const [regenId, setRegenId] = useState(null); // per-question regenerate in progress
   // Which subject a question-adding tool should target (set when opened from a
   // subject inside the manager). "" / "__unassigned__" means no subject.
   const [forceSection, setForceSection] = useState("");
@@ -133,6 +134,13 @@ export default function AdminPractice({ clientMode = false }) {
     testService.getQuestions(item._id).then(setTq).catch((e) => setError(e.message)).finally(() => setTqLoading(false));
   };
   const reloadTq = () => testService.getQuestions(qItem._id).then(setTq).catch(() => {});
+  // Regenerate ONE question's options/answer to fit its stem, then reload.
+  const regenerateQ = async (item) => {
+    setRegenId(item._id);
+    try { await aiService.regenerate({ questionId: item._id }); await reloadTq(); }
+    catch (e) { setError(e.message); }
+    finally { setRegenId(null); }
+  };
   const saveTestQuestion = async (payload) => {
     setTqSaving(true);
     try {
@@ -408,6 +416,7 @@ export default function AdminPractice({ clientMode = false }) {
                 <div key={(studentView ? "s" : "a") + it._id} className="relative rounded-lg border border-slate-200 p-3 dark:border-slate-700">
                   <div className="absolute right-2 top-2 z-10 flex gap-1">
                     <button onClick={() => setAddToTestQ(it)} title="Add to test" className="rounded-lg bg-white p-1.5 text-emerald-600 shadow hover:bg-emerald-50 dark:bg-slate-800 dark:hover:bg-emerald-900/30"><ClipboardList className="h-4 w-4" /></button>
+                    <button onClick={() => regenerateQ(it)} disabled={regenId === it._id} title="Regenerate options to fit the question" className="rounded-lg bg-white p-1.5 text-violet-600 shadow hover:bg-violet-50 disabled:opacity-50 dark:bg-slate-800 dark:hover:bg-violet-900/30">{regenId === it._id ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}</button>
                     {!studentView && (
                       <>
                         <button onClick={() => { setViewAll(false); setTqModal({ mode: "edit", data: it }); }} title="Edit" className="rounded-lg bg-white p-1.5 text-brand-600 shadow hover:bg-brand-50 dark:bg-slate-800 dark:hover:bg-brand-900/30"><Pencil className="h-4 w-4" /></button>

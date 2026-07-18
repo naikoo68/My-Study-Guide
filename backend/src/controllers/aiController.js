@@ -1723,6 +1723,109 @@ export async function extendOneExplanation(req, res) {
 }
 
 
+/* --------------------- Regenerate a question's options ---------------------
+   Takes the WHOLE existing question, analyses the stem/structure, and rebuilds
+   fresh, correct OPTIONS + answer + explanations that actually fit it — fixing
+   questions whose options or answer don't match the stem. The stem, type and any
+   columns/assertion/reason are kept unchanged (reuses parseExplanationJson +
+   buildExtendSet to apply the result). */
+
+const REGEN_SYSTEM_PROMPT = `You are an expert exam question editor. You are given ONE existing exam question (its stem, type, any columns/assertion/reason, and its CURRENT options — which may be wrong or may not fit the question). ANALYSE the question and produce the CORRECT set of answer options that truly fit it, the correct answer, and rich explanations.
+
+Respond with ONE valid JSON object and NOTHING else — no markdown, no code fences:
+{"options":["","","",""],"correct":0,"explanation":"...","optionExplanations":["","","",""]}
+RULES:
+- Keep the question's WORDING, TYPE and any columns/assertion/reason UNCHANGED. Only (re)generate the 4 "options", the 0-based "correct" index, the "explanation" and the 4 "optionExplanations" so they correctly match the question.
+- "options": EXACTLY 4, fitting the question TYPE, with ONE genuinely correct answer and three plausible-but-wrong distractors:
+  • mcq / table: four answer choices.
+  • matching: each option is a FULL mapping like "1-III, 2-I, 3-IV, 4-II"; exactly one is the correct complete mapping.
+  • statement: combinations like "1 only", "1 and 2 only", "Neither 1 nor 2".
+  • pair: how MANY pairs are correctly matched — "Only one pair", "Only two pairs", "Only three pairs", "All four pairs", or "None of the pairs are correctly matched" when zero match.
+  • pairselect: WHICH pairs are correct — "1 and 2 only", "2 and 3 only", "All of the above", etc.
+  • assertion: keep the four standard A/R options; just choose the correct one.
+- NUMERICAL: solve with the correct FORMULA step by step; the correct option MUST equal your computed value; show the working in "explanation" (each step on its own line).
+- MATCHING / PAIR / STATEMENT: evaluate EACH pair/statement individually and make the answer reflect the TRUE count/combination; if none of the standard options fit (e.g. zero pairs match), include the right one (e.g. "None of the pairs are correctly matched").
+- "correct": 0-based index (0-3) of the truly correct option; leave THAT option's "optionExplanations" entry an empty string "".
+- "explanation": thorough, self-contained, each point/step on its own line. Write math as inline LaTeX between $...$ (never \\( \\) or \\[ \\]); NEVER use "$" for money. No trailing commas.
+Return ONLY the JSON object.`;
+
+function buildRegenPrompt(q, notes) {
+  const lines = [`Question type: ${q.type || "mcq"}`];
+  if (q.text) lines.push(`Question: ${q.text}`);
+  if (q.assertion) lines.push(`Assertion (A): ${q.assertion}`);
+  if (q.reason) lines.push(`Reason (R): ${q.reason}`);
+  if (Array.isArray(q.columnA) && q.columnA.length) lines.push(`Column A: ${q.columnA.map((x, i) => `${i + 1}. ${x}`).join("  |  ")}`);
+  if (Array.isArray(q.columnB) && q.columnB.length) lines.push(`Column B: ${q.columnB.map((x, i) => `${toRomanLite(i + 1)}. ${x}`).join("  |  ")}`);
+  const opts = Array.isArray(q.options) ? q.options : [];
+  if (opts.length) lines.push(`Current options (may be WRONG — replace with correct ones that fit the question):\n${opts.map((o, i) => `${EXT_LETTERS[i] || i}) ${o}`).join("\n")}`);
+  if (notes) lines.push(`MANDATORY user instructions (follow EXACTLY): ${notes}`);
+  lines.push(`Analyse THIS question and regenerate the 4 "options", the "correct" index, the "explanation" and the 4 "optionExplanations" so they correctly fit the question. Keep the stem, type and any columns/assertion/reason unchanged. Return ONLY one valid JSON object {"options":["","","",""],"correct":0,"explanation":"...","optionExplanations":["","","",""]}.`);
+  return lines.join("\n");
+}
+
+// POST /api/ai/regenerate-question  (admin or owning client) — analyse ONE
+// question and rebuild its options/answer/explanations to fit the stem.
+// Body: { questionId, model?, notes?, mode? }.
+export async function regenerateQuestion(req, res) {
+  const scope = resolveScope(req.user, req.body?.mode);
+  if (scope.denied) {
+    return res.status(403).json({ message: "AI access is not enabled for your account. Please contact the administrator." });
+  }
+  const chosen = await resolveModel(String(req.body?.model || "").trim(), scope);
+  if (!chosen || !chosen.endpoints.length) {
+    return res.status(400).json({
+      message: scope.mode === "self"
+        ? "No API keys added yet. Add at least one key in the AI tab."
+        : "AI is not configured. Add an API key in Admin → AI Keys.",
+    });
+  }
+
+  const own = ownerFilter(req);
+  const q = await Question.findOne({ _id: req.body?.questionId, ...own })
+    .select("_id type text options correct columnA columnB assertion reason explanation optionExplanations")
+    .lean();
+  if (!q) return res.status(404).json({ message: "Question not found (or not your content)." });
+
+  const notes = String(req.body?.notes || "").trim();
+  let parsed = null;
+  let lastError = null;
+  for (let attempt = 0; attempt < 3 && !parsed; attempt++) {
+    const r = await callWithFallback({
+      endpoints: chosen.endpoints,
+      model: chosen.model,
+      systemPrompt: REGEN_SYSTEM_PROMPT,
+      userPrompt: buildRegenPrompt(q, notes),
+      maxTokens: 4000,
+      owner: scope.owner,
+    });
+    if (!r.ok) {
+      lastError = r;
+      if ([401, 403].includes(r.status)) break;
+      continue;
+    }
+    const p = parseExplanationJson(r.content);
+    if (p && p.explanation) parsed = p; // require a real explanation (options applied via buildExtendSet)
+  }
+
+  if (!parsed) {
+    const msg = lastError?.status === 429
+      ? "AI quota/rate limit reached. Wait a minute and try again."
+      : `The AI didn't return a usable question${lastError ? ` (error ${lastError.status || 0})` : ""}. Try again.`;
+    return res.status(502).json({ message: msg });
+  }
+
+  const set = buildExtendSet(q, parsed); // applies options + correct + explanation + notes
+  await Question.updateOne({ _id: q._id }, { $set: set });
+  res.json({
+    _id: q._id,
+    explanation: set.explanation,
+    optionExplanations: set.optionExplanations || q.optionExplanations,
+    correct: set.correct ?? q.correct,
+    options: set.options || q.options,
+  });
+}
+
+
 /* --------------------------- AI key management (admin) --------------------------- */
 
 const maskKey = (k) => {

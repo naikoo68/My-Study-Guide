@@ -244,6 +244,7 @@ export const aiService = {
   notes: (data) => api.post("/ai/notes", data), // generate study notes (Markdown) on a topic → { notes }
   extendExplanations: (data) => api.post("/ai/extend-explanations", data), // enrich all explanations in a quiz/test → { jobId, requested }
   extendOne: (data) => api.post("/ai/extend-explanation", data), // enrich ONE question's explanation → { explanation, optionExplanations }
+  regenerate: (data) => api.post("/ai/regenerate-question", data), // analyse ONE question → rebuild options/answer → { options, correct, explanation }
   // Client AI access + pool selection (built-in vs own keys)
   access: () => api.get("/ai/access"), // { access, mode, allowInbuilt, allowSelf, ownKeys, inbuiltAvailable }
   setMode: (mode) => api.put("/ai/mode", { mode }), // "inbuilt" | "self"

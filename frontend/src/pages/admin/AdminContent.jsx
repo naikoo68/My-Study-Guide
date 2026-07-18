@@ -13,7 +13,7 @@ import { questionDateText, searchQuestions } from "../../lib/questions";
 import DuplicatesModal from "../../components/admin/DuplicatesModal";
 import AiImport from "../../components/admin/AiImport";
 import ExtendExplanationsModal from "../../components/admin/ExtendExplanationsModal";
-import { Sparkles, Files, Globe, Wand2, Loader2, ClipboardList } from "lucide-react";
+import { Sparkles, Files, Globe, Wand2, Loader2, ClipboardList, RefreshCw } from "lucide-react";
 
 const COLORS = [
   "from-blue-500 to-indigo-600",
@@ -50,6 +50,7 @@ export default function AdminContent() {
   const [importOpen, setImportOpen] = useState(false);
   const [extendOpen, setExtendOpen] = useState(false); // AI extend-explanations (whole quiz)
   const [extendingQId, setExtendingQId] = useState(null); // per-question extend in progress
+  const [regenId, setRegenId] = useState(null); // per-question regenerate in progress
   const [dupOpen, setDupOpen] = useState(false);
   const [dupScope, setDupScope] = useState({ id: "all", name: "" }); // which subject the duplicate scan targets
   const [saving, setSaving] = useState(false);
@@ -72,6 +73,20 @@ export default function AdminContent() {
       load("questions");
     } catch (e) {
       setError(e.message);
+    }
+  };
+
+  // Regenerate ONE question: AI analyses the stem and rebuilds its options/
+  // answer/explanations to fit, then refresh the list.
+  const regenerateQ = async (item) => {
+    setRegenId(item._id);
+    try {
+      await aiService.regenerate({ questionId: item._id });
+      await load("questions");
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setRegenId(null);
     }
   };
 
@@ -582,6 +597,9 @@ export default function AdminContent() {
                   <div className="absolute right-2 top-2 z-10 flex gap-1">
                     <button onClick={() => setAddToTestQ(it)} title="Add to test" className="rounded-lg bg-white p-1.5 text-emerald-600 shadow hover:bg-emerald-50 dark:bg-slate-800 dark:hover:bg-emerald-900/30">
                       <ClipboardList className="h-4 w-4" />
+                    </button>
+                    <button onClick={() => regenerateQ(it)} disabled={regenId === it._id} title="Regenerate options to fit the question" className="rounded-lg bg-white p-1.5 text-violet-600 shadow hover:bg-violet-50 disabled:opacity-50 dark:bg-slate-800 dark:hover:bg-violet-900/30">
+                      {regenId === it._id ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                     </button>
                     {!studentView && (
                       <>

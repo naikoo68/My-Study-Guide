@@ -1,6 +1,6 @@
 import { Router } from "express";
 import {
-  aiStatus, generateQuestions, jobStatus, extractQuestions, generateNotes, extendExplanations, extendOneExplanation,
+  aiStatus, generateQuestions, jobStatus, extractQuestions, generateNotes, extendExplanations, extendOneExplanation, regenerateQuestion,
   listKeys, createKey, bulkCreateKeys, updateKey, deleteKey, testKey, importEnvKeys, testAllKeys, listKeyModels,
   getAiAccess, setAiMode,
 } from "../controllers/aiController.js";
@@ -20,6 +20,7 @@ router.post("/extract", ...manage, extractQuestions);
 router.post("/notes", ...manage, generateNotes); // generate study notes (Markdown) on a topic
 router.post("/extend-explanations", ...manage, extendExplanations); // AI-enrich all explanations in a quiz/test
 router.post("/extend-explanation", ...manage, extendOneExplanation); // AI-enrich ONE question's explanation
+router.post("/regenerate-question", ...manage, regenerateQuestion); // analyse ONE question and rebuild its options/answer
 
 // Client AI access + pool selection (admin allowed too; setMode is client-only).
 router.get("/access", ...manage, getAiAccess);
