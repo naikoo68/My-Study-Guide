@@ -217,6 +217,10 @@ Type-specific rules — each type needs specific extra fields AND a specific sty
 - "table": include "tableRows" (a 2D array; the first inner array is the header row). "text" is the intro. 4 normal options.
 Do NOT prefix columnA / columnB / statement items with numbers or roman numerals (no "1.", "I.") — the app numbers Column A (1,2,3,4), Column B (I,II,III,IV) and statements (1,2,3) automatically.
 VARIETY IS MANDATORY: within the set, every question must test a DIFFERENT fact / sub-topic and a DIFFERENT angle (definition, cause, effect, date or number, example, comparison, application, exception, sequence). NEVER ask about the same fact, entity or correct answer more than once, and NEVER reword or rephrase another question — a different sentence with the same meaning counts as a duplicate and is forbidden. Spread the questions across the full breadth of the topic rather than clustering on the few most obvious facts.
+CALCULATIONS & SELF-VERIFICATION (do this for EVERY question before you finalise it):
+- NUMERICAL / QUANTITATIVE questions: pick the correct FORMULA for the concept, substitute the actual values, and COMPUTE the answer step by step. Mark as "correct" ONLY the option that EXACTLY equals your computed result; make the other three plausible but genuinely wrong (each reflecting a specific common mistake). In "explanation" show the full working — formula, then substitution, then each intermediate result, then the final value — each step on its OWN line. NEVER mark an answer your own calculation does not produce, and make sure the explanation's steps end at the marked option.
+- MATCHING / PAIR / STATEMENT questions: verify each pairing/statement individually and make "correct" reflect the TRUE count/combination (and provide an option that matches it).
+- Re-check every calculation and fact; the marked "correct" option and the "optionExplanations" must be mutually consistent.
 CURRENCY: NEVER use the "$" character for money/amounts anywhere ("text", "options", "explanation", "optionExplanations") — "$" is reserved ONLY for wrapping inline math, and a stray "$" (e.g. "$300") corrupts the rendering of the whole field. Write money as a plain number with the currency word, e.g. "300 dollars" or "900 rupees" or just "300".
 Never include image URLs. Keep questions factually correct and self-contained.`;
 
@@ -270,6 +274,7 @@ function buildUserPrompt({ topic, count, difficulty, types, notes, plan, avoid, 
   // Reinforce the user's instructions right before the model answers (recency)
   // so they are followed reliably.
   if (notes) lines.push(`REMINDER — apply the MANDATORY USER INSTRUCTIONS above to EVERY question: ${notes}`);
+  lines.push(`Before finalising EACH question, VERIFY it: for a numerical question solve it with the correct formula step by step and mark ONLY the option equal to your computed result (show that working, each step on its own line, in the explanation); for matching/pair/statement questions check each item individually and make the answer reflect the true count/combination. The marked correct option must match your own working — never leave a wrong calculation or a mismatched answer.`);
   lines.push(`Return ONLY the JSON object {"questions":[...]}.`);
   return lines.join("\n");
 }
@@ -1111,8 +1116,8 @@ function buildExtractPrompt(sourceText, notes = "") {
     '    • "table" — data laid out as a table → each row as an array inside "tableRows".',
     '    • "mcq" — everything else: ordinary multiple choice, true/false, fill-in-the-blank, numerical/integer-answer, etc.',
     '- "options": the answer choices exactly as printed (4 for MCQ). For true/false use ["True","False","",""]. If more than 4 are printed, keep the 4 real ones. If the source genuinely has no printed options, give the most sensible 4.',
-    '- "correct": 0-based index of the right option when the source shows it (answer key, bold, "Ans", tick); otherwise your best answer.',
-    '- "explanation": at most ONE short sentence, and only when obvious.',
+    '- "correct": 0-based index of the right option. For NUMERICAL questions, COMPUTE the answer yourself using the correct formula (formula → substitute values → result) and pick the option equal to YOUR result even if the source answer key differs (keys can be wrong). For matching/pair/statement questions, check each item and pick the option matching the true count. Otherwise use the source answer key (bold, "Ans", tick) or your best answer.',
+    '- "explanation": keep it to ONE short sentence — EXCEPT for numerical questions, where you give the brief formula-based working (formula → substitution → result) that leads to the marked option.',
     "",
     "Keep everything BRIEF — do NOT write per-option notes or long explanations. Verbose output makes questions get cut off and lost, which must not happen.",
     "",
