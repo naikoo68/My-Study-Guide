@@ -221,6 +221,7 @@ CALCULATIONS & SELF-VERIFICATION (do this for EVERY question before you finalise
 - NUMERICAL / QUANTITATIVE questions: pick the correct FORMULA for the concept, substitute the actual values, and COMPUTE the answer step by step. Mark as "correct" ONLY the option that EXACTLY equals your computed result; make the other three plausible but genuinely wrong (each reflecting a specific common mistake). In "explanation" show the full working — formula, then substitution, then each intermediate result, then the final value — each step on its OWN line. NEVER mark an answer your own calculation does not produce, and make sure the explanation's steps end at the marked option.
 - MATCHING / PAIR / STATEMENT questions: verify each pairing/statement individually and make "correct" reflect the TRUE count/combination (and provide an option that matches it).
 - Re-check every calculation and fact; the marked "correct" option and the "optionExplanations" must be mutually consistent.
+MATH RENDERING (so numericals display correctly): wrap EVERY mathematical element in $...$ (inline LaTeX) — in the "text", the "options" AND the "explanation". This includes each numeric ANSWER OPTION that is a number/quantity/expression (e.g. options "$12.5$", "$\\frac{3}{4}$", "$2^{10}$", "$25\\%$", "$\\sqrt{2}$", "$3:4$"), every fraction, power, root, ratio, percentage and equation, and each step of a calculation. A plain number that is only ordinary prose (a year, a page count) need not be wrapped, but any numeric option or math expression MUST be. Use $...$ only (never \\( \\) or \\[ \\]) and never write bare LaTeX commands outside dollar signs.
 CURRENCY: NEVER use the "$" character for money/amounts anywhere ("text", "options", "explanation", "optionExplanations") — "$" is reserved ONLY for wrapping inline math, and a stray "$" (e.g. "$300") corrupts the rendering of the whole field. Write money as a plain number with the currency word, e.g. "300 dollars" or "900 rupees" or just "300".
 Never include image URLs. Keep questions factually correct and self-contained.`;
 
@@ -1338,7 +1339,7 @@ CRITICAL — you MUST ALWAYS respond, for EVERY question, with ONE single valid 
 (For a NUMERICAL question whose stored answer turns out wrong, ALSO include "correct":<0-3>, and, if an option value itself must change, "options":["A","B","C","D"] — see the NUMERICAL rules below.)
 JSON VALIDITY RULES (follow exactly or the answer is discarded):
 - Escape any double quote inside a string as \\". You MAY use normal line breaks inside the strings for readability.
-- MATH: write ALL mathematical/numeric content (equations, fractions, powers, roots, ratios, %) as inline LaTeX between single dollar signs — e.g. $x^2+2x-3=0$, $\\frac{3}{4}$, $2^{10}\\times5^{8}$, $\\sqrt{2}$. Do NOT use \\( \\) or \\[ \\] delimiters and do NOT write bare LaTeX outside dollar signs.
+- MATH: write ALL mathematical/numeric content (equations, fractions, powers, roots, ratios, %) as inline LaTeX between single dollar signs — e.g. $x^2+2x-3=0$, $\\frac{3}{4}$, $2^{10}\\times5^{8}$, $\\sqrt{2}$. This ALSO includes every numeric ANSWER value in "optionExplanations" and any option value you return — wrap numbers/expressions in $...$ so they render as math (e.g. "$12.5$", "$\\frac{180}{13}$", "$25\\%$"). Do NOT use \\( \\) or \\[ \\] delimiters and do NOT write bare LaTeX outside dollar signs.
 - CURRENCY: NEVER use the "$" character for money or amounts — "$" is RESERVED solely for opening/closing math, and a stray "$" (e.g. "$300") corrupts the rendering of the ENTIRE explanation. Write money as a plain number with the currency word AFTER it, e.g. "300 dollars", "900 rupees", or just "300". The only "$" characters allowed are the matched pairs that wrap math.
 - Do NOT use markdown (no **bold**, no bullet characters), no code fences, no trailing commas.
 - Never refuse and never return an empty object — always produce a full explanation.
@@ -1736,7 +1737,7 @@ Respond with ONE valid JSON object and NOTHING else — no markdown, no code fen
 {"options":["","","",""],"correct":0,"explanation":"...","optionExplanations":["","","",""]}
 RULES:
 - Keep the question's WORDING, TYPE and any columns/assertion/reason UNCHANGED. Only (re)generate the 4 "options", the 0-based "correct" index, the "explanation" and the 4 "optionExplanations" so they correctly match the question.
-- "options": EXACTLY 4, fitting the question TYPE, with ONE genuinely correct answer and three plausible-but-wrong distractors:
+- "options": EXACTLY 4, fitting the question TYPE, with ONE genuinely correct answer and three plausible-but-wrong distractors. Wrap any numeric option value or expression in $...$ so it renders as math (e.g. "$12.5$", "$\\frac{3}{4}$", "$2^{10}$", "$25\\%$"):
   • mcq / table: four answer choices.
   • matching: each option is a FULL mapping like "1-III, 2-I, 3-IV, 4-II"; exactly one is the correct complete mapping.
   • statement: combinations like "1 only", "1 and 2 only", "Neither 1 nor 2".
