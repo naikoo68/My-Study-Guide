@@ -214,7 +214,7 @@ Type-specific rules — each type needs specific extra fields AND a specific sty
 - "pair": include "columnA" (left items) and "columnB" (right items); item i is paired with item i. "text" is the intro. The 4 "options" state HOW MANY pairs are correctly matched, e.g. "Only one pair", "Only two pairs", "Only three pairs", "All four pairs". In "explanation", go through EACH pair stating whether it is correctly matched and the fact behind it.
 - "pairselect": include "columnA" and "columnB" (candidate pairs). "text" is the intro. The 4 "options" state WHICH pairs are correct, e.g. "1 and 2 only", "2 and 3 only", "1, 3 and 4 only", "All of the above". In "explanation", go through EACH pair stating whether it is correct or wrong and why.
 - "assertion": include "assertion" (Assertion A text) and "reason" (Reason R text); "text" may be empty. The 4 "options" MUST be exactly: "Both A and R are true and R is the correct explanation of A", "Both A and R are true but R is NOT the correct explanation of A", "A is true but R is false", "A is false but R is true". In "explanation", separately evaluate Assertion (A) — state true/false and WHY with supporting facts — then separately evaluate Reason (R) — true/false and WHY — and finally explain the RELATIONSHIP: whether R correctly explains A and why.
-- "table": include "tableRows" (a 2D array; the first inner array is the header row). "text" is the intro. 4 normal options.
+- "table": put the data table in "tableRows" (a 2D array; the first inner array is the header row) — NEVER write it as a markdown/pipe ("| a | b |") table inside "text". "text" is ONLY the question sentence. Wrap any math in a cell in $...$. 4 normal options that match a calculation done from the table.
 Do NOT prefix columnA / columnB / statement items with numbers or roman numerals (no "1.", "I.") — the app numbers Column A (1,2,3,4), Column B (I,II,III,IV) and statements (1,2,3) automatically.
 VARIETY IS MANDATORY: within the set, every question must test a DIFFERENT fact / sub-topic and a DIFFERENT angle (definition, cause, effect, date or number, example, comparison, application, exception, sequence). NEVER ask about the same fact, entity or correct answer more than once, and NEVER reword or rephrase another question — a different sentence with the same meaning counts as a duplicate and is forbidden. Spread the questions across the full breadth of the topic rather than clustering on the few most obvious facts.
 CALCULATIONS & SELF-VERIFICATION (do this for EVERY question before you finalise it):
@@ -1504,7 +1504,10 @@ function parseExplanationJson(content) {
     const text = typeof obj.text === "string" && obj.text.trim() ? obj.text.trim() : null;
     const columnA = Array.isArray(obj.columnA) ? obj.columnA.map((x) => (x == null ? "" : String(x))) : null;
     const columnB = Array.isArray(obj.columnB) ? obj.columnB.map((x) => (x == null ? "" : String(x))) : null;
-    if (explanation || oe || options || text) return { explanation, optionExplanations: oe, correct, options, text, columnA, columnB };
+    const tableRows = Array.isArray(obj.tableRows) && obj.tableRows.every((r) => Array.isArray(r))
+      ? obj.tableRows.map((r) => r.map((c) => (c == null ? "" : String(c))))
+      : null;
+    if (explanation || oe || options || text || tableRows) return { explanation, optionExplanations: oe, correct, options, text, columnA, columnB, tableRows };
   }
 
   // Couldn't parse as JSON at all — salvage the explanation with regex (from the
@@ -1745,6 +1748,7 @@ RULES:
 - Keep the question's MEANING, TYPE and what it asks UNCHANGED. Do NOT invent a different question or change the numbers/facts being asked.
 - FIX MATH RENDERING: if any math anywhere (stem, columns, options, explanation) is written as PLAIN TEXT, wrap it properly in $...$ so it renders — e.g. "3/4" → "$\\frac{3}{4}$", "x^2" → "$x^2$", "N/2" → "$\\frac{N}{2}$", "sqrt(2)" → "$\\sqrt{2}$", "25%" → "$25\\%$", "Sum(P1*Q0)/Sum(P0*Q0)" → "$\\frac{\\sum P_1 Q_0}{\\sum P_0 Q_0}$". Return the SAME meaning with the math wrapped and obvious typos/rendering fixed.
 - COLUMN QUESTIONS (matching / pair / pairselect / statement): "text" must be ONLY the short intro line (e.g. "Identify the correct mapping." or "Consider the following statements:"). NEVER put the Column A / Column B / statement items inside "text". Put the Column A items in "columnA" and the Column B items in "columnB" (the SAME number of items as given), each with any formula/math wrapped in $...$ so the columns themselves render. The 4 "options" stay as mapping sequences (e.g. "1-II, 2-IV, 3-I, 4-III") / combinations.
+- TABLE questions: the data table MUST go in "tableRows" (a 2D array; the FIRST inner row is the header), NEVER as a markdown/pipe table inside "text". "text" is ONLY the question sentence (no "| ... |" rows). If the question currently shows a table in the stem AND/OR in tableRows — even with DIFFERENT numbers — CONSOLIDATE into ONE correct table in "tableRows" (choose the data that is consistent with the intended options, wrap any math in each cell in $...$), remove the table from "text", then SOLVE the question from THAT table with the correct formula and set "options"/"correct" to match your computed value. Return the table in "tableRows".
 - Regenerate the 4 "options", the 0-based "correct" index, the "explanation" and the 4 "optionExplanations" so they are correct and fit the question.
 - "options": EXACTLY 4, fitting the question TYPE, with ONE genuinely correct answer and three plausible-but-wrong distractors. Wrap any numeric option value or expression in $...$ so it renders as math (e.g. "$12.5$", "$\\frac{3}{4}$", "$2^{10}$", "$25\\%$"):
   • mcq / table: four answer choices.
@@ -1766,6 +1770,7 @@ function buildRegenPrompt(q, notes) {
   if (q.reason) lines.push(`Reason (R): ${q.reason}`);
   if (Array.isArray(q.columnA) && q.columnA.length) lines.push(`Column A: ${q.columnA.map((x, i) => `${i + 1}. ${x}`).join("  |  ")}`);
   if (Array.isArray(q.columnB) && q.columnB.length) lines.push(`Column B: ${q.columnB.map((x, i) => `${toRomanLite(i + 1)}. ${x}`).join("  |  ")}`);
+  if (Array.isArray(q.tableRows) && q.tableRows.length) lines.push(`Current table (first row = header):\n${q.tableRows.map((r) => (Array.isArray(r) ? r.join(" | ") : String(r))).join("\n")}`);
   const opts = Array.isArray(q.options) ? q.options : [];
   if (opts.length) lines.push(`Current options (may be WRONG — replace with correct ones that fit the question):\n${opts.map((o, i) => `${EXT_LETTERS[i] || i}) ${o}`).join("\n")}`);
   if (notes) lines.push(`MANDATORY user instructions (follow EXACTLY): ${notes}`);
@@ -1792,7 +1797,7 @@ export async function regenerateQuestion(req, res) {
 
   const own = ownerFilter(req);
   const q = await Question.findOne({ _id: req.body?.questionId, ...own })
-    .select("_id type text options correct columnA columnB assertion reason explanation optionExplanations")
+    .select("_id type text options correct columnA columnB tableRows assertion reason explanation optionExplanations")
     .lean();
   if (!q) return res.status(404).json({ message: "Question not found (or not your content)." });
 
@@ -1814,8 +1819,8 @@ export async function regenerateQuestion(req, res) {
       continue;
     }
     const p = parseExplanationJson(r.content);
-    // Accept a real rebuild: fresh options, an explanation, or a re-wrapped stem.
-    if (p && (p.explanation || (Array.isArray(p.options) && p.options.length === 4) || p.text)) parsed = p;
+    // Accept a real rebuild: fresh options, an explanation, a re-wrapped stem, or a table.
+    if (p && (p.explanation || (Array.isArray(p.options) && p.options.length === 4) || p.text || p.tableRows)) parsed = p;
   }
 
   if (!parsed) {
@@ -1834,12 +1839,23 @@ export async function regenerateQuestion(req, res) {
   // into "text" (this also CLEANS a question already broken that way), and only
   // replace the column arrays (same item count) with their LaTeX-wrapped form.
   const isColumnType = ["matching", "pair", "pairselect", "statement"].includes(q.type);
+  const isTableType = q.type === "table";
   if (isColumnType) {
     // Take the intro only (before any "Column A/B …"); fall back to cleaning the
     // stored stem so a question already bloated with columns gets repaired.
     const introOnly = (s) => String(s || "").split(/\bColumn\s*[AB]\b\s*:?/i)[0].trim();
     const intro = introOnly(parsed.text) || introOnly(q.text);
     if (intro) set.text = intro;
+  } else if (isTableType) {
+    // The data table belongs in tableRows — strip any markdown/pipe table (a line
+    // with 2+ "|") that ended up in the stem, keeping only the question sentence.
+    // Falls back to cleaning the stored stem so an already-broken question is fixed.
+    const stripTable = (s) => String(s || "").split(/\r?\n/).filter((ln) => (ln.match(/\|/g) || []).length < 2).join("\n").replace(/\n{2,}/g, "\n").trim();
+    const intro = stripTable(parsed.text) || stripTable(q.text);
+    if (intro) set.text = intro;
+    if (Array.isArray(parsed.tableRows) && parsed.tableRows.length && parsed.tableRows.every((r) => Array.isArray(r))) {
+      set.tableRows = parsed.tableRows.map((r) => r.map((c) => (c == null ? "" : String(c))));
+    }
   } else if (parsed.text) {
     set.text = parsed.text;
   }
@@ -1868,6 +1884,7 @@ export async function regenerateQuestion(req, res) {
     correct: set.correct ?? q.correct,
     explanation: set.explanation ?? q.explanation,
     optionExplanations: set.optionExplanations || q.optionExplanations,
+    tableRows: set.tableRows || q.tableRows,
   });
 }
 
