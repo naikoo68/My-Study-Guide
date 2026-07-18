@@ -1743,7 +1743,8 @@ Respond with ONE valid JSON object and NOTHING else — no markdown, no code fen
 {"text":"...","options":["","","",""],"correct":0,"explanation":"...","optionExplanations":["","","",""]}
 RULES:
 - Keep the question's MEANING, TYPE and what it asks UNCHANGED. Do NOT invent a different question or change the numbers/facts being asked.
-- FIX MATH RENDERING: if any math anywhere (stem, columns, options, explanation) is written as PLAIN TEXT, wrap it properly in $...$ so it renders — e.g. "3/4" → "$\\frac{3}{4}$", "x^2" → "$x^2$", "N/2" → "$\\frac{N}{2}$", "sqrt(2)" → "$\\sqrt{2}$", "25%" → "$25\\%$". Return the SAME stem in "text" (and, for matching/pair/statement, the SAME items in "columnA"/"columnB" with the SAME count) but with the math wrapped and any obvious typo/rendering issue fixed — meaning unchanged.
+- FIX MATH RENDERING: if any math anywhere (stem, columns, options, explanation) is written as PLAIN TEXT, wrap it properly in $...$ so it renders — e.g. "3/4" → "$\\frac{3}{4}$", "x^2" → "$x^2$", "N/2" → "$\\frac{N}{2}$", "sqrt(2)" → "$\\sqrt{2}$", "25%" → "$25\\%$", "Sum(P1*Q0)/Sum(P0*Q0)" → "$\\frac{\\sum P_1 Q_0}{\\sum P_0 Q_0}$". Return the SAME meaning with the math wrapped and obvious typos/rendering fixed.
+- COLUMN QUESTIONS (matching / pair / pairselect / statement): "text" must be ONLY the short intro line (e.g. "Identify the correct mapping." or "Consider the following statements:"). NEVER put the Column A / Column B / statement items inside "text". Put the Column A items in "columnA" and the Column B items in "columnB" (the SAME number of items as given), each with any formula/math wrapped in $...$ so the columns themselves render. The 4 "options" stay as mapping sequences (e.g. "1-II, 2-IV, 3-I, 4-III") / combinations.
 - Regenerate the 4 "options", the 0-based "correct" index, the "explanation" and the 4 "optionExplanations" so they are correct and fit the question.
 - "options": EXACTLY 4, fitting the question TYPE, with ONE genuinely correct answer and three plausible-but-wrong distractors. Wrap any numeric option value or expression in $...$ so it renders as math (e.g. "$12.5$", "$\\frac{3}{4}$", "$2^{10}$", "$25\\%$"):
   • mcq / table: four answer choices.
@@ -1828,7 +1829,20 @@ export async function regenerateQuestion(req, res) {
   // math wrapped so it RENDERS), fresh options + answer, and explanations.
   const set = {};
   if (parsed.explanation) set.explanation = parsed.explanation;
-  if (parsed.text) set.text = parsed.text;
+  // Column-based questions keep their items in columnA/columnB — never in the
+  // stem. So for these, strip any "Column A/B …" block the model wrongly merged
+  // into "text" (this also CLEANS a question already broken that way), and only
+  // replace the column arrays (same item count) with their LaTeX-wrapped form.
+  const isColumnType = ["matching", "pair", "pairselect", "statement"].includes(q.type);
+  if (isColumnType) {
+    // Take the intro only (before any "Column A/B …"); fall back to cleaning the
+    // stored stem so a question already bloated with columns gets repaired.
+    const introOnly = (s) => String(s || "").split(/\bColumn\s*[AB]\b\s*:?/i)[0].trim();
+    const intro = introOnly(parsed.text) || introOnly(q.text);
+    if (intro) set.text = intro;
+  } else if (parsed.text) {
+    set.text = parsed.text;
+  }
   if (Array.isArray(parsed.columnA) && Array.isArray(q.columnA) && parsed.columnA.length === q.columnA.length) set.columnA = parsed.columnA;
   if (Array.isArray(parsed.columnB) && Array.isArray(q.columnB) && parsed.columnB.length === q.columnB.length) set.columnB = parsed.columnB;
   const newCorrect = Number.isInteger(parsed.correct) && parsed.correct >= 0 && parsed.correct <= 3 ? parsed.correct : null;
