@@ -114,16 +114,17 @@ export default function MigrateQuizModal({ quiz, clientMode = false, onClose, on
           Move or copy <b className="text-slate-700 dark:text-slate-200">{quiz.name}</b> to another location.
         </p>
 
-        {/* Internal / External */}
-        <div className="mb-4 flex gap-2">
-          <button
-            onClick={() => setType_("internal")}
-            className={`flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition ${type === "internal" ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"}`}
-          >
-            Internal
-            <span className="block text-[11px] font-normal opacity-80">My Quiz → My Quiz</span>
-          </button>
-          {!clientMode && (
+        {/* Internal / External — admins only. Clients can migrate only WITHIN
+            their own My Quiz (internal), so the toggle is hidden for them. */}
+        {!clientMode && (
+          <div className="mb-4 flex gap-2">
+            <button
+              onClick={() => setType_("internal")}
+              className={`flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition ${type === "internal" ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"}`}
+            >
+              Internal
+              <span className="block text-[11px] font-normal opacity-80">My Quiz → My Quiz</span>
+            </button>
             <button
               onClick={() => setType_("external")}
               className={`flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition ${type === "external" ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"}`}
@@ -131,8 +132,8 @@ export default function MigrateQuizModal({ quiz, clientMode = false, onClose, on
               External
               <span className="block text-[11px] font-normal opacity-80">My Quiz → Content</span>
             </button>
-          )}
-        </div>
+          </div>
+        )}
 
         <label className="mb-1 block text-sm font-medium">
           Destination — {type === "internal" ? "My Quiz Stream → Subject → Topic" : "Content Stream → Subject → Topic → Session"}
