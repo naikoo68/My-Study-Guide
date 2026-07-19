@@ -1053,8 +1053,93 @@ function extractSig(q) {
   return `${stem}##${opts}##${cols}`;
 }
 
-// Fetch a web page and reduce it to readable plain text.
+// A normal browser UA — some sites (and YouTube) reject unknown clients.
+const BROWSER_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
+
+// Decode the HTML entities that show up in scraped text / caption XML.
+function decodeEntities(s) {
+  return String(s || "")
+    .replace(/&#(\d+);/g, (_, n) => { try { return String.fromCodePoint(parseInt(n, 10)); } catch { return _; } })
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, n) => { try { return String.fromCodePoint(parseInt(n, 16)); } catch { return _; } })
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&amp;/gi, "&");
+}
+
+// Pull the 11-char video id out of any common YouTube link shape.
+function youTubeId(url) {
+  const m = String(url || "").match(
+    /(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|live\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/
+  );
+  return m ? m[1] : null;
+}
+
+// Fetch a YouTube video's TRANSCRIPT (captions) as plain text, so questions can
+// be generated/extracted from a video link. Works only for videos that have
+// captions (manual or auto). Uses YouTube's own caption track — no extra deps.
+async function fetchYouTubeTranscript(url) {
+  const id = youTubeId(url);
+  if (!id) return { ok: false, error: "Not a recognised YouTube link." };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  const headers = { "User-Agent": BROWSER_UA, "Accept-Language": "en-US,en;q=0.9" };
+  try {
+    // 1) Load the watch page and find the caption tracks in the player response.
+    const resp = await fetch(`https://www.youtube.com/watch?v=${id}&hl=en`, {
+      redirect: "follow", signal: controller.signal, headers: { ...headers, Accept: "text/html" },
+    });
+    if (!resp.ok) return { ok: false, status: resp.status, error: `YouTube returned HTTP ${resp.status}.` };
+    const html = await resp.text();
+    const m = html.match(/"captionTracks":(\[.*?\])/s);
+    let tracks = [];
+    if (m) { try { tracks = JSON.parse(m[1]); } catch { /* fall back below */ } }
+    if (!tracks.length) {
+      const urls = [...html.matchAll(/"baseUrl":"(https:\/\/www\.youtube\.com\/api\/timedtext[^"]+)"/g)].map((x) => x[1]);
+      tracks = urls.map((u) => ({ baseUrl: u }));
+    }
+    if (!tracks.length) return { ok: false, error: "This video has no transcript/captions available. Open the video, copy the transcript text, and paste it instead." };
+    // Prefer an English track; else the first available.
+    const pick = tracks.find((t) => /^en/i.test(t.languageCode || "")) || tracks.find((t) => /en/i.test(t.vssId || "")) || tracks[0];
+    let baseUrl = String(pick.baseUrl || "").replace(/\\u0026/g, "&").replace(/\\\//g, "/");
+    if (!baseUrl) return { ok: false, error: "Couldn't read the caption track for this video." };
+    if (!/[?&]fmt=/.test(baseUrl)) baseUrl += "&fmt=json3"; // easier to parse
+
+    // 2) Fetch the caption track and flatten it to text.
+    const cap = await fetch(baseUrl, { signal: controller.signal, headers });
+    if (!cap.ok) return { ok: false, status: cap.status, error: "Couldn't fetch the video transcript." };
+    const raw = await cap.text();
+    let text = "";
+    try {
+      const data = JSON.parse(raw); // json3 format
+      if (Array.isArray(data.events)) {
+        text = data.events.map((e) => (e.segs || []).map((s) => s.utf8 || "").join("")).join(" ");
+      }
+    } catch {
+      text = raw.replace(/<[^>]+>/g, " "); // XML fallback: strip <text> tags
+    }
+    text = decodeEntities(text).replace(/\s+/g, " ").trim();
+    if (!text) return { ok: false, error: "The video's transcript was empty." };
+    return { ok: true, text };
+  } catch (e) {
+    return { ok: false, error: e?.name === "AbortError" ? "The video took too long to load." : (e?.message || "Couldn't read the video.") };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Fetch a web page and reduce it to readable plain text. For a YouTube link it
+// returns the video's transcript instead of the (useless) page HTML.
 async function fetchPageText(url) {
+  if (youTubeId(url)) {
+    const yt = await fetchYouTubeTranscript(url);
+    // Don't fall back to page HTML for a video — it has no useful text.
+    if (yt.ok) return yt;
+    return { ok: false, status: yt.status, error: yt.error || "Couldn't read the video's transcript. Copy the transcript text and paste it instead." };
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20000);
   try {

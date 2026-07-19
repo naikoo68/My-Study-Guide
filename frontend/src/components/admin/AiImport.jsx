@@ -520,8 +520,9 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
               <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" /> or <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
             </div>
 
-            <label className="mb-1 block text-sm font-semibold">Page URL (optional)</label>
-            <input className="input" placeholder="https://example.com/quiz-page" value={url} onChange={(e) => setUrl(e.target.value)} />
+            <label className="mb-1 block text-sm font-semibold">Page or YouTube link (optional)</label>
+            <input className="input" placeholder="https://example.com/quiz-page  or  https://youtu.be/… (transcript read automatically)" value={url} onChange={(e) => setUrl(e.target.value)} />
+            <p className="mt-1 text-xs text-slate-400">Paste a web page or a YouTube video link (must have captions) — its text/transcript is read automatically.</p>
 
             <div className="mb-1 mt-3 flex items-center justify-between gap-2">
               <label className="block text-sm font-semibold">{task === "generate" ? "Paragraph / source text" : "Extracted or pasted text"}</label>

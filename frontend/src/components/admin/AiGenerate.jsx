@@ -32,6 +32,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
   const [model, setModel] = useState("");
   const [section, setSection] = useState(defaultSection || sections[0] || ""); // subject to tag generated questions
   const [topic, setTopic] = useState("");
+  const [url, setUrl] = useState(""); // optional source link (web page or YouTube)
   // matrix[typeId] = { Easy, Medium, Hard } counts. Default: 5 medium MCQs.
   const [matrix, setMatrix] = useState({ mcq: { Easy: 0, Medium: 5, Hard: 0 } });
   const [notes, setNotes] = useState("");
@@ -77,7 +78,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
   const total = TYPE_OPTIONS.reduce((s, t) => s + rowTotal(t.id), 0);
 
   const generate = async () => {
-    if (!topic.trim()) { setMsg("Enter a topic or syllabus to generate from."); return; }
+    if (!topic.trim() && !url.trim()) { setMsg("Enter a topic/syllabus, or paste a source link (web page or YouTube video)."); return; }
     const plan = buildPlan();
     if (!plan.length) { setMsg("Set at least one question count in the grid below."); return; }
     if (total > 50) { setMsg("Please keep the total to 50 questions or fewer per batch."); return; }
@@ -87,6 +88,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
     try {
       const { jobId, requested } = await aiService.generate({
         topic: topic.trim(),
+        url: url.trim() || undefined, // optional web page / YouTube link → its text/transcript
         plan,
         notes: notes.trim(),
         model: model || undefined,
@@ -146,6 +148,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
       setMsg(`✓ Inserted ${res?.inserted ?? preview.length} question(s).`);
       setPreview([]);
       setTopic("");
+      setUrl("");
       setNotes("");
       setTimeout(onClose, 1000);
     } catch (e) {
@@ -242,6 +245,21 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
             />
+
+            <label className="mb-1 mt-3 block text-sm font-semibold">
+              Source link <span className="font-normal text-slate-400">(optional — web page or YouTube video)</span>
+            </label>
+            <input
+              type="url"
+              className="input"
+              placeholder="https://…  (article URL, or a YouTube link — its transcript is read automatically)"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+            />
+            <p className="mt-1 text-xs text-slate-400">
+              Paste a web page or a <b>YouTube video</b> link and the AI bases the questions on its content/transcript
+              (the video must have captions). Leave empty to generate purely from the topic above.
+            </p>
 
             {/* How many of each type × difficulty. Total = sum of all cells. */}
             <div className="mt-3 flex items-center justify-between">
