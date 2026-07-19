@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { X, ArrowRightLeft, Loader2, ArrowRight } from "lucide-react";
 import { practiceService, contentService, testService } from "../../services";
 
@@ -61,17 +61,20 @@ export default function MigrateQuizModal({ quiz, clientMode = false, onClose, on
   const [msg, setMsg] = useState("");
   const [ok, setOk] = useState(false);
 
-  const internalLevels = [
+  // Memoized so their reference is STABLE across renders — otherwise the
+  // Cascade's load effect (keyed on `levels`) re-fires every render, endlessly
+  // resetting and so the Stream dropdown never populates.
+  const internalLevels = useMemo(() => [
     { key: "stream", label: "Stream…", load: () => practiceService.adminStreams("quiz") },
     { key: "subject", label: "Subject…", load: (v) => practiceService.adminSubjects(v) },
     { key: "topic", label: "Topic…", load: (v) => practiceService.adminTopics(v) },
-  ];
-  const externalLevels = [
+  ], []);
+  const externalLevels = useMemo(() => [
     { key: "stream", label: "Stream…", load: () => contentService.streams() },
     { key: "subject", label: "Subject…", load: (v) => contentService.subjectsByStream(v) },
     { key: "topic", label: "Topic…", load: (v) => contentService.topics(v), labelKey: "title" },
     { key: "session", label: "Session…", load: (v) => contentService.sessions(v), labelKey: "title" },
-  ];
+  ], []);
   const levels = type === "internal" ? internalLevels : externalLevels;
   const requiredKeys = type === "internal" ? ["stream", "subject", "topic"] : ["session"];
 
