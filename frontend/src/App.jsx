@@ -68,6 +68,7 @@ const AdminMigration = lazy(() => import("./pages/admin/AdminMigration"));
 const AdminClients = lazy(() => import("./pages/admin/AdminClients"));
 const AdminCoupons = lazy(() => import("./pages/admin/AdminCoupons"));
 const AdminAiKeys = lazy(() => import("./pages/admin/AdminAiKeys"));
+const AdminSharedLinks = lazy(() => import("./pages/admin/AdminSharedLinks"));
 const AdminAiStudio = lazy(() => import("./pages/admin/AdminAiStudio"));
 const AdminDocuments = lazy(() => import("./pages/admin/AdminDocuments"));
 const AdminNotes = lazy(() => import("./pages/admin/AdminNotes"));
@@ -160,6 +161,7 @@ const router = createHashRouter([
       { path: "content", element: S(AdminContent) },
       { path: "tests", element: S(AdminTests) },
       { path: "practice", element: S(AdminPractice) },
+      { path: "shared", element: S(AdminSharedLinks) },
       { path: "migration", element: S(AdminMigration) },
       { path: "clients", element: S(AdminClients) },
       { path: "coupons", element: S(AdminCoupons) },

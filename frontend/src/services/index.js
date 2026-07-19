@@ -85,6 +85,9 @@ export const testService = {
     return api.get(`/tests${s ? `?${s}` : ""}`);
   },
   adminList: (postId) => api.get(`/tests/admin/all${postId ? `?post=${postId}` : ""}`),
+  // Shared-link tracker (admin): all publicly shared quizzes/tests + completions.
+  sharedLinks: () => api.get("/tests/admin/shared"),
+  publicAttempts: (id) => api.get(`/tests/${id}/public-attempts`), // anonymous completions for one shared item
   get: (id) => api.get(`/tests/${id}`),
   submit: (id, answers, timeTaken) => api.post(`/tests/${id}/submit`, { answers, timeTaken }),
   // public share link — no account/login needed (auth header omitted)

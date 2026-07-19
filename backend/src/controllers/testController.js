@@ -3,6 +3,7 @@ import crypto from "crypto";
 import TestSeries from "../models/TestSeries.js";
 import Question from "../models/Question.js";
 import Attempt from "../models/Attempt.js";
+import PublicAttempt from "../models/PublicAttempt.js";
 import User from "../models/User.js";
 import { isTestVisibleToUser, findAccessEntry } from "../utils/accessControl.js";
 import { notifyNewContent } from "../utils/notify.js";
@@ -391,6 +392,13 @@ export async function submitPublicTest(req, res) {
 
   const g = gradeSubmission(test, answers);
   await TestSeries.findByIdAndUpdate(test._id, { $inc: { attempts: 1 } });
+  // Record the anonymous completion so the admin can track shared-link usage.
+  PublicAttempt.create({
+    testSeries: test._id,
+    total: g.total, attempted: g.attempted, correct: g.correct, incorrect: g.incorrect,
+    skipped: g.skipped, score: g.score, maxScore: test.marks, percentage: g.percentage,
+    timeTaken: Number(timeTaken) || 0,
+  }).catch(() => {}); // never let tracking break the taker's result
   res.status(201).json({
     total: g.total,
     attempted: g.attempted,
@@ -402,6 +410,61 @@ export async function submitPublicTest(req, res) {
     percentage: g.percentage,
     timeTaken,
     review: g.review,
+  });
+}
+
+// GET /api/tests/admin/shared  (admin) — every quiz/test with a public share
+// link, plus how many people have completed it, for the Shared Links tracker.
+export async function listSharedTests(req, res) {
+  const tests = await TestSeries.find({ publicShare: true, ...ownerFilter(req) })
+    .populate("exam", "name")
+    .populate("post", "name")
+    .populate("practiceStream", "name")
+    .populate("practiceSubject", "name")
+    .sort("-updatedAt")
+    .lean();
+  const ids = tests.map((t) => t._id);
+  const counts = await PublicAttempt.aggregate([
+    { $match: { testSeries: { $in: ids } } },
+    { $group: { _id: "$testSeries", count: { $sum: 1 }, avg: { $avg: "$percentage" }, last: { $max: "$createdAt" } } },
+  ]);
+  const byId = new Map(counts.map((c) => [String(c._id), c]));
+  res.json(
+    tests.map((t) => {
+      const c = byId.get(String(t._id));
+      return {
+        _id: t._id,
+        name: t.name,
+        kind: t.practice ? (t.practiceKind === "quiz" ? "My Quiz" : "My Test") : "Test Series",
+        publicToken: t.publicToken,
+        publicShare: t.publicShare,
+        publicExpiresAt: t.publicExpiresAt || null,
+        questionCount: t.questions?.length || 0,
+        context: t.practice
+          ? [t.practiceStream?.name, t.practiceSubject?.name].filter(Boolean).join(" › ")
+          : [t.exam?.name, t.post?.name].filter(Boolean).join(" › "),
+        completions: c?.count || 0,
+        avgPercentage: c?.avg != null ? Math.round(c.avg) : null,
+        lastCompletedAt: c?.last || null,
+      };
+    })
+  );
+}
+
+// GET /api/tests/:id/public-attempts  (admin) — the anonymous completions for
+// one shared quiz/test (score / % / time / when), newest first.
+export async function listPublicAttempts(req, res) {
+  const test = await TestSeries.findOne({ _id: req.params.id, ...ownerFilter(req) }).select("name").lean();
+  if (!test) return res.status(404).json({ message: "Not found (or not your content)." });
+  const attempts = await PublicAttempt.find({ testSeries: req.params.id }).sort("-createdAt").limit(500).lean();
+  res.json({
+    name: test.name,
+    total: attempts.length,
+    attempts: attempts.map((a) => ({
+      score: a.score, maxScore: a.maxScore, percentage: a.percentage,
+      correct: a.correct, incorrect: a.incorrect, attempted: a.attempted, totalQ: a.total,
+      timeTaken: a.timeTaken, at: a.createdAt,
+    })),
   });
 }
 

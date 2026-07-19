@@ -22,6 +22,8 @@ import {
   togglePublicLink,
   getPublicTest,
   submitPublicTest,
+  listSharedTests,
+  listPublicAttempts,
 } from "../controllers/testController.js";
 import { protect, authorize, optionalAuth } from "../middleware/auth.js";
 
@@ -38,6 +40,8 @@ router.post("/public/:token/submit", submitPublicTest);
 
 router.get("/", optionalAuth, listTests);
 router.get("/admin/all", ...admin, listAllTests);
+router.get("/admin/shared", ...admin, listSharedTests); // shared-link tracker
+router.get("/:id/public-attempts", ...admin, listPublicAttempts); // completions for one shared item
 router.patch("/:id/public-link", ...manage, togglePublicLink); // enable/disable public sharing
 router.get("/:id/access", ...admin, getTestAccess);
 router.put("/:id/access", ...admin, updateTestAccess);
