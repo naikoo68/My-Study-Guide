@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Share2, Users, Eye, ExternalLink, Copy, Check, RefreshCw, ChevronDown, Clock, Loader2, X } from "lucide-react";
+import { Share2, Users, Eye, ExternalLink, Copy, Check, RefreshCw, ChevronDown, Clock, Loader2, X, Trash2 } from "lucide-react";
 import { testService } from "../../services";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 
@@ -26,6 +26,7 @@ export default function AdminSharedLinks() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState("");
+  const [deleting, setDeleting] = useState("");
   const [detail, setDetail] = useState(null); // { row, data, loading }
 
   const load = useCallback(() => {
@@ -46,6 +47,20 @@ export default function AdminSharedLinks() {
       setTimeout(() => setCopied(""), 2000);
     } catch {
       window.prompt("Copy this public link:", publicUrl(token, kind));
+    }
+  };
+
+  // Delete (turn off) a public link — it stops working and leaves the tracker.
+  const removeLink = async (r) => {
+    if (!window.confirm(`Delete the public link for “${r.name}”?\nThe link will stop working immediately (the quiz/test itself is not deleted).`)) return;
+    setDeleting(r._id);
+    try {
+      await testService.togglePublicLink(r._id, false);
+      setRows((list) => list.filter((x) => x._id !== r._id));
+    } catch (e) {
+      alert(e.message || "Could not delete the link.");
+    } finally {
+      setDeleting("");
     }
   };
 
@@ -149,6 +164,9 @@ export default function AdminSharedLinks() {
                   </button>
                   <button onClick={() => openDetail(r)} disabled={!r.completions} className="btn-outline py-1.5 text-xs disabled:opacity-50">
                     <ChevronDown className="h-3.5 w-3.5" /> View completions ({r.completions})
+                  </button>
+                  <button onClick={() => removeLink(r)} disabled={deleting === r._id} className="btn-outline py-1.5 text-xs text-rose-600 disabled:opacity-50" title="Delete this public link (stops it working)">
+                    {deleting === r._id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Delete link
                   </button>
                 </div>
               </div>

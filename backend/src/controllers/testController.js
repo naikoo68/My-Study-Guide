@@ -433,9 +433,24 @@ export async function registerPublicView(req, res) {
   res.json({ ok: true });
 }
 
+// Turn OFF any public share link whose expiry has passed, so expired links drop
+// off the tracker automatically and can no longer be reopened. (getPublicTest
+// already blocks expired links from being taken.)
+export async function disableExpiredPublicLinks() {
+  try {
+    await TestSeries.updateMany(
+      { publicShare: true, publicExpiresAt: { $ne: null, $lte: new Date() } },
+      { $set: { publicShare: false } }
+    );
+  } catch { /* ignore transient errors — the next sweep retries */ }
+}
+// Background sweep every 10 minutes (also runs lazily when the tracker loads).
+setInterval(disableExpiredPublicLinks, 10 * 60 * 1000).unref();
+
 // GET /api/tests/admin/shared  (admin) — every quiz/test with a public share
 // link, plus how many people have opened / completed it, for the tracker.
 export async function listSharedTests(req, res) {
+  await disableExpiredPublicLinks(); // clear expired links before listing
   const tests = await TestSeries.find({ publicShare: true, ...ownerFilter(req) })
     .populate("exam", "name")
     .populate("post", "name")
