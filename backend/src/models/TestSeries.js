@@ -62,6 +62,11 @@ const testSeriesSchema = new mongoose.Schema(
     cbtLive: { type: Boolean, default: false }, // live on/off toggle
     cbtToken: { type: String, index: true, default: null },
     cbtRequireOtp: { type: Boolean, default: true }, // email OTP verification before taking
+    // Entry control: when cbtRestrictEntry is on, only emails in cbtAllowedEmails
+    // may take the exam (an admin-approved allowlist). Off = open to anyone who
+    // registered on the portal.
+    cbtRestrictEntry: { type: Boolean, default: false },
+    cbtAllowedEmails: { type: [String], default: [] },
     cbtStartAt: { type: Date, default: null }, // exam opens at this time (null = as soon as Live)
     cbtEntryCloseAt: { type: Date, default: null }, // LATEST time a student may START (late-entry cutoff; null = until end)
     cbtEndAt: { type: Date, default: null }, // exam end / results-release time (null = admin releases manually)

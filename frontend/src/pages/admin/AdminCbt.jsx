@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   MonitorCheck, Users, Eye, ExternalLink, Copy, Check, RefreshCw, Trophy, Clock,
-  Loader2, X, Plus, Search, CalendarClock, Trash2, Mail, Medal, Send, Link2, ChevronRight,
+  Loader2, X, Plus, Search, CalendarClock, Trash2, Mail, Medal, Send, Link2, ChevronRight, UserCheck,
 } from "lucide-react";
 import { cbtService } from "../../services";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
@@ -44,6 +44,7 @@ export default function AdminCbt() {
   const [drafts, setDrafts] = useState({}); // id -> datetime-local string
   const [addOpen, setAddOpen] = useState(false);
   const [regOpen, setRegOpen] = useState(false);
+  const [accessRow, setAccessRow] = useState(null); // exam whose allowlist is being edited
   const [board, setBoard] = useState(null); // { row, data, loading }
 
   const load = useCallback(() => {
@@ -299,6 +300,9 @@ export default function AdminCbt() {
                   <button onClick={() => openBoard(r)} disabled={!r.candidates} className="btn-outline py-1.5 text-xs disabled:opacity-50">
                     <Trophy className="h-3.5 w-3.5" /> Rankings ({r.candidates})
                   </button>
+                  <button onClick={() => setAccessRow(r)} className="btn-outline py-1.5 text-xs" title="Choose who can enter this exam">
+                    <UserCheck className="h-3.5 w-3.5" /> Who can enter{r.cbtRestrictEntry ? ` (${(r.cbtAllowedEmails || []).length})` : ""}
+                  </button>
                   {!r.cbtResultsReleased && (
                     <button onClick={() => releaseNow(r)} disabled={busy === `rel-${r._id}`} className="btn-accent py-1.5 text-xs" title="End the exam now and email everyone their scorecard">
                       {busy === `rel-${r._id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />} Release results
@@ -316,7 +320,85 @@ export default function AdminCbt() {
 
       {addOpen && <AddTestModal onClose={() => setAddOpen(false)} onAdded={() => { setAddOpen(false); load(); }} />}
       {regOpen && <RegistrationsModal onClose={() => setRegOpen(false)} />}
+      {accessRow && (
+        <AccessModal
+          row={accessRow}
+          onClose={() => setAccessRow(null)}
+          onSaved={(res) => { patch(accessRow._id, { cbtRestrictEntry: res.cbtRestrictEntry, cbtAllowedEmails: res.cbtAllowedEmails }); setAccessRow(null); }}
+        />
+      )}
       {board && <LeaderboardModal board={board} onClose={() => setBoard(null)} />}
+    </div>
+  );
+}
+
+/* ---------------- Access modal: who can enter this exam ---------------- */
+function AccessModal({ row, onClose, onSaved }) {
+  const [restrict, setRestrict] = useState(!!row.cbtRestrictEntry);
+  const [text, setText] = useState((row.cbtAllowedEmails || []).join("\n"));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const emailCount = [...new Set(text.split(/[\s,;]+/).map((e) => e.trim().toLowerCase()).filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)))].length;
+
+  const save = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await cbtService.update(row._id, { restrictEntry: restrict, allowedEmails: text });
+      onSaved(res);
+    } catch (e) {
+      setError(e.message || "Could not save.");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="my-12 w-full max-w-lg animate-scale-in card p-6">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="flex items-center gap-2 text-lg font-bold"><UserCheck className="h-5 w-5 text-brand-600" /> Who can enter — {row.name}</h3>
+          <button onClick={onClose}><X className="h-5 w-5" /></button>
+        </div>
+
+        <label className="flex items-center gap-2 text-sm font-medium">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={restrict}
+            onClick={() => setRestrict((v) => !v)}
+            className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${restrict ? "bg-brand-500" : "bg-slate-300 dark:bg-slate-600"}`}
+          >
+            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${restrict ? "left-[22px]" : "left-0.5"}`} />
+          </button>
+          Only allow specific candidates
+        </label>
+        <p className="mt-1 text-xs text-slate-400">
+          {restrict ? "Only the emails below can register/take this exam. Others won't see it." : "Anyone who registers on the portal can take this exam."}
+        </p>
+
+        {restrict && (
+          <div className="mt-3">
+            <label className="mb-1 block text-sm font-semibold">Allowed emails <span className="font-normal text-slate-400">({emailCount})</span></label>
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              rows={8}
+              placeholder="one@example.com&#10;two@example.com&#10;…  (or paste comma-separated)"
+              className="w-full rounded-xl border border-slate-200 p-3 text-sm outline-none dark:border-slate-700 dark:bg-slate-800"
+            />
+            <p className="mt-1 text-xs text-slate-400">One email per line (commas/spaces also work). Invalid entries are ignored.</p>
+          </div>
+        )}
+
+        {error && <p className="mt-2 text-sm font-medium text-rose-600">{error}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onClose} className="btn-outline">Cancel</button>
+          <button onClick={save} disabled={busy} className="btn-primary">
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCheck className="h-4 w-4" />} {busy ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

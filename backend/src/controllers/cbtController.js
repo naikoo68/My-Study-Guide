@@ -57,6 +57,10 @@ function examWindowState(t) {
   return "open";
 }
 
+// Whether an email may take this exam (open exam, or on the allowlist).
+const emailAllowed = (t, email) =>
+  !t.cbtRestrictEntry || (t.cbtAllowedEmails || []).includes(String(email || "").toLowerCase());
+
 // Has this email already completed (submitted) this exam? Used to enforce the
 // one-attempt-per-student rule.
 async function hasCompleted(testId, email) {
@@ -148,13 +152,14 @@ export async function getCbtPortal(req, res) {
     .populate("practiceSubject", "name")
     .sort("-updatedAt")
     .lean();
-  // Keep exams whose window hasn't ended. Scheduled (not-yet-started) exams are
-  // still listed so candidates can see what's coming and when.
-  const live = tests.filter((t) => !t.cbtEndAt || new Date(t.cbtEndAt).getTime() > now);
-
-  // If the caller passes their (registered) email, flag which exams they've
-  // already completed so the portal can show "Completed" and hide Start.
   const email = String(req.query.email || "").trim().toLowerCase();
+
+  // Keep exams whose window hasn't ended. Scheduled (not-yet-started) exams are
+  // still listed so candidates can see what's coming and when. Restricted exams
+  // are shown only to emails on their allowlist.
+  const live = tests.filter(
+    (t) => (!t.cbtEndAt || new Date(t.cbtEndAt).getTime() > now) && emailAllowed(t, email)
+  );
   let completedSet = new Set();
   if (email && live.length) {
     const done = await CbtAttempt.find({ testSeries: { $in: live.map((t) => t._id) }, email }).select("testSeries").lean();
@@ -359,6 +364,10 @@ export async function startCbt(req, res) {
   // Must be a verified portal session (registered on the portal page).
   if (!(await findPortalSession(cleanEmail, sessionToken))) {
     return res.status(401).json({ needRegister: true, message: "Please register on the exam portal to take this exam." });
+  }
+  // Entry allowlist: only approved emails may take a restricted exam.
+  if (!emailAllowed(test, cleanEmail)) {
+    return res.status(403).json({ notAllowed: true, message: "You're not on the list of candidates allowed to take this exam. Please contact the organiser." });
   }
   if (await hasCompleted(test._id, cleanEmail)) return res.status(409).json({ alreadyCompleted: true, message: "You have already taken this exam." });
 
@@ -650,6 +659,8 @@ export async function listCbtExams(req, res) {
         cbtEntryCloseAt: t.cbtEntryCloseAt || null,
         cbtEndAt: t.cbtEndAt || null,
         cbtRequireOtp: t.cbtRequireOtp !== false,
+        cbtRestrictEntry: !!t.cbtRestrictEntry,
+        cbtAllowedEmails: t.cbtAllowedEmails || [],
         cbtResultsReleased: !!t.cbtResultsReleased,
         status,
         questionCount: t.questions?.length || 0,
@@ -750,6 +761,13 @@ export async function updateCbtExam(req, res) {
   const body = req.body || {};
   if ("live" in body) test.cbtLive = !!body.live;
   if ("requireOtp" in body) test.cbtRequireOtp = !!body.requireOtp;
+  if ("restrictEntry" in body) test.cbtRestrictEntry = !!body.restrictEntry;
+  if ("allowedEmails" in body) {
+    // Accept an array or a comma/newline-separated string; keep valid, unique, lowercased.
+    const raw = Array.isArray(body.allowedEmails) ? body.allowedEmails : String(body.allowedEmails || "").split(/[\s,;]+/);
+    const cleaned = [...new Set(raw.map((e) => String(e).trim().toLowerCase()).filter((e) => EMAIL_RE.test(e)))];
+    test.cbtAllowedEmails = cleaned;
+  }
   if ("startAt" in body) {
     if (!body.startAt) {
       test.cbtStartAt = null;
@@ -784,7 +802,7 @@ export async function updateCbtExam(req, res) {
     return res.status(400).json({ message: "Late-entry cutoff must be at or before the end time." });
   }
   await test.save();
-  res.json({ cbtLive: test.cbtLive, cbtStartAt: test.cbtStartAt, cbtEntryCloseAt: test.cbtEntryCloseAt, cbtEndAt: test.cbtEndAt, cbtRequireOtp: test.cbtRequireOtp, cbtResultsReleased: test.cbtResultsReleased });
+  res.json({ cbtLive: test.cbtLive, cbtStartAt: test.cbtStartAt, cbtEntryCloseAt: test.cbtEntryCloseAt, cbtEndAt: test.cbtEndAt, cbtRequireOtp: test.cbtRequireOtp, cbtRestrictEntry: test.cbtRestrictEntry, cbtAllowedEmails: test.cbtAllowedEmails, cbtResultsReleased: test.cbtResultsReleased });
 }
 
 // PATCH /api/cbt/admin/:id/release — end the exam NOW and release results:
