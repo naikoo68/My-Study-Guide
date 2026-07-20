@@ -13,6 +13,7 @@ export const authService = {
   google: (profile) => api.post("/auth/google", profile, { auth: false }),
   me: () => api.get("/auth/me"),
   forgotPassword: (email) => api.post("/auth/forgot-password", { email }, { auth: false }),
+  resetPassword: (token, password) => api.post(`/auth/reset-password/${token}`, { password }, { auth: false }),
 };
 
 // ---- Subjects / topics / sessions / questions ----

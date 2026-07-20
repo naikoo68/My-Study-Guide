@@ -48,6 +48,7 @@ const Login = lazy(() => import("./pages/auth/Login"));
 const Register = lazy(() => import("./pages/auth/Register"));
 const ClientRegister = lazy(() => import("./pages/auth/ClientRegister"));
 const ForgotPassword = lazy(() => import("./pages/auth/ForgotPassword"));
+const ResetPassword = lazy(() => import("./pages/auth/ResetPassword"));
 
 const ClientWorkspace = lazy(() => import("./pages/client/ClientWorkspace"));
 
@@ -120,6 +121,7 @@ const router = createHashRouter([
       { path: "/register", element: S(Register) },
       { path: "/client/register", element: S(ClientRegister) },
       { path: "/forgot-password", element: S(ForgotPassword) },
+      { path: "/reset-password/:token", element: S(ResetPassword) },
 
       {
         path: "/dashboard",
