@@ -401,6 +401,37 @@ export default function AdminCbt() {
   );
 }
 
+/* ---------------- Full-screen modal shell (Students / Rankings / Late entry) ----------------
+   A modal that fills the screen (edge-to-edge on mobile, a tall centred panel on
+   desktop) with a sticky header, a scrollable body, and an optional sticky footer.
+   Esc closes it. Used so wide tables and long lists have room to breathe. */
+function FullScreenModal({ title, icon, subtitle, onClose, children, footer }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-black/60 sm:p-4" onClick={onClose}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="flex h-full w-full flex-col overflow-hidden bg-white shadow-2xl animate-scale-in dark:bg-slate-900 sm:mx-auto sm:max-w-6xl sm:rounded-2xl"
+      >
+        <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
+          <div className="min-w-0">
+            <h3 className="flex items-center gap-2 text-base font-bold sm:text-lg">{icon}<span className="truncate">{title}</span></h3>
+            {subtitle && <p className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">{subtitle}</p>}
+          </div>
+          <button onClick={onClose} className="flex-shrink-0 rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" title="Close (Esc)"><X className="h-5 w-5" /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6">{children}</div>
+        {footer && <div className="border-t border-slate-200 px-4 py-3 dark:border-slate-700">{footer}</div>}
+      </div>
+    </div>
+  );
+}
+
 /* -------- Late-entry access modal: grant specific students late entry -------- */
 function AccessModal({ row, onClose, onSaved }) {
   const [restrict, setRestrict] = useState(!!row.cbtRestrictEntry);
@@ -423,12 +454,20 @@ function AccessModal({ row, onClose, onSaved }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4" onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} className="my-12 w-full max-w-lg animate-scale-in card p-6">
-        <div className="mb-2 flex items-center justify-between">
-          <h3 className="flex items-center gap-2 text-lg font-bold"><UserCheck className="h-5 w-5 text-brand-600" /> Late entry access — {row.name}</h3>
-          <button onClick={onClose}><X className="h-5 w-5" /></button>
+    <FullScreenModal
+      onClose={onClose}
+      icon={<UserCheck className="h-5 w-5 text-brand-600" />}
+      title={`Late entry access — ${row.name}`}
+      footer={
+        <div className="mx-auto flex w-full max-w-2xl items-center justify-end gap-2">
+          <button onClick={onClose} className="btn-outline">Cancel</button>
+          <button onClick={save} disabled={busy} className="btn-primary">
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCheck className="h-4 w-4" />} {busy ? "Saving…" : "Save"}
+          </button>
         </div>
+      }
+    >
+      <div className="mx-auto flex h-full w-full max-w-2xl flex-col">
         <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
           Students listed here can <b>start this exam even after the “Late entry until” cutoff</b> has passed — use it to re-admit someone who joined late. (They still can't start once the exam has <b>ended</b>.)
         </p>
@@ -439,9 +478,9 @@ function AccessModal({ row, onClose, onSaved }) {
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
-          rows={7}
+          rows={12}
           placeholder="one@example.com&#10;two@example.com&#10;…  (or paste comma-separated)"
-          className="w-full rounded-xl border border-slate-200 p-3 text-sm outline-none dark:border-slate-700 dark:bg-slate-800"
+          className="min-h-[160px] w-full flex-1 rounded-xl border border-slate-200 p-3 text-sm outline-none dark:border-slate-700 dark:bg-slate-800"
         />
         <p className="mt-1 text-xs text-slate-400">One email per line (commas/spaces also work). Invalid entries are ignored. Tip: you can also grant access to one student from the <b>Students</b> list.</p>
 
@@ -463,15 +502,9 @@ function AccessModal({ row, onClose, onSaved }) {
           </p>
         </div>
 
-        {error && <p className="mt-2 text-sm font-medium text-rose-600">{error}</p>}
-        <div className="mt-5 flex justify-end gap-2">
-          <button onClick={onClose} className="btn-outline">Cancel</button>
-          <button onClick={save} disabled={busy} className="btn-primary">
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCheck className="h-4 w-4" />} {busy ? "Saving…" : "Save"}
-          </button>
-        </div>
+        {error && <p className="mt-3 text-sm font-medium text-rose-600">{error}</p>}
       </div>
-    </div>
+    </FullScreenModal>
   );
 }
 
@@ -725,62 +758,56 @@ function AddTestModal({ onClose, onAdded }) {
 function LeaderboardModal({ board, onClose }) {
   const rows = board.data?.rows || [];
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4" onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} className="my-10 w-full max-w-3xl animate-scale-in card p-6">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="flex items-center gap-2 text-lg font-bold"><Trophy className="h-5 w-5 text-amber-500" /> Rankings — {board.row.name}</h3>
-          <button onClick={onClose}><X className="h-5 w-5" /></button>
-        </div>
-        {board.loading ? (
-          <div className="flex items-center justify-center py-10 text-slate-400"><Loader2 className="h-6 w-6 animate-spin" /></div>
-        ) : board.data?.error ? (
-          <ErrorState message={board.data.error} />
-        ) : rows.length === 0 ? (
-          <EmptyState message="No candidates have completed this exam yet." />
-        ) : (
-          <>
-            <p className="mb-3 text-sm text-slate-500">
-              {board.data.candidates} candidate{board.data.candidates === 1 ? "" : "s"} · {board.data.totalAttempts} attempt{board.data.totalAttempts === 1 ? "" : "s"} (best attempt per student)
-              {!board.data.resultsReleased && <span className="ml-1 text-amber-600 dark:text-amber-400">· not yet released to candidates</span>}
-            </p>
-            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-              <table className="w-full min-w-[620px] text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800/60">
-                    <th className="px-3 py-2 text-left font-semibold">Rank</th>
-                    <th className="px-3 py-2 text-left font-semibold">Name</th>
-                    <th className="px-3 py-2 text-left font-semibold">Email</th>
-                    <th className="px-3 py-2 text-left font-semibold">Score</th>
-                    <th className="px-3 py-2 text-left font-semibold">%</th>
-                    <th className="px-3 py-2 text-left font-semibold">Correct</th>
-                    <th className="px-3 py-2 text-left font-semibold">Time</th>
-                    <th className="px-3 py-2 text-left font-semibold">Date</th>
+    <FullScreenModal onClose={onClose} icon={<Trophy className="h-5 w-5 text-amber-500" />} title={`Rankings — ${board.row.name}`}>
+      {board.loading ? (
+        <div className="flex items-center justify-center py-10 text-slate-400"><Loader2 className="h-6 w-6 animate-spin" /></div>
+      ) : board.data?.error ? (
+        <ErrorState message={board.data.error} />
+      ) : rows.length === 0 ? (
+        <EmptyState message="No candidates have completed this exam yet." />
+      ) : (
+        <>
+          <p className="mb-3 text-sm text-slate-500">
+            {board.data.candidates} candidate{board.data.candidates === 1 ? "" : "s"} · {board.data.totalAttempts} attempt{board.data.totalAttempts === 1 ? "" : "s"} (best attempt per student)
+            {!board.data.resultsReleased && <span className="ml-1 text-amber-600 dark:text-amber-400">· not yet released to candidates</span>}
+          </p>
+          <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
+            <table className="w-full min-w-[620px] text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800/60">
+                  <th className="px-3 py-2 text-left font-semibold">Rank</th>
+                  <th className="px-3 py-2 text-left font-semibold">Name</th>
+                  <th className="px-3 py-2 text-left font-semibold">Email</th>
+                  <th className="px-3 py-2 text-left font-semibold">Score</th>
+                  <th className="px-3 py-2 text-left font-semibold">%</th>
+                  <th className="px-3 py-2 text-left font-semibold">Correct</th>
+                  <th className="px-3 py-2 text-left font-semibold">Time</th>
+                  <th className="px-3 py-2 text-left font-semibold">Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((a) => (
+                  <tr key={a.email + a.rank} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
+                    <td className="px-3 py-2">
+                      <span className={`inline-flex h-7 min-w-7 items-center justify-center gap-1 rounded-full px-2 text-xs font-bold ${rankStyle(a.rank)}`}>
+                        {a.rank <= 3 && <Medal className="h-3 w-3" />}{a.rank}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 font-semibold">{a.name}</td>
+                    <td className="px-3 py-2 text-slate-500"><span className="inline-flex items-center gap-1"><Mail className="h-3 w-3 text-slate-400" />{a.email}</span></td>
+                    <td className="px-3 py-2 font-semibold">{a.score}{a.maxScore != null ? ` / ${a.maxScore}` : ""}</td>
+                    <td className="px-3 py-2">{a.percentage}%</td>
+                    <td className="px-3 py-2">{a.correct}/{a.totalQ}</td>
+                    <td className="px-3 py-2 tabular-nums"><Clock className="mr-1 inline h-3 w-3 text-slate-400" />{fmtTime(a.timeTaken)}</td>
+                    <td className="px-3 py-2 text-slate-500">{fmtDate(a.at)}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {rows.map((a) => (
-                    <tr key={a.email + a.rank} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
-                      <td className="px-3 py-2">
-                        <span className={`inline-flex h-7 min-w-7 items-center justify-center gap-1 rounded-full px-2 text-xs font-bold ${rankStyle(a.rank)}`}>
-                          {a.rank <= 3 && <Medal className="h-3 w-3" />}{a.rank}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2 font-semibold">{a.name}</td>
-                      <td className="px-3 py-2 text-slate-500"><span className="inline-flex items-center gap-1"><Mail className="h-3 w-3 text-slate-400" />{a.email}</span></td>
-                      <td className="px-3 py-2 font-semibold">{a.score}{a.maxScore != null ? ` / ${a.maxScore}` : ""}</td>
-                      <td className="px-3 py-2">{a.percentage}%</td>
-                      <td className="px-3 py-2">{a.correct}/{a.totalQ}</td>
-                      <td className="px-3 py-2 tabular-nums"><Clock className="mr-1 inline h-3 w-3 text-slate-400" />{fmtTime(a.timeTaken)}</td>
-                      <td className="px-3 py-2 text-slate-500">{fmtDate(a.at)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </FullScreenModal>
   );
 }
 
@@ -815,13 +842,7 @@ function StudentsModal({ state, onClose, onReload, onAllowedChange }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4" onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} className="my-10 w-full max-w-3xl animate-scale-in card p-6">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="flex items-center gap-2 text-lg font-bold"><Users className="h-5 w-5 text-brand-600" /> Students — {row.name}</h3>
-          <button onClick={onClose}><X className="h-5 w-5" /></button>
-        </div>
-
+    <FullScreenModal onClose={onClose} icon={<Users className="h-5 w-5 text-brand-600" />} title={`Students — ${row.name}`}>
         {loading ? (
           <div className="flex items-center justify-center py-10 text-slate-400"><Loader2 className="h-6 w-6 animate-spin" /></div>
         ) : data?.error ? (
@@ -845,7 +866,7 @@ function StudentsModal({ state, onClose, onReload, onAllowedChange }) {
             {filtered.length === 0 ? (
               <EmptyState message={`No students match “${q}”.`} />
             ) : (
-              <div className="max-h-[55vh] overflow-auto rounded-xl border border-slate-200 dark:border-slate-700">
+              <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
                 <table className="w-full min-w-[640px] text-sm">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800/60">
@@ -890,7 +911,6 @@ function StudentsModal({ state, onClose, onReload, onAllowedChange }) {
             </p>
           </>
         )}
-      </div>
-    </div>
+    </FullScreenModal>
   );
 }
