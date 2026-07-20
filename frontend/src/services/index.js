@@ -181,6 +181,8 @@ export const cbtService = {
   registrations: () => api.get("/cbt/admin/registrations"), // registered candidates
   deleteRegistration: (id) => api.del(`/cbt/admin/registrations/${id}`),
   leaderboard: (id) => api.get(`/cbt/admin/${id}/leaderboard`),
+  students: (id) => api.get(`/cbt/admin/${id}/students`), // per-exam joined-student status
+  grantLateEntry: (id, email, allow = true) => api.patch(`/cbt/admin/${id}/late-entry`, { email, allow }), // grant/revoke one student's late entry
   add: (id) => api.patch(`/cbt/admin/${id}/add`), // add a My Test to the portal
   update: (id, data) => api.patch(`/cbt/admin/${id}/update`, data), // { live?, endAt? }
   release: (id) => api.patch(`/cbt/admin/${id}/release`), // end now + email scorecards
