@@ -57,7 +57,7 @@ export default function AdminCbt() {
       .then((r) => {
         const list = Array.isArray(r) ? r : [];
         setRows(list);
-        setDrafts(Object.fromEntries(list.map((x) => [x._id, { start: toLocalInput(x.cbtStartAt), end: toLocalInput(x.cbtEndAt) }])));
+        setDrafts(Object.fromEntries(list.map((x) => [x._id, { start: toLocalInput(x.cbtStartAt), entry: toLocalInput(x.cbtEntryCloseAt), end: toLocalInput(x.cbtEndAt) }])));
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -92,9 +92,10 @@ export default function AdminCbt() {
     setBusy(`sch-${r._id}`);
     try {
       const startAt = d.start ? new Date(d.start).toISOString() : "";
+      const entryCloseAt = d.entry ? new Date(d.entry).toISOString() : "";
       const endAt = d.end ? new Date(d.end).toISOString() : "";
-      const res = await cbtService.update(r._id, { startAt, endAt });
-      patch(r._id, { cbtStartAt: res.cbtStartAt, cbtEndAt: res.cbtEndAt });
+      const res = await cbtService.update(r._id, { startAt, entryCloseAt, endAt });
+      patch(r._id, { cbtStartAt: res.cbtStartAt, cbtEntryCloseAt: res.cbtEntryCloseAt, cbtEndAt: res.cbtEndAt });
     } catch (e) {
       alert(e.message || "Could not save the schedule.");
     } finally {
@@ -260,6 +261,16 @@ export default function AdminCbt() {
                       />
                     </div>
                     <div>
+                      <label className="mb-0.5 flex items-center gap-1 text-xs text-slate-500"><CalendarClock className="h-3.5 w-3.5" /> Late entry until (optional)</label>
+                      <input
+                        type="datetime-local"
+                        value={drafts[r._id]?.entry || ""}
+                        disabled={locked}
+                        onChange={(e) => setDrafts((d) => ({ ...d, [r._id]: { ...d[r._id], entry: e.target.value } }))}
+                        className="rounded-lg border border-slate-200 px-2 py-1 text-sm disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800"
+                      />
+                    </div>
+                    <div>
                       <label className="mb-0.5 flex items-center gap-1 text-xs text-slate-500"><Clock className="h-3.5 w-3.5" /> Ends (auto-declares results)</label>
                       <input
                         type="datetime-local"
@@ -269,14 +280,14 @@ export default function AdminCbt() {
                         className="rounded-lg border border-slate-200 px-2 py-1 text-sm disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800"
                       />
                     </div>
-                    {!locked && (toLocalInput(r.cbtStartAt) !== (drafts[r._id]?.start || "") || toLocalInput(r.cbtEndAt) !== (drafts[r._id]?.end || "")) && (
+                    {!locked && (toLocalInput(r.cbtStartAt) !== (drafts[r._id]?.start || "") || toLocalInput(r.cbtEntryCloseAt) !== (drafts[r._id]?.entry || "") || toLocalInput(r.cbtEndAt) !== (drafts[r._id]?.end || "")) && (
                       <button onClick={() => saveSchedule(r)} disabled={busy === `sch-${r._id}`} className="btn-primary py-1.5 text-xs">
                         {busy === `sch-${r._id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save schedule"}
                       </button>
                     )}
                   </div>
                   <p className="text-xs text-slate-400">
-                    Late joiners can still enter until the end time — their timer ends when the exam closes. Results declare automatically at the end time.
+                    <b>Late entry until</b>: the last time a student may <b>start</b> — after it, new students can't enter (those already in keep going, timer ends at the end time). Leave empty to allow entry until the end.
                     {!r.cbtEndAt && " No end set — you'll release results manually."}
                   </p>
                 </div>

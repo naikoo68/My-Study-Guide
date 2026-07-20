@@ -414,6 +414,9 @@ export default function CbtPortal() {
                         {scheduled && r.startAt && (
                           <p className="mt-2 inline-flex items-center gap-1 text-xs text-brand-600 dark:text-brand-400"><CalendarClock className="h-3.5 w-3.5" /> Opens {fmtDate(r.startAt)}</p>
                         )}
+                        {r.entryCloseAt && (
+                          <p className="mt-1 inline-flex items-center gap-1 text-xs text-rose-600 dark:text-rose-400"><CalendarClock className="h-3.5 w-3.5" /> Enter by {fmtDate(r.entryCloseAt)}</p>
+                        )}
                         {r.endAt && (
                           <p className="mt-1 inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400"><CalendarClock className="h-3.5 w-3.5" /> Closes {fmtDate(r.endAt)}</p>
                         )}
@@ -427,6 +430,10 @@ export default function CbtPortal() {
                         <button disabled className="btn-outline mt-4 w-full cursor-not-allowed opacity-60">
                           <CalendarClock className="h-4 w-4" /> Not open yet
                         </button>
+                      ) : r.entryClosed ? (
+                        <div className="mt-4 flex items-center justify-center gap-1.5 rounded-xl bg-rose-50 py-2.5 text-sm font-medium text-rose-600 dark:bg-rose-900/20 dark:text-rose-300">
+                          <Clock className="h-4 w-4" /> Entry closed
+                        </div>
                       ) : (
                         <button onClick={() => navigate(`/cbt/exam/${r.token}`)} className="btn-primary mt-4 w-full">
                           <MonitorCheck className="h-4 w-4" /> Start Exam

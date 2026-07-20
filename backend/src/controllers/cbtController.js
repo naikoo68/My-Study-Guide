@@ -40,6 +40,9 @@ function frontendOriginFromReq(req) {
 const endReached = (t) => t.cbtEndAt && new Date(t.cbtEndAt).getTime() <= Date.now();
 // Whether the exam hasn't opened yet (scheduled start time not reached).
 const notStartedYet = (t) => t.cbtStartAt && new Date(t.cbtStartAt).getTime() > Date.now();
+// Whether NEW entries are closed: past the admin's manual late-entry cutoff.
+// (Students already inside keep going — the timer is bound to the end time.)
+const entryClosed = (t) => t.cbtEntryCloseAt && new Date(t.cbtEntryCloseAt).getTime() <= Date.now();
 // Whether candidates may currently take the exam: on the portal, live, results
 // not released, started (if scheduled), and the end time (if any) not reached.
 const openForTaking = (t) =>
@@ -168,8 +171,10 @@ export async function getCbtPortal(req, res) {
       questionCount: t.questions?.length || 0,
       context: [t.practiceStream?.name, t.practiceSubject?.name].filter(Boolean).join(" › "),
       startAt: t.cbtStartAt || null,
+      entryCloseAt: t.cbtEntryCloseAt || null,
       endAt: t.cbtEndAt || null,
       state: examWindowState(t), // "open" | "scheduled"
+      entryClosed: entryClosed(t), // late-entry cutoff passed
       completed: completedSet.has(String(t._id)),
     }))
   );
@@ -180,7 +185,7 @@ export async function getCbtPortal(req, res) {
 // OTP verification, via /start.
 export async function getCbtExam(req, res) {
   const test = await TestSeries.findOne({ cbtToken: req.params.token, cbtEnabled: true })
-    .select("name duration marks questions cbtLive cbtStartAt cbtEndAt cbtResultsReleased cbtRequireOtp").lean();
+    .select("name duration marks questions cbtLive cbtStartAt cbtEntryCloseAt cbtEndAt cbtResultsReleased cbtRequireOtp").lean();
   if (!test) return res.status(404).json({ message: "This exam link is invalid." });
   res.json({
     _id: test._id,
@@ -190,6 +195,7 @@ export async function getCbtExam(req, res) {
     questionCount: test.questions?.length || 0,
     requireOtp: test.cbtRequireOtp !== false,
     startAt: test.cbtStartAt || null,
+    entryCloseAt: test.cbtEntryCloseAt || null,
     endAt: test.cbtEndAt || null,
     serverNow: new Date().toISOString(),
     state: examWindowState(test), // open | scheduled | ended | released | off
@@ -347,6 +353,8 @@ export async function startCbt(req, res) {
   const test = await TestSeries.findOne({ cbtToken: req.params.token, cbtEnabled: true }).populate("questions");
   if (!test) return res.status(404).json({ message: "This exam link is invalid." });
   if (!openForTaking(test)) return res.status(403).json({ message: notStartedYet(test) ? "This exam hasn't started yet." : "This exam has ended or is not open right now." });
+  // Manual late-entry cutoff: too late to START (those already in are unaffected).
+  if (entryClosed(test)) return res.status(403).json({ entryClosed: true, message: `Entry is closed — late entry was allowed only until ${new Date(test.cbtEntryCloseAt).toLocaleString()}.` });
 
   // Must be a verified portal session (registered on the portal page).
   if (!(await findPortalSession(cleanEmail, sessionToken))) {
@@ -639,6 +647,7 @@ export async function listCbtExams(req, res) {
         cbtToken: t.cbtToken,
         cbtLive: !!t.cbtLive,
         cbtStartAt: t.cbtStartAt || null,
+        cbtEntryCloseAt: t.cbtEntryCloseAt || null,
         cbtEndAt: t.cbtEndAt || null,
         cbtRequireOtp: t.cbtRequireOtp !== false,
         cbtResultsReleased: !!t.cbtResultsReleased,
@@ -750,6 +759,15 @@ export async function updateCbtExam(req, res) {
       test.cbtStartAt = d;
     }
   }
+  if ("entryCloseAt" in body) {
+    if (!body.entryCloseAt) {
+      test.cbtEntryCloseAt = null;
+    } else {
+      const d = new Date(body.entryCloseAt);
+      if (isNaN(d.getTime())) return res.status(400).json({ message: "Invalid late-entry date/time." });
+      test.cbtEntryCloseAt = d;
+    }
+  }
   if ("endAt" in body) {
     if (!body.endAt) {
       test.cbtEndAt = null;
@@ -762,8 +780,11 @@ export async function updateCbtExam(req, res) {
   if (test.cbtStartAt && test.cbtEndAt && test.cbtEndAt.getTime() <= test.cbtStartAt.getTime()) {
     return res.status(400).json({ message: "The end time must be after the start time." });
   }
+  if (test.cbtEntryCloseAt && test.cbtEndAt && test.cbtEntryCloseAt.getTime() > test.cbtEndAt.getTime()) {
+    return res.status(400).json({ message: "Late-entry cutoff must be at or before the end time." });
+  }
   await test.save();
-  res.json({ cbtLive: test.cbtLive, cbtStartAt: test.cbtStartAt, cbtEndAt: test.cbtEndAt, cbtRequireOtp: test.cbtRequireOtp, cbtResultsReleased: test.cbtResultsReleased });
+  res.json({ cbtLive: test.cbtLive, cbtStartAt: test.cbtStartAt, cbtEntryCloseAt: test.cbtEntryCloseAt, cbtEndAt: test.cbtEndAt, cbtRequireOtp: test.cbtRequireOtp, cbtResultsReleased: test.cbtResultsReleased });
 }
 
 // PATCH /api/cbt/admin/:id/release — end the exam NOW and release results:
