@@ -44,8 +44,9 @@ export default function AdminCbt() {
   const [drafts, setDrafts] = useState({}); // id -> datetime-local string
   const [addOpen, setAddOpen] = useState(false);
   const [regOpen, setRegOpen] = useState(false);
-  const [accessRow, setAccessRow] = useState(null); // exam whose allowlist is being edited
+  const [accessRow, setAccessRow] = useState(null); // exam whose late-entry allowlist is being edited
   const [board, setBoard] = useState(null); // { row, data, loading }
+  const [students, setStudents] = useState(null); // { row, data, loading }
 
   const load = useCallback(() => {
     setLoading(true);
@@ -139,6 +140,14 @@ export default function AdminCbt() {
       .catch((e) => setBoard({ row, data: { error: e.message, rows: [] }, loading: false }));
   };
 
+  const openStudents = (row) => {
+    setStudents({ row, data: null, loading: true });
+    cbtService
+      .students(row._id)
+      .then((data) => setStudents({ row, data, loading: false }))
+      .catch((e) => setStudents({ row, data: { error: e.message, rows: [] }, loading: false }));
+  };
+
   const totalCandidates = rows.reduce((s, r) => s + (r.candidates || 0), 0);
   const liveCount = rows.filter((r) => r.status === "live").length;
 
@@ -224,10 +233,10 @@ export default function AdminCbt() {
                       <p className="flex items-center gap-1 text-2xl font-extrabold text-brand-600 dark:text-brand-400"><Eye className="h-5 w-5" /> {r.opens ?? 0}</p>
                       <p className="text-[11px] text-slate-500">opened</p>
                     </div>
-                    <div className="text-center">
+                    <button onClick={() => openStudents(r)} className="rounded-lg px-1 text-center transition hover:bg-slate-100 dark:hover:bg-slate-800" title="View the status of all joined students">
                       <p className="flex items-center gap-1 text-2xl font-extrabold text-emerald-600 dark:text-emerald-400"><Users className="h-5 w-5" /> {r.candidates}</p>
                       <p className="text-[11px] text-slate-500">candidates</p>
-                    </div>
+                    </button>
                   </div>
                 </div>
 
@@ -297,11 +306,14 @@ export default function AdminCbt() {
                   <a href={`#/cbt/exam/${r.cbtToken}`} target="_blank" rel="noreferrer" className="btn-outline py-1.5 text-xs" title="Preview the exam as a candidate">
                     <ExternalLink className="h-3.5 w-3.5" /> Preview
                   </a>
+                  <button onClick={() => openStudents(r)} className="btn-outline py-1.5 text-xs" title="Status of all students who joined this exam">
+                    <Users className="h-3.5 w-3.5" /> Students
+                  </button>
                   <button onClick={() => openBoard(r)} disabled={!r.candidates} className="btn-outline py-1.5 text-xs disabled:opacity-50">
                     <Trophy className="h-3.5 w-3.5" /> Rankings ({r.candidates})
                   </button>
-                  <button onClick={() => setAccessRow(r)} className="btn-outline py-1.5 text-xs" title="Choose who can enter this exam">
-                    <UserCheck className="h-3.5 w-3.5" /> Who can enter{r.cbtRestrictEntry ? ` (${(r.cbtAllowedEmails || []).length})` : ""}
+                  <button onClick={() => setAccessRow(r)} className="btn-outline py-1.5 text-xs" title="Grant specific students late-entry access (they can start after the cutoff)">
+                    <UserCheck className="h-3.5 w-3.5" /> Late entry access{(r.cbtAllowedEmails || []).length ? ` (${(r.cbtAllowedEmails || []).length})` : ""}
                   </button>
                   {!r.cbtResultsReleased && (
                     <button onClick={() => releaseNow(r)} disabled={busy === `rel-${r._id}`} className="btn-accent py-1.5 text-xs" title="End the exam now and email everyone their scorecard">
@@ -328,11 +340,19 @@ export default function AdminCbt() {
         />
       )}
       {board && <LeaderboardModal board={board} onClose={() => setBoard(null)} />}
+      {students && (
+        <StudentsModal
+          state={students}
+          onClose={() => setStudents(null)}
+          onReload={() => openStudents(students.row)}
+          onAllowedChange={(list) => patch(students.row._id, { cbtAllowedEmails: list })}
+        />
+      )}
     </div>
   );
 }
 
-/* ---------------- Access modal: who can enter this exam ---------------- */
+/* -------- Late-entry access modal: grant specific students late entry -------- */
 function AccessModal({ row, onClose, onSaved }) {
   const [restrict, setRestrict] = useState(!!row.cbtRestrictEntry);
   const [text, setText] = useState((row.cbtAllowedEmails || []).join("\n"));
@@ -356,40 +376,43 @@ function AccessModal({ row, onClose, onSaved }) {
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4" onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} className="my-12 w-full max-w-lg animate-scale-in card p-6">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="flex items-center gap-2 text-lg font-bold"><UserCheck className="h-5 w-5 text-brand-600" /> Who can enter — {row.name}</h3>
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="flex items-center gap-2 text-lg font-bold"><UserCheck className="h-5 w-5 text-brand-600" /> Late entry access — {row.name}</h3>
           <button onClick={onClose}><X className="h-5 w-5" /></button>
         </div>
-
-        <label className="flex items-center gap-2 text-sm font-medium">
-          <button
-            type="button"
-            role="switch"
-            aria-checked={restrict}
-            onClick={() => setRestrict((v) => !v)}
-            className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${restrict ? "bg-brand-500" : "bg-slate-300 dark:bg-slate-600"}`}
-          >
-            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${restrict ? "left-[22px]" : "left-0.5"}`} />
-          </button>
-          Only allow specific candidates
-        </label>
-        <p className="mt-1 text-xs text-slate-400">
-          {restrict ? "Only the emails below can register/take this exam. Others won't see it." : "Anyone who registers on the portal can take this exam."}
+        <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
+          Students listed here can <b>start this exam even after the “Late entry until” cutoff</b> has passed — use it to re-admit someone who joined late. (They still can't start once the exam has <b>ended</b>.)
         </p>
 
-        {restrict && (
-          <div className="mt-3">
-            <label className="mb-1 block text-sm font-semibold">Allowed emails <span className="font-normal text-slate-400">({emailCount})</span></label>
-            <textarea
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              rows={8}
-              placeholder="one@example.com&#10;two@example.com&#10;…  (or paste comma-separated)"
-              className="w-full rounded-xl border border-slate-200 p-3 text-sm outline-none dark:border-slate-700 dark:bg-slate-800"
-            />
-            <p className="mt-1 text-xs text-slate-400">One email per line (commas/spaces also work). Invalid entries are ignored.</p>
-          </div>
-        )}
+        <label className="mb-1 block text-sm font-semibold">
+          Emails with late-entry access <span className="font-normal text-slate-400">({emailCount})</span>
+        </label>
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          rows={7}
+          placeholder="one@example.com&#10;two@example.com&#10;…  (or paste comma-separated)"
+          className="w-full rounded-xl border border-slate-200 p-3 text-sm outline-none dark:border-slate-700 dark:bg-slate-800"
+        />
+        <p className="mt-1 text-xs text-slate-400">One email per line (commas/spaces also work). Invalid entries are ignored. Tip: you can also grant access to one student from the <b>Students</b> list.</p>
+
+        <div className="mt-4 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/50">
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={restrict}
+              onClick={() => setRestrict((v) => !v)}
+              className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${restrict ? "bg-brand-500" : "bg-slate-300 dark:bg-slate-600"}`}
+            >
+              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${restrict ? "left-[22px]" : "left-0.5"}`} />
+            </button>
+            Make this exam private (only these emails can take it)
+          </label>
+          <p className="mt-1 text-xs text-slate-400">
+            {restrict ? "Only the emails above can register/take this exam — others won't see it." : "Anyone who registers on the portal can take this exam; the list above only grants late entry."}
+          </p>
+        </div>
 
         {error && <p className="mt-2 text-sm font-medium text-rose-600">{error}</p>}
         <div className="mt-5 flex justify-end gap-2">
@@ -705,6 +728,117 @@ function LeaderboardModal({ board, onClose }) {
                 </tbody>
               </table>
             </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+/* ---------------- Students modal: status of everyone who joined ---------------- */
+const STUDENT_STATUS = {
+  completed: { label: "Completed", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" },
+  in_progress: { label: "In progress", cls: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300" },
+  not_started: { label: "Not started", cls: "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300" },
+};
+
+function StudentsModal({ state, onClose, onReload, onAllowedChange }) {
+  const { row, data, loading } = state;
+  const [q, setQ] = useState("");
+  const [busyEmail, setBusyEmail] = useState("");
+  const rows = data?.rows || [];
+  const counts = data?.counts || { total: 0, completed: 0, inProgress: 0, notStarted: 0 };
+
+  const filtered = rows.filter((r) => `${r.name} ${r.email}`.toLowerCase().includes(q.trim().toLowerCase()));
+
+  const setLate = async (r, allow) => {
+    setBusyEmail(r.email);
+    try {
+      const res = await cbtService.grantLateEntry(row._id, r.email, allow);
+      onAllowedChange(res.cbtAllowedEmails || []);
+      onReload();
+    } catch (e) {
+      alert(e.message || "Could not update late-entry access.");
+    } finally {
+      setBusyEmail("");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="my-10 w-full max-w-3xl animate-scale-in card p-6">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="flex items-center gap-2 text-lg font-bold"><Users className="h-5 w-5 text-brand-600" /> Students — {row.name}</h3>
+          <button onClick={onClose}><X className="h-5 w-5" /></button>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center justify-center py-10 text-slate-400"><Loader2 className="h-6 w-6 animate-spin" /></div>
+        ) : data?.error ? (
+          <ErrorState message={data.error} />
+        ) : rows.length === 0 ? (
+          <EmptyState message="No students have joined this exam yet." />
+        ) : (
+          <>
+            <div className="mb-3 flex flex-wrap gap-2 text-xs">
+              <span className="rounded-full bg-emerald-100 px-2.5 py-1 font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">{counts.completed} completed</span>
+              <span className="rounded-full bg-amber-100 px-2.5 py-1 font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">{counts.inProgress} in progress</span>
+              <span className="rounded-full bg-slate-200 px-2.5 py-1 font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">{counts.notStarted} not started</span>
+            </div>
+
+            <div className="mb-3 flex items-center gap-2 rounded-xl border border-slate-200 px-3 dark:border-slate-700">
+              <Search className="h-4 w-4 flex-shrink-0 text-slate-400" />
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name or email…" className="w-full bg-transparent py-2 text-sm outline-none" />
+              {q && <button onClick={() => setQ("")} className="flex-shrink-0 text-slate-400 hover:text-slate-600"><X className="h-4 w-4" /></button>}
+            </div>
+
+            {filtered.length === 0 ? (
+              <EmptyState message={`No students match “${q}”.`} />
+            ) : (
+              <div className="max-h-[55vh] overflow-auto rounded-xl border border-slate-200 dark:border-slate-700">
+                <table className="w-full min-w-[640px] text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800/60">
+                      <th className="px-3 py-2 text-left font-semibold">Name</th>
+                      <th className="px-3 py-2 text-left font-semibold">Email</th>
+                      <th className="px-3 py-2 text-left font-semibold">Status</th>
+                      <th className="px-3 py-2 text-left font-semibold">Score</th>
+                      <th className="px-3 py-2 text-left font-semibold">Late entry</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map((r) => {
+                      const st = STUDENT_STATUS[r.status] || STUDENT_STATUS.not_started;
+                      return (
+                        <tr key={r.email} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
+                          <td className="px-3 py-2 font-semibold">{r.name || "—"}</td>
+                          <td className="px-3 py-2 text-slate-500"><span className="inline-flex items-center gap-1"><Mail className="h-3 w-3 text-slate-400" />{r.email}</span></td>
+                          <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${st.cls}`}>{st.label}</span></td>
+                          <td className="px-3 py-2">{r.status === "completed" ? `${r.score}${r.maxScore != null ? ` / ${r.maxScore}` : ""} (${r.percentage}%)` : "—"}</td>
+                          <td className="px-3 py-2">
+                            {r.status === "completed" ? (
+                              r.lateEntryAccess ? <span className="text-xs text-slate-400">granted</span> : <span className="text-xs text-slate-300 dark:text-slate-600">—</span>
+                            ) : r.lateEntryAccess ? (
+                              <button onClick={() => setLate(r, false)} disabled={busyEmail === r.email} className="inline-flex items-center gap-1 rounded-lg bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-200 disabled:opacity-50 dark:bg-emerald-900/40 dark:text-emerald-300" title="Granted — click to revoke">
+                                {busyEmail === r.email ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Granted
+                              </button>
+                            ) : (
+                              <button onClick={() => setLate(r, true)} disabled={busyEmail === r.email} className="btn-outline py-1 text-xs disabled:opacity-50" title="Let this student start even after the late-entry cutoff">
+                                {busyEmail === r.email ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserCheck className="h-3.5 w-3.5" />} Grant late entry
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <p className="mt-3 text-xs text-slate-400">
+              <b>Completed</b> = submitted · <b>In progress</b> = started, not submitted yet · <b>Not started</b> = granted access but hasn't begun. “Grant late entry” lets a student start even after the <b>Late entry until</b> cutoff.
+            </p>
           </>
         )}
       </div>

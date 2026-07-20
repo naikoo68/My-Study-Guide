@@ -61,6 +61,12 @@ function examWindowState(t) {
 const emailAllowed = (t, email) =>
   !t.cbtRestrictEntry || (t.cbtAllowedEmails || []).includes(String(email || "").toLowerCase());
 
+// Whether an email was explicitly granted access on the allowlist. Such
+// candidates may START even after the late-entry cutoff (a per-student
+// late-entry override the admin can grant to re-admit someone who was late).
+const onAllowedList = (t, email) =>
+  (t.cbtAllowedEmails || []).includes(String(email || "").toLowerCase());
+
 // Has this email already completed (submitted) this exam? Used to enforce the
 // one-attempt-per-student rule.
 async function hasCompleted(testId, email) {
@@ -358,18 +364,26 @@ export async function startCbt(req, res) {
   const test = await TestSeries.findOne({ cbtToken: req.params.token, cbtEnabled: true }).populate("questions");
   if (!test) return res.status(404).json({ message: "This exam link is invalid." });
   if (!openForTaking(test)) return res.status(403).json({ message: notStartedYet(test) ? "This exam hasn't started yet." : "This exam has ended or is not open right now." });
-  // Manual late-entry cutoff: too late to START (those already in are unaffected).
-  if (entryClosed(test)) return res.status(403).json({ entryClosed: true, message: `Entry is closed — late entry was allowed only until ${new Date(test.cbtEntryCloseAt).toLocaleString()}.` });
+  // Manual late-entry cutoff: too late to START — UNLESS the admin explicitly
+  // granted this email late-entry access (it's on the allowlist). Candidates
+  // already inside are unaffected (their timer is bound to the end time).
+  if (entryClosed(test) && !onAllowedList(test, cleanEmail)) {
+    return res.status(403).json({ entryClosed: true, message: `Entry is closed — late entry was allowed only until ${new Date(test.cbtEntryCloseAt).toLocaleString()}. Ask the organiser to grant you late-entry access.` });
+  }
 
   // Must be a verified portal session (registered on the portal page).
   if (!(await findPortalSession(cleanEmail, sessionToken))) {
     return res.status(401).json({ needRegister: true, message: "Please register on the exam portal to take this exam." });
   }
-  // Entry allowlist: only approved emails may take a restricted exam.
+  // Entry allowlist: only approved emails may take a restricted (private) exam.
   if (!emailAllowed(test, cleanEmail)) {
     return res.status(403).json({ notAllowed: true, message: "You're not on the list of candidates allowed to take this exam. Please contact the organiser." });
   }
   if (await hasCompleted(test._id, cleanEmail)) return res.status(409).json({ alreadyCompleted: true, message: "You have already taken this exam." });
+
+  // Record that this candidate has STARTED, so the admin's student-status view
+  // can show them as "in progress" (fire-and-forget; never blocks the start).
+  TestSeries.updateOne({ _id: test._id }, { $addToSet: { cbtStartedEmails: cleanEmail } }).catch(() => {});
 
   const obj = test.toObject();
   const questions = (obj.questions || []).map((q) => {
@@ -745,6 +759,7 @@ export async function addCbtExam(req, res) {
   test.cbtLive = false;
   test.cbtStartAt = null;
   test.cbtEndAt = null;
+  test.cbtStartedEmails = []; // fresh run — clear any "in progress" state from a previous one
   if (!test.cbtToken) test.cbtToken = crypto.randomBytes(12).toString("hex");
   await test.save();
   res.json({ cbtEnabled: true, cbtToken: test.cbtToken, cbtLive: test.cbtLive });
@@ -857,6 +872,99 @@ export async function cbtLeaderboard(req, res) {
       at: a.createdAt,
     })),
   });
+}
+
+// GET /api/cbt/admin/:id/students — status of every candidate who has JOINED
+// this exam: completed (with score), in progress (started, not submitted), or
+// granted late-entry access but not started yet. Used by the admin's per-exam
+// "Students" view.
+export async function listCbtStudents(req, res) {
+  if (!isAdmin(req)) return res.status(403).json({ message: "Admins only." });
+  const test = await TestSeries.findOne({ _id: req.params.id, owner: null })
+    .select("name marks cbtResultsReleased cbtRestrictEntry cbtAllowedEmails cbtStartedEmails cbtEntryCloseAt").lean();
+  if (!test) return res.status(404).json({ message: "Test not found." });
+
+  const attempts = await CbtAttempt.find({ testSeries: test._id })
+    .select("name email score maxScore percentage correct incorrect total timeTaken createdAt").lean();
+  const board = rankBestPerStudent(attempts); // best attempt per student, ranked
+
+  const completedEmails = new Set(board.map((a) => (a.email || "").toLowerCase()));
+  const startedEmails = (test.cbtStartedEmails || []).map((e) => e.toLowerCase());
+  const startedSet = new Set(startedEmails);
+  const allowedEmails = (test.cbtAllowedEmails || []).map((e) => e.toLowerCase());
+  const allowedSet = new Set(allowedEmails);
+
+  // Resolve names for started/allowed candidates who haven't completed (their
+  // name isn't in an attempt). Portal registrations hold name + email.
+  const needNames = [...new Set([...startedEmails, ...allowedEmails])].filter((e) => !completedEmails.has(e));
+  const regs = needNames.length
+    ? await CbtRegistration.find({ email: { $in: needNames } }).select("name email").lean()
+    : [];
+  const nameByEmail = new Map(regs.map((r) => [(r.email || "").toLowerCase(), r.name]));
+
+  const rows = [];
+  // 1) Completed — from the ranked best-per-student board.
+  for (const a of board) {
+    const email = (a.email || "").toLowerCase();
+    rows.push({
+      email,
+      name: a.name || nameByEmail.get(email) || "—",
+      status: "completed",
+      lateEntryAccess: allowedSet.has(email),
+      rank: a.rank,
+      score: a.score,
+      maxScore: a.maxScore,
+      percentage: a.percentage,
+      correct: a.correct,
+      totalQ: a.total,
+      timeTaken: a.timeTaken,
+      submittedAt: a.createdAt,
+    });
+  }
+  // 2) In progress — started but not yet submitted.
+  for (const email of startedEmails) {
+    if (completedEmails.has(email)) continue;
+    rows.push({ email, name: nameByEmail.get(email) || "—", status: "in_progress", lateEntryAccess: allowedSet.has(email) });
+  }
+  // 3) Granted late-entry access but not started (and not completed).
+  for (const email of allowedEmails) {
+    if (completedEmails.has(email) || startedSet.has(email)) continue;
+    rows.push({ email, name: nameByEmail.get(email) || "—", status: "not_started", lateEntryAccess: true });
+  }
+
+  res.json({
+    name: test.name,
+    resultsReleased: !!test.cbtResultsReleased,
+    restrictEntry: !!test.cbtRestrictEntry,
+    entryCloseAt: test.cbtEntryCloseAt || null,
+    counts: {
+      total: rows.length,
+      completed: board.length,
+      inProgress: rows.filter((r) => r.status === "in_progress").length,
+      notStarted: rows.filter((r) => r.status === "not_started").length,
+    },
+    rows,
+  });
+}
+
+// PATCH /api/cbt/admin/:id/late-entry — grant or revoke ONE candidate's
+// late-entry access by adding/removing their email on the allowlist. Body
+// { email, allow }. Does NOT change the private "restrict" mode. Granting lets
+// that student START the exam even after the late-entry cutoff.
+export async function setLateEntryAccess(req, res) {
+  if (!isAdmin(req)) return res.status(403).json({ message: "Admins only." });
+  const { email = "", allow = true } = req.body || {};
+  const clean = String(email).trim().toLowerCase();
+  if (!EMAIL_RE.test(clean)) return res.status(400).json({ message: "Enter a valid email address." });
+  const test = await TestSeries.findOne({ _id: req.params.id, owner: null, cbtEnabled: true });
+  if (!test) return res.status(404).json({ message: "Exam not found on the portal." });
+
+  await TestSeries.updateOne(
+    { _id: test._id },
+    allow ? { $addToSet: { cbtAllowedEmails: clean } } : { $pull: { cbtAllowedEmails: clean } }
+  );
+  const updated = await TestSeries.findById(test._id).select("cbtAllowedEmails cbtRestrictEntry").lean();
+  res.json({ email: clean, allow: !!allow, cbtAllowedEmails: updated.cbtAllowedEmails, cbtRestrictEntry: !!updated.cbtRestrictEntry });
 }
 
 /* ===================== result email (HTML) ===================== */

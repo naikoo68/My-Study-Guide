@@ -25,6 +25,8 @@ import {
   releaseCbtResults,
   removeCbtExam,
   cbtLeaderboard,
+  listCbtStudents,
+  setLateEntryAccess,
 } from "../controllers/cbtController.js";
 import { protect, authorize } from "../middleware/auth.js";
 
@@ -58,6 +60,8 @@ router.get("/admin/candidates", ...admin, listCbtCandidates); // My Tests to add
 router.get("/admin/registrations", ...admin, listRegistrations); // registered candidates
 router.delete("/admin/registrations/:id", ...admin, deleteRegistration);
 router.get("/admin/:id/leaderboard", ...admin, cbtLeaderboard);
+router.get("/admin/:id/students", ...admin, listCbtStudents); // per-exam joined-student status
+router.patch("/admin/:id/late-entry", ...admin, setLateEntryAccess); // grant/revoke one student's late entry
 router.patch("/admin/:id/add", ...admin, addCbtExam);
 router.patch("/admin/:id/update", ...admin, updateCbtExam); // { live?, endAt? }
 router.patch("/admin/:id/release", ...admin, releaseCbtResults);

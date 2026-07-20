@@ -66,7 +66,15 @@ const testSeriesSchema = new mongoose.Schema(
     // may take the exam (an admin-approved allowlist). Off = open to anyone who
     // registered on the portal.
     cbtRestrictEntry: { type: Boolean, default: false },
+    // Emails granted explicit access. Doubles as a LATE-ENTRY allowlist: an
+    // email here may START the exam even after the cbtEntryCloseAt cutoff has
+    // passed (lets the admin re-admit a specific late candidate). When
+    // cbtRestrictEntry is on, ONLY these emails may take the exam (private mode).
     cbtAllowedEmails: { type: [String], default: [] },
+    // Emails that have STARTED this exam (were handed the questions). Lets the
+    // admin see a live "in progress" status per candidate. Reset when the exam
+    // is (re)added to the portal.
+    cbtStartedEmails: { type: [String], default: [] },
     cbtStartAt: { type: Date, default: null }, // exam opens at this time (null = as soon as Live)
     cbtEntryCloseAt: { type: Date, default: null }, // LATEST time a student may START (late-entry cutoff; null = until end)
     cbtEndAt: { type: Date, default: null }, // exam end / results-release time (null = admin releases manually)
