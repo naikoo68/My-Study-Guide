@@ -839,9 +839,7 @@ export async function generateQuestions(req, res) {
     }
     const page = await fetchPageText(genUrl);
     if (!page.ok) {
-      return res.status(502).json({
-        message: `Couldn't read that page${page.status ? ` (HTTP ${page.status})` : ""}. ${page.error || "The site may block automated access — paste the text instead."}`,
-      });
+      return res.status(502).json({ message: sourceReadError(genUrl, page) });
     }
     source = `${source}\n\n${page.text}`.trim();
   }
@@ -1081,54 +1079,173 @@ function youTubeId(url) {
 // Fetch a YouTube video's TRANSCRIPT (captions) as plain text, so questions can
 // be generated/extracted from a video link. Works only for videos that have
 // captions (manual or auto). Uses YouTube's own caption track — no extra deps.
+// fetch() with a per-request timeout and automatic retry/back-off on the
+// transient statuses YouTube throws at datacentre IPs (429 Too Many Requests,
+// 403 age/consent walls that clear on retry, and 5xx). Uses exponential
+// back-off with jitter, honouring a Retry-After header when present.
+async function fetchRetry(url, opts = {}, { tries = 4, timeoutMs = 20000 } = {}) {
+  let lastStatus = 0;
+  let lastErr = null;
+  for (let attempt = 0; attempt < tries; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const resp = await fetch(url, { ...opts, signal: controller.signal });
+      clearTimeout(timer);
+      // Retry only on transient rate-limit / server errors.
+      if (resp.status === 429 || resp.status === 503 || resp.status === 500) {
+        lastStatus = resp.status;
+        if (attempt < tries - 1) {
+          const retryAfter = Number(resp.headers.get("retry-after"));
+          const backoff = Number.isFinite(retryAfter) && retryAfter > 0
+            ? Math.min(retryAfter * 1000, 15000)
+            : Math.min(800 * 2 ** attempt, 8000) + Math.floor(Math.random() * 500);
+          await new Promise((r) => setTimeout(r, backoff));
+          continue;
+        }
+      }
+      return resp;
+    } catch (e) {
+      clearTimeout(timer);
+      lastErr = e;
+      if (attempt < tries - 1) {
+        await new Promise((r) => setTimeout(r, Math.min(800 * 2 ** attempt, 6000)));
+        continue;
+      }
+      throw e;
+    }
+  }
+  // Exhausted retries on a transient status — surface it as a synthetic response.
+  return { ok: false, status: lastStatus, text: async () => "", json: async () => ({}), headers: new Map(), _err: lastErr };
+}
+
+// Turn a caption track's baseUrl into flat transcript text (json3 or XML).
+async function readCaptionTrack(baseUrl, headers) {
+  let u = String(baseUrl || "").replace(/\\u0026/g, "&").replace(/\\\//g, "/");
+  if (!u) return "";
+  if (!/[?&]fmt=/.test(u)) u += "&fmt=json3"; // easier to parse than XML
+  const cap = await fetchRetry(u, { headers }, { tries: 4, timeoutMs: 20000 });
+  if (!cap.ok) return "";
+  const raw = await cap.text();
+  let text = "";
+  try {
+    const data = JSON.parse(raw); // json3 format
+    if (Array.isArray(data.events)) {
+      text = data.events.map((e) => (e.segs || []).map((s) => s.utf8 || "").join("")).join(" ");
+    }
+  } catch {
+    text = raw.replace(/<[^>]+>/g, " "); // XML fallback: strip <text> tags
+  }
+  return decodeEntities(text).replace(/\s+/g, " ").trim();
+}
+
+function pickTrack(tracks) {
+  if (!Array.isArray(tracks) || !tracks.length) return null;
+  return (
+    tracks.find((t) => /^en/i.test(t.languageCode || "")) ||
+    tracks.find((t) => /en/i.test(t.vssId || "")) ||
+    tracks[0]
+  );
+}
+
+// Ask YouTube's InnerTube player API for the caption tracks. Datacentre IPs get
+// rate-limited (429) far less often here than on the public watch page, and the
+// ANDROID client rarely hits consent/age walls — so we try this FIRST.
+async function ytCaptionTracksViaInnerTube(id) {
+  // Public InnerTube key + a couple of client identities to try in order.
+  const KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
+  const clients = [
+    { clientName: "ANDROID", clientVersion: "20.10.38", androidSdkVersion: 30 },
+    { clientName: "WEB", clientVersion: "2.20240726.00.00" },
+  ];
+  for (const client of clients) {
+    try {
+      const resp = await fetchRetry(
+        `https://www.youtube.com/youtubei/v1/player?key=${KEY}&prettyPrint=false`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "User-Agent": BROWSER_UA,
+            "Accept-Language": "en-US,en;q=0.9",
+            "X-Goog-Api-Format-Version": "2",
+          },
+          body: JSON.stringify({ context: { client: { ...client, hl: "en", gl: "US" } }, videoId: id }),
+        },
+        { tries: 4, timeoutMs: 20000 }
+      );
+      if (!resp.ok) continue;
+      const data = await resp.json();
+      const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+      if (Array.isArray(tracks) && tracks.length) return tracks;
+    } catch { /* try next client */ }
+  }
+  return [];
+}
+
+// Fall back to scraping the watch page for caption tracks.
+async function ytCaptionTracksViaWatchPage(id, headers) {
+  const resp = await fetchRetry(
+    `https://www.youtube.com/watch?v=${id}&hl=en`,
+    { redirect: "follow", headers: { ...headers, Accept: "text/html" } },
+    { tries: 4, timeoutMs: 20000 }
+  );
+  if (!resp.ok) return { tracks: [], status: resp.status };
+  const html = await resp.text();
+  const m = html.match(/"captionTracks":(\[.*?\])/s);
+  let tracks = [];
+  if (m) { try { tracks = JSON.parse(m[1]); } catch { /* fall through */ } }
+  if (!tracks.length) {
+    const urls = [...html.matchAll(/"baseUrl":"(https:\/\/www\.youtube\.com\/api\/timedtext[^"]+)"/g)].map((x) => x[1]);
+    tracks = urls.map((u) => ({ baseUrl: u }));
+  }
+  return { tracks, status: resp.status };
+}
+
+// Fetch a YouTube video's TRANSCRIPT (captions) as plain text, so questions can
+// be generated/extracted from a video link. Works only for videos that have
+// captions (manual or auto). Tries the InnerTube API first, then the watch page,
+// each with retry/back-off so a transient HTTP 429 doesn't fail the whole thing.
 async function fetchYouTubeTranscript(url) {
   const id = youTubeId(url);
   if (!id) return { ok: false, error: "Not a recognised YouTube link." };
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 20000);
   const headers = { "User-Agent": BROWSER_UA, "Accept-Language": "en-US,en;q=0.9" };
   try {
-    // 1) Load the watch page and find the caption tracks in the player response.
-    const resp = await fetch(`https://www.youtube.com/watch?v=${id}&hl=en`, {
-      redirect: "follow", signal: controller.signal, headers: { ...headers, Accept: "text/html" },
-    });
-    if (!resp.ok) return { ok: false, status: resp.status, error: `YouTube returned HTTP ${resp.status}.` };
-    const html = await resp.text();
-    const m = html.match(/"captionTracks":(\[.*?\])/s);
-    let tracks = [];
-    if (m) { try { tracks = JSON.parse(m[1]); } catch { /* fall back below */ } }
+    // 1) Preferred path: InnerTube player API (rarely rate-limited).
+    let tracks = await ytCaptionTracksViaInnerTube(id);
+    let lastStatus = 0;
+    // 2) Fallback: scrape the watch page.
     if (!tracks.length) {
-      const urls = [...html.matchAll(/"baseUrl":"(https:\/\/www\.youtube\.com\/api\/timedtext[^"]+)"/g)].map((x) => x[1]);
-      tracks = urls.map((u) => ({ baseUrl: u }));
+      const wp = await ytCaptionTracksViaWatchPage(id, headers);
+      tracks = wp.tracks;
+      lastStatus = wp.status;
     }
-    if (!tracks.length) return { ok: false, error: "This video has no transcript/captions available. Open the video, copy the transcript text, and paste it instead." };
-    // Prefer an English track; else the first available.
-    const pick = tracks.find((t) => /^en/i.test(t.languageCode || "")) || tracks.find((t) => /en/i.test(t.vssId || "")) || tracks[0];
-    let baseUrl = String(pick.baseUrl || "").replace(/\\u0026/g, "&").replace(/\\\//g, "/");
-    if (!baseUrl) return { ok: false, error: "Couldn't read the caption track for this video." };
-    if (!/[?&]fmt=/.test(baseUrl)) baseUrl += "&fmt=json3"; // easier to parse
-
-    // 2) Fetch the caption track and flatten it to text.
-    const cap = await fetch(baseUrl, { signal: controller.signal, headers });
-    if (!cap.ok) return { ok: false, status: cap.status, error: "Couldn't fetch the video transcript." };
-    const raw = await cap.text();
-    let text = "";
-    try {
-      const data = JSON.parse(raw); // json3 format
-      if (Array.isArray(data.events)) {
-        text = data.events.map((e) => (e.segs || []).map((s) => s.utf8 || "").join("")).join(" ");
+    if (!tracks.length) {
+      if (lastStatus === 429) {
+        return { ok: false, status: 429, error: "YouTube is rate-limiting the server right now (HTTP 429). Please wait a minute and try again, or open the video, copy its transcript, and paste it instead." };
       }
-    } catch {
-      text = raw.replace(/<[^>]+>/g, " "); // XML fallback: strip <text> tags
+      return { ok: false, status: lastStatus || undefined, error: "This video has no transcript/captions available. Open the video, copy the transcript text, and paste it instead." };
     }
-    text = decodeEntities(text).replace(/\s+/g, " ").trim();
-    if (!text) return { ok: false, error: "The video's transcript was empty." };
-    return { ok: true, text };
+    // 3) Read the best caption track. If the first pick fails, try the rest.
+    const ordered = [pickTrack(tracks), ...tracks].filter(Boolean);
+    for (const track of ordered) {
+      const text = await readCaptionTrack(track.baseUrl, headers);
+      if (text) return { ok: true, text };
+    }
+    return { ok: false, error: "Couldn't fetch the video transcript — YouTube may be throttling the server. Wait a minute and retry, or paste the transcript text instead." };
   } catch (e) {
     return { ok: false, error: e?.name === "AbortError" ? "The video took too long to load." : (e?.message || "Couldn't read the video.") };
-  } finally {
-    clearTimeout(timer);
   }
+}
+
+// Build a friendly message when a source URL couldn't be read. YouTube links
+// already carry a full, helpful message (and the HTTP code) in page.error, so
+// we don't prefix them with the generic "Couldn't read that page" wording.
+function sourceReadError(url, page) {
+  if (youTubeId(url)) {
+    return page.error || `Couldn't read that YouTube video${page.status ? ` (HTTP ${page.status})` : ""}. Open the video, copy its transcript, and paste it instead.`;
+  }
+  return `Couldn't read that page${page.status ? ` (HTTP ${page.status})` : ""}. ${page.error || "The site may block automated access — paste the text instead."}`;
 }
 
 // Fetch a web page and reduce it to readable plain text. For a YouTube link it
@@ -1305,11 +1422,7 @@ export async function extractQuestions(req, res) {
     }
     const page = await fetchPageText(url);
     if (!page.ok) {
-      return res.status(502).json({
-        message: `Couldn't read that page${page.status ? ` (HTTP ${page.status})` : ""}. ${
-          page.error || "The site may block automated access — try copying the questions text and pasting it instead."
-        }`,
-      });
+      return res.status(502).json({ message: sourceReadError(url, page) });
     }
     content = `${content}\n\n${page.text}`.trim();
   }
