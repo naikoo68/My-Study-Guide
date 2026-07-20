@@ -73,6 +73,8 @@ const AdminAiStudio = lazy(() => import("./pages/admin/AdminAiStudio"));
 const AdminDocuments = lazy(() => import("./pages/admin/AdminDocuments"));
 const AdminNotes = lazy(() => import("./pages/admin/AdminNotes"));
 const AdminPdfBuilder = lazy(() => import("./pages/admin/AdminPdfBuilder"));
+const AdminCbt = lazy(() => import("./pages/admin/AdminCbt"));
+const CbtResult = lazy(() => import("./pages/cbt/CbtResult"));
 
 // Wraps a lazily-loaded page in a Suspense boundary with a loading fallback.
 const S = (Comp) => (
@@ -141,6 +143,16 @@ const router = createHashRouter([
     path: "/public/quiz/:token",
     element: S(PracticeQuizPlay),
   },
+  // CBT online exam — students sign in with name+email (no OTP) then take it
+  {
+    path: "/cbt/exam/:cbtToken",
+    element: S(TestAttempt),
+  },
+  // CBT result — public, printable result page (reached from the emailed link)
+  {
+    path: "/cbt/result/:resultToken",
+    element: S(CbtResult),
+  },
 
   // Client "My Practice" workspace (separate shell, own content only)
   {
@@ -180,6 +192,7 @@ const router = createHashRouter([
       { path: "documents", element: S(AdminDocuments) },
       { path: "notes", element: S(AdminNotes) },
       { path: "pdf-builder", element: S(AdminPdfBuilder) },
+      { path: "cbt", element: S(AdminCbt) },
       { path: "ai-keys", element: S(AdminAiKeys) },
       { path: "customization", element: S(AdminCustomization) },
     ],

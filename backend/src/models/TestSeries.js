@@ -49,6 +49,17 @@ const testSeriesSchema = new mongoose.Schema(
     // How many people OPENED the public link (counted once per browser). Lets the
     // admin see reach/impressions, not just completions.
     publicViews: { type: Number, default: 0 },
+    // CBT (Computer-Based Test) online exam. When cbtEnabled is on, this test is
+    // published as a proctored-style online exam: anyone with the cbtToken URL
+    // signs in with just their name + email (no OTP), takes the test, and gets
+    // their full result (answers, explanations, rank) emailed to them. Unlike a
+    // casual public share, every attempt is stored WITH the taker's identity so
+    // the admin can rank all candidates. Kept separate from publicToken so an
+    // item can be a CBT exam independently of any casual share link.
+    cbtEnabled: { type: Boolean, default: false },
+    cbtToken: { type: String, index: true, default: null },
+    cbtExpiresAt: { type: Date, default: null }, // null = never expires
+    cbtViews: { type: Number, default: 0 }, // opens (counted once per browser)
     // Per-user access control. Test series are PRIVATE by default: a new
     // student sees a test only if visibleToAll is turned on, or they have an
     // explicit access entry (visible:true, optionally time-limited).

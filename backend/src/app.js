@@ -53,6 +53,7 @@ import aiRoutes from "./routes/aiRoutes.js";
 import couponRoutes from "./routes/couponRoutes.js";
 import paymentRoutes from "./routes/paymentRoutes.js";
 import subscriptionRoutes from "./routes/subscriptionRoutes.js";
+import cbtRoutes from "./routes/cbtRoutes.js";
 import { notFound, errorHandler } from "./middleware/error.js";
 import { isMailConfigured, verifyMail } from "./config/mailer.js";
 import { isCloudinaryConfigured } from "./config/cloudinary.js";
@@ -95,8 +96,8 @@ app.get("/api/health", (req, res) =>
     // Bump this whenever backend code changes so we can verify Render actually
     // redeployed: open /api/health and check `version`. If it's older than the
     // latest, the backend did NOT deploy and server-side fixes aren't live.
-    version: "2026-07-18-youtube-429-retry-v31",
-    features: ["ai-scope", "ai-key-owner", "extract-batches", "matching-labels", "documents", "extract-remaining", "notes-gen", "latex-json-repair", "no-currency-dollar", "parallel-small-chunks", "provider-timeout", "addtotest-drilldown", "mytest-subjectplan", "reshuffle-subjects-questions-options", "db-indexes", "extend-verify-numeric", "extend-verify-matching-pairs", "generate-extract-formula-verify", "regenerate-question", "wrap-numeric-options-latex", "regenerate-fixall-render", "regenerate-columns-not-in-stem", "regenerate-table-not-in-stem", "regenerate-strip-list-markers", "youtube-transcript-source", "shared-link-tracker", "shared-link-opens", "youtube-innertube-retry"],
+    version: "2026-07-18-cbt-online-exams-v32",
+    features: ["ai-scope", "ai-key-owner", "extract-batches", "matching-labels", "documents", "extract-remaining", "notes-gen", "latex-json-repair", "no-currency-dollar", "parallel-small-chunks", "provider-timeout", "addtotest-drilldown", "mytest-subjectplan", "reshuffle-subjects-questions-options", "db-indexes", "extend-verify-numeric", "extend-verify-matching-pairs", "generate-extract-formula-verify", "regenerate-question", "wrap-numeric-options-latex", "regenerate-fixall-render", "regenerate-columns-not-in-stem", "regenerate-table-not-in-stem", "regenerate-strip-list-markers", "youtube-transcript-source", "shared-link-tracker", "shared-link-opens", "youtube-innertube-retry", "cbt-online-exams", "cbt-emailed-results", "cbt-rankings"],
     mailConfigured: isMailConfigured(),
     uploadConfigured: isCloudinaryConfigured(),
   })
@@ -128,6 +129,7 @@ app.use("/api/ai", aiRoutes); // AI question generator (admin)
 app.use("/api/coupons", couponRoutes); // discount coupons (admin manage; used at client checkout)
 app.use("/api/payments", paymentRoutes); // Razorpay: create orders + config for client checkout
 app.use("/api/subscriptions", subscriptionRoutes); // client self-serve upgrade/renew (works when expired)
+app.use("/api/cbt", cbtRoutes); // CBT online exams (public name+email sign-in, emailed results, admin rankings)
 
 // Errors
 app.use(notFound);

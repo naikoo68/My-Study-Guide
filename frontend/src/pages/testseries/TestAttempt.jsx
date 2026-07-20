@@ -17,8 +17,12 @@ import {
   ZoomOut,
   Search,
   LogOut,
+  Mail,
+  Download,
+  User as UserIcon,
+  GraduationCap,
 } from "lucide-react";
-import { testService } from "../../services";
+import { testService, cbtService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
 import { Loading, ErrorState } from "../../components/ui/AsyncState";
 import MathText from "../../components/ui/MathText";
@@ -51,9 +55,63 @@ const STATUS = {
   ANSWERED_MARKED: "answered_marked",
 };
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// CBT sign-in gate: before the exam starts, the candidate enters their name and
+// email (no account/OTP). Their result is emailed to this address on submit.
+function CbtLogin({ test, onStart, onExit }) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [err, setErr] = useState("");
+  const submit = (e) => {
+    e.preventDefault();
+    if (!name.trim()) return setErr("Please enter your full name.");
+    if (!EMAIL_RE.test(email.trim())) return setErr("Please enter a valid email address.");
+    onStart({ name: name.trim(), email: email.trim().toLowerCase() });
+  };
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-slate-100 p-4 dark:bg-slate-950">
+      <div className="card w-full max-w-md p-7">
+        <div className="mb-4 text-center">
+          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-600 to-accent-500 text-white">
+            <GraduationCap className="h-6 w-6" />
+          </span>
+          <h1 className="mt-3 text-xl font-extrabold">{test?.name || "Online Exam"}</h1>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            {test ? `${test.questionCount ?? test.questions?.length ?? 0} questions · ${test.duration} min · ${test.marks} marks` : "Loading exam…"}
+          </p>
+        </div>
+        <form onSubmit={submit} className="space-y-3">
+          <div>
+            <label className="mb-1 block text-sm font-semibold">Full name</label>
+            <div className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 dark:border-slate-700">
+              <UserIcon className="h-4 w-4 flex-shrink-0 text-slate-400" />
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" className="w-full bg-transparent py-2.5 text-sm outline-none" autoFocus />
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-semibold">Email</label>
+            <div className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 dark:border-slate-700">
+              <Mail className="h-4 w-4 flex-shrink-0 text-slate-400" />
+              <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="you@example.com" className="w-full bg-transparent py-2.5 text-sm outline-none" />
+            </div>
+            <p className="mt-1 text-xs text-slate-400">Your result (with answers, explanations &amp; rank) is emailed here when you finish.</p>
+          </div>
+          {err && <p className="text-sm font-medium text-rose-600">{err}</p>}
+          <button type="submit" className="btn-primary w-full">Start Exam</button>
+          <button type="button" onClick={onExit} className="btn-ghost w-full text-sm">Cancel</button>
+        </form>
+        <p className="mt-3 text-center text-[11px] text-slate-400">The timer starts as soon as you tap Start Exam.</p>
+      </div>
+    </div>
+  );
+}
+
 export default function TestAttempt() {
-  const { testId, token } = useParams();
+  const { testId, token, cbtToken } = useParams();
   const isPublic = !!token; // opened via /public/test/:token — no login needed
+  const isCbt = !!cbtToken; // opened via /cbt/exam/:token — sign in with name+email
+  const anonymous = isPublic || isCbt; // no logged-in user → hide student-only UI
   const navigate = useNavigate();
   const { user } = useAuth();
   const isClient = user?.role === "client"; // clients return to their own workspace
@@ -76,13 +134,14 @@ export default function TestAttempt() {
   const [reviewSearch, setReviewSearch] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [seed] = useState(makeSeed()); // per-attempt option shuffle
+  const [candidate, setCandidate] = useState(null); // CBT: { name, email } (sign-in gate)
   const containerRef = useRef(null);
 
   // Load the test + its questions (answers hidden by the API).
   const load = useCallback(() => {
     setLoading(true);
     setError("");
-    (isPublic ? testService.getPublic(token) : testService.get(testId))
+    (isCbt ? cbtService.getExam(cbtToken) : isPublic ? testService.getPublic(token) : testService.get(testId))
       .then((t) => {
         // A shared QUIZ (practiceKind "quiz") should open in the quiz-style
         // player, not this exam UI. Redirect old /public/test links accordingly.
@@ -100,7 +159,7 @@ export default function TestAttempt() {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [testId, token, isPublic, seed]);
+  }, [testId, token, cbtToken, isPublic, isCbt, seed]);
 
   useEffect(load, [load]);
 
@@ -113,6 +172,15 @@ export default function TestAttempt() {
     testService.registerPublicView(token).catch(() => {});
   }, [isPublic, token]);
 
+  // Count a CBT exam OPEN once per browser (impression tracking for the exam).
+  useEffect(() => {
+    if (!isCbt || !cbtToken) return;
+    const key = `mpm-cbt-viewed-${cbtToken}`;
+    if (localStorage.getItem(key)) return;
+    localStorage.setItem(key, "1");
+    cbtService.registerView(cbtToken).catch(() => {});
+  }, [isCbt, cbtToken]);
+
   const finalize = useCallback(async () => {
     if (submitting || result) return;
     setSubmitting(true);
@@ -123,7 +191,9 @@ export default function TestAttempt() {
     });
     const elapsed = (test?.duration || 0) * 60 - remaining;
     try {
-      const res = isPublic
+      const res = isCbt
+        ? await cbtService.submit(cbtToken, { name: candidate?.name, email: candidate?.email, answers: byId, timeTaken: elapsed })
+        : isPublic
         ? await testService.submitPublic(token, byId, elapsed)
         : await testService.submit(testId, byId, elapsed);
       setResult(res);
@@ -133,18 +203,18 @@ export default function TestAttempt() {
       setSubmitting(false);
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     }
-  }, [answers, questions, test, remaining, testId, token, isPublic, submitting, result]);
+  }, [answers, questions, test, remaining, testId, token, cbtToken, isPublic, isCbt, candidate, submitting, result]);
 
   // Countdown with auto-submit at 0.
   useEffect(() => {
-    if (loading || result || !test) return;
+    if (loading || result || !test || (isCbt && !candidate)) return; // CBT: wait for sign-in
     if (remaining <= 0) {
       finalize();
       return;
     }
     const t = setInterval(() => setRemaining((r) => r - 1), 1000);
     return () => clearInterval(t);
-  }, [remaining, loading, result, test, finalize]);
+  }, [remaining, loading, result, test, finalize, isCbt, candidate]);
 
   useEffect(() => {
     const onChange = () => { if (!document.fullscreenElement) setFullscreen(false); };
@@ -155,7 +225,7 @@ export default function TestAttempt() {
   // Leave the test. After submitting, just go back; mid-test, confirm first
   // (answers are not saved) and drop out of fullscreen.
   const exitTest = () => {
-    const dest = isPublic ? "/" : isClient ? "/client" : "/test-series";
+    const dest = anonymous ? "/" : isClient ? "/client" : "/test-series";
     if (!result && !window.confirm("Exit the test? Your answers won't be submitted or saved.")) return;
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     navigate(dest);
@@ -236,6 +306,11 @@ export default function TestAttempt() {
   if (loading) return <div className="container-page"><Loading label="Loading test..." /></div>;
   if (error && !result) return <div className="container-page"><ErrorState message={error} onRetry={load} /></div>;
 
+  // CBT: gate the exam behind the name+email sign-in until the candidate starts.
+  if (isCbt && !result && !candidate) {
+    return <CbtLogin test={test} onStart={setCandidate} onExit={() => navigate("/")} />;
+  }
+
   const hh = String(Math.floor(remaining / 3600)).padStart(2, "0");
   const mm = String(Math.floor((remaining % 3600) / 60)).padStart(2, "0");
   const ss = String(remaining % 60).padStart(2, "0");
@@ -249,6 +324,7 @@ export default function TestAttempt() {
   if (result) {
     const review = result.review || [];
     const stats = [
+      ...(isCbt && result.rank ? [{ l: "Rank", v: `#${result.rank}${result.candidates ? ` / ${result.candidates}` : ""}`, c: "text-amber-600 dark:text-amber-400" }] : []),
       { l: "Score", v: `${result.score}/${result.maxScore ?? test.marks}`, c: "text-brand-600 dark:text-brand-400" },
       { l: "Percentage", v: `${result.percentage}%`, c: "text-brand-600 dark:text-brand-400" },
       { l: "Total", v: result.total, c: "text-slate-700 dark:text-slate-200" },
@@ -272,8 +348,18 @@ export default function TestAttempt() {
         <div className="container-page">
           <div className="card p-8 text-center">
             <Trophy className="mx-auto h-14 w-14 text-accent-500" />
-            <h1 className="mt-4 text-2xl font-extrabold">Test Submitted</h1>
+            <h1 className="mt-4 text-2xl font-extrabold">{isCbt ? "Exam Submitted" : "Test Submitted"}</h1>
             <p className="mt-1 text-slate-500 dark:text-slate-400">{test.name}</p>
+            {isCbt && result.emailQueued && (
+              <p className="mx-auto mt-3 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+                <Mail className="h-4 w-4" /> Your full result has been emailed to {candidate?.email}
+              </p>
+            )}
+            {isCbt && !result.emailQueued && (
+              <p className="mx-auto mt-3 inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-sm font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                <Mail className="h-4 w-4" /> Save the result link below — email delivery isn't configured.
+              </p>
+            )}
 
             <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
               {stats.map((s) => (
@@ -291,8 +377,17 @@ export default function TestAttempt() {
                 </button>
               )}
               {review.length > 0 && <PaperExport title={test.name || "Test"} questions={review} />}
-              {!isPublic && <FeedbackButton context="test" source={testSource} label="Give Feedback" className="btn-outline" />}
-              {isPublic ? (
+              {!anonymous && <FeedbackButton context="test" source={testSource} label="Give Feedback" className="btn-outline" />}
+              {isCbt ? (
+                <>
+                  {result.resultToken && (
+                    <a href={`#/cbt/result/${result.resultToken}`} target="_blank" rel="noreferrer" className="btn-primary">
+                      <Download className="h-4 w-4" /> View / Download full result
+                    </a>
+                  )}
+                  <button onClick={() => navigate("/")} className="btn-outline">Done</button>
+                </>
+              ) : isPublic ? (
                 <button onClick={() => navigate("/")} className="btn-primary">Done</button>
               ) : isClient ? (
                 <button onClick={() => navigate("/client")} className="btn-primary">Back to My Practice</button>
@@ -343,7 +438,7 @@ export default function TestAttempt() {
                       }`}>
                         {r.chosen === null ? "Skipped" : r.isCorrect ? "Correct" : "Wrong"}
                       </span>
-                      {!isPublic && (
+                      {!anonymous && (
                         <FeedbackButton
                           context="question"
                           label="Feedback"
@@ -485,7 +580,7 @@ export default function TestAttempt() {
               )}
             </span>
             <div className="flex items-center gap-4">
-              {!isPublic && <FeedbackButton context="question" questionText={q.text} questionNumber={current + 1} source={testSource} question={{ ...q, chosen: answers[current] ?? null }} label="Feedback" />}
+              {!anonymous && <FeedbackButton context="question" questionText={q.text} questionNumber={current + 1} source={testSource} question={{ ...q, chosen: answers[current] ?? null }} label="Feedback" />}
               <span className="text-sm text-slate-500">
                 +{(test.marks / questions.length).toFixed(1)} / -{test.negativeMarking ?? 0.25}
               </span>

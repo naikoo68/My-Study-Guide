@@ -245,8 +245,9 @@ export async function deleteTest(req, res) {
 
 // Grade a populated test against submitted answers. Returns the stored
 // `responses` array + a rich `review` (with correct answers) and summary stats.
-// Shared by the authenticated submit and the public (no-login) submit.
-function gradeSubmission(test, answers = {}) {
+// Shared by the authenticated submit, the public (no-login) submit, and the CBT
+// online-exam submit (see cbtController).
+export function gradeSubmission(test, answers = {}) {
   const total = test.questions.length;
   let correct = 0;
   let attempted = 0;

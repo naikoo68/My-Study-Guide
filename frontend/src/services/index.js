@@ -155,6 +155,21 @@ export const practiceService = {
   moveItem: (id, target) => api.patch(`/practice/items/${id}/move`, target), // internal practice migration
 };
 
+// ---- CBT online exams (public name+email sign-in; emailed results; rankings) ----
+export const cbtService = {
+  // public (no login) — students take the exam and get results emailed
+  getExam: (token) => api.get(`/cbt/exam/${token}`, { auth: false }),
+  registerView: (token) => api.post(`/cbt/exam/${token}/view`, {}, { auth: false }),
+  submit: (token, payload) => api.post(`/cbt/exam/${token}/submit`, payload, { auth: false }), // { name, email, answers, timeTaken }
+  getResult: (resultToken) => api.get(`/cbt/result/${resultToken}`, { auth: false }),
+  // admin
+  exams: () => api.get("/cbt/admin/exams"),
+  candidates: () => api.get("/cbt/admin/candidates"), // My Tests available to publish
+  leaderboard: (id) => api.get(`/cbt/admin/${id}/leaderboard`),
+  publish: (id, expiresAt) => api.patch(`/cbt/admin/${id}/publish`, expiresAt !== undefined ? { expiresAt } : {}),
+  unpublish: (id) => api.patch(`/cbt/admin/${id}/unpublish`),
+};
+
 // ---- Dashboard / analytics ----
 export const analyticsService = {
   dashboard: () => api.get("/me/dashboard"),
