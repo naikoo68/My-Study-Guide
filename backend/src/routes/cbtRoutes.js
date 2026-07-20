@@ -9,6 +9,9 @@ import {
   registerCbtView,
   submitCbt,
   getCbtResult,
+  myCbtResults,
+  listReleasedRankings,
+  examRankings,
   getCbtPortalUrl,
   listCbtExams,
   listCbtCandidates,
@@ -35,6 +38,10 @@ router.post("/exam/:token/start", startCbt); // hand out questions (verified por
 router.post("/exam/:token/view", registerCbtView); // count an open (impression)
 router.post("/exam/:token/submit", submitCbt);
 router.get("/result/:resultToken", getCbtResult); // pending until results released
+// Student dashboard (session-gated via ?email=&session=)
+router.get("/my", myCbtResults); // the student's completed exams + their ranks
+router.get("/rankings", listReleasedRankings); // exams with released results
+router.get("/rankings/:token", examRankings); // full leaderboard for one exam
 
 // Admin — manage the portal, live toggle, end time, results release, rankings.
 router.get("/admin/portal-url", ...admin, getCbtPortalUrl);

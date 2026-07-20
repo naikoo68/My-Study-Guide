@@ -437,6 +437,105 @@ export async function getCbtResult(req, res) {
   });
 }
 
+/* ============= student dashboard (session-gated public) ============= */
+
+// Partially hide an email for public leaderboards: jo***@gmail.com
+function maskEmail(e) {
+  const [u, d] = String(e || "").split("@");
+  if (!d) return e || "";
+  const head = u.slice(0, 2);
+  return `${head}${"*".repeat(Math.max(1, u.length - head.length))}@${d}`;
+}
+
+// GET /api/cbt/my?email=&session= — the logged-in student's completed exams,
+// with score & rank once each exam's results are released.
+export async function myCbtResults(req, res) {
+  const email = String(req.query.email || "").trim().toLowerCase();
+  const sessionToken = String(req.query.session || "");
+  if (!(await findPortalSession(email, sessionToken))) return res.status(401).json({ message: "Please sign in again." });
+
+  const attempts = await CbtAttempt.find({ email }).sort("-createdAt").lean();
+  const testIds = [...new Set(attempts.map((a) => String(a.testSeries)))];
+  const tests = await TestSeries.find({ _id: { $in: testIds } }).select("name cbtResultsReleased cbtEndAt").lean();
+  const tmap = new Map(tests.map((t) => [String(t._id), t]));
+
+  const out = [];
+  for (const a of attempts) {
+    const t = tmap.get(String(a.testSeries));
+    const released = !!t?.cbtResultsReleased;
+    let rank = null, candidates = null;
+    if (released) {
+      // eslint-disable-next-line no-await-in-loop
+      const all = await CbtAttempt.find({ testSeries: a.testSeries }).select("email score timeTaken").lean();
+      const board = rankBestPerStudent(all);
+      candidates = board.length;
+      rank = board.find((r) => (r.email || "").toLowerCase() === email)?.rank || null;
+    }
+    out.push({
+      examName: t?.name || "Exam",
+      released,
+      endAt: t?.cbtEndAt || null,
+      resultToken: a.resultToken,
+      submittedAt: a.createdAt,
+      score: released ? a.score : null,
+      maxScore: released ? a.maxScore : null,
+      percentage: released ? a.percentage : null,
+      rank, candidates,
+    });
+  }
+  res.json(out);
+}
+
+// GET /api/cbt/rankings?email=&session= — exams whose results are released
+// (for the Rankings tab). Session-gated.
+export async function listReleasedRankings(req, res) {
+  const email = String(req.query.email || "").trim().toLowerCase();
+  const sessionToken = String(req.query.session || "");
+  if (!(await findPortalSession(email, sessionToken))) return res.status(401).json({ message: "Please sign in again." });
+
+  const tests = await TestSeries.find({ cbtEnabled: true, cbtResultsReleased: true }).select("name cbtToken").sort("-updatedAt").lean();
+  const ids = tests.map((t) => t._id);
+  const attempts = await CbtAttempt.find({ testSeries: { $in: ids } }).select("testSeries email").lean();
+  const byTest = new Map();
+  for (const a of attempts) {
+    const k = String(a.testSeries);
+    if (!byTest.has(k)) byTest.set(k, new Set());
+    byTest.get(k).add((a.email || "").toLowerCase());
+  }
+  res.json(tests.map((t) => ({ name: t.name, token: t.cbtToken, candidates: byTest.get(String(t._id))?.size || 0 })));
+}
+
+// GET /api/cbt/rankings/:token?email=&session= — full leaderboard for a
+// released exam (names shown, emails masked). Session-gated.
+export async function examRankings(req, res) {
+  const email = String(req.query.email || "").trim().toLowerCase();
+  const sessionToken = String(req.query.session || "");
+  if (!(await findPortalSession(email, sessionToken))) return res.status(401).json({ message: "Please sign in again." });
+
+  const test = await TestSeries.findOne({ cbtToken: req.params.token, cbtEnabled: true }).select("name cbtResultsReleased").lean();
+  if (!test) return res.status(404).json({ message: "Exam not found." });
+  if (!test.cbtResultsReleased) return res.status(403).json({ message: "Rankings will be available after the exam ends." });
+
+  const all = await CbtAttempt.find({ testSeries: test._id }).select("name email score maxScore percentage correct total timeTaken createdAt").lean();
+  const board = rankBestPerStudent(all);
+  res.json({
+    name: test.name,
+    youEmail: email,
+    rows: board.map((a) => ({
+      rank: a.rank,
+      name: a.name,
+      email: maskEmail(a.email),
+      isYou: (a.email || "").toLowerCase() === email,
+      score: a.score,
+      maxScore: a.maxScore,
+      percentage: a.percentage,
+      correct: a.correct,
+      totalQ: a.total,
+      timeTaken: a.timeTaken,
+    })),
+  });
+}
+
 /* ========================= admin endpoints ========================= */
 
 // GET /api/cbt/admin/portal-url — the single shareable exam-portal link.

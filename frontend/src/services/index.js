@@ -167,6 +167,10 @@ export const cbtService = {
   registerView: (token) => api.post(`/cbt/exam/${token}/view`, {}, { auth: false }),
   submit: (token, payload) => api.post(`/cbt/exam/${token}/submit`, payload, { auth: false }), // { name, email, sessionToken, answers, timeTaken }
   getResult: (resultToken) => api.get(`/cbt/result/${resultToken}`, { auth: false }), // pending until released
+  // student dashboard (session-gated)
+  myResults: (email, session) => api.get(`/cbt/my?email=${encodeURIComponent(email)}&session=${encodeURIComponent(session)}`, { auth: false }),
+  rankings: (email, session) => api.get(`/cbt/rankings?email=${encodeURIComponent(email)}&session=${encodeURIComponent(session)}`, { auth: false }),
+  examRankings: (token, email, session) => api.get(`/cbt/rankings/${token}?email=${encodeURIComponent(email)}&session=${encodeURIComponent(session)}`, { auth: false }),
   // admin
   portalUrl: () => api.get("/cbt/admin/portal-url"),
   exams: () => api.get("/cbt/admin/exams"),
