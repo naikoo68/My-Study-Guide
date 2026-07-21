@@ -23,6 +23,7 @@ export default function ExtendExplanationsModal({ open, target, title, onClose, 
   const [status, setStatus] = useState(null);
   const [model, setModel] = useState("");
   const [notes, setNotes] = useState("");
+  const [fixOptions, setFixOptions] = useState(false); // also rewrite off-category / wrong options
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(null); // { done, total }
   const [msg, setMsg] = useState("");
@@ -33,6 +34,7 @@ export default function ExtendExplanationsModal({ open, target, title, onClose, 
     setProgress(null);
     setBusy(false);
     setNotes("");
+    setFixOptions(false);
   }, [open]);
 
   useEffect(() => {
@@ -55,6 +57,7 @@ export default function ExtendExplanationsModal({ open, target, title, onClose, 
         model: model || undefined,
         notes: notes.trim() || undefined,
         mode: isClient ? srcMode : undefined,
+        fixOptions: fixOptions || undefined,
       });
       if (!jobId) throw new Error("Could not start.");
       setProgress({ done: 0, total: requested });
@@ -150,6 +153,11 @@ export default function ExtendExplanationsModal({ open, target, title, onClose, 
               onChange={(e) => setNotes(e.target.value)}
               disabled={busy}
             />
+
+            <label className="mt-3 flex items-start gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-slate-800/60">
+              <input type="checkbox" className="mt-0.5 h-4 w-4 accent-brand-600" checked={fixOptions} onChange={(e) => setFixOptions(e.target.checked)} disabled={busy} />
+              <span>Also fix <b>off-category / wrong options</b> — replace any option that isn't the same type as the answer (e.g. a bird among tree names) with a closely-related one. The question &amp; correct answer stay the same.</span>
+            </label>
 
             {progress && (
               <div className="mt-4">

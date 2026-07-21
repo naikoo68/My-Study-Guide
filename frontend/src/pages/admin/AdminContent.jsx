@@ -92,9 +92,10 @@ export default function AdminContent() {
 
   // Extend ONE question's explanation with AI, then refresh the list.
   const extendOneQuestion = async (item) => {
+    const fixOptions = window.confirm("Also fix this question's options?\n\nOK = rewrite any off-category / wrong options to match the answer's category (the question and correct answer stay the same).\nCancel = only extend the explanation.");
     setExtendingQId(item._id);
     try {
-      await aiService.extendOne({ questionId: item._id });
+      await aiService.extendOne({ questionId: item._id, fixOptions });
       load("questions");
     } catch (e) {
       setError(e.message);

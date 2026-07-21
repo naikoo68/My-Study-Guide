@@ -1639,7 +1639,7 @@ STRICT: Do NOT change the question's wording or meaning, and do NOT invent a dif
 const EXT_LETTERS = ["A", "B", "C", "D"];
 const toRomanLite = (n) => { const m = [["X", 10], ["IX", 9], ["V", 5], ["IV", 4], ["I", 1]]; let r = ""; for (const [s, v] of m) while (n >= v) { r += s; n -= v; } return r; };
 
-function buildExtendPrompt(q, notes) {
+function buildExtendPrompt(q, notes, fixOptions = false) {
   const lines = [`Question type: ${q.type || "mcq"}`];
   if (q.text) lines.push(`Question: ${q.text}`);
   if (q.assertion) lines.push(`Assertion (A): ${q.assertion}`);
@@ -1652,6 +1652,9 @@ function buildExtendPrompt(q, notes) {
   if (q.explanation) lines.push(`Existing explanation (improve and expand it — keep anything correct): ${q.explanation}`);
   if (notes) lines.push(`MANDATORY user instructions (follow EXACTLY): ${notes}`);
   lines.push(`Write a THOROUGH "explanation" and verify EACH of the 4 "optionExplanations" (state whether each option is correct or wrong and why). If this is a numerical/quantitative question, SOLVE it yourself step by step — put each calculation step on its own line in the explanation — then check which option is truly correct. If this is a matching / "how many pairs are correctly matched" / statement question, evaluate EACH pair or statement one by one and COUNT the correct ones. In either case, if the marked CORRECT answer is wrong, return the corrected "correct" index (0-3); if a value is wrong or no option matches the true answer (e.g. zero pairs match but there is no "None" option), return a fixed "options" array of 4 that includes the right choice. Do NOT change the question's wording. Write any math as inline LaTeX between $...$ (never \\( \\) or \\[ \\]). Return ONLY one valid JSON object.`);
+  if (fixOptions && (!q.type || q.type === "mcq")) {
+    lines.push(`ALSO FIX THE OPTIONS (do this in addition): keep the question stem and the CORRECT option EXACTLY as given, but make sure all four options belong to the SAME real-world category/type as the correct answer. If any option is off-category, unrelated or an obvious give-away (for example a bird or a flower listed among tree names), REPLACE only those wrong options with real, closely-related same-category distractors that match their language, form, length and specificity. Return the full corrected "options" array of EXACTLY 4 (the correct option's text unchanged) plus the 0-based "correct" index for it. Do NOT change the stem or which answer is correct.`);
+  }
   return lines.join("\n");
 }
 
@@ -1825,7 +1828,7 @@ function buildExtendSet(q, parsed) {
   return set;
 }
 
-async function runExtendJob(id, { endpoints, model, questions, owner = null, notes = "" }) {
+async function runExtendJob(id, { endpoints, model, questions, owner = null, notes = "", fixOptions = false }) {
   const job = genJobs.get(id);
   const deadline = Date.now() + 12 * 60 * 1000; // overall time budget
   const save = (patch) => Object.assign(job, patch, { updatedAt: Date.now() });
@@ -1841,7 +1844,7 @@ async function runExtendJob(id, { endpoints, model, questions, owner = null, not
       endpoints: eps && eps.length ? eps : endpoints,
       model,
       systemPrompt: EXTEND_SYSTEM_PROMPT,
-      userPrompt: buildExtendPrompt(q, notes),
+      userPrompt: buildExtendPrompt(q, notes, fixOptions),
       maxTokens: 8000, // the verified/step-by-step replies are long — avoid truncation
       owner,
     });
@@ -1958,7 +1961,7 @@ export async function extendExplanations(req, res) {
   cleanupJobs();
   const id = newJobId();
   genJobs.set(id, { status: "pending", questions: [], requested: questions.length, error: null, model: chosen.model, updatedAt: Date.now() });
-  runExtendJob(id, { endpoints: chosen.endpoints, model: chosen.model, questions, owner: scope.owner, notes });
+  runExtendJob(id, { endpoints: chosen.endpoints, model: chosen.model, questions, owner: scope.owner, notes, fixOptions: !!req.body?.fixOptions });
   res.json({ jobId: id, requested: questions.length, model: chosen.model });
 }
 
@@ -1994,7 +1997,7 @@ export async function extendOneExplanation(req, res) {
       endpoints: chosen.endpoints,
       model: chosen.model,
       systemPrompt: EXTEND_SYSTEM_PROMPT,
-      userPrompt: buildExtendPrompt(q, notes),
+      userPrompt: buildExtendPrompt(q, notes, !!req.body?.fixOptions),
       maxTokens: 8000,
       owner: scope.owner,
     });
