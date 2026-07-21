@@ -245,10 +245,25 @@ export default function ClientRegister() {
                   {active && <Check className="absolute right-2 top-2 h-4 w-4 text-brand-600" />}
                   <p className="text-sm font-semibold">{p.label}</p>
                   <p className="text-lg font-extrabold">{p.price > 0 ? `₹${p.price}` : "Free"}</p>
+                  {p.maxPerBatch ? (
+                    <p className="mt-0.5 text-[11px] leading-tight text-slate-500 dark:text-slate-400">AI: {p.maxPerBatch}/batch · {p.perWindow}/{p.windowMinutes || 5}min</p>
+                  ) : null}
                 </button>
               );
             })}
           </div>
+
+          {/* AI generation limits for the chosen plan */}
+          {selectedPlan?.maxPerBatch ? (
+            <div className="mt-2 rounded-xl border border-brand-200 bg-brand-50/60 p-3 text-xs dark:border-brand-900/40 dark:bg-brand-900/10">
+              <p className="mb-1.5 flex items-center gap-1 font-semibold text-brand-700 dark:text-brand-300"><Sparkles className="h-3.5 w-3.5" /> AI question generation — {selectedPlan.label}</p>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-lg bg-white/70 p-2 dark:bg-slate-800/50"><p className="text-sm font-extrabold text-slate-700 dark:text-slate-200">{selectedPlan.maxPerBatch}</p><p className="text-[10px] text-slate-500 dark:text-slate-400">Questions / batch</p></div>
+                <div className="rounded-lg bg-white/70 p-2 dark:bg-slate-800/50"><p className="text-sm font-extrabold text-slate-700 dark:text-slate-200">{selectedPlan.perWindow}</p><p className="text-[10px] text-slate-500 dark:text-slate-400">Questions / window</p></div>
+                <div className="rounded-lg bg-white/70 p-2 dark:bg-slate-800/50"><p className="text-sm font-extrabold text-slate-700 dark:text-slate-200">{selectedPlan.windowMinutes || 5} min</p><p className="text-[10px] text-slate-500 dark:text-slate-400">Window</p></div>
+              </div>
+            </div>
+          ) : null}
         </div>
 
         {/* Coupon + referral */}

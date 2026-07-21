@@ -21,7 +21,7 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { practiceService, searchService, testService } from "../../services";
+import { authService, practiceService, searchService, testService } from "../../services";
 import { loadNav, saveNav } from "../../lib/navState";
 import { useAuth } from "../../context/AuthContext";
 import Badge from "../../components/ui/Badge";
@@ -84,6 +84,16 @@ export default function ClientDashboard({ onBuild, onUpgrade }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [planInfo, setPlanInfo] = useState(null); // the client's plan (incl. AI generation limits)
+
+  // Resolve the client's plan → its details (price, AI limits) for display.
+  useEffect(() => {
+    if (!user?.subscriptionPlan) { setPlanInfo(null); return; }
+    authService
+      .plans()
+      .then((r) => setPlanInfo((r?.plans || []).find((p) => p.key === user.subscriptionPlan) || null))
+      .catch(() => {});
+  }, [user?.subscriptionPlan]);
 
   // Drill-down state. `kind` picks the sub-module; the selected stream/subject/
   // topic define how deep we've navigated. Switching kind resets the path.
@@ -286,6 +296,25 @@ export default function ClientDashboard({ onBuild, onUpgrade }) {
               <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Your account has no expiry date.</p>
             </div>
           )}
+          {planInfo && (
+            <div className="mt-3 border-t border-slate-100 pt-3 dark:border-slate-800">
+              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                Your plan: <span className="text-slate-700 dark:text-slate-200">{planInfo.label}</span>
+                {planInfo.price ? <span className="text-slate-400"> · ₹{planInfo.price}</span> : null}
+              </p>
+              {planInfo.maxPerBatch ? (
+                <>
+                  <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+                    <div className="rounded-lg bg-slate-50 p-2 dark:bg-slate-800/50"><p className="text-sm font-extrabold text-slate-700 dark:text-slate-200">{planInfo.maxPerBatch}</p><p className="text-[10px] text-slate-500 dark:text-slate-400">Questions / batch</p></div>
+                    <div className="rounded-lg bg-slate-50 p-2 dark:bg-slate-800/50"><p className="text-sm font-extrabold text-slate-700 dark:text-slate-200">{planInfo.perWindow}</p><p className="text-[10px] text-slate-500 dark:text-slate-400">Questions / window</p></div>
+                    <div className="rounded-lg bg-slate-50 p-2 dark:bg-slate-800/50"><p className="text-sm font-extrabold text-slate-700 dark:text-slate-200">{planInfo.windowMinutes || 5} min</p><p className="text-[10px] text-slate-500 dark:text-slate-400">Window</p></div>
+                  </div>
+                  <p className="mt-1.5 flex items-center gap-1 text-[11px] text-slate-400"><Sparkles className="h-3 w-3" /> Your AI question-generation limits.</p>
+                </>
+              ) : null}
+            </div>
+          )}
+
           {onUpgrade && user?.expiresAt && (
             <button onClick={onUpgrade} className="btn-primary mt-4 w-full py-1.5 text-xs">
               <Crown className="h-3.5 w-3.5" /> {user?.isTrial ? "Upgrade plan" : "Renew / change plan"}
