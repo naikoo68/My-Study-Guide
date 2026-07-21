@@ -46,6 +46,7 @@ export async function updateSettings(req, res) {
         return {
           key,
           label,
+          cycle: String(p?.cycle || "").trim().slice(0, 30),
           months: Math.max(0, Math.min(120, parseInt(p?.months, 10) || 0)),
           price: Math.max(0, Math.min(10000000, parseInt(p?.price, 10) || 0)),
           trial: !!p?.trial,

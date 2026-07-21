@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Crown, Check, Tag, Gift, Loader2, AlarmClock, ShieldCheck, Sparkles } from "lucide-react";
 import { authService, subscriptionService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
+import PlanPicker from "../../components/client/PlanPicker";
 
 const FALLBACK_PLANS = [
   { key: "1m", label: "1 Month", months: 1, price: 299 },
@@ -134,28 +135,9 @@ export default function ClientUpgrade({ onClose }) {
           <div className="mt-4 rounded-xl bg-rose-50 px-3 py-2.5 text-sm text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">{error}</div>
         )}
 
-        {/* Plans */}
-        <div className="mt-5 grid grid-cols-2 gap-2">
-          {plans.map((p) => {
-            const active = p.key === planKey;
-            return (
-              <button
-                type="button"
-                key={p.key}
-                onClick={() => setPlanKey(p.key)}
-                className={`relative rounded-xl border p-3 text-left transition ${
-                  active ? "border-brand-500 bg-brand-50 ring-1 ring-brand-500 dark:bg-brand-900/20" : "border-slate-200 hover:border-slate-300 dark:border-slate-700"
-                }`}
-              >
-                {active && <Check className="absolute right-2 top-2 h-4 w-4 text-brand-600" />}
-                <p className="text-sm font-semibold">{p.label}</p>
-                <p className="text-lg font-extrabold">₹{p.price}</p>
-                {p.maxPerBatch ? (
-                  <p className="mt-0.5 text-[11px] leading-tight text-slate-500 dark:text-slate-400">AI: {p.maxPerBatch}/batch · {p.perWindow}/{p.windowMinutes || 5}min</p>
-                ) : null}
-              </button>
-            );
-          })}
+        {/* Plans — choose a billing cycle, then a plan */}
+        <div className="mt-5">
+          <PlanPicker plans={plans} value={planKey} onChange={setPlanKey} includeTrial={false} />
         </div>
 
         {/* AI generation limits for the chosen plan */}

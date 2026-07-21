@@ -4,6 +4,7 @@ import { User, Mail, Lock, Eye, EyeOff, UserPlus, Loader2, AlertCircle, Sparkles
 import AuthShell from "../../components/auth/AuthShell";
 import OtpVerify from "../../components/auth/OtpVerify";
 import AccountTypeTabs from "../../components/auth/AccountTypeTabs";
+import PlanPicker from "../../components/client/PlanPicker";
 import { useAuth } from "../../context/AuthContext";
 import { authService, paymentService } from "../../services";
 
@@ -70,6 +71,13 @@ export default function ClientRegister() {
   const basePrice = offer?.basePrice ?? selectedPlan?.price ?? 0;
   const discount = offer?.discount ?? 0;
   const total = offer?.finalPrice ?? selectedPlan?.price ?? 0;
+
+  // Pick a plan; clear coupon/referral when switching to a free/trial plan.
+  const handlePickPlan = (key) => {
+    setPlanKey(key);
+    const p = plans.find((x) => x.key === key);
+    if (p && (p.trial || (p.price ?? 0) <= 0)) { setCoupon(""); setReferral(""); }
+  };
 
   // Create the account. `paymentFields` carries the verified Razorpay details
   // for paid signups; empty for free/OTP signups.
@@ -229,31 +237,8 @@ export default function ClientRegister() {
 
         {/* Plan selection */}
         <div>
-          <label className="mb-1.5 block text-sm font-medium">Choose your plan</label>
-          <div className="grid grid-cols-2 gap-2">
-            {plans.map((p) => {
-              const active = p.key === planKey;
-              return (
-                <button
-                  type="button"
-                  key={p.key}
-                  onClick={() => { setPlanKey(p.key); if (p.trial || (p.price ?? 0) <= 0) { setCoupon(""); setReferral(""); } }}
-                  className={`relative rounded-xl border p-3 text-left transition ${
-                    active
-                      ? "border-brand-500 bg-brand-50 ring-1 ring-brand-500 dark:bg-brand-900/20"
-                      : "border-slate-200 hover:border-slate-300 dark:border-slate-700"
-                  }`}
-                >
-                  {active && <Check className="absolute right-2 top-2 h-4 w-4 text-brand-600" />}
-                  <p className="text-sm font-semibold">{p.label}</p>
-                  <p className="text-lg font-extrabold">{p.price > 0 ? `₹${p.price}` : "Free"}</p>
-                  {p.maxPerBatch ? (
-                    <p className="mt-0.5 text-[11px] leading-tight text-slate-500 dark:text-slate-400">AI: {p.maxPerBatch}/batch · {p.perWindow}/{p.windowMinutes || 5}min</p>
-                  ) : null}
-                </button>
-              );
-            })}
-          </div>
+          <label className="mb-1.5 block text-sm font-medium">Choose your billing cycle &amp; plan</label>
+          <PlanPicker plans={plans} value={planKey} onChange={handlePickPlan} />
 
           {/* AI generation limits for the chosen plan */}
           {selectedPlan?.maxPerBatch ? (
