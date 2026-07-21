@@ -206,6 +206,7 @@ export const analyticsService = {
 export const settingsService = {
   get: () => api.get("/settings", { auth: false }),
   update: (data) => api.put("/settings", data),
+  testFacebook: (data) => api.post("/settings/facebook/test", data || {}), // verify/send a test Page post (admin)
 };
 
 // ---- Contact messages ----

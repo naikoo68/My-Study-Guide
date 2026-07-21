@@ -77,6 +77,12 @@ const settingsSchema = new mongoose.Schema(
     guardHoldMs: { type: Number, default: 1500 }, // how long the screen-guard cover stays after a screenshot key (ms)
     // Email + notice-board announcement when a new quiz/test is added.
     notifyOnNewContent: { type: Boolean, default: false },
+    // ---- Facebook Page auto-posting (Graph API) ----
+    fbEnabled: { type: Boolean, default: false }, // master on/off for Facebook posting
+    fbPageId: { type: String, default: "" }, // the Facebook Page's numeric ID
+    fbPageAccessToken: { type: String, default: "" }, // SENSITIVE — long-lived Page access token; never sent to the browser
+    fbAutoOnNotice: { type: Boolean, default: false }, // auto-post to the Page whenever a Notice is added
+    fbGraphVersion: { type: String, default: "v21.0" }, // Graph API version
     socialLinks: {
       type: [socialSchema],
       default: () => [

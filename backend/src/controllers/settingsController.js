@@ -1,4 +1,5 @@
 import Settings from "../models/Settings.js";
+import { postToFacebookPage, verifyFacebook, getFacebookConfig } from "../config/facebook.js";
 
 async function getOrCreate() {
   let s = await Settings.findOne({ key: "site" });
@@ -6,9 +7,18 @@ async function getOrCreate() {
   return s;
 }
 
+// Never send the Facebook access token to the browser. Replace it with a
+// boolean (fbTokenSet) so the admin UI can show "saved" without exposing it.
+function safeSettings(s) {
+  const obj = s && s.toObject ? s.toObject() : { ...(s || {}) };
+  obj.fbTokenSet = !!obj.fbPageAccessToken;
+  delete obj.fbPageAccessToken;
+  return obj;
+}
+
 // GET /api/settings — public (frontend reads this to brand/theme itself)
 export async function getSettings(req, res) {
-  res.json(await getOrCreate());
+  res.json(safeSettings(await getOrCreate()));
 }
 
 // PUT /api/settings — admin only
@@ -21,9 +31,19 @@ export async function updateSettings(req, res) {
     "homeSections",
     "aboutHeading", "aboutIntro", "aboutValues", "aboutStats",
     "aiMaxPerBatch", "clientPlans",
+    "fbEnabled", "fbPageId", "fbAutoOnNotice", "fbGraphVersion", "fbPageAccessToken",
   ];
   const update = {};
   for (const k of allowed) if (k in req.body) update[k] = req.body[k];
+
+  // Facebook: keep the token server-side. Only overwrite it when a NEW non-empty
+  // value is provided (the admin UI submits it blank to keep the saved one).
+  if ("fbPageAccessToken" in update) {
+    const tok = String(update.fbPageAccessToken || "").trim();
+    if (tok) update.fbPageAccessToken = tok; else delete update.fbPageAccessToken;
+  }
+  if ("fbPageId" in update) update.fbPageId = String(update.fbPageId || "").trim();
+  if ("fbGraphVersion" in update) update.fbGraphVersion = String(update.fbGraphVersion || "").trim() || "v21.0";
 
   // AI limits: clamp the admin's global per-batch ceiling.
   if ("aiMaxPerBatch" in update) {
@@ -73,5 +93,23 @@ export async function updateSettings(req, res) {
     upsert: true,
     setDefaultsOnInsert: true,
   });
-  res.json(s);
+  res.json(safeSettings(s));
+}
+
+// POST /api/settings/facebook/test — admin: verify the connection and (unless
+// verifyOnly) publish a test post to the configured Facebook Page.
+export async function testFacebookPost(req, res) {
+  const cfg = await getFacebookConfig();
+  if (!cfg.pageId || !cfg.token) {
+    return res.status(400).json({ ok: false, error: "Enter your Page ID and Page access token, click Save, then try again." });
+  }
+  if (req.body?.verifyOnly) {
+    const v = await verifyFacebook(cfg);
+    return res.status(v.ok ? 200 : 502).json(v);
+  }
+  const site = await getOrCreate();
+  const message = String(req.body?.message || "").trim() ||
+    `✅ Test post from ${site.siteName || "My Study Guide"} — Facebook auto-posting is connected.`;
+  const result = await postToFacebookPage({ message, link: req.body?.link }, cfg);
+  return res.status(result.ok ? 200 : 502).json(result);
 }
