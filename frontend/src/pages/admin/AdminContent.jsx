@@ -103,7 +103,9 @@ export default function AdminContent() {
     if (!item) return;
     setExtendingQId(item._id);
     try {
-      await aiService.extendOne({ questionId: item._id, fixOptions });
+      const updated = await aiService.extendOne({ questionId: item._id, fixOptions });
+      // If this question is open in the preview modal, reflect the change live.
+      setViewQ((prev) => (prev && prev._id === item._id ? { ...prev, ...updated } : prev));
       setExtendOneItem(null);
       load("questions");
     } catch (e) {
@@ -574,7 +576,7 @@ export default function AdminContent() {
               <h3 className="text-lg font-bold">Question</h3>
               <button onClick={() => setViewQ(null)}><X className="h-5 w-5" /></button>
             </div>
-            <QuestionView q={viewQ} onRegenerate={() => regenerateQ(viewQ)} regenerating={regenId === viewQ._id} />
+            <QuestionView q={viewQ} onRegenerate={() => regenerateQ(viewQ)} regenerating={regenId === viewQ._id} onExtend={() => setExtendOneItem(viewQ)} extending={extendingQId === viewQ._id} />
             <div className="mt-5 flex justify-end gap-2">
               <button onClick={() => setAddToTestQ(viewQ)} className="btn-outline">
                 <ClipboardList className="h-4 w-4" /> Add to test
@@ -627,7 +629,7 @@ export default function AdminContent() {
                       </>
                     )}
                   </div>
-                  <QuestionView q={it} index={i + 1} studentView={studentView} onRegenerate={() => regenerateQ(it)} regenerating={regenId === it._id} />
+                  <QuestionView q={it} index={i + 1} studentView={studentView} onRegenerate={() => regenerateQ(it)} regenerating={regenId === it._id} onExtend={() => setExtendOneItem(it)} extending={extendingQId === it._id} />
                 </div>
               ))}
             </div>

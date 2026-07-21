@@ -155,7 +155,8 @@ export default function AdminPractice({ clientMode = false }) {
     if (!item) return;
     setExtendingQId(item._id);
     try {
-      await aiService.extendOne({ questionId: item._id, fixOptions });
+      const updated = await aiService.extendOne({ questionId: item._id, fixOptions });
+      setViewQ((prev) => (prev && prev._id === item._id ? { ...prev, ...updated } : prev));
       setExtendOneItem(null);
       await reloadTq();
     } catch (e) { setError(e.message); setExtendOneItem(null); }
@@ -434,7 +435,7 @@ export default function AdminPractice({ clientMode = false }) {
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4" onClick={() => setViewQ(null)}>
           <div onClick={(e) => e.stopPropagation()} className="my-8 w-full max-w-2xl animate-scale-in card p-6">
             <div className="mb-4 flex items-center justify-between"><h3 className="text-lg font-bold">Question</h3><button onClick={() => setViewQ(null)}><X className="h-5 w-5" /></button></div>
-            <QuestionView q={viewQ} onRegenerate={() => regenerateQ(viewQ)} regenerating={regenId === viewQ._id} />
+            <QuestionView q={viewQ} onRegenerate={() => regenerateQ(viewQ)} regenerating={regenId === viewQ._id} onExtend={() => setExtendOneItem(viewQ)} extending={extendingQId === viewQ._id} />
             <div className="mt-6 flex justify-end gap-2">
               <button onClick={() => setAddToTestQ(viewQ)} className="btn-outline"><ClipboardList className="h-4 w-4" /> Add to test</button>
               <button onClick={() => setViewQ(null)} className="btn-outline">Close</button>
@@ -479,7 +480,7 @@ export default function AdminPractice({ clientMode = false }) {
                       </>
                     )}
                   </div>
-                  <QuestionView q={it} index={i + 1} studentView={studentView} onRegenerate={() => regenerateQ(it)} regenerating={regenId === it._id} />
+                  <QuestionView q={it} index={i + 1} studentView={studentView} onRegenerate={() => regenerateQ(it)} regenerating={regenId === it._id} onExtend={() => setExtendOneItem(it)} extending={extendingQId === it._id} />
                 </div>
               ))}
             </div>

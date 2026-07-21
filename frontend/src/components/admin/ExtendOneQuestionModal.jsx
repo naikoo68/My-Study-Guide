@@ -21,7 +21,7 @@ export default function ExtendOneQuestionModal({ open, busy, onCancel, onConfirm
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4"
       onClick={busy ? undefined : onCancel}
     >
       <div onClick={(e) => e.stopPropagation()} className="w-full max-w-md animate-scale-in card p-6">

@@ -104,7 +104,8 @@ export default function AdminTests() {
     if (!item) return;
     setExtendingQId(item._id);
     try {
-      await aiService.extendOne({ questionId: item._id, fixOptions });
+      const updated = await aiService.extendOne({ questionId: item._id, fixOptions });
+      setViewQ((prev) => (prev && prev._id === item._id ? { ...prev, ...updated } : prev));
       setExtendOneItem(null);
       await reloadTq();
     } catch (e) { setError(e.message); setExtendOneItem(null); }
@@ -854,7 +855,7 @@ export default function AdminTests() {
               <h3 className="text-lg font-bold">Question</h3>
               <button onClick={() => setViewQ(null)}><X className="h-5 w-5" /></button>
             </div>
-            <QuestionView q={viewQ} onRegenerate={() => regenerateQ(viewQ)} regenerating={regenId === viewQ._id} />
+            <QuestionView q={viewQ} onRegenerate={() => regenerateQ(viewQ)} regenerating={regenId === viewQ._id} onExtend={() => setExtendOneItem(viewQ)} extending={extendingQId === viewQ._id} />
           </div>
         </div>
       )}
@@ -893,7 +894,7 @@ export default function AdminTests() {
                       </>
                     )}
                   </div>
-                  <QuestionView q={it} index={i + 1} studentView={studentView} onRegenerate={() => regenerateQ(it)} regenerating={regenId === it._id} />
+                  <QuestionView q={it} index={i + 1} studentView={studentView} onRegenerate={() => regenerateQ(it)} regenerating={regenId === it._id} onExtend={() => setExtendOneItem(it)} extending={extendingQId === it._id} />
                 </div>
               ))}
             </div>

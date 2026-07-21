@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CheckCircle2, Clock, Eye, EyeOff, RefreshCw, Loader2 } from "lucide-react";
+import { CheckCircle2, Clock, Eye, EyeOff, RefreshCw, Loader2, Wand2 } from "lucide-react";
 import MathText from "../ui/MathText";
 import { questionDateText } from "../../lib/questions";
 import StatementPairView from "../ui/StatementPairView";
@@ -18,7 +18,10 @@ const toRoman = (n) => ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"][n] || 
 // `onRegenerate` (optional) shows a "Regenerate" button that rebuilds this
 // question's options/answer/explanation to fit the stem (fixes wrong-format
 // questions). `regenerating` toggles the in-progress spinner.
-export default function QuestionView({ q, index, studentView = false, onRegenerate, regenerating = false }) {
+// `onExtend` (optional) shows an "Extend explanation" button that AI-enriches
+// this question's explanation (and can fix off-category options via the popup).
+// `extending` toggles its in-progress spinner.
+export default function QuestionView({ q, index, studentView = false, onRegenerate, regenerating = false, onExtend, extending = false }) {
   const [revealed, setRevealed] = useState(false);
   if (!q) return null;
   const showAnswer = !studentView || revealed;
@@ -105,19 +108,35 @@ export default function QuestionView({ q, index, studentView = false, onRegenera
         </p>
       )}
 
-      {/* Regenerate: rebuild this question's options/answer/explanation to fit
-          the stem — fixes wrong-format questions. Shown wherever a handler is
-          passed (single preview + "View all"). */}
-      {onRegenerate && (
-        <button
-          type="button"
-          onClick={onRegenerate}
-          disabled={regenerating}
-          title="Regenerate this question's options, answer & explanation to fit the stem (fixes wrong format)"
-          className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-violet-200 px-3 py-1.5 text-xs font-semibold text-violet-600 transition hover:bg-violet-50 disabled:opacity-50 dark:border-violet-900/50 dark:text-violet-300 dark:hover:bg-violet-900/30"
-        >
-          {regenerating ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Regenerating…</> : <><RefreshCw className="h-3.5 w-3.5" /> Regenerate</>}
-        </button>
+      {/* AI actions — shown wherever a handler is passed (single preview +
+          "View all"). Extend enriches the explanation (with an optional
+          fix-options popup); Regenerate rebuilds options/answer to fit the
+          stem (fixes wrong-format questions). */}
+      {(onExtend || onRegenerate) && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {onExtend && (
+            <button
+              type="button"
+              onClick={onExtend}
+              disabled={extending}
+              title="Extend this question's explanation with AI (optionally fix off-category options)"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-brand-200 px-3 py-1.5 text-xs font-semibold text-brand-600 transition hover:bg-brand-50 disabled:opacity-50 dark:border-brand-900/50 dark:text-brand-300 dark:hover:bg-brand-900/30"
+            >
+              {extending ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Extending…</> : <><Wand2 className="h-3.5 w-3.5" /> Extend explanation</>}
+            </button>
+          )}
+          {onRegenerate && (
+            <button
+              type="button"
+              onClick={onRegenerate}
+              disabled={regenerating}
+              title="Regenerate this question's options, answer & explanation to fit the stem (fixes wrong format)"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 px-3 py-1.5 text-xs font-semibold text-violet-600 transition hover:bg-violet-50 disabled:opacity-50 dark:border-violet-900/50 dark:text-violet-300 dark:hover:bg-violet-900/30"
+            >
+              {regenerating ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Regenerating…</> : <><RefreshCw className="h-3.5 w-3.5" /> Regenerate</>}
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
