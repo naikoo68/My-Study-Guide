@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CheckCircle2, Clock, Eye, EyeOff } from "lucide-react";
+import { CheckCircle2, Clock, Eye, EyeOff, RefreshCw, Loader2 } from "lucide-react";
 import MathText from "../ui/MathText";
 import { questionDateText } from "../../lib/questions";
 import StatementPairView from "../ui/StatementPairView";
@@ -15,7 +15,10 @@ const toRoman = (n) => ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"][n] || 
 // `studentView` shows the question exactly as a student would see it BEFORE
 // answering: the correct answer, per-option notes and explanation are hidden,
 // with a per-question "Reveal answer" button to expose them on demand.
-export default function QuestionView({ q, index, studentView = false }) {
+// `onRegenerate` (optional) shows a "Regenerate" button that rebuilds this
+// question's options/answer/explanation to fit the stem (fixes wrong-format
+// questions). `regenerating` toggles the in-progress spinner.
+export default function QuestionView({ q, index, studentView = false, onRegenerate, regenerating = false }) {
   const [revealed, setRevealed] = useState(false);
   if (!q) return null;
   const showAnswer = !studentView || revealed;
@@ -36,6 +39,17 @@ export default function QuestionView({ q, index, studentView = false }) {
           <span className="inline-flex items-center gap-1 text-xs text-slate-400">
             <Clock className="h-3 w-3" /> {questionDateText(q)}
           </span>
+        )}
+        {onRegenerate && !studentView && (
+          <button
+            type="button"
+            onClick={onRegenerate}
+            disabled={regenerating}
+            title="Regenerate this question's options, answer & explanation to fit the stem (fixes wrong format)"
+            className="ml-auto inline-flex items-center gap-1 rounded-lg border border-violet-200 px-2.5 py-1 text-xs font-semibold text-violet-600 transition hover:bg-violet-50 disabled:opacity-50 dark:border-violet-900/50 dark:text-violet-300 dark:hover:bg-violet-900/30"
+          >
+            {regenerating ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Regenerating…</> : <><RefreshCw className="h-3.5 w-3.5" /> Regenerate</>}
+          </button>
         )}
       </div>
 

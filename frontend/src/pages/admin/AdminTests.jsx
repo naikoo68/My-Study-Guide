@@ -110,10 +110,15 @@ export default function AdminTests() {
     } catch (e) { setError(e.message); setExtendOneItem(null); }
     finally { setExtendingQId(null); }
   };
-  // Regenerate ONE question's options/answer to fit its stem, then reload.
+  // Regenerate ONE question's options/answer to fit its stem, then reload
+  // (and update the open preview modal in place if it's the same question).
   const regenerateQ = async (item) => {
     setRegenId(item._id);
-    try { await aiService.regenerate({ questionId: item._id }); await reloadTq(); }
+    try {
+      const updated = await aiService.regenerate({ questionId: item._id });
+      setViewQ((prev) => (prev && prev._id === item._id ? { ...prev, ...updated } : prev));
+      await reloadTq();
+    }
     catch (e) { setError(e.message); }
     finally { setRegenId(null); }
   };
@@ -849,7 +854,7 @@ export default function AdminTests() {
               <h3 className="text-lg font-bold">Question</h3>
               <button onClick={() => setViewQ(null)}><X className="h-5 w-5" /></button>
             </div>
-            <QuestionView q={viewQ} />
+            <QuestionView q={viewQ} onRegenerate={() => regenerateQ(viewQ)} regenerating={regenId === viewQ._id} />
           </div>
         </div>
       )}

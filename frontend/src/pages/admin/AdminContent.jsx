@@ -79,11 +79,13 @@ export default function AdminContent() {
   };
 
   // Regenerate ONE question: AI analyses the stem and rebuilds its options/
-  // answer/explanations to fit, then refresh the list.
+  // answer/explanations to fit, then refresh the list (and the open preview).
   const regenerateQ = async (item) => {
     setRegenId(item._id);
     try {
-      await aiService.regenerate({ questionId: item._id });
+      const updated = await aiService.regenerate({ questionId: item._id });
+      // If this question is open in the preview modal, reflect the fix live.
+      setViewQ((prev) => (prev && prev._id === item._id ? { ...prev, ...updated } : prev));
       await load("questions");
     } catch (e) {
       setError(e.message);
@@ -572,7 +574,7 @@ export default function AdminContent() {
               <h3 className="text-lg font-bold">Question</h3>
               <button onClick={() => setViewQ(null)}><X className="h-5 w-5" /></button>
             </div>
-            <QuestionView q={viewQ} />
+            <QuestionView q={viewQ} onRegenerate={() => regenerateQ(viewQ)} regenerating={regenId === viewQ._id} />
             <div className="mt-5 flex justify-end gap-2">
               <button onClick={() => setAddToTestQ(viewQ)} className="btn-outline">
                 <ClipboardList className="h-4 w-4" /> Add to test
