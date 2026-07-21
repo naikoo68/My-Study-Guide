@@ -1903,7 +1903,10 @@ function parseExplanationJson(content) {
     const tableRows = Array.isArray(obj.tableRows) && obj.tableRows.every((r) => Array.isArray(r))
       ? obj.tableRows.map((r) => r.map((c) => (c == null ? "" : String(c))))
       : null;
-    if (explanation || oe || options || text || tableRows) return { explanation, optionExplanations: oe, correct, options, text, columnA, columnB, tableRows };
+    // For PAIR questions: one short "why they match" reason per aligned pair,
+    // used to build the explanation after the backend reshuffles Column B.
+    const pairFacts = Array.isArray(obj.pairFacts) ? obj.pairFacts.map((x) => (x == null ? "" : String(x))) : null;
+    if (explanation || oe || options || text || tableRows) return { explanation, optionExplanations: oe, correct, options, text, columnA, columnB, tableRows, pairFacts };
   }
 
   // Couldn't parse as JSON at all — salvage the explanation with regex (from the
@@ -2159,7 +2162,8 @@ RULES:
 - Keep the question's MEANING, TYPE and what it asks UNCHANGED. Do NOT invent a different question or change the numbers/facts being asked.
 - FIX MATH RENDERING: if any math anywhere (stem, columns, options, explanation) is written as PLAIN TEXT, wrap it properly in $...$ so it renders — e.g. "3/4" → "$\\frac{3}{4}$", "x^2" → "$x^2$", "N/2" → "$\\frac{N}{2}$", "sqrt(2)" → "$\\sqrt{2}$", "25%" → "$25\\%$", "Sum(P1*Q0)/Sum(P0*Q0)" → "$\\frac{\\sum P_1 Q_0}{\\sum P_0 Q_0}$". Return the SAME meaning with the math wrapped and obvious typos/rendering fixed.
 - COLUMN QUESTIONS (matching / pair / pairselect / statement): "text" must be ONLY the short intro line (e.g. "Identify the correct mapping." or "Consider the following statements:"). NEVER put the Column A / Column B / statement items inside "text". Put the Column A items in "columnA" and the Column B items in "columnB" (the SAME number of items as given), each with any formula/math wrapped in $...$ so the columns themselves render. Do NOT prefix these items with numbers or roman numerals (no "1.", "I.") — the app numbers Column A (1,2,3,4) and Column B (I,II,III,IV) automatically. The 4 "options" stay as mapping sequences (e.g. "1-II, 2-IV, 3-I, 4-III") / combinations.
-- POSITION RESHUFFLE (matching / pair / pairselect ONLY): Do NOT keep the items in the same order — RE-ARRANGE the items of just ONE column (Column B) into a NEW, different order (keep the SAME items and the SAME count, only their positions change); leave the OTHER column (Column A) exactly as it is. Then RE-DERIVE the answer for this NEW layout: recompute the 4 "options" (the mapping sequences for "matching"; the how-many count for "pair"; the which-pairs list for "pairselect"), the 0-based "correct" index, and the "explanation" so ALL of them are consistent with the reshuffled Column B. The correct answer MUST reflect the new arrangement, not the old one. Keep the true item↔item relationships intact — only the displayed order of Column B changes.
+- POSITION RESHUFFLE (matching / pairselect ONLY): Do NOT keep the items in the same order — RE-ARRANGE the items of just ONE column (Column B) into a NEW, different order (keep the SAME items and the SAME count, only their positions change); leave Column A exactly as it is. Then RE-DERIVE the answer for this NEW layout: recompute the 4 "options" (the mapping sequences for "matching"; the which-pairs list for "pairselect"), the 0-based "correct" index, and the "explanation" so ALL of them are consistent with the reshuffled Column B. The correct answer MUST reflect the new arrangement, not the old one. Keep the true item↔item relationships intact — only the displayed order of Column B changes.
+- PAIR (count) questions: return "columnA" and "columnB" ALIGNED so EVERY pair is correct (columnA[i] ↔ columnB[i]), plus "pairFacts" (one short reason per pair). Do NOT shuffle and do NOT set the count/"correct" yourself — the app reshuffles Column B and computes the number of correctly-matched pairs.
 - TABLE questions: the data table MUST go in "tableRows" (a 2D array; the FIRST inner row is the header), NEVER as a markdown/pipe table inside "text". "text" is ONLY the question sentence (no "| ... |" rows). If the question currently shows a table in the stem AND/OR in tableRows — even with DIFFERENT numbers — CONSOLIDATE into ONE correct table in "tableRows" (choose the data that is consistent with the intended options, wrap any math in each cell in $...$), remove the table from "text", then SOLVE the question from THAT table with the correct formula and set "options"/"correct" to match your computed value. Return the table in "tableRows".
 - Regenerate the 4 "options", the 0-based "correct" index, the "explanation" and the 4 "optionExplanations" so they are correct and fit the question.
 - "options": EXACTLY 4, fitting the question TYPE, with ONE genuinely correct answer and three plausible-but-wrong distractors. SAME-CATEGORY RULE (important): all four options MUST be of the SAME real-world category/type and format as the correct answer — e.g. a question about a TREE → ALL options are tree names; a river → all rivers; a person → all people of that field/era; a date → plausible nearby dates. Never mix in an unrelated kind (a flower/bird/word among tree names), and match their language, form, length and specificity so the wrong ones are closely related and believable. Wrap any numeric option value or expression in $...$ so it renders as math (e.g. "$12.5$", "$\\frac{3}{4}$", "$2^{10}$", "$25\\%$"):
@@ -2186,11 +2190,80 @@ function buildRegenPrompt(q, notes) {
   const opts = Array.isArray(q.options) ? q.options : [];
   if (opts.length) lines.push(`Current options (may be WRONG — replace with correct ones that fit the question):\n${opts.map((o, i) => `${EXT_LETTERS[i] || i}) ${o}`).join("\n")}`);
   if (notes) lines.push(`MANDATORY user instructions (follow EXACTLY): ${notes}`);
-  if (["matching", "pair", "pairselect"].includes(q.type)) {
+  if (q.type === "pair") {
+    lines.push(`This is a PAIR (count) question. Return "columnA" and "columnB" ALIGNED so that columnA[i] is the CORRECT match of columnB[i] for EVERY index i (i.e. all pairs correct as returned) — do NOT shuffle them yourself and keep the SAME number of items. Also return "pairFacts": an array with one SHORT reason per pair (pairFacts[i] = why columnA[i] correctly matches columnB[i]). Do NOT set the count option or the "correct" index yourself — the app rearranges Column B and computes how many pairs are correctly matched.`);
+  } else if (["matching", "pairselect"].includes(q.type)) {
     lines.push(`RESHUFFLE: put ONLY the Column B items in a NEW, different order than shown above (same items, same count, just rearranged) and keep Column A exactly as it is — return the reshuffled "columnB" and the unchanged "columnA". Then recompute the "options", the "correct" index and the "explanation" to match the new Column B order so the correct answer is right for the reshuffled layout.`);
   }
   lines.push(`Analyse THIS question and FIX anything wrong: rebuild the 4 "options", the "correct" index, the "explanation" and the 4 "optionExplanations" so they are correct and fit the question, AND wrap any plain-text math so it renders. Return the SAME stem in "text" (and same-count "columnA"/"columnB" for matching/pair/statement) with math wrapped in $...$ — keep the meaning unchanged. Return ONLY one valid JSON object {"text":"...","options":["","","",""],"correct":0,"explanation":"...","optionExplanations":["","","",""]}.`);
   return lines.join("\n");
+}
+
+const NUM_WORD = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
+const shuffleInPlace = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+// Return a derangement (permutation with NO element left in its original slot).
+function derange(arr) {
+  if (arr.length < 2) return arr.slice();
+  let res;
+  let tries = 0;
+  do { res = shuffleInPlace(arr.slice()); tries++; } while (tries < 50 && res.some((v, i) => v === arr[i]));
+  return res;
+}
+// A position map of length n with EXACTLY k fixed points (perm[i]===i). The
+// remaining n-k positions are deranged, so they are genuinely wrong. Requires
+// 0<=k<=n-2 or k===n (a permutation can never have exactly n-1 fixed points).
+function permWithKFixed(n, k) {
+  const order = shuffleInPlace([...Array(n).keys()]);
+  const fixed = new Set(order.slice(0, k));
+  const perm = new Array(n);
+  for (let i = 0; i < n; i++) if (fixed.has(i)) perm[i] = i;
+  const movers = [...Array(n).keys()].filter((i) => !fixed.has(i));
+  const dv = derange(movers);
+  movers.forEach((pos, i) => { perm[pos] = dv[i]; });
+  return perm;
+}
+// Build the 4 count-options for an n-pair question and the correct index for k.
+function buildPairCountOptions(n, k) {
+  const label = (c) => (c === n ? `All ${NUM_WORD[n] || n} pairs` : c === 0 ? "None of the pairs" : `Only ${NUM_WORD[c] || c} pair${c === 1 ? "" : "s"}`);
+  const chosen = new Set([k]);
+  const pool = [];
+  for (let c = 1; c <= n; c++) pool.push(c);
+  if (n < 4) pool.unshift(0);
+  pool.sort((a, b) => Math.abs(a - k) - Math.abs(b - k));
+  for (const c of pool) { if (chosen.size >= 4) break; chosen.add(c); }
+  let pad = 0;
+  while (chosen.size < 4) { if (!chosen.has(pad)) chosen.add(pad); pad++; }
+  const counts = shuffleInPlace(Array.from(chosen));
+  return { options: counts.map(label), correctIndex: counts.indexOf(k) };
+}
+// PAIR questions: the AI returns columnA/columnB ALIGNED so every pair is
+// correct, plus pairFacts. We deterministically reshuffle Column B so exactly
+// k pairs stay correct (1 <= k <= n-2 → guaranteed a real mix, at least one
+// correct and at least one wrong), then set the count option, correct index and
+// explanation to MATCH — so the shown answer is always right for the layout.
+function applyPairReshuffle(set, q, parsed) {
+  const columnA = (set.columnA && set.columnA.length ? set.columnA : parsed.columnA || q.columnA || []).map((x) => String(x));
+  const columnB = (set.columnB && set.columnB.length ? set.columnB : parsed.columnB || q.columnB || []).map((x) => String(x));
+  const n = columnA.length;
+  if (n < 3 || columnB.length !== n) return; // need >=3 to make a valid 1..n-2 mix
+  const k = 1 + Math.floor(Math.random() * (n - 2)); // 1 .. n-2
+  const perm = permWithKFixed(n, k);
+  const newB = perm.map((p) => columnB[p]);
+  const facts = Array.isArray(parsed.pairFacts) ? parsed.pairFacts.map((x) => String(x)) : [];
+  const lines = [];
+  for (let i = 0; i < n; i++) {
+    const why = facts[i] ? ` (${facts[i]})` : "";
+    if (perm[i] === i) lines.push(`${i + 1}. ${columnA[i]} — ${newB[i]}: correctly matched${why}.`);
+    else lines.push(`${i + 1}. ${columnA[i]} — ${newB[i]}: NOT correctly matched — ${columnA[i]} actually pairs with ${columnB[i]}${why}.`);
+  }
+  lines.push(`So ${NUM_WORD[k] || k} of the ${NUM_WORD[n] || n} pairs ${k === 1 ? "is" : "are"} correctly matched.`);
+  const { options, correctIndex } = buildPairCountOptions(n, k);
+  set.columnA = columnA;
+  set.columnB = newB;
+  set.options = options;
+  set.correct = correctIndex;
+  set.explanation = lines.join("\n");
+  set.optionExplanations = options.map((_, idx) => (idx === correctIndex ? "" : `Incorrect — exactly ${NUM_WORD[k] || k} pair${k === 1 ? "" : "s"} match, not what this option states.`));
 }
 
 // Build the Mongo $set from a regenerated/parsed result — shared by the single
@@ -2234,6 +2307,9 @@ function buildRegenSet(q, parsed) {
     if (typeof eff === "number" && eff >= 0 && eff < 4) oe[eff] = "";
     set.optionExplanations = oe;
   }
+  // PAIR questions: reshuffle Column B deterministically and set the count
+  // answer to match exactly (fixes "shows All four pairs when only some match").
+  if (q.type === "pair") applyPairReshuffle(set, q, parsed);
   return set;
 }
 
