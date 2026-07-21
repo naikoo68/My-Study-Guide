@@ -163,20 +163,13 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
       const opts = { section };
       if (makingNew) opts.newTarget = { name: newName.trim() };
       const res = await onUpload(preview, opts);
-      setMsg(`✓ Inserted ${res?.inserted ?? preview.length} question(s)${makingNew ? ` into new ${newLeafLabel} “${newName.trim()}”` : ""}.`);
+      setMsg(`✓ Inserted ${res?.inserted ?? preview.length} question(s)${makingNew ? ` into new ${newLeafLabel} “${newName.trim()}”` : ""}. Generate the next batch, or click Close when you're done.`);
       setPreview([]);
       setNewName("");
       setDestChoice("current");
-      if (allowNewTarget) {
-        // Keep the modal open and keep the topic/settings so you can immediately
-        // "Generate" the next batch (no duplicates) and route it to the current
-        // or another new quiz/test.
-      } else {
-        setTopic("");
-        setUrl("");
-        setNotes("");
-        setTimeout(onClose, 1000);
-      }
+      // Stay on this screen (keep the topic + settings) so you can immediately
+      // generate the next batch — no duplicates. The modal never closes by
+      // itself after inserting; use the Close button when you're finished.
     } catch (e) {
       setMsg(e.message || "Insert failed.");
     } finally {
