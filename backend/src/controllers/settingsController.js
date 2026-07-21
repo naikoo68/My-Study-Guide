@@ -1,5 +1,6 @@
 import Settings from "../models/Settings.js";
-import { postToFacebookPage, verifyFacebook, getFacebookConfig } from "../config/facebook.js";
+import { postToFacebookPage, verifyFacebook, getFacebookConfig, getInstagramUserId, postToInstagram } from "../config/facebook.js";
+import { renderQuestionImage } from "../config/socialImage.js";
 
 async function getOrCreate() {
   let s = await Settings.findOne({ key: "site" });
@@ -32,6 +33,7 @@ export async function updateSettings(req, res) {
     "aboutHeading", "aboutIntro", "aboutValues", "aboutStats",
     "aiMaxPerBatch", "clientPlans",
     "fbEnabled", "fbPageId", "fbAutoOnNotice", "fbGraphVersion", "fbPageAccessToken",
+    "igEnabled", "igUserId",
   ];
   const update = {};
   for (const k of allowed) if (k in req.body) update[k] = req.body[k];
@@ -44,6 +46,7 @@ export async function updateSettings(req, res) {
   }
   if ("fbPageId" in update) update.fbPageId = String(update.fbPageId || "").trim();
   if ("fbGraphVersion" in update) update.fbGraphVersion = String(update.fbGraphVersion || "").trim() || "v21.0";
+  if ("igUserId" in update) update.igUserId = String(update.igUserId || "").trim();
 
   // AI limits: clamp the admin's global per-batch ceiling.
   if ("aiMaxPerBatch" in update) {
@@ -111,5 +114,29 @@ export async function testFacebookPost(req, res) {
   const message = String(req.body?.message || "").trim() ||
     `✅ Test post from ${site.siteName || "My Study Guide"} — Facebook auto-posting is connected.`;
   const result = await postToFacebookPage({ message, link: req.body?.link }, cfg);
+  return res.status(result.ok ? 200 : 502).json(result);
+}
+
+// POST /api/settings/instagram/test — admin: verify the linked IG account and
+// (unless verifyOnly) publish a test image post to Instagram.
+export async function testInstagramPost(req, res) {
+  const cfg = await getFacebookConfig();
+  if (!cfg.pageId || !cfg.token) {
+    return res.status(400).json({ ok: false, error: "Connect Facebook first (Page ID + token)." });
+  }
+  const igId = await getInstagramUserId(cfg);
+  if (!igId) {
+    return res.status(400).json({ ok: false, error: "No Instagram Business/Creator account is linked to this Facebook Page. Link it in your Facebook Page settings, then try again." });
+  }
+  if (req.body?.verifyOnly) return res.json({ ok: true, igUserId: igId });
+
+  const site = await getOrCreate();
+  const title = `Test post from ${site.siteName || "My Study Guide"}`;
+  const imageUrl = await renderQuestionImage(
+    { text: title, options: ["Ready", "Set", "Go", "Posted!"], correct: 3 },
+    { includeOptions: true }
+  );
+  if (!imageUrl) return res.status(502).json({ ok: false, error: "Could not generate the image (check Cloudinary keys in the server settings)." });
+  const result = await postToInstagram({ imageUrl, caption: `${title} — Instagram auto-posting is connected. ✅` }, cfg);
   return res.status(result.ok ? 200 : 502).json(result);
 }

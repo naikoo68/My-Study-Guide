@@ -25,6 +25,9 @@ function pickScheduleFields(body = {}) {
     includeLink: !!body.includeLink,
     hashtags: String(body.hashtags || "").trim(),
     order: body.order === "sequential" ? "sequential" : "random",
+    toFacebook: body.toFacebook !== false,
+    toInstagram: !!body.toInstagram,
+    asImage: !!body.asImage,
   };
 }
 

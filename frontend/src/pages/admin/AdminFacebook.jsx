@@ -3,7 +3,7 @@ import {
   Send, Loader2, CheckCircle2, AlertTriangle, KeyRound, Plus, Trash2, Pencil, X,
   Clock, CalendarClock, ListChecks, Power, Save,
 } from "lucide-react";
-import { Facebook } from "../../components/ui/SocialIcons";
+import { Facebook, Instagram } from "../../components/ui/SocialIcons";
 import { settingsService, facebookService, contentService } from "../../services";
 import { useSettings } from "../../context/SettingsContext";
 import { Loading, ErrorState } from "../../components/ui/AsyncState";
@@ -86,21 +86,27 @@ const emptyForm = {
   title: "", source: { subject: null, session: null, quiz: null, label: "" },
   times: ["09:00"], days: [], timezone: "Asia/Kolkata",
   includeOptions: true, includeAnswer: false, includeLink: false, hashtags: "", order: "random",
+  toFacebook: true, toInstagram: false, asImage: false,
 };
 
 export default function AdminFacebook() {
   const { settings, save: saveSettings } = useSettings();
 
   // ---- Connection config ----
-  const [fb, setFb] = useState({ fbEnabled: false, fbPageId: "", fbGraphVersion: "v21.0" });
+  const [fb, setFb] = useState({ fbEnabled: false, fbPageId: "", fbGraphVersion: "v21.0", igEnabled: false, igUserId: "" });
   const [fbToken, setFbToken] = useState("");
   const [fbSaving, setFbSaving] = useState(false);
   const [fbTesting, setFbTesting] = useState(false);
+  const [igTesting, setIgTesting] = useState(false);
   const [fbMsg, setFbMsg] = useState(null);
+  const [igMsg, setIgMsg] = useState(null);
 
   useEffect(() => {
-    setFb({ fbEnabled: settings?.fbEnabled === true, fbPageId: settings?.fbPageId || "", fbGraphVersion: settings?.fbGraphVersion || "v21.0" });
-  }, [settings?.fbEnabled, settings?.fbPageId, settings?.fbGraphVersion]);
+    setFb({
+      fbEnabled: settings?.fbEnabled === true, fbPageId: settings?.fbPageId || "", fbGraphVersion: settings?.fbGraphVersion || "v21.0",
+      igEnabled: settings?.igEnabled === true, igUserId: settings?.igUserId || "",
+    });
+  }, [settings?.fbEnabled, settings?.fbPageId, settings?.fbGraphVersion, settings?.igEnabled, settings?.igUserId]);
 
   const saveFb = async () => {
     setFbSaving(true); setFbMsg(null);
@@ -113,6 +119,11 @@ export default function AdminFacebook() {
     setFbTesting(true); setFbMsg(null);
     try { const r = await settingsService.testFacebook({}); setFbMsg({ ok: true, text: `Posted to Facebook${r?.id ? ` (id ${r.id})` : ""}. Check your Page.` }); }
     catch (e) { setFbMsg({ ok: false, text: e.message || "Could not post." }); } finally { setFbTesting(false); }
+  };
+  const testIg = async () => {
+    setIgTesting(true); setIgMsg(null);
+    try { const r = await settingsService.testInstagram({}); setIgMsg({ ok: true, text: `Posted to Instagram${r?.id ? ` (id ${r.id})` : ""}. Check your profile.` }); }
+    catch (e) { setIgMsg({ ok: false, text: e.message || "Could not post to Instagram." }); } finally { setIgTesting(false); }
   };
 
   // ---- Schedules ----
@@ -136,6 +147,7 @@ export default function AdminFacebook() {
     times: s.times?.length ? s.times : ["09:00"], days: s.days || [], timezone: s.timezone || "Asia/Kolkata",
     includeOptions: s.includeOptions !== false, includeAnswer: !!s.includeAnswer, includeLink: !!s.includeLink,
     hashtags: s.hashtags || "", order: s.order || "random",
+    toFacebook: s.toFacebook !== false, toInstagram: !!s.toInstagram, asImage: !!s.asImage,
   });
 
   const setTime = (i, v) => setForm((f) => ({ ...f, times: f.times.map((t, k) => (k === i ? v : t)) }));
@@ -146,6 +158,7 @@ export default function AdminFacebook() {
   const saveForm = async () => {
     if (!form.source.subject && !form.source.session && !form.source.quiz) { setError("Pick a source (subject, session or quiz)."); return; }
     if (!form.times.filter(Boolean).length) { setError("Add at least one time."); return; }
+    if (!form.toFacebook && !form.toInstagram) { setError("Choose at least one destination (Facebook and/or Instagram)."); return; }
     setSaving(true); setError("");
     try {
       const payload = { ...form, times: form.times.filter(Boolean) };
@@ -214,6 +227,32 @@ export default function AdminFacebook() {
         </div>
       </div>
 
+      {/* Instagram */}
+      <div className="card p-5">
+        <h2 className="flex items-center gap-2 font-bold"><Instagram className="h-5 w-5 text-[#E1306C]" /> Instagram cross-posting</h2>
+        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
+          Also post to Instagram. Requires an <b>Instagram Business/Creator account linked to your Facebook Page</b>. Instagram posts are always images, so those schedules auto-generate a question image.
+        </p>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
+            <span className="text-sm font-medium">Enable Instagram posting</span>
+            <button type="button" onClick={() => setFb((f) => ({ ...f, igEnabled: !f.igEnabled }))}
+              className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${fb.igEnabled ? "bg-[#E1306C]" : "bg-slate-300 dark:bg-slate-600"}`}>
+              <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${fb.igEnabled ? "left-6" : "left-1"}`} />
+            </button>
+          </label>
+          <div>
+            <label className="mb-1 block text-sm font-medium">Instagram account ID <span className="font-normal text-slate-400">(optional — auto-detected)</span></label>
+            <input className="input" value={fb.igUserId} onChange={(e) => setFb((f) => ({ ...f, igUserId: e.target.value }))} placeholder="Leave blank to auto-detect from the Page" />
+          </div>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <button type="button" onClick={saveFb} disabled={fbSaving} className="btn-primary">{fbSaving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> Save</>}</button>
+          <button type="button" onClick={testIg} disabled={igTesting || !settings?.fbTokenSet} className="btn-outline">{igTesting ? <><Loader2 className="h-4 w-4 animate-spin" /> Posting…</> : <><Send className="h-4 w-4" /> Send test to Instagram</>}</button>
+          {igMsg && <span className={`inline-flex items-center gap-1 text-sm font-medium ${igMsg.ok ? "text-emerald-600" : "text-rose-600"}`}>{igMsg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {igMsg.text}</span>}
+        </div>
+      </div>
+
       {/* Schedules */}
       <div className="card p-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -271,7 +310,22 @@ export default function AdminFacebook() {
               </div>
             </div>
 
-            <div className="mt-4 flex flex-wrap gap-4">
+            <p className="mb-1 mt-4 text-sm font-semibold">Post to</p>
+            <div className="flex flex-wrap gap-4">
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" className="h-4 w-4 accent-[#1877F2]" checked={form.toFacebook} onChange={(e) => setForm((f) => ({ ...f, toFacebook: e.target.checked }))} /> Facebook
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" className="h-4 w-4 accent-[#E1306C]" checked={form.toInstagram} onChange={(e) => setForm((f) => ({ ...f, toInstagram: e.target.checked }))} /> Instagram <span className="text-slate-400">(image)</span>
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={form.asImage} onChange={(e) => setForm((f) => ({ ...f, asImage: e.target.checked }))} /> Post as image on Facebook
+              </label>
+            </div>
+            {form.toInstagram && <p className="mt-1 text-xs text-slate-400">Instagram always posts an image, so a question image is generated automatically.</p>}
+
+            <p className="mb-1 mt-4 text-sm font-semibold">Content</p>
+            <div className="flex flex-wrap gap-4">
               {[["includeOptions", "Show A/B/C/D options"], ["includeAnswer", "Reveal the answer + explanation"], ["includeLink", "Append site link"]].map(([k, l]) => (
                 <label key={k} className="flex items-center gap-2 text-sm">
                   <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={form[k]} onChange={(e) => setForm((f) => ({ ...f, [k]: e.target.checked }))} /> {l}

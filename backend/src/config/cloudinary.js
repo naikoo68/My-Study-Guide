@@ -18,4 +18,13 @@ export async function uploadToCloudinary(fileStr, folder = "mystudyguide") {
   return { url: result.secure_url, format: result.format, bytes: result.bytes };
 }
 
+// Uploads an image (e.g. an SVG data URI) and returns a raster URL. `format`
+// forces conversion (e.g. "png") so Facebook/Instagram get a real photo.
+export async function uploadImage(fileStr, { folder = "mystudyguide/social", format } = {}) {
+  const opts = { folder, resource_type: "image" };
+  if (format) opts.format = format;
+  const result = await cloudinary.uploader.upload(fileStr, opts);
+  return { url: result.secure_url, format: result.format, bytes: result.bytes };
+}
+
 export default cloudinary;

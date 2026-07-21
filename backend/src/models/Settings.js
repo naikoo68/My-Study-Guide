@@ -83,6 +83,9 @@ const settingsSchema = new mongoose.Schema(
     fbPageAccessToken: { type: String, default: "" }, // SENSITIVE — long-lived Page access token; never sent to the browser
     fbAutoOnNotice: { type: Boolean, default: false }, // auto-post to the Page whenever a Notice is added
     fbGraphVersion: { type: String, default: "v21.0" }, // Graph API version
+    // Instagram cross-posting (uses the same Page token; IG account linked to the Page)
+    igEnabled: { type: Boolean, default: false },
+    igUserId: { type: String, default: "" }, // Instagram Business account id (blank = auto-detect from the Page)
     socialLinks: {
       type: [socialSchema],
       default: () => [

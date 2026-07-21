@@ -207,6 +207,7 @@ export const settingsService = {
   get: () => api.get("/settings", { auth: false }),
   update: (data) => api.put("/settings", data),
   testFacebook: (data) => api.post("/settings/facebook/test", data || {}), // verify/send a test Page post (admin)
+  testInstagram: (data) => api.post("/settings/instagram/test", data || {}), // verify/send a test Instagram post (admin)
 };
 
 // ---- Facebook scheduled auto-posting (admin) ----

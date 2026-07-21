@@ -31,6 +31,11 @@ const fbScheduleSchema = new mongoose.Schema(
     hashtags: { type: String, default: "" }, // optional trailing hashtags
     order: { type: String, enum: ["random", "sequential"], default: "random" },
 
+    // Destinations & format.
+    toFacebook: { type: Boolean, default: true }, // post to the Facebook Page
+    toInstagram: { type: Boolean, default: false }, // also cross-post to Instagram (forces an image)
+    asImage: { type: Boolean, default: false }, // render the question as an image card (Facebook)
+
     // Runtime bookkeeping.
     postedQuestionIds: { type: [mongoose.Schema.Types.ObjectId], default: [] }, // avoid repeats until exhausted
     lastSlot: { type: String, default: "" }, // "YYYY-MM-DD HH:MM" of the last fired slot (dedupe guard)

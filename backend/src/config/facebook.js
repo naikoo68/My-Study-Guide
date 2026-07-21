@@ -14,6 +14,8 @@ export async function getFacebookConfig() {
     version: String(s?.fbGraphVersion || "v21.0").trim() || "v21.0",
     autoOnNotice: !!s?.fbAutoOnNotice,
     siteUrl: String(process.env.CLIENT_URL || "").replace(/\/$/, ""),
+    igEnabled: !!s?.igEnabled,
+    igUserId: String(s?.igUserId || "").trim(),
   };
 }
 
@@ -21,18 +23,22 @@ export const isFacebookConfigured = (cfg) => !!(cfg?.pageId && cfg?.token);
 
 // Post a message (with an optional link) to the configured Facebook Page feed.
 // Returns { ok, id?, error? }. Safe to call fire-and-forget — it never throws.
-export async function postToFacebookPage({ message, link } = {}, cfgOverride) {
+export async function postToFacebookPage({ message, link, imageUrl } = {}, cfgOverride) {
   const cfg = cfgOverride || (await getFacebookConfig());
   if (!isFacebookConfigured(cfg)) return { ok: false, error: "Facebook Page ID or access token is not set." };
 
   const msg = String(message || "").trim();
   const lnk = String(link || "").trim();
-  if (!msg && !lnk) return { ok: false, error: "Nothing to post (empty message)." };
+  const img = String(imageUrl || "").trim();
+  if (!msg && !lnk && !img) return { ok: false, error: "Nothing to post (empty message)." };
 
-  const url = `https://graph.facebook.com/${cfg.version}/${encodeURIComponent(cfg.pageId)}/feed`;
+  // With an image → post a PHOTO (message becomes the caption); otherwise a
+  // normal feed post (optionally with a link).
+  const endpoint = img ? "photos" : "feed";
+  const url = `https://graph.facebook.com/${cfg.version}/${encodeURIComponent(cfg.pageId)}/${endpoint}`;
   const body = new URLSearchParams();
-  if (msg) body.set("message", msg);
-  if (lnk) body.set("link", lnk);
+  if (img) { body.set("url", img); if (msg) body.set("caption", msg); }
+  else { if (msg) body.set("message", msg); if (lnk) body.set("link", lnk); }
   body.set("access_token", cfg.token);
 
   try {
@@ -42,10 +48,59 @@ export async function postToFacebookPage({ message, link } = {}, cfgOverride) {
       body,
     });
     const data = await res.json().catch(() => ({}));
-    if (res.ok && data && data.id) return { ok: true, id: data.id };
+    if (res.ok && data && (data.id || data.post_id)) return { ok: true, id: data.post_id || data.id };
     return { ok: false, error: data?.error?.message || `Facebook API error (${res.status}).` };
   } catch (err) {
     return { ok: false, error: err.message || "Could not reach Facebook." };
+  }
+}
+
+// Resolve the Instagram Business account id linked to the Facebook Page. Uses
+// the configured igUserId if set, else auto-detects it from the Page.
+export async function getInstagramUserId(cfgOverride) {
+  const cfg = cfgOverride || (await getFacebookConfig());
+  if (cfg.igUserId) return cfg.igUserId;
+  if (!isFacebookConfigured(cfg)) return null;
+  try {
+    const res = await fetch(`https://graph.facebook.com/${cfg.version}/${encodeURIComponent(cfg.pageId)}?fields=instagram_business_account&access_token=${encodeURIComponent(cfg.token)}`);
+    const data = await res.json().catch(() => ({}));
+    return data?.instagram_business_account?.id || null;
+  } catch {
+    return null;
+  }
+}
+
+// Post a single image with caption to Instagram (create container → publish).
+// Instagram REQUIRES an image. Returns { ok, id?, error? }.
+export async function postToInstagram({ imageUrl, caption } = {}, cfgOverride) {
+  const cfg = cfgOverride || (await getFacebookConfig());
+  if (!isFacebookConfigured(cfg)) return { ok: false, error: "Facebook/Instagram is not connected." };
+  const img = String(imageUrl || "").trim();
+  if (!img) return { ok: false, error: "Instagram needs an image to post." };
+  const igId = await getInstagramUserId(cfg);
+  if (!igId) return { ok: false, error: "No Instagram Business account is linked to this Facebook Page." };
+
+  const headers = { "Content-Type": "application/x-www-form-urlencoded" };
+  try {
+    // 1) Create a media container.
+    const c = new URLSearchParams();
+    c.set("image_url", img);
+    if (caption) c.set("caption", String(caption).slice(0, 2100));
+    c.set("access_token", cfg.token);
+    const cRes = await fetch(`https://graph.facebook.com/${cfg.version}/${igId}/media`, { method: "POST", headers, body: c });
+    const cData = await cRes.json().catch(() => ({}));
+    if (!cRes.ok || !cData.id) return { ok: false, error: cData?.error?.message || `Instagram container error (${cRes.status}).` };
+
+    // 2) Publish the container.
+    const p = new URLSearchParams();
+    p.set("creation_id", cData.id);
+    p.set("access_token", cfg.token);
+    const pRes = await fetch(`https://graph.facebook.com/${cfg.version}/${igId}/media_publish`, { method: "POST", headers, body: p });
+    const pData = await pRes.json().catch(() => ({}));
+    if (pRes.ok && pData.id) return { ok: true, id: pData.id };
+    return { ok: false, error: pData?.error?.message || `Instagram publish error (${pRes.status}).` };
+  } catch (err) {
+    return { ok: false, error: err.message || "Could not reach Instagram." };
   }
 }
 
@@ -69,6 +124,7 @@ export async function verifyFacebook(cfgOverride) {
 // ---------------------------------------------------------------------------
 import FbSchedule from "../models/FbSchedule.js";
 import Question from "../models/Question.js";
+import { renderQuestionImage } from "./socialImage.js";
 
 const LETTERS = ["A", "B", "C", "D", "E", "F"];
 const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"];
@@ -188,7 +244,8 @@ function dueSlot(sch, now) {
 }
 
 // Post one question from a schedule right now (used by the scheduler AND the
-// admin "Post now" button). Returns { ok, id?, error?, skipped? }.
+// admin "Post now" button). Posts to Facebook and/or Instagram, as an image
+// card when requested (Instagram always needs one). Returns { ok, error? }.
 export async function runScheduleOnce(sch, cfgOverride) {
   const cfg = cfgOverride || (await getFacebookConfig());
   if (!isFacebookConfigured(cfg)) return { ok: false, error: "Facebook is not connected." };
@@ -196,25 +253,51 @@ export async function runScheduleOnce(sch, cfgOverride) {
   if (!picked || !picked.q) return { ok: false, error: "No published questions found in the selected source." };
   const { q, recycled } = picked;
 
+  const wantFb = sch.toFacebook !== false;
+  const wantIg = !!sch.toInstagram && cfg.igEnabled;
   const message = formatQuestionPost(q, {
     includeOptions: sch.includeOptions,
     includeAnswer: sch.includeAnswer,
     hashtags: sch.hashtags,
   });
   const link = sch.includeLink && cfg.siteUrl ? cfg.siteUrl : undefined;
-  const result = await postToFacebookPage({ message, link }, cfg);
 
-  if (result.ok) {
-    const posted = recycled ? [q._id] : [...(sch.postedQuestionIds || []), q._id];
-    sch.postedQuestionIds = posted;
-    sch.postCount = (sch.postCount || 0) + 1;
-    sch.lastRunAt = new Date();
-    sch.lastResult = `Posted a question${recycled ? " (restarted the pool)" : ""}.`;
-  } else {
-    sch.lastRunAt = new Date();
-    sch.lastResult = `Failed: ${result.error}`;
+  // Render an image if a photo post is requested, or if Instagram is a target
+  // (IG can't post text-only). Falls back to text if rendering fails.
+  let imageUrl = null;
+  if (sch.asImage || wantIg) {
+    imageUrl = await renderQuestionImage(q, {
+      includeOptions: sch.includeOptions,
+      includeAnswer: sch.includeAnswer,
+      hashtags: sch.hashtags,
+    });
   }
-  return result;
+
+  const notes = [];
+  let anyOk = false;
+
+  if (wantFb) {
+    const r = await postToFacebookPage({ message, link, imageUrl: sch.asImage ? imageUrl : undefined }, cfg);
+    if (r.ok) { anyOk = true; notes.push("Facebook ✓"); } else notes.push(`Facebook ✗ (${r.error})`);
+  }
+  if (wantIg) {
+    if (!imageUrl) notes.push("Instagram ✗ (image could not be generated)");
+    else {
+      const r = await postToInstagram({ imageUrl, caption: message }, cfg);
+      if (r.ok) { anyOk = true; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
+    }
+  }
+  if (!wantFb && !wantIg) return { ok: false, error: "No destination selected (enable Facebook and/or Instagram)." };
+
+  sch.lastRunAt = new Date();
+  if (anyOk) {
+    sch.postedQuestionIds = recycled ? [q._id] : [...(sch.postedQuestionIds || []), q._id];
+    sch.postCount = (sch.postCount || 0) + 1;
+    sch.lastResult = `${notes.join(" · ")}${recycled ? " (restarted the pool)" : ""}`;
+  } else {
+    sch.lastResult = `Failed: ${notes.join(" · ")}`;
+  }
+  return { ok: anyOk, error: anyOk ? undefined : notes.join(" · "), id: undefined };
 }
 
 // The scheduler tick — called every minute (server interval) and, as a
