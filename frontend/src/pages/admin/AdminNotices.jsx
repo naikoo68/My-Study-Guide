@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, X, Megaphone, Eye, EyeOff, BellRing, Facebook, Send, Loader2, CheckCircle2, AlertTriangle, KeyRound } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Megaphone, Eye, EyeOff, BellRing, Send, Loader2, CheckCircle2, AlertTriangle, KeyRound } from "lucide-react";
+import { Facebook } from "../../components/ui/SocialIcons"; // brand icon (lucide-react has no brand logos)
 import { noticeService, settingsService } from "../../services";
 import { useSettings } from "../../context/SettingsContext";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";

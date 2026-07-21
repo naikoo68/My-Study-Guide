@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   BookOpen, LayoutDashboard, Wrench, ArrowRightLeft, Sparkles, FileText, Feather,
   ListChecks, FileStack, HelpCircle, Play, Download, Globe, RefreshCw, Wand2, Search,
-  Crown, RotateCw, GraduationCap, FolderOpen, Layers, ShieldCheck,
+  Crown, GraduationCap, FolderOpen, Layers, ShieldCheck,
 } from "lucide-react";
 import { authService, practiceService, aiService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
@@ -149,7 +149,7 @@ export default function ClientUserManual({ onGoTab }) {
             <h1 className="text-2xl font-extrabold leading-none">User Manual</h1>
             <p className="mt-1 text-sm text-slate-400">A quick guide to your account — updates automatically as you add or remove content.</p>
           </div>
-          <button onClick={load} title="Refresh" className="btn-ghost ml-auto"><RotateCw className="h-4 w-4" /> <span className="hidden sm:inline">Refresh</span></button>
+          <button onClick={load} title="Refresh" className="btn-ghost ml-auto"><RefreshCw className="h-4 w-4" /> <span className="hidden sm:inline">Refresh</span></button>
         </div>
       </div>
 
