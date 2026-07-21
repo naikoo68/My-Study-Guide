@@ -14,7 +14,7 @@ import DuplicatesModal from "../../components/admin/DuplicatesModal";
 import AiImport from "../../components/admin/AiImport";
 import ExtendExplanationsModal from "../../components/admin/ExtendExplanationsModal";
 import ExtendOneQuestionModal from "../../components/admin/ExtendOneQuestionModal";
-import { Sparkles, Files, Globe, Wand2, Loader2, ClipboardList, RefreshCw } from "lucide-react";
+import { Sparkles, Files, Globe, Wand2, Loader2, ClipboardList } from "lucide-react";
 
 const COLORS = [
   "from-blue-500 to-indigo-600",
@@ -616,9 +616,6 @@ export default function AdminContent() {
                     <button onClick={() => setAddToTestQ(it)} title="Add to test" className="rounded-lg bg-white p-1.5 text-emerald-600 shadow hover:bg-emerald-50 dark:bg-slate-800 dark:hover:bg-emerald-900/30">
                       <ClipboardList className="h-4 w-4" />
                     </button>
-                    <button onClick={() => regenerateQ(it)} disabled={regenId === it._id} title="Regenerate options to fit the question" className="rounded-lg bg-white p-1.5 text-violet-600 shadow hover:bg-violet-50 disabled:opacity-50 dark:bg-slate-800 dark:hover:bg-violet-900/30">
-                      {regenId === it._id ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                    </button>
                     {!studentView && (
                       <>
                         <button onClick={() => { setViewAll(false); openEdit(it); }} title="Edit" className="rounded-lg bg-white p-1.5 text-brand-600 shadow hover:bg-brand-50 dark:bg-slate-800 dark:hover:bg-brand-900/30">
@@ -630,7 +627,7 @@ export default function AdminContent() {
                       </>
                     )}
                   </div>
-                  <QuestionView q={it} index={i + 1} studentView={studentView} />
+                  <QuestionView q={it} index={i + 1} studentView={studentView} onRegenerate={() => regenerateQ(it)} regenerating={regenId === it._id} />
                 </div>
               ))}
             </div>
