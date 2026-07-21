@@ -13,6 +13,7 @@ export async function getFacebookConfig() {
     token: String(s?.fbPageAccessToken || "").trim(),
     version: String(s?.fbGraphVersion || "v21.0").trim() || "v21.0",
     autoOnNotice: !!s?.fbAutoOnNotice,
+    siteUrl: String(process.env.CLIENT_URL || "").replace(/\/$/, ""),
   };
 }
 
@@ -59,5 +60,193 @@ export async function verifyFacebook(cfgOverride) {
     return { ok: false, error: data?.error?.message || `Facebook API error (${res.status}).` };
   } catch (err) {
     return { ok: false, error: err.message || "Could not reach Facebook." };
+  }
+}
+
+
+// ---------------------------------------------------------------------------
+// Scheduled question auto-posting (independent of the Notice Board).
+// ---------------------------------------------------------------------------
+import FbSchedule from "../models/FbSchedule.js";
+import Question from "../models/Question.js";
+
+const LETTERS = ["A", "B", "C", "D", "E", "F"];
+const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"];
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+// Strip inline-LaTeX $…$ markers so the post reads as plain text on Facebook.
+const plain = (s) => String(s || "").replace(/\$/g, "").replace(/[ \t]+\n/g, "\n").trim();
+
+// Build the Facebook post text for one question, honouring the schedule's
+// formatting options (show options / reveal answer / hashtags).
+export function formatQuestionPost(q, opts = {}) {
+  const lines = [];
+  if (q.text) lines.push(plain(q.text));
+
+  // Matching / pair columns.
+  if (Array.isArray(q.columnA) && q.columnA.length) {
+    lines.push("");
+    q.columnA.forEach((a, i) => lines.push(`${i + 1}. ${plain(a)}`));
+    if (Array.isArray(q.columnB) && q.columnB.length) {
+      lines.push("");
+      q.columnB.forEach((b, i) => lines.push(`${ROMAN[i] || i + 1}. ${plain(b)}`));
+    }
+  }
+  // Assertion & Reason.
+  if (q.assertion) { lines.push("", `Assertion (A): ${plain(q.assertion)}`); if (q.reason) lines.push(`Reason (R): ${plain(q.reason)}`); }
+
+  if (opts.includeOptions && Array.isArray(q.options) && q.options.length) {
+    lines.push("");
+    q.options.forEach((o, i) => lines.push(`${LETTERS[i]}) ${plain(o)}`));
+  }
+
+  if (opts.includeAnswer && Number.isInteger(q.correct)) {
+    lines.push("", `✅ Answer: ${LETTERS[q.correct] || q.correct + 1}${Array.isArray(q.options) && q.options[q.correct] ? `) ${plain(q.options[q.correct])}` : ""}`);
+    if (q.explanation) lines.push("", plain(q.explanation));
+  } else if (opts.includeOptions) {
+    lines.push("", "👉 Comment your answer below!");
+  }
+
+  if (opts.hashtags && String(opts.hashtags).trim()) lines.push("", String(opts.hashtags).trim());
+  return lines.join("\n").slice(0, 60000); // FB text limit is generous; cap defensively
+}
+
+// Build the Mongo filter for a schedule's chosen content scope. Deepest wins.
+function scopeFilter(source = {}) {
+  const base = { status: "published" };
+  if (source.quiz) return { ...base, quiz: source.quiz };
+  if (source.session) return { ...base, session: source.session };
+  if (source.testSeries) return { ...base, testSeries: source.testSeries };
+  if (source.subject) return { ...base, subject: source.subject };
+  return null;
+}
+
+// Pick the next question for a schedule (random or sequential), skipping ones
+// already posted until the pool is exhausted, then cycling. Returns the doc.
+export async function pickQuestionForSchedule(sch) {
+  const filter = scopeFilter(sch.source);
+  if (!filter) return null;
+  const posted = (sch.postedQuestionIds || []).map(String);
+
+  const unusedFilter = posted.length ? { ...filter, _id: { $nin: sch.postedQuestionIds } } : filter;
+  let count = await Question.countDocuments(unusedFilter);
+  let useFilter = unusedFilter;
+  let recycled = false;
+  if (count === 0) {
+    // All posted already → start over from the full pool.
+    count = await Question.countDocuments(filter);
+    useFilter = filter;
+    recycled = true;
+  }
+  if (count === 0) return null; // no questions at all in this scope
+
+  let q;
+  if (sch.order === "sequential") {
+    q = await Question.findOne(useFilter).sort({ createdAt: 1 }).lean();
+  } else {
+    const skip = Math.floor(Math.random() * count);
+    q = await Question.findOne(useFilter).skip(skip).lean();
+  }
+  return q ? { q, recycled } : null;
+}
+
+// Time helpers ------------------------------------------------------------
+function tzParts(date, timeZone) {
+  try {
+    const f = new Intl.DateTimeFormat("en-GB", {
+      timeZone: timeZone || "Asia/Kolkata", hour12: false,
+      weekday: "short", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+    });
+    const p = Object.fromEntries(f.formatToParts(date).map((x) => [x.type, x.value]));
+    const hour = p.hour === "24" ? 0 : parseInt(p.hour, 10);
+    return { dateStr: `${p.year}-${p.month}-${p.day}`, hh: hour, mm: parseInt(p.minute, 10), dow: WEEKDAYS.indexOf(p.weekday) };
+  } catch {
+    return { dateStr: date.toISOString().slice(0, 10), hh: date.getUTCHours(), mm: date.getUTCMinutes(), dow: date.getUTCDay() };
+  }
+}
+
+// Return the slot key ("YYYY-MM-DD HH:MM") that is due to fire now, or null.
+// A slot fires when the current time (in the schedule's timezone) is at/after
+// it, within a grace window (so a brief downtime still posts, but stale slots
+// from hours ago are skipped). lastSlot prevents re-firing the same slot.
+const GRACE_MIN = 180;
+function dueSlot(sch, now) {
+  const { dateStr, hh, mm, dow } = tzParts(now, sch.timezone);
+  if (Array.isArray(sch.days) && sch.days.length && !sch.days.includes(dow)) return null;
+  const cur = hh * 60 + mm;
+  let best = null;
+  for (const t of sch.times || []) {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(String(t).trim());
+    if (!m) continue;
+    const tmin = parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+    if (cur >= tmin && cur - tmin <= GRACE_MIN) {
+      const key = `${dateStr} ${String(m[1]).padStart(2, "0")}:${m[2]}`;
+      if (!best || tmin > best.tmin) best = { key, tmin };
+    }
+  }
+  if (best && sch.lastSlot !== best.key) return best.key;
+  return null;
+}
+
+// Post one question from a schedule right now (used by the scheduler AND the
+// admin "Post now" button). Returns { ok, id?, error?, skipped? }.
+export async function runScheduleOnce(sch, cfgOverride) {
+  const cfg = cfgOverride || (await getFacebookConfig());
+  if (!isFacebookConfigured(cfg)) return { ok: false, error: "Facebook is not connected." };
+  const picked = await pickQuestionForSchedule(sch);
+  if (!picked || !picked.q) return { ok: false, error: "No published questions found in the selected source." };
+  const { q, recycled } = picked;
+
+  const message = formatQuestionPost(q, {
+    includeOptions: sch.includeOptions,
+    includeAnswer: sch.includeAnswer,
+    hashtags: sch.hashtags,
+  });
+  const link = sch.includeLink && cfg.siteUrl ? cfg.siteUrl : undefined;
+  const result = await postToFacebookPage({ message, link }, cfg);
+
+  if (result.ok) {
+    const posted = recycled ? [q._id] : [...(sch.postedQuestionIds || []), q._id];
+    sch.postedQuestionIds = posted;
+    sch.postCount = (sch.postCount || 0) + 1;
+    sch.lastRunAt = new Date();
+    sch.lastResult = `Posted a question${recycled ? " (restarted the pool)" : ""}.`;
+  } else {
+    sch.lastRunAt = new Date();
+    sch.lastResult = `Failed: ${result.error}`;
+  }
+  return result;
+}
+
+// The scheduler tick — called every minute (server interval) and, as a
+// safety net, from the throttled /api/health ping. Guarded so overlapping
+// calls can't double-post.
+let fbTickRunning = false;
+export async function runDueFbSchedules() {
+  if (fbTickRunning) return;
+  fbTickRunning = true;
+  try {
+    const cfg = await getFacebookConfig();
+    if (!cfg.enabled || !isFacebookConfigured(cfg)) return; // posting off / not connected
+    const now = new Date();
+    const schedules = await FbSchedule.find({ enabled: true });
+    for (const sch of schedules) {
+      const slot = dueSlot(sch, now);
+      if (!slot) continue;
+      // Claim the slot FIRST (persist) so a concurrent tick won't repost it,
+      // then post. If the post fails, lastResult records why.
+      sch.lastSlot = slot;
+      await sch.save();
+      try {
+        await runScheduleOnce(sch, cfg);
+        await sch.save();
+      } catch (e) {
+        sch.lastResult = `Error: ${e.message}`;
+        await sch.save().catch(() => {});
+      }
+    }
+  } catch {
+    /* never let the scheduler throw */
+  } finally {
+    fbTickRunning = false;
   }
 }

@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, X, Megaphone, Eye, EyeOff, BellRing, Send, Loader2, CheckCircle2, AlertTriangle, KeyRound } from "lucide-react";
-import { Facebook } from "../../components/ui/SocialIcons"; // brand icon (lucide-react has no brand logos)
-import { noticeService, settingsService } from "../../services";
+import { Plus, Pencil, Trash2, X, Megaphone, Eye, EyeOff, BellRing } from "lucide-react";
+import { noticeService } from "../../services";
 import { useSettings } from "../../context/SettingsContext";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 
@@ -18,13 +17,6 @@ export default function AdminNotices() {
   const [notify, setNotify] = useState(false);
   const [notifySaving, setNotifySaving] = useState(false);
 
-  // Facebook Page auto-posting config (token is write-only — never read back).
-  const [fb, setFb] = useState({ fbEnabled: false, fbPageId: "", fbAutoOnNotice: false, fbGraphVersion: "v21.0" });
-  const [fbToken, setFbToken] = useState(""); // typed only when changing the saved token
-  const [fbSaving, setFbSaving] = useState(false);
-  const [fbTesting, setFbTesting] = useState(false);
-  const [fbMsg, setFbMsg] = useState(null); // { ok, text }
-
   const load = () => {
     setLoading(true);
     setError("");
@@ -32,41 +24,6 @@ export default function AdminNotices() {
   };
   useEffect(load, []);
   useEffect(() => { setNotify(settings?.notifyOnNewContent === true); }, [settings?.notifyOnNewContent]);
-  useEffect(() => {
-    setFb({
-      fbEnabled: settings?.fbEnabled === true,
-      fbPageId: settings?.fbPageId || "",
-      fbAutoOnNotice: settings?.fbAutoOnNotice === true,
-      fbGraphVersion: settings?.fbGraphVersion || "v21.0",
-    });
-  }, [settings?.fbEnabled, settings?.fbPageId, settings?.fbAutoOnNotice, settings?.fbGraphVersion]);
-
-  const saveFb = async () => {
-    setFbSaving(true);
-    setFbMsg(null);
-    try {
-      await saveSettings({ ...fb, ...(fbToken.trim() ? { fbPageAccessToken: fbToken.trim() } : {}) });
-      setFbToken("");
-      setFbMsg({ ok: true, text: "Saved." });
-    } catch (e2) {
-      setFbMsg({ ok: false, text: e2.message });
-    } finally {
-      setFbSaving(false);
-    }
-  };
-
-  const testFb = async () => {
-    setFbTesting(true);
-    setFbMsg(null);
-    try {
-      const r = await settingsService.testFacebook({});
-      setFbMsg({ ok: true, text: `Posted to Facebook${r?.id ? ` (post id ${r.id})` : ""}. Check your Page.` });
-    } catch (e2) {
-      setFbMsg({ ok: false, text: e2.message || "Could not post. Check your Page ID and token." });
-    } finally {
-      setFbTesting(false);
-    }
-  };
 
   const toggleNotify = async () => {
     const next = !notify;
@@ -158,78 +115,6 @@ export default function AdminNotices() {
         >
           <span className={`absolute top-1 h-5 w-5 rounded-full bg-white transition-all ${notify ? "left-6" : "left-1"}`} />
         </button>
-      </div>
-
-      {/* Facebook Page auto-posting */}
-      <div className="card p-5">
-        <div className="flex items-start gap-3">
-          <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-[#1877F2]/10 text-[#1877F2]"><Facebook className="h-5 w-5" /></span>
-          <div className="min-w-0 flex-1">
-            <p className="font-semibold">Auto-post to your Facebook Page</p>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              Connect a Facebook Page and every new notice you add is posted to it automatically. Your access token is stored on the server and never shown in the browser.
-            </p>
-
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              {/* Master enable */}
-              <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
-                <span className="text-sm font-medium">Enable Facebook posting</span>
-                <button type="button" onClick={() => setFb((f) => ({ ...f, fbEnabled: !f.fbEnabled }))}
-                  className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${fb.fbEnabled ? "bg-[#1877F2]" : "bg-slate-300 dark:bg-slate-600"}`} aria-pressed={fb.fbEnabled}>
-                  <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${fb.fbEnabled ? "left-6" : "left-1"}`} />
-                </button>
-              </label>
-              {/* Auto on notice */}
-              <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
-                <span className="text-sm font-medium">Auto-post every new notice</span>
-                <button type="button" onClick={() => setFb((f) => ({ ...f, fbAutoOnNotice: !f.fbAutoOnNotice }))}
-                  className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${fb.fbAutoOnNotice ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-600"}`} aria-pressed={fb.fbAutoOnNotice}>
-                  <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${fb.fbAutoOnNotice ? "left-6" : "left-1"}`} />
-                </button>
-              </label>
-            </div>
-
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className="mb-1.5 block text-sm font-medium">Facebook Page ID</label>
-                <input className="input" value={fb.fbPageId} onChange={(e) => setFb((f) => ({ ...f, fbPageId: e.target.value }))} placeholder="e.g. 100091234567890" />
-              </div>
-              <div>
-                <label className="mb-1.5 block text-sm font-medium">Graph API version</label>
-                <input className="input" value={fb.fbGraphVersion} onChange={(e) => setFb((f) => ({ ...f, fbGraphVersion: e.target.value }))} placeholder="v21.0" />
-              </div>
-            </div>
-
-            <div className="mt-4">
-              <label className="mb-1.5 flex items-center gap-1.5 text-sm font-medium"><KeyRound className="h-4 w-4 text-slate-400" /> Page Access Token</label>
-              <input
-                type="password"
-                className="input"
-                value={fbToken}
-                onChange={(e) => setFbToken(e.target.value)}
-                placeholder={settings?.fbTokenSet ? "•••••••••• (saved — type to replace)" : "Paste your long-lived Page access token"}
-                autoComplete="off"
-              />
-              <p className="mt-1 text-xs text-slate-400">
-                {settings?.fbTokenSet ? "A token is saved. Leave this blank to keep it, or paste a new one to replace it." : "Required to post. Use a long-lived Page access token."}
-              </p>
-            </div>
-
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <button type="button" onClick={saveFb} disabled={fbSaving} className="btn-primary">
-                {fbSaving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : "Save Facebook settings"}
-              </button>
-              <button type="button" onClick={testFb} disabled={fbTesting || !settings?.fbTokenSet} title={!settings?.fbTokenSet ? "Save a token first" : "Publish a test post to your Page"} className="btn-outline">
-                {fbTesting ? <><Loader2 className="h-4 w-4 animate-spin" /> Posting…</> : <><Send className="h-4 w-4" /> Send test post</>}
-              </button>
-              {fbMsg && (
-                <span className={`inline-flex items-center gap-1 text-sm font-medium ${fbMsg.ok ? "text-emerald-600" : "text-rose-600"}`}>
-                  {fbMsg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {fbMsg.text}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
       </div>
 
       {loading ? (

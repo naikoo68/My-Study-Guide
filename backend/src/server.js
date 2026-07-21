@@ -4,6 +4,7 @@ import connectDB from "./config/db.js";
 import { seedIfEmpty } from "./utils/seedData.js";
 import { ensureAdminFromEnv } from "./utils/ensureAdmin.js";
 import { ensureDefaultStream } from "./utils/ensureDefaultStream.js";
+import { runDueFbSchedules } from "./config/facebook.js";
 import Settings from "./models/Settings.js";
 import TestSeries from "./models/TestSeries.js";
 
@@ -48,6 +49,10 @@ async function start() {
 
   // Make existing test series private (one-time).
   privatizeExistingTests();
+
+  // Facebook scheduled auto-posting: check every minute for due schedules.
+  // (The /api/health ping also triggers this as a safety net after downtime.)
+  setInterval(() => { runDueFbSchedules().catch(() => {}); }, 60 * 1000);
 
   // Ensure a default "JKSSB" stream exists and move any stream-less subjects in.
   ensureDefaultStream();

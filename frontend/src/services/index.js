@@ -209,6 +209,15 @@ export const settingsService = {
   testFacebook: (data) => api.post("/settings/facebook/test", data || {}), // verify/send a test Page post (admin)
 };
 
+// ---- Facebook scheduled auto-posting (admin) ----
+export const facebookService = {
+  schedules: () => api.get("/facebook/schedules"),
+  create: (data) => api.post("/facebook/schedules", data),
+  update: (id, data) => api.put(`/facebook/schedules/${id}`, data),
+  remove: (id) => api.del(`/facebook/schedules/${id}`),
+  postNow: (id) => api.post(`/facebook/schedules/${id}/post-now`),
+};
+
 // ---- Contact messages ----
 export const messageService = {
   send: (data) => api.post("/messages", data), // requires login (sends JWT)

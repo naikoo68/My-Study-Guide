@@ -1,5 +1,4 @@
 import Notice from "../models/Notice.js";
-import { getFacebookConfig, postToFacebookPage } from "../config/facebook.js";
 
 // GET /api/notices — public: only active notices for the ticker
 export async function listActiveNotices(req, res) {
@@ -23,21 +22,6 @@ export async function createNotice(req, res) {
     return res.status(400).json({ message: "Notice text is required" });
   }
   const notice = await Notice.create({ text: text.trim(), link, active, order });
-
-  // Auto-post the notice to the Facebook Page when enabled. Fire-and-forget so
-  // it never blocks or fails the admin's request; errors are logged only.
-  (async () => {
-    try {
-      const cfg = await getFacebookConfig();
-      if (cfg.enabled && cfg.autoOnNotice && cfg.pageId && cfg.token) {
-        const r = await postToFacebookPage({ message: notice.text, link: notice.link || undefined }, cfg);
-        if (!r.ok) console.error("Facebook auto-post failed:", r.error);
-      }
-    } catch (e) {
-      console.error("Facebook auto-post error:", e.message);
-    }
-  })();
-
   res.status(201).json(notice);
 }
 

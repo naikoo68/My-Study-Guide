@@ -54,7 +54,9 @@ import couponRoutes from "./routes/couponRoutes.js";
 import paymentRoutes from "./routes/paymentRoutes.js";
 import subscriptionRoutes from "./routes/subscriptionRoutes.js";
 import cbtRoutes from "./routes/cbtRoutes.js";
+import facebookRoutes from "./routes/facebookRoutes.js";
 import { releaseEndedCbtExams } from "./controllers/cbtController.js";
+import { runDueFbSchedules } from "./config/facebook.js";
 import { notFound, errorHandler } from "./middleware/error.js";
 import { isMailConfigured, verifyMail } from "./config/mailer.js";
 import { isCloudinaryConfigured } from "./config/cloudinary.js";
@@ -101,6 +103,7 @@ app.get("/api/health", (req, res) => {
   if (now - lastCbtSweep > 60 * 1000) {
     lastCbtSweep = now;
     releaseEndedCbtExams().catch(() => {});
+    runDueFbSchedules().catch(() => {}); // fire any due Facebook scheduled posts (safety net for sleepy hosts)
   }
   res.json({
     status: "ok",
@@ -142,6 +145,7 @@ app.use("/api/coupons", couponRoutes); // discount coupons (admin manage; used a
 app.use("/api/payments", paymentRoutes); // Razorpay: create orders + config for client checkout
 app.use("/api/subscriptions", subscriptionRoutes); // client self-serve upgrade/renew (works when expired)
 app.use("/api/cbt", cbtRoutes); // CBT online exams (public name+email sign-in, emailed results, admin rankings)
+app.use("/api/facebook", facebookRoutes); // scheduled Facebook question auto-posting (admin)
 
 // Errors
 app.use(notFound);

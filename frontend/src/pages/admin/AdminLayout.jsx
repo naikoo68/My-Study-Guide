@@ -33,6 +33,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useSettings } from "../../context/SettingsContext";
 import { messageService } from "../../services";
 import GlobalSearch from "../../components/ui/GlobalSearch";
+import { Facebook as FacebookIcon } from "../../components/ui/SocialIcons";
 
 const nav = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard, end: true },
@@ -53,6 +54,7 @@ const nav = [
   { to: "/admin/feedback", label: "Feedback", icon: MessageSquare },
   { to: "/admin/messages", label: "Messages", icon: Mail },
   { to: "/admin/notices", label: "Notice Board", icon: Megaphone },
+  { to: "/admin/facebook", label: "Facebook Auto-Post", icon: FacebookIcon },
   { to: "/admin/ai-generator", label: "AI Generator", icon: Sparkles },
   { to: "/admin/ai-keys", label: "AI Keys", icon: KeyRound },
   { to: "/admin/customization", label: "Customization", icon: Palette },
