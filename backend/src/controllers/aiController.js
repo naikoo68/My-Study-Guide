@@ -264,7 +264,9 @@ function buildUserPrompt({ topic, count, difficulty, types, notes, plan, avoid, 
     `VARIETY IS CRITICAL: make every question test a DISTINCT fact/sub-topic and a different angle (definition, cause, effect, date/number, example, comparison, application, exception). Do NOT ask about the same fact or the same correct answer twice, and do NOT reword/rephrase another question — a different sentence with the same meaning is a duplicate. Cover the full breadth of the topic, not just the most obvious facts.`
   );
   if (Array.isArray(avoid) && avoid.length) {
-    const list = avoid.slice(0, 60).map((s, i) => `${i + 1}) ${String(s).slice(0, 120)}`).join("\n");
+    // Use the MOST RECENT stems (they accumulate oldest-first), so repeated
+    // "Generate more" batches keep avoiding the questions just generated.
+    const list = avoid.slice(-80).map((s, i) => `${i + 1}) ${String(s).slice(0, 120)}`).join("\n");
     lines.push(
       `IMPORTANT — these questions ALREADY EXIST. Do NOT repeat, restate, paraphrase, or ask the SAME FACT/answer as any of them even if worded differently; generate ENTIRELY DIFFERENT questions covering other facts/aspects of the topic:\n${list}`
     );

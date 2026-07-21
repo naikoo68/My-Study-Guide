@@ -80,14 +80,16 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
     );
   const total = TYPE_OPTIONS.reduce((s, t) => s + rowTotal(t.id), 0);
 
-  const generate = async () => {
+  // `append` = "Generate more": keep the current preview and add a fresh batch
+  // on the same topic, avoiding everything already generated (via avoidStems).
+  const generate = async (append = false) => {
     if (!topic.trim() && !url.trim()) { setMsg("Enter a topic/syllabus, or paste a source link (web page or YouTube video)."); return; }
     const plan = buildPlan();
     if (!plan.length) { setMsg("Set at least one question count in the grid below."); return; }
     if (total > MAX_TOTAL) { setMsg(`Please keep the total to ${MAX_TOTAL} questions or fewer per batch.`); return; }
     setBusy(true);
-    setPreview([]);
-    setMsg(`Starting generation of ${total} question(s)…`);
+    if (!append) setPreview([]);
+    setMsg(append ? `Generating ${total} more from this topic (no duplicates)…` : `Starting generation of ${total} question(s)…`);
     try {
       const { jobId, requested } = await aiService.generate({
         topic: topic.trim(),
@@ -113,17 +115,22 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
         }
         if (s.status === "done") {
           const qs = s.questions || [];
-          setPreview(qs);
+          // Append when "Generate more", otherwise replace the preview.
+          setPreview((prev) => (append ? [...prev, ...qs] : qs));
           // Remember these stems so the NEXT batch avoids repeating them.
           setAvoidStems((prev) => Array.from(new Set([...prev, ...qs.map((q) => q.text).filter(Boolean)])));
           const short = qs.length < requested;
           const quota = s.error === "quota";
           setMsg(
-            `✓ Generated ${qs.length} of ${requested} question(s)${s.model ? ` with ${s.model}` : ""}.` +
+            (append
+              ? `✓ Added ${qs.length} more question(s)${s.model ? ` with ${s.model}` : ""}.`
+              : `✓ Generated ${qs.length} of ${requested} question(s)${s.model ? ` with ${s.model}` : ""}.`) +
               (short && quota
                 ? " Stopped early — Gemini free-tier quota was reached. Insert these, then generate the rest in a minute."
                 : short
-                ? " (Some couldn't be generated — you can top up with another run.)"
+                ? " (Some couldn't be generated — click “Generate more” to top up.)"
+                : append
+                ? " No duplicates of the earlier questions. Review & Insert."
                 : " Review below, then Insert.")
           );
           done = true;
@@ -290,7 +297,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
                           <input
                             type="number"
                             min={0}
-                            max={50}
+                            max={MAX_TOTAL}
                             value={matrix[t.id]?.[d] || 0}
                             onChange={(e) => setCell(t.id, d, e.target.value)}
                             className="w-14 rounded-lg border border-slate-200 bg-white px-2 py-1 text-center text-sm dark:border-slate-700 dark:bg-slate-900"
@@ -306,12 +313,12 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
             <div className={`mt-2 flex items-center justify-between rounded-xl border px-4 py-2.5 ${total > MAX_TOTAL ? "border-rose-300 bg-rose-50 dark:border-rose-900/50 dark:bg-rose-900/20" : "border-brand-200 bg-brand-50 dark:border-brand-900/40 dark:bg-brand-900/20"}`}>
               <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Total questions</span>
               <span className={`text-lg font-extrabold tabular-nums ${total > MAX_TOTAL ? "text-rose-600 dark:text-rose-400" : "text-brand-600 dark:text-brand-300"}`}>
-                {total} <span className="text-xs font-medium text-slate-400">/ 50</span>
+                {total} <span className="text-xs font-medium text-slate-400">/ {MAX_TOTAL}</span>
               </span>
             </div>
             <p className="mt-1 text-xs text-slate-400">
               Set a count in any cell — e.g. 3 Easy MCQs + 2 Medium Matching. Leave cells at 0 to skip.
-              Up to 50 per batch (generated in the background in smaller groups).
+              Up to {MAX_TOTAL} per batch (generated in the background in smaller groups). After a batch, use <b>Generate more</b> to add another set with no repeats.
             </p>
 
             <label className="mb-1 mt-3 block text-sm font-semibold">Instructions (optional — followed strictly)</label>
@@ -328,12 +335,24 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
 
             <button
               type="button"
-              onClick={generate}
+              onClick={() => generate(false)}
               disabled={busy}
               className="btn-primary mt-4 w-full"
             >
               {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating…</> : <><Wand2 className="h-4 w-4" /> Generate</>}
             </button>
+
+            {preview.length > 0 && (
+              <button
+                type="button"
+                onClick={() => generate(true)}
+                disabled={busy}
+                className="btn-outline mt-2 w-full"
+                title="Generate another batch on the same topic — the AI avoids every question already generated above"
+              >
+                {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating more…</> : <><Sparkles className="h-4 w-4" /> Generate more from this topic (no duplicates)</>}
+              </button>
+            )}
 
             {preview.length > 0 && (
               <div className="mt-4">
