@@ -497,7 +497,7 @@ function reorderNoConsecutiveTypes(list) {
   return out;
 }
 
-const MAX_TOTAL = 50; // most questions per generate request
+const MAX_TOTAL = 500; // most questions per generate request (generated in chunks; large batches just take longer)
 const CHUNK_SIZE = 12; // questions generated per provider call — smaller so the richer, detailed explanations don't truncate the JSON reply
 
 // Pull a suggested retry wait (ms) out of a 429 response — either the

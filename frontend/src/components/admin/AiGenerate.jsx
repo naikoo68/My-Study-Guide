@@ -15,6 +15,9 @@ const TYPE_OPTIONS = [
 
 const LETTERS = ["A", "B", "C", "D"];
 const DIFFS = ["Easy", "Medium", "Hard"];
+// Max questions per generation. You can type any count in the grid up to this
+// total (they're generated in chunks, so larger batches just take longer).
+const MAX_TOTAL = 500;
 
 // Reusable "Generate with AI" modal. Mirrors BulkUploadQuestions:
 // `onUpload(questions)` should return a promise (e.g. { inserted }). The AI
@@ -64,9 +67,9 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
 
   if (!open) return null;
 
-  // Update a single cell of the type × difficulty matrix (clamped 0–50).
+  // Update a single cell of the type × difficulty matrix (clamped 0–MAX_TOTAL).
   const setCell = (type, diff, val) => {
-    const n = Math.max(0, Math.min(50, parseInt(val, 10) || 0));
+    const n = Math.max(0, Math.min(MAX_TOTAL, parseInt(val, 10) || 0));
     setMatrix((m) => ({ ...m, [type]: { ...(m[type] || {}), [diff]: n } }));
   };
   const rowTotal = (type) => DIFFS.reduce((s, d) => s + (matrix[type]?.[d] || 0), 0);
@@ -81,7 +84,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
     if (!topic.trim() && !url.trim()) { setMsg("Enter a topic/syllabus, or paste a source link (web page or YouTube video)."); return; }
     const plan = buildPlan();
     if (!plan.length) { setMsg("Set at least one question count in the grid below."); return; }
-    if (total > 50) { setMsg("Please keep the total to 50 questions or fewer per batch."); return; }
+    if (total > MAX_TOTAL) { setMsg(`Please keep the total to ${MAX_TOTAL} questions or fewer per batch.`); return; }
     setBusy(true);
     setPreview([]);
     setMsg(`Starting generation of ${total} question(s)…`);
@@ -264,7 +267,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
             {/* How many of each type × difficulty. Total = sum of all cells. */}
             <div className="mt-3 flex items-center justify-between">
               <label className="block text-sm font-semibold">Questions by type &amp; difficulty</label>
-              <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${total > 50 ? "bg-rose-100 text-rose-600 dark:bg-rose-900/30" : "bg-brand-100 text-brand-700 dark:bg-brand-900/30 dark:text-brand-300"}`}>
+              <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${total > MAX_TOTAL ? "bg-rose-100 text-rose-600 dark:bg-rose-900/30" : "bg-brand-100 text-brand-700 dark:bg-brand-900/30 dark:text-brand-300"}`}>
                 Total: {total}
               </span>
             </div>
@@ -300,9 +303,9 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
               </table>
             </div>
             {/* Total summary below the grid */}
-            <div className={`mt-2 flex items-center justify-between rounded-xl border px-4 py-2.5 ${total > 50 ? "border-rose-300 bg-rose-50 dark:border-rose-900/50 dark:bg-rose-900/20" : "border-brand-200 bg-brand-50 dark:border-brand-900/40 dark:bg-brand-900/20"}`}>
+            <div className={`mt-2 flex items-center justify-between rounded-xl border px-4 py-2.5 ${total > MAX_TOTAL ? "border-rose-300 bg-rose-50 dark:border-rose-900/50 dark:bg-rose-900/20" : "border-brand-200 bg-brand-50 dark:border-brand-900/40 dark:bg-brand-900/20"}`}>
               <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Total questions</span>
-              <span className={`text-lg font-extrabold tabular-nums ${total > 50 ? "text-rose-600 dark:text-rose-400" : "text-brand-600 dark:text-brand-300"}`}>
+              <span className={`text-lg font-extrabold tabular-nums ${total > MAX_TOTAL ? "text-rose-600 dark:text-rose-400" : "text-brand-600 dark:text-brand-300"}`}>
                 {total} <span className="text-xs font-medium text-slate-400">/ 50</span>
               </span>
             </div>
