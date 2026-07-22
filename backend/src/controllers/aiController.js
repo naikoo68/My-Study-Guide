@@ -297,12 +297,83 @@ MATH RENDERING (so numericals display correctly): wrap EVERY mathematical elemen
 CURRENCY: NEVER use the "$" character for money/amounts anywhere ("text", "options", "explanation", "optionExplanations") — "$" is reserved ONLY for wrapping inline math, and a stray "$" (e.g. "$300") corrupts the rendering of the whole field. Write money as a plain number with the currency word, e.g. "300 dollars" or "900 rupees" or just "300".
 Never include image URLs. Keep questions factually correct and self-contained.`;
 
-function buildUserPrompt({ topic, count, difficulty, types, notes, plan, avoid, source }) {
+// Parse a model reply into an array of short strings — tolerant of code fences,
+// a surrounding JSON array, or a plain bulleted/numbered list.
+function parseStringArray(text) {
+  if (!text) return [];
+  let t = String(text).trim().replace(/^```(?:json)?/i, "").replace(/```\s*$/, "").trim();
+  const m = t.match(/\[[\s\S]*\]/);
+  if (m) {
+    try {
+      const arr = JSON.parse(m[0]);
+      if (Array.isArray(arr)) return arr.map((s) => String(s).trim()).filter(Boolean);
+    } catch { /* fall through to line parsing */ }
+  }
+  return t
+    .split(/\n+/)
+    .map((l) => l.replace(/^\s*[-*•\d.)\]]+\s*/, "").replace(/^["'\s]+|["',\s]+$/g, "").trim())
+    .filter((l) => l.length >= 3)
+    .slice(0, 40);
+}
+
+// Decompose a topic/syllabus into DISTINCT subtopics so a large batch can be
+// spread across the whole breadth instead of repeating a few obvious facts.
+// Best-effort: returns [] on any failure, in which case generation proceeds
+// without explicit subtopic assignment (the prompt still asks for variety).
+async function outlineSubtopics({ endpoints, model, topic, notes, source, want }) {
+  const n = Math.min(40, Math.max(12, want || 12));
+  const parts = [
+    `List ${n} DISTINCT, specific subtopics/syllabus points that TOGETHER comprehensively cover the topic below, for exam-preparation question writing.`,
+    `Topic: ${topic}.`,
+  ];
+  if (source) parts.push(`Draw the subtopics from this source material:\n${String(source).slice(0, 4000)}`);
+  if (notes) parts.push(`Respect these user instructions: ${notes}`);
+  parts.push(
+    `Cover the FULL breadth of the topic — deliberately include the less-obvious areas, not just the few headline facts. Each item must be a short phrase (3-10 words), specific enough to write several unique questions about, and must NOT overlap in meaning with another item.`
+  );
+  parts.push(`Return ONLY a JSON array of strings, e.g. ["subtopic one","subtopic two"]. No commentary, no markdown.`);
+  const userPrompt = parts.join("\n");
+  for (const ep of endpoints || []) {
+    const r = await callProvider({
+      key: ep.key,
+      baseUrl: ep.baseUrl,
+      model: ep.model || model,
+      userPrompt,
+      maxTokens: 1200,
+      temperature: 0.8,
+      systemPrompt: "You output ONLY a JSON array of short strings — no markdown, no commentary.",
+    });
+    if (!r.ok) continue; // try the next key; on total failure we return []
+    const arr = parseStringArray(r.content);
+    // De-duplicate case-insensitively and keep them reasonably short.
+    const seen = new Set();
+    const out = [];
+    for (const s of arr) {
+      const k = s.toLowerCase().replace(/\s+/g, " ").trim();
+      if (k.length < 3 || seen.has(k)) continue;
+      seen.add(k);
+      out.push(s.replace(/\s+/g, " ").trim());
+    }
+    if (out.length >= 6) return out;
+  }
+  return [];
+}
+
+function buildUserPrompt({ topic, count, difficulty, types, notes, plan, avoid, source, focus }) {
   const lines = [];
   if (source) {
     lines.push(`Create the questions BASED ON the source material given at the end. Draw the facts and content from that material (you may use closely-related general knowledge to complete a question, but stay on the material's topics).`);
   }
   lines.push(`Topic / syllabus: ${topic}.`);
+
+  if (Array.isArray(focus) && focus.length) {
+    // Each chunk is assigned DIFFERENT subtopics so the overall batch spans the
+    // whole syllabus instead of every parallel worker clustering on the same
+    // few obvious facts. The model must stay within these subtopics.
+    lines.push(
+      `FOCUS SUBTOPICS FOR THIS BATCH — write your questions ONLY on the following specific subtopics of the topic (distribute the questions across them, at least one each where possible). Do NOT drift onto other subtopics, and do NOT default to the single most obvious/headline fact of the topic:\n${focus.map((s) => `- ${s}`).join("\n")}`
+    );
+  }
 
   if (Array.isArray(plan) && plan.length) {
     // Explicit per-bucket distribution (type × difficulty). List each bucket so
@@ -793,7 +864,6 @@ async function runGenerationJob(id, ctx) {
   // guarantee; the prompt instruction just reduces wasted regeneration.
   const qSig = (q) => String(q?.text || q || "").toLowerCase().replace(/\s+/g, " ").trim();
   const seen = new Set((avoid || []).map(qSig).filter(Boolean));
-  const avoidForPrompt = (avoid || []).slice(0, 60);
   // Content signatures for semantic-ish de-duplication: catch the SAME fact
   // reworded (not just identical text). Seeded with the already-existing
   // questions so re-runs don't repeat them either.
@@ -827,6 +897,39 @@ async function runGenerationJob(id, ctx) {
 
   const save = (patch) => Object.assign(job, patch, { updatedAt: Date.now() });
 
+  // Break the topic into DISTINCT subtopics up front so a big batch spans the
+  // whole syllabus instead of clustering on a few obvious facts. Best-effort and
+  // time-boxed — if it fails we simply generate without explicit assignment.
+  let subtopics = [];
+  let subCursor = 0;
+  if (topic && target >= 6 && Date.now() < deadline) {
+    try {
+      subtopics = await outlineSubtopics({
+        endpoints: workers && workers.length ? workers : fallbackWorkers,
+        model,
+        topic,
+        notes,
+        source,
+        want: target,
+      });
+    } catch { subtopics = []; }
+  }
+  // Assign the next few subtopics (rotating) to each chunk so different chunks
+  // cover different ground; wraps once every subtopic has been used at least once.
+  const nextFocus = (nQ) => {
+    if (!subtopics.length) return undefined;
+    // Roughly one subtopic per question in the chunk → maximum spread. Wraps
+    // around when the chunk needs more than the remaining unused subtopics.
+    const span = Math.max(1, Math.min(nQ, subtopics.length));
+    const picks = [];
+    for (let i = 0; i < span; i++) { picks.push(subtopics[subCursor % subtopics.length]); subCursor += 1; }
+    return picks;
+  };
+  // The caller's existing questions PLUS everything produced so far in THIS run
+  // (recomputed per chunk), so parallel workers and later chunks stop repeating
+  // what has already been generated. This is the main in-run duplicate killer.
+  const avoidNow = () => [...(avoid || []), ...collected.map((q) => q.text).filter(Boolean)];
+
   // Reserve the next chunk of work so parallel key-workers don't duplicate it.
   const reserveChunk = () => {
     if (plan) {
@@ -834,13 +937,14 @@ async function runGenerationJob(id, ctx) {
       if (!rem.length) return null;
       const chunk = takeChunk(rem, chunkSize);
       for (const b of chunk) reserved[`${b.type}|${b.difficulty}`] = (reserved[`${b.type}|${b.difficulty}`] || 0) + b.count;
-      return { chunk, n: chunk.reduce((s, b) => s + b.count, 0) };
+      const n = chunk.reduce((s, b) => s + b.count, 0);
+      return { chunk, n, focus: nextFocus(n) };
     }
     const remaining = target - collected.length - reservedCount;
     if (remaining <= 0) return null;
     const n = Math.min(chunkSize, remaining);
     reservedCount += n;
-    return { n };
+    return { n, focus: nextFocus(n) };
   };
   const release = (res) => {
     if (plan) for (const b of res.chunk) { const k = `${b.type}|${b.difficulty}`; reserved[k] = Math.max(0, (reserved[k] || 0) - b.count); }
@@ -857,8 +961,8 @@ async function runGenerationJob(id, ctx) {
       const res = reserveChunk();
       if (!res) break; // nothing left to generate
       const prompt = plan
-        ? buildUserPrompt({ topic, notes, plan: res.chunk, avoid: avoidForPrompt, source })
-        : buildUserPrompt({ topic, notes, count: res.n, difficulty, types, avoid: avoidForPrompt, source });
+        ? buildUserPrompt({ topic, notes, plan: res.chunk, avoid: avoidNow(), source, focus: res.focus })
+        : buildUserPrompt({ topic, notes, count: res.n, difficulty, types, avoid: avoidNow(), source, focus: res.focus });
       const maxTokens = Math.min(16000, 1800 + res.n * 1000);
       attempts += 1;
       // Higher temperature for generation → more varied questions (extraction
