@@ -7,6 +7,7 @@ import { ensureDefaultStream } from "./utils/ensureDefaultStream.js";
 import { runDueFbSchedules } from "./config/facebook.js";
 import Settings from "./models/Settings.js";
 import TestSeries from "./models/TestSeries.js";
+import User from "./models/User.js";
 
 const PORT = process.env.PORT || 5000;
 
@@ -39,6 +40,32 @@ async function privatizeExistingTests() {
   }
 }
 
+// One-time migration: grant AI access to every EXISTING client account. AI was
+// gated behind a master switch that defaulted OFF and was never turned on by
+// registration/subscription, so clients couldn't generate questions. Every
+// plan already carries AI limits, so all active clients should have access.
+// Runs once (a flag in Settings prevents repeats), so an admin can still turn
+// AI off for a specific client afterwards without it flipping back on.
+async function enableClientAiAccess() {
+  try {
+    const settings = await Settings.findOneAndUpdate(
+      { key: "site" },
+      {},
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
+    if (settings.aiClientAccessBackfilled) return;
+    const { modifiedCount } = await User.updateMany(
+      { role: "client", aiAccess: { $ne: true } },
+      { $set: { aiAccess: true } }
+    );
+    settings.aiClientAccessBackfilled = true;
+    await settings.save();
+    console.log(`🤖 Granted AI access to ${modifiedCount} existing client account(s) (one-time migration).`);
+  } catch (err) {
+    console.error("Client AI-access migration skipped:", err.message);
+  }
+}
+
 async function start() {
   await connectDB();
 
@@ -49,6 +76,9 @@ async function start() {
 
   // Make existing test series private (one-time).
   privatizeExistingTests();
+
+  // Grant AI access to existing client accounts (one-time).
+  enableClientAiAccess();
 
   // Facebook scheduled auto-posting: check every minute for due schedules.
   // (The /api/health ping also triggers this as a safety net after downtime.)

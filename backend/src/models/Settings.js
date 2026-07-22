@@ -51,6 +51,10 @@ const settingsSchema = new mongoose.Schema(
     key: { type: String, default: "site", unique: true },
     // One-time migration flag: existing test series were made private-by-default.
     testsPrivatized: { type: Boolean, default: false },
+    // One-time migration flag: existing client accounts were granted AI access
+    // (every subscription plan includes AI limits, so any active client may use
+    // the generator unless an admin explicitly turns it off afterwards).
+    aiClientAccessBackfilled: { type: Boolean, default: false },
     siteName: { type: String, default: "My Study Guide" },
     tagline: { type: String, default: "Prepare Smart, Achieve More." },
     logoUrl: { type: String, default: "" }, // image URL or base64 data URI

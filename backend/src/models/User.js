@@ -21,8 +21,12 @@ const userSchema = new mongoose.Schema(
     // can revoke quiz access for a specific user. Test-series access is stored
     // per test on the TestSeries model.
     quizAccess: { type: Boolean, default: true },
-    // AI access for client accounts (admin-controlled). aiAccess is the master
-    // switch — a client only sees the AI feature when the admin turns it on.
+    // AI access for client accounts. aiAccess is the master switch. New clients
+    // and active subscribers get it turned ON automatically (every plan carries
+    // AI limits); an admin can still turn it OFF for a specific client. The
+    // schema default stays false so admin/student docs (which never set it)
+    // don't imply AI access — client access is granted explicitly on register,
+    // on subscription activation, and via a one-time backfill for existing ones.
     // The two pools the client may draw from:
     //   • inbuilt — the platform's built-in (admin) API keys
     //   • self    — API keys the client adds themselves

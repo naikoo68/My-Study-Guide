@@ -60,6 +60,9 @@ export async function upgradeActivate(req, res) {
 
   req.user.expiresAt = base;
   req.user.isTrial = false;
+  // A paid plan includes AI generation limits — make sure AI access is on so a
+  // subscriber (or a renewing client whose access was never granted) can use it.
+  req.user.aiAccess = true;
   req.user.subscriptionPlan = offer.plan.key;
   req.user.subscriptionMonths = offer.plan.months;
   req.user.subscriptionPrice = offer.finalPrice;

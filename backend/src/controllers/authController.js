@@ -166,8 +166,12 @@ export async function register(req, res) {
   // Only "client" can be self-selected here; "admin" can never be self-assigned.
   const role = req.body.role === "client" ? "client" : "student";
 
-  // Every account gets its own shareable referral code.
+  // Every account gets its own shareable referral code. Client accounts get AI
+  // access on by default — every subscription plan (trial included) carries its
+  // own AI generation limits, so a client can use the generator right away. An
+  // admin can still turn it off per-account later (User → aiAccess).
   const doc = { name, email, password, role, isEmailVerified: false, referralCode: makeReferralCode(name) };
+  if (role === "client") doc.aiAccess = true;
 
   // Clients pick a subscription plan and may use a coupon / friend's referral
   // code. Store the selection; validity (expiresAt) starts when they verify.
