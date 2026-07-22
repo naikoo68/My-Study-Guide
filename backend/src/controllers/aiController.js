@@ -775,7 +775,7 @@ function planGaps(planArr, collected, reserved) {
 }
 
 async function runGenerationJob(id, ctx) {
-  const { workers, model, topic, notes, plan, count, difficulty, types, target, avoid, owner = null, source = "" } = ctx;
+  const { workers, fallbackWorkers = [], model, topic, notes, plan, count, difficulty, types, target, avoid, owner = null, source = "" } = ctx;
   const job = genJobs.get(id);
   const deadline = Date.now() + 8 * 60 * 1000; // overall time budget
 
@@ -784,7 +784,7 @@ async function runGenerationJob(id, ctx) {
   // every key runs simultaneously, instead of a few keys doing big 12-question
   // chunks while the rest sit idle. Smaller batches also finish faster and mean
   // one slow/failing key can't stall the whole run.
-  const workerCount = Math.max(1, workers?.length || 1);
+  const workerCount = Math.max(1, (workers?.length || 0) + (fallbackWorkers?.length || 0));
   const chunkSize = Math.max(1, Math.min(CHUNK_SIZE, Math.ceil(target / workerCount)));
 
   // Signature of a question (normalised stem) used to guarantee NO duplicates —
@@ -866,7 +866,7 @@ async function runGenerationJob(id, ctx) {
       const r = await callProvider({ key: ep.key, baseUrl: ep.baseUrl, model: ep.model || model, userPrompt: prompt, maxTokens, temperature: 0.85 });
       release(res); // free the reservation — any shortfall gets re-targeted next round
       if (r.ok) {
-        AiKey.updateOne({ key: ep.key, owner: owner ?? null }, { $inc: { usedRequests: 1, usedTokens: r.tokens || 0 } }).catch(() => {});
+        AiKey.updateOne({ key: ep.key, owner: ep.owner ?? owner ?? null }, { $inc: { usedRequests: 1, usedTokens: r.tokens || 0 } }).catch(() => {});
         for (const q of normalize(parseQuestions(r.content))) {
           if (collected.length >= target) break;
           const sig = qSig(q);
@@ -912,6 +912,21 @@ async function runGenerationJob(id, ctx) {
     // Launch every configured key at once — each on a model it supports.
     await Promise.all((workers || []).map((ep) => worker(ep)));
 
+    // Automatic pool fallback: if the client's selected key pool produced nothing
+    // or ran out of quota (429), retry the remaining gap on the OTHER pool the
+    // admin allows (e.g. fall back to the built-in keys when the client's own
+    // keys are spent). Only kicks in when there's still time left in the budget.
+    if (
+      (fallbackWorkers?.length || 0) > 0 &&
+      collected.length < target &&
+      Date.now() < deadline &&
+      (collected.length === 0 || lastError?.status === 429)
+    ) {
+      lastError = null; // give the fallback pool a clean slate for error reporting
+      attempts = 0; // and its own attempt budget
+      await Promise.all(fallbackWorkers.map((ep) => worker(ep)));
+    }
+
     if (!collected.length) {
       let msg;
       if (lastError?.status === 429) {
@@ -946,25 +961,54 @@ export async function generateQuestions(req, res) {
   if (scope.denied) {
     return res.status(403).json({ message: "AI access is not enabled for your account. Please contact the administrator." });
   }
-  const chosen = await resolveModel(String(req.body?.model || "").trim(), scope);
-  if (!chosen || !chosen.endpoints.length) {
+  const requestedModel = String(req.body?.model || "").trim();
+
+  // Build one worker per ENABLED key in a scope so they ALL generate at once. A
+  // key that serves the chosen model uses it; any other key uses its own first
+  // model — so every available key contributes, not just those on the model.
+  const buildPool = async (sc) => {
+    const chosen = await resolveModel(requestedModel, sc);
+    if (!chosen || !chosen.endpoints.length) return { model: null, workers: [] };
+    const provs = await providers(sc);
+    return {
+      model: chosen.model,
+      workers: provs.map((p) => ({
+        key: p.key,
+        baseUrl: p.baseUrl,
+        owner: sc.owner ?? null,
+        model: p.models.includes(chosen.model) ? chosen.model : (p.models[0] || chosen.model),
+      })),
+    };
+  };
+
+  // The OTHER pool the admin allows, used as an automatic fallback when the
+  // client's chosen pool is empty or rate-limited (429). Admins/students always
+  // use the single platform pool, so they have no fallback pool.
+  let fallbackScope = null;
+  if (req.user?.role === "client") {
+    if (scope.mode === "self" && scope.allowInbuilt) fallbackScope = { owner: null, includeEnv: true, mode: "inbuilt" };
+    else if (scope.mode === "inbuilt" && scope.allowSelf) fallbackScope = { owner: req.user._id, includeEnv: false, mode: "self" };
+  }
+
+  const primaryPool = await buildPool(scope);
+  const fallbackPool = fallbackScope ? await buildPool(fallbackScope) : { model: null, workers: [] };
+
+  if (!primaryPool.workers.length && !fallbackPool.workers.length) {
     return res.status(400).json({
       message:
         scope.mode === "self"
-          ? "No API keys added yet. Go to the AI tab, choose “Use my own API keys”, and add at least one key."
+          ? "No API keys added yet. Go to the AI tab, choose “Use my own API keys” and add at least one key, or switch to Built-in APIs."
           : "AI is not configured. Add an API key in Admin → AI Keys, or set AI_API_KEY on the server.",
     });
   }
-  const { model } = chosen;
 
-  // Build one worker per ENABLED key so they ALL generate simultaneously. A key
-  // that serves the chosen model uses it; any other key uses its own first model
-  // — so every available key contributes, not just those on the selected model.
-  const workers = (await providers(scope)).map((p) => ({
-    key: p.key,
-    baseUrl: p.baseUrl,
-    model: p.models.includes(model) ? model : (p.models[0] || model),
-  }));
+  // Prefer the client's selected pool. If it has no keys at all, promote the
+  // fallback pool to primary (and then there's nothing left to fall back to).
+  const usingPrimary = primaryPool.workers.length > 0;
+  const workers = usingPrimary ? primaryPool.workers : fallbackPool.workers;
+  const fallbackWorkers = usingPrimary ? fallbackPool.workers : [];
+  const jobOwner = (usingPrimary ? scope.owner : fallbackScope?.owner) ?? null;
+  const model = usingPrimary ? primaryPool.model : fallbackPool.model;
 
   // Optional SOURCE MATERIAL: a pasted paragraph and/or a page URL to generate
   // questions FROM. When present, a topic is not required (we derive one).
@@ -1053,7 +1097,7 @@ export async function generateQuestions(req, res) {
     : [];
 
   // Fire-and-forget — the client polls /api/ai/job/:id for progress.
-  runGenerationJob(id, { workers, model, topic, notes, plan, count, difficulty, types, target, avoid, owner: scope.owner, source });
+  runGenerationJob(id, { workers, fallbackWorkers, model, topic, notes, plan, count, difficulty, types, target, avoid, owner: jobOwner, source });
 
   res.json({ jobId: id, requested: target, model });
 }
