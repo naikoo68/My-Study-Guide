@@ -295,6 +295,11 @@ CALCULATIONS & SELF-VERIFICATION (do this for EVERY question before you finalise
 - Re-check every calculation and fact; the marked "correct" option and the "optionExplanations" must be mutually consistent.
 MATH RENDERING (so numericals display correctly): wrap EVERY mathematical element in $...$ (inline LaTeX) — in the "text", the "options" AND the "explanation". This includes each numeric ANSWER OPTION that is a number/quantity/expression (e.g. options "$12.5$", "$\\frac{3}{4}$", "$2^{10}$", "$25\\%$", "$\\sqrt{2}$", "$3:4$"), every fraction, power, root, ratio, percentage and equation, and each step of a calculation. A plain number that is only ordinary prose (a year, a page count) need not be wrapped, but any numeric option or math expression MUST be. Use $...$ only (never \\( \\) or \\[ \\]) and never write bare LaTeX commands outside dollar signs. For a simple arrow between items (a route/sequence such as "Lakhanpur → Samba → Udhampur → Banihal"), use the plain Unicode arrow character → directly — do NOT write \\rightarrow or \\to.
 CURRENCY: NEVER use the "$" character for money/amounts anywhere ("text", "options", "explanation", "optionExplanations") — "$" is reserved ONLY for wrapping inline math, and a stray "$" (e.g. "$300") corrupts the rendering of the whole field. Write money as a plain number with the currency word, e.g. "300 dollars" or "900 rupees" or just "300".
+COMPLETE SYLLABUS COVERAGE (top priority for CHOOSING what to ask):
+You are an expert educational assessment designer and subject specialist. Before writing, mentally build a SYLLABUS MAP of the topic exactly as covered in NCERT, standard university textbooks and competitive examinations (and current affairs where relevant), listing its major concepts, subtopics and micro-topics across EVERY applicable category: introduction, definitions, terminology, components, classification, principles, causes, processes, mechanisms, types, characteristics, distribution, factors, effects, importance, advantages, disadvantages, applications, examples, exceptions, comparisons, frequently-confused concepts, numericals/formulas and maps/diagrams (where applicable), plus current affairs, recent research and government policies. Also cover, wherever they apply, the historical, geographical, scientific, economic, environmental, political, technological and current dimensions, and the regional, national and international aspects.
+Then DISTRIBUTE the questions PROPORTIONALLY across ALL those sections so the batch MAXIMISES breadth — never exhaust one chapter or cluster on the few most obvious facts. Ensure every important concept, definition and term is tested at least ONCE before any concept is repeated. Cover BOTH the static and the dynamic portions of the syllabus, include all important terminology, and keep strict factual accuracy to the above standards.
+NEVER test the same fact/concept twice with different wording — a reworded question on an already-covered concept is a FORBIDDEN duplicate.
+BATCH CONTINUATION: treat any "already exist" list provided as concepts ALREADY COVERED. Continue from UNCOVERED concepts first; do NOT repeat or revise a covered concept unless explicitly asked. Only once the syllabus breadth is fully covered should you move on to advanced conceptual, analytical, interdisciplinary and current-affairs questions.
 Never include image URLs. Keep questions factually correct and self-contained.`;
 
 // Parse a model reply into an array of short strings — tolerant of code fences,
@@ -323,13 +328,17 @@ function parseStringArray(text) {
 async function outlineSubtopics({ endpoints, model, topic, notes, source, want }) {
   const n = Math.min(40, Math.max(12, want || 12));
   const parts = [
-    `List ${n} DISTINCT, specific subtopics/syllabus points that TOGETHER comprehensively cover the topic below, for exam-preparation question writing.`,
+    `Act as a subject specialist building a COMPLETE SYLLABUS MAP for exam-preparation question writing.`,
+    `List ${n} DISTINCT, specific subtopics/syllabus points that TOGETHER comprehensively cover the topic below, exactly as covered in NCERT, standard university textbooks and competitive examinations (and current affairs where relevant).`,
     `Topic: ${topic}.`,
   ];
   if (source) parts.push(`Draw the subtopics from this source material:\n${String(source).slice(0, 4000)}`);
   if (notes) parts.push(`Respect these user instructions: ${notes}`);
   parts.push(
-    `Cover the FULL breadth of the topic — deliberately include the less-obvious areas, not just the few headline facts. Each item must be a short phrase (3-10 words), specific enough to write several unique questions about, and must NOT overlap in meaning with another item.`
+    `Span EVERY applicable category so the whole syllabus is represented: definitions & terminology, components, classification, principles, causes, processes & mechanisms, types, characteristics, distribution, factors, effects, importance, advantages/disadvantages, applications, examples, exceptions, comparisons, frequently-confused concepts, numericals/formulas and maps/diagrams (where applicable), plus current affairs, recent research and government policies. Also include, where they apply, the historical, geographical, scientific, economic, environmental, political, technological and current dimensions and the regional, national and international aspects.`
+  );
+  parts.push(
+    `Deliberately include the less-obvious areas, not just the few headline facts. Each item must be a short phrase (3-10 words), specific enough to write several unique questions about, and must NOT overlap in meaning with another item.`
   );
   parts.push(`Return ONLY a JSON array of strings, e.g. ["subtopic one","subtopic two"]. No commentary, no markdown.`);
   const userPrompt = parts.join("\n");
@@ -411,7 +420,7 @@ function buildUserPrompt({ topic, count, difficulty, types, notes, plan, avoid, 
     // "Generate more" batches keep avoiding the questions just generated.
     const list = avoid.slice(-80).map((s, i) => `${i + 1}) ${String(s).slice(0, 120)}`).join("\n");
     lines.push(
-      `IMPORTANT — these questions ALREADY EXIST. Do NOT repeat, restate, paraphrase, or ask the SAME FACT/answer as any of them even if worded differently; generate ENTIRELY DIFFERENT questions covering other facts/aspects of the topic:\n${list}`
+      `COVERAGE TRACKER — the concepts below are ALREADY COVERED by existing questions. Do NOT repeat, restate, paraphrase, or ask the SAME FACT/answer as any of them even if worded differently. CONTINUE from the UNCOVERED parts of the syllabus first; only once the topic's breadth is fully covered should you move on to advanced conceptual, analytical, interdisciplinary or current-affairs questions. Do NOT revise a covered concept unless explicitly asked. Already covered:\n${list}`
     );
   }
   if (source) {
