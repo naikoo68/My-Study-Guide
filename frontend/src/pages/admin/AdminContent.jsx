@@ -51,6 +51,7 @@ export default function AdminContent() {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [aiTarget, setAiTarget] = useState(null); // {id,title} — after AI creates a new quiz, later batches target it
   const [extendOpen, setExtendOpen] = useState(false); // AI extend-explanations (whole quiz)
   const [regenAllOpen, setRegenAllOpen] = useState(false); // AI regenerate-all (whole quiz)
   const [scheduleQ, setScheduleQ] = useState(null); // question to post/schedule to Facebook
@@ -140,6 +141,29 @@ export default function AdminContent() {
   }, [stream, subject, topic, session, quiz]);
 
   useEffect(() => { setSelected([]); setSearch(""); load(view); /* eslint-disable-next-line */ }, [view]);
+
+  // Save an AI-generated / imported batch. When opts.newTarget = { name } is set
+  // (the "New quiz" option in the modal) we CREATE a new quiz under the current
+  // session and insert the batch there; later batches then default to that new
+  // quiz. Otherwise the batch goes into the quiz currently open.
+  const saveAiBatch = async (questions, opts = {}) => {
+    let quizId = aiTarget?.id || quiz?._id;
+    if (opts.newTarget) {
+      const title = String(opts.newTarget.name || "").trim();
+      if (!title) throw new Error("Enter a name for the new quiz.");
+      const created = await contentService.createQuiz({ title, subject: subject._id, session: session._id });
+      if (!created?._id) throw new Error("Could not create the new quiz.");
+      quizId = created._id;
+      setAiTarget({ id: quizId, title }); // subsequent batches target the new quiz
+    }
+    const res = await contentService.bulkQuestions(questions, {
+      subject: subject._id,
+      session: session._id,
+      quiz: quizId,
+    });
+    if (quizId === quiz?._id) load("questions"); // refresh only when writing to the open quiz
+    return res;
+  };
 
   // Remember the current drill-down position so a page refresh restores it.
   useEffect(() => {
@@ -319,10 +343,10 @@ export default function AdminContent() {
               <button onClick={() => setBulkOpen(true)} className="btn-outline">
                 <Upload className="h-4 w-4" /> Bulk Upload
               </button>
-              <button onClick={() => setAiOpen(true)} className="btn-outline text-brand-600">
+              <button onClick={() => { setAiTarget(null); setAiOpen(true); }} className="btn-outline text-brand-600">
                 <Sparkles className="h-4 w-4" /> Generate with AI
               </button>
-              <button onClick={() => setImportOpen(true)} className="btn-outline text-brand-600">
+              <button onClick={() => { setAiTarget(null); setImportOpen(true); }} className="btn-outline text-brand-600">
                 <Globe className="h-4 w-4" /> Import from Web
               </button>
               <button onClick={() => setExtendOpen(true)} disabled={!items.length} className="btn-outline text-brand-600" title="AI: make all explanations detailed for this quiz">
@@ -532,30 +556,20 @@ export default function AdminContent() {
         open={aiOpen}
         title={`Generate with AI${quiz ? ` — ${quiz.title}` : ""}`}
         onClose={() => setAiOpen(false)}
-        onUpload={async (questions) => {
-          const res = await contentService.bulkQuestions(questions, {
-            subject: subject._id,
-            session: session._id,
-            quiz: quiz._id,
-          });
-          load("questions");
-          return res;
-        }}
+        allowNewTarget
+        newLeafLabel="quiz"
+        currentTargetName={aiTarget?.title || quiz?.title || ""}
+        onUpload={(questions, opts = {}) => saveAiBatch(questions, opts)}
       />
 
       <AiImport
         open={importOpen}
         title={`Import from Web${quiz ? ` — ${quiz.title}` : ""}`}
         onClose={() => setImportOpen(false)}
-        onUpload={async (questions) => {
-          const res = await contentService.bulkQuestions(questions, {
-            subject: subject._id,
-            session: session._id,
-            quiz: quiz._id,
-          });
-          load("questions");
-          return res;
-        }}
+        allowNewTarget
+        newLeafLabel="quiz"
+        currentTargetName={aiTarget?.title || quiz?.title || ""}
+        onUpload={(questions, opts = {}) => saveAiBatch(questions, opts)}
       />
 
       <DuplicatesModal
