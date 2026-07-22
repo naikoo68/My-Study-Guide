@@ -161,6 +161,14 @@ export default function AdminContent() {
       session: session._id,
       quiz: quizId,
     });
+    // Remember the topic/subtopics on the quiz so reopening the generator
+    // pre-fills them and coverage can continue from where it left off.
+    if (quizId && (opts.topic || opts.subtopics)) {
+      contentService
+        .updateQuiz(quizId, { aiTopic: opts.topic || "", aiSubtopics: opts.subtopics || "" })
+        .then((u) => setQuiz((q) => (q && q._id === quizId ? { ...q, aiTopic: u.aiTopic, aiSubtopics: u.aiSubtopics } : q)))
+        .catch(() => {});
+    }
     if (quizId === quiz?._id) load("questions"); // refresh only when writing to the open quiz
     return res;
   };
@@ -560,6 +568,8 @@ export default function AdminContent() {
         newLeafLabel="quiz"
         currentTargetName={aiTarget?.title || quiz?.title || ""}
         existingQuestions={view === "questions" ? items : []}
+        defaultTopic={quiz?.aiTopic || ""}
+        defaultSubtopics={quiz?.aiSubtopics || ""}
         onUpload={(questions, opts = {}) => saveAiBatch(questions, opts)}
       />
 

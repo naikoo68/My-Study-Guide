@@ -22,6 +22,11 @@ const testSeriesSchema = new mongoose.Schema(
     practiceStream: { type: mongoose.Schema.Types.ObjectId, ref: "PracticeStream" },
     practiceSubject: { type: mongoose.Schema.Types.ObjectId, ref: "PracticeSubject" },
     practiceTopic: { type: mongoose.Schema.Types.ObjectId, ref: "PracticeTopic" }, // My Quiz only
+    // Remembered AI generator inputs for this item, so reopening the generator
+    // pre-fills the topic/subtopics — the admin/client recognises what this
+    // quiz/test was built from and can continue coverage from where they left.
+    aiTopic: { type: String, default: "" },
+    aiSubtopics: { type: String, default: "" },
     duration: { type: Number, required: true }, // minutes
     marks: { type: Number, required: true },
     difficulty: { type: String, enum: ["Easy", "Medium", "Hard"], default: "Medium" },

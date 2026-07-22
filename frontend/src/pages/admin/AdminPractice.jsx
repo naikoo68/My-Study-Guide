@@ -177,6 +177,17 @@ export default function AdminPractice({ clientMode = false }) {
       setAiTarget({ id: itemId, name }); // subsequent batches target the new item
     }
     const res = await contentService.bulkQuestions(questions, { testSeries: itemId, section });
+    // Remember the topic/subtopics on this item so reopening the generator
+    // pre-fills them and coverage can continue from where it left off.
+    if (itemId && (opts.topic || opts.subtopics)) {
+      practiceService
+        .updateItem(itemId, { aiTopic: opts.topic || "", aiSubtopics: opts.subtopics || "" })
+        .then((u) => {
+          setItems((list) => list.map((x) => (x._id === itemId ? { ...x, aiTopic: u.aiTopic, aiSubtopics: u.aiSubtopics } : x)));
+          setQItem((q) => (q && q._id === itemId ? { ...q, aiTopic: u.aiTopic, aiSubtopics: u.aiSubtopics } : q));
+        })
+        .catch(() => {});
+    }
     if (itemId === qItem?._id) await reloadTq(); // refresh questions only when writing to the open item
     load("items"); // refresh the list so a newly-created quiz/test and updated counts show
     return res;
@@ -564,6 +575,8 @@ export default function AdminPractice({ clientMode = false }) {
         newLeafLabel={kind}
         currentTargetName={aiTarget?.name || qItem?.name || ""}
         existingQuestions={tq}
+        defaultTopic={qItem?.aiTopic || ""}
+        defaultSubtopics={qItem?.aiSubtopics || ""}
         onUpload={(questions, opts = {}) => saveAiBatch(questions, opts)}
       />
 

@@ -5,7 +5,7 @@ import {
   listTopics, createTopic, updateTopic, deleteTopic, moveTopic, listTopicItems,
   listItems, createItem,
   browseStreams, browseSubjects, browseTopics, browseItems, browseTopicItems,
-  playQuiz, allSubjects, myItems, moveItem,
+  playQuiz, allSubjects, myItems, moveItem, updateItem,
 } from "../controllers/practiceController.js";
 import { protect, authorize, optionalAuth } from "../middleware/auth.js";
 
@@ -54,5 +54,6 @@ router.get("/all-subjects", ...admin, allSubjects);
 // Admin — items (practice test-series). Questions/visibility/attempt reuse /tests.
 router.post("/items", ...admin, createItem);
 router.patch("/items/:id/move", ...admin, moveItem); // relocate a practice item
+router.patch("/items/:id", ...admin, updateItem); // update name / remembered AI topic
 
 export default router;

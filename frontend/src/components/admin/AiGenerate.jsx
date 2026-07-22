@@ -22,7 +22,7 @@ const MAX_TOTAL = 500;
 // Reusable "Generate with AI" modal. Mirrors BulkUploadQuestions:
 // `onUpload(questions)` should return a promise (e.g. { inserted }). The AI
 // only PREVIEWS questions here — nothing is saved until the admin clicks Insert.
-export default function AiGenerate({ open, onClose, onUpload, title = "Generate Questions with AI", sections = [], existingQuestions = [], defaultSection = "", allowNewTarget = false, newLeafLabel = "quiz", currentTargetName = "" }) {
+export default function AiGenerate({ open, onClose, onUpload, title = "Generate Questions with AI", sections = [], existingQuestions = [], defaultSection = "", allowNewTarget = false, newLeafLabel = "quiz", currentTargetName = "", defaultTopic = "", defaultSubtopics = "" }) {
   const { user } = useAuth();
   // Clients granted BOTH sources may pick which one this generation uses.
   const isClient = user?.role === "client" && user?.aiAccess;
@@ -54,12 +54,17 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
     setDestChoice("current");
     setNewName("");
     setSection(defaultSection || sections[0] || ""); // re-sync target subject on open
+    // Pre-fill the topic/subtopics REMEMBERED on this quiz/test (saved on a
+    // previous generation), so reopening it days later shows what it was built
+    // from and lets you continue the same syllabus.
+    setTopic(defaultTopic || "");
+    setSubtopics(defaultSubtopics || "");
     // Seed the "already covered" list from the target's CURRENT questions so a
     // fresh batch continues from the uncovered subtopics instead of repeating
     // what was generated in an earlier session (true batch-to-batch continuation).
     setAvoidStems((existingQuestions || []).map((q) => (typeof q === "string" ? q : q?.text)).filter(Boolean));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, defaultSection]);
+  }, [open, defaultSection, defaultTopic, defaultSubtopics]);
 
   // (Re)load status for the chosen source so the model list / active-key count
   // reflect that pool. Clients pass their source; admins always use built-in.
@@ -170,7 +175,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
     setInserting(true);
     setMsg("");
     try {
-      const opts = { section };
+      const opts = { section, topic: topic.trim(), subtopics: subtopics.trim() };
       if (makingNew) opts.newTarget = { name: newName.trim() };
       const res = await onUpload(preview, opts);
       setMsg(`✓ Inserted ${res?.inserted ?? preview.length} question(s)${makingNew ? ` into new ${newLeafLabel} “${newName.trim()}”` : ""}. Generate the next batch, or click Close when you're done.`);

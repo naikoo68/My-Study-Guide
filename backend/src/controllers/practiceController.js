@@ -208,6 +208,19 @@ export async function createItem(req, res) {
   res.status(201).json(item);
 }
 
+// PATCH /api/practice/items/:id — update a practice item's editable fields
+// (name + the remembered AI topic/subtopics). Owner-scoped.
+export async function updateItem(req, res) {
+  const item = await TestSeries.findOne({ _id: req.params.id, practice: true, ...ownerFilter(req) });
+  if (!item) return res.status(404).json({ message: "Item not found" });
+  const { name, aiTopic, aiSubtopics } = req.body;
+  if (typeof name === "string" && name.trim()) item.name = name.trim();
+  if (typeof aiTopic === "string") item.aiTopic = aiTopic;
+  if (typeof aiSubtopics === "string") item.aiSubtopics = aiSubtopics;
+  await item.save();
+  res.json(item);
+}
+
 // PATCH /api/practice/items/:id/move — relocate a practice item (My Quiz / My
 // Test) to a different Stream → Subject → (Topic). Owner-scoped.
 export async function moveItem(req, res) {

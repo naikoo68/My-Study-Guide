@@ -153,6 +153,7 @@ export const practiceService = {
   adminItems: (subjectId, kind) => api.get(`/practice/subjects/${subjectId}/items${kind ? `?kind=${kind}` : ""}`),
   adminTopicItems: (topicId) => api.get(`/practice/topics/${topicId}/items`),
   createItem: (data) => api.post("/practice/items", data),
+  updateItem: (id, data) => api.patch(`/practice/items/${id}`, data), // name / remembered AI topic
   moveItem: (id, target) => api.patch(`/practice/items/${id}/move`, target), // internal practice migration
 };
 
