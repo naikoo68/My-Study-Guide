@@ -563,6 +563,7 @@ export default function AdminPractice({ clientMode = false }) {
         allowNewTarget
         newLeafLabel={kind}
         currentTargetName={aiTarget?.name || qItem?.name || ""}
+        existingQuestions={tq}
         onUpload={(questions, opts = {}) => saveAiBatch(questions, opts)}
       />
 

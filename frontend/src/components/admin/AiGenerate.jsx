@@ -31,7 +31,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
   const [status, setStatus] = useState(null); // { enabled, model, models: [] }
   // Stems already generated/inserted this session — sent so a repeat batch never
   // duplicates earlier questions. Seeded from any existing questions passed in.
-  const [avoidStems, setAvoidStems] = useState(() => (existingQuestions || []).filter(Boolean));
+  const [avoidStems, setAvoidStems] = useState(() => (existingQuestions || []).map((q) => (typeof q === "string" ? q : q?.text)).filter(Boolean));
   const [model, setModel] = useState("");
   const [section, setSection] = useState(defaultSection || sections[0] || ""); // subject to tag generated questions
   const [topic, setTopic] = useState("");
@@ -54,6 +54,10 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
     setDestChoice("current");
     setNewName("");
     setSection(defaultSection || sections[0] || ""); // re-sync target subject on open
+    // Seed the "already covered" list from the target's CURRENT questions so a
+    // fresh batch continues from the uncovered subtopics instead of repeating
+    // what was generated in an earlier session (true batch-to-batch continuation).
+    setAvoidStems((existingQuestions || []).map((q) => (typeof q === "string" ? q : q?.text)).filter(Boolean));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, defaultSection]);
 
@@ -264,6 +268,12 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
                   <option value="">— No subject —</option>
                   {sections.map((s, i) => <option key={i} value={s}>{s}</option>)}
                 </select>
+              </div>
+            )}
+
+            {avoidStems.length > 0 && preview.length === 0 && (
+              <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-900/20 dark:text-emerald-300">
+                This {newLeafLabel} already has <b>{avoidStems.length}</b> question(s). Keep the same topic and click <b>Generate</b> — the next batch <b>continues from the uncovered subtopics</b> and won't repeat what's already here.
               </div>
             )}
 

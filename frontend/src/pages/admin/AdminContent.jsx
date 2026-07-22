@@ -559,6 +559,7 @@ export default function AdminContent() {
         allowNewTarget
         newLeafLabel="quiz"
         currentTargetName={aiTarget?.title || quiz?.title || ""}
+        existingQuestions={view === "questions" ? items : []}
         onUpload={(questions, opts = {}) => saveAiBatch(questions, opts)}
       />
 
