@@ -49,6 +49,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
   const [inferring, setInferring] = useState(false); // detecting the topic from a quiz's existing questions
   const [coverage, setCoverage] = useState(null); // { covered:[], missing:[] } — refreshed after each batch
   const [coverageLoading, setCoverageLoading] = useState(false);
+  const [syllabus, setSyllabus] = useState(null); // FIXED checklist for this session so coverage totals stay stable
 
   useEffect(() => {
     if (!open) return;
@@ -56,6 +57,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
     setPreview([]);
     setCoverage(null);
     setCoverageLoading(false);
+    setSyllabus(null);
     setDestChoice(allowNewTarget && defaultDest === "new" ? "new" : "current");
     setNewName("");
     setSection(defaultSection || sections[0] || ""); // re-sync target subject on open
@@ -124,7 +126,10 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
     if (!t || !list.length) { setCoverage(null); return; }
     setCoverageLoading(true);
     try {
-      const r = await aiService.coverageGaps({ topic: t, questions: list.slice(0, 300), mode: isClient ? source : undefined });
+      // Pass the fixed checklist (once we have it) so later batches classify the
+      // SAME list — covered grows and missing shrinks against a constant total.
+      const r = await aiService.coverageGaps({ topic: t, questions: list.slice(0, 300), syllabus: syllabus || undefined, mode: isClient ? source : undefined });
+      if (!syllabus && Array.isArray(r?.syllabus) && r.syllabus.length) setSyllabus(r.syllabus);
       setCoverage({ covered: r?.covered || [], missing: r?.missing || [] });
     } catch {
       /* coverage is a nice-to-have — ignore failures */

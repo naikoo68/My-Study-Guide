@@ -1882,44 +1882,80 @@ export async function coverageGaps(req, res) {
     .filter(Boolean)
     .slice(0, 300);
   const coveredStr = stems.length ? stems.map((s, i) => `${i + 1}. ${s.slice(0, 140)}`).join("\n") : "(none yet)";
-  const userPrompt = [
-    "You are a syllabus coverage analyst. Build the COMPLETE syllabus map for the topic below exactly as covered in NCERT, standard university textbooks and competitive exams — all major concepts, subtopics and micro-topics across definitions, terminology, causes, processes, mechanisms, types, classification, distribution, factors, effects, importance, examples, exceptions, comparisons, current affairs and (where relevant) maps/numericals.",
-    `Topic: ${topic}.`,
-    "",
-    `These are the stems of questions ALREADY created (${stems.length}) — treat their concepts as COVERED:`,
-    coveredStr,
-    "",
-    "Split the syllabus subtopics into TWO lists: (a) \"covered\" — the subtopics the questions above already test; (b) \"missing\" — the important subtopics NOT yet covered (the gaps still to test). Each item a short phrase (3-10 words), specific and non-overlapping.",
-    "Return ONLY a JSON object of this exact shape: {\"covered\":[\"...\"],\"missing\":[\"...\"]}. No markdown, no commentary.",
-  ].join("\n");
+  // A FIXED syllabus checklist keeps coverage STABLE: as questions accumulate,
+  // items only move from "missing" to "covered" — the total never grows. The
+  // caller passes the checklist it got on the first call so later calls classify
+  // the SAME list (otherwise the AI reinvents an ever-larger list and "not yet
+  // covered" wrongly increases). On the first call (none passed) we build one.
+  const givenSyllabus = (Array.isArray(req.body?.syllabus) ? req.body.syllabus : [])
+    .map((s) => String(s || "").replace(/\s+/g, " ").trim())
+    .filter((s) => s.length >= 2)
+    .slice(0, 60);
+
+  const userPrompt = givenSyllabus.length
+    ? [
+        `Topic: ${topic}.`,
+        "FIXED SYLLABUS CHECKLIST — do NOT add, remove, reword or invent items; use these EXACT strings:",
+        givenSyllabus.map((s, i) => `${i + 1}. ${s}`).join("\n"),
+        "",
+        `Question stems already created (${stems.length}):`,
+        coveredStr,
+        "",
+        "For EACH checklist item decide whether at least one question above tests it. Put every checklist item into exactly ONE of two lists — \"covered\" (a question tests it) or \"missing\" (not yet) — using the item's EXACT text. Together the two lists MUST contain every checklist item once.",
+        "Return ONLY {\"covered\":[\"...\"],\"missing\":[\"...\"]}. No markdown, no commentary.",
+      ].join("\n")
+    : [
+        "You are a syllabus coverage analyst. Build a FIXED checklist of the 30 most important, broad, non-overlapping subtopics for the topic below (NCERT / standard university / competitive-exam scope). Keep them at a consistent, medium granularity — NOT hyper-specific niche facts.",
+        `Topic: ${topic}.`,
+        "",
+        `Question stems already created (${stems.length}) — treat their concepts as covered:`,
+        coveredStr,
+        "",
+        "Then split that SAME checklist into \"covered\" (tested by a question above) and \"missing\" (not yet). Use identical item strings in the syllabus and the two lists; every syllabus item appears in exactly one list.",
+        "Return ONLY {\"syllabus\":[\"...\"],\"covered\":[\"...\"],\"missing\":[\"...\"]}. No markdown, no commentary.",
+      ].join("\n");
+
   const r = await callWithFallback({
     endpoints: chosen.endpoints,
     model: chosen.model,
     userPrompt,
-    maxTokens: 1600,
+    maxTokens: 1800,
     owner: scope.owner,
-    systemPrompt: "You output ONLY a JSON object {\"covered\":[],\"missing\":[]} — no markdown, no commentary.",
+    systemPrompt: "You output ONLY a JSON object with the requested arrays — no markdown, no commentary.",
   });
   if (!r.ok) {
     return res.status(502).json({ message: r.status === 429 ? quota429Message(r.detail) : `AI provider error (${r.status}). ${(r.detail || "").slice(0, 160)}` });
   }
   const cov = parseCoverage(r.content);
-  res.json({ topic, coveredCount: stems.length, covered: cov.covered, missing: cov.missing });
+  // The stable checklist: the one passed in, else the one just built.
+  const syllabus = givenSyllabus.length ? givenSyllabus : cov.syllabus;
+  // Reconcile against the fixed checklist so covered + missing ALWAYS equals the
+  // whole checklist (no drift, no growth). Anything the model marked covered
+  // that is on the list is covered; the rest of the list is missing.
+  if (syllabus.length) {
+    const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+    const coveredSet = new Set(cov.covered.map(norm));
+    const covered = syllabus.filter((s) => coveredSet.has(norm(s)));
+    const missing = syllabus.filter((s) => !coveredSet.has(norm(s)));
+    return res.json({ topic, coveredCount: stems.length, syllabus, covered, missing });
+  }
+  res.json({ topic, coveredCount: stems.length, syllabus: cov.syllabus, covered: cov.covered, missing: cov.missing });
 }
 
-// Parse a {"covered":[...],"missing":[...]} coverage reply. Falls back to
-// treating a bare JSON array as the "missing" list.
+// Parse a {"syllabus":[...],"covered":[...],"missing":[...]} coverage reply.
+// Falls back to treating a bare JSON array as the "missing" list.
 function parseCoverage(text) {
-  const out = { covered: [], missing: [] };
+  const out = { syllabus: [], covered: [], missing: [] };
   if (!text) return out;
   const clean = (arr) => (Array.isArray(arr) ? arr.map((s) => String(s || "").replace(/\s+/g, " ").trim()).filter((s) => s.length >= 2) : []);
   const m = String(text).match(/\{[\s\S]*\}/);
   if (m) {
     try {
       const o = JSON.parse(m[0]);
+      out.syllabus = clean(o.syllabus);
       out.covered = clean(o.covered);
       out.missing = clean(o.missing);
-      if (out.covered.length || out.missing.length) return out;
+      if (out.covered.length || out.missing.length || out.syllabus.length) return out;
     } catch { /* fall through to array parsing */ }
   }
   out.missing = parseStringArray(text);
