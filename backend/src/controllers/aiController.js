@@ -846,7 +846,7 @@ function planGaps(planArr, collected, reserved) {
 }
 
 async function runGenerationJob(id, ctx) {
-  const { workers, fallbackWorkers = [], model, topic, notes, plan, count, difficulty, types, target, avoid, owner = null, source = "" } = ctx;
+  const { workers, fallbackWorkers = [], model, topic, notes, plan, count, difficulty, types, target, avoid, owner = null, source = "", userSubtopics = [] } = ctx;
   const job = genJobs.get(id);
   const deadline = Date.now() + 8 * 60 * 1000; // overall time budget
 
@@ -902,7 +902,11 @@ async function runGenerationJob(id, ctx) {
   // time-boxed — if it fails we simply generate without explicit assignment.
   let subtopics = [];
   let subCursor = 0;
-  if (topic && target >= 6 && Date.now() < deadline) {
+  if (Array.isArray(userSubtopics) && userSubtopics.length) {
+    // The user listed exactly what to cover — respect it and skip the extra
+    // API call. Questions get spread across these subtopics.
+    subtopics = userSubtopics;
+  } else if (topic && target >= 6 && Date.now() < deadline) {
     try {
       subtopics = await outlineSubtopics({
         endpoints: workers && workers.length ? workers : fallbackWorkers,
@@ -1136,6 +1140,23 @@ export async function generateQuestions(req, res) {
 
   const notes = String(req.body?.notes || "").trim();
 
+  // Optional explicit subtopics the user wants questions spread across. Accepts
+  // a newline/comma/semicolon-separated string OR an array. When provided we use
+  // these instead of auto-detecting subtopics (and skip that extra API call).
+  const rawSubtopics = req.body?.subtopics;
+  let userSubtopics = Array.isArray(rawSubtopics)
+    ? rawSubtopics.map((s) => String(s || ""))
+    : typeof rawSubtopics === "string"
+    ? rawSubtopics.split(/[\n,;]+/)
+    : [];
+  userSubtopics = [
+    ...new Set(
+      userSubtopics
+        .map((s) => s.replace(/^\s*[-*•\d.)\]]+\s*/, "").replace(/\s+/g, " ").trim())
+        .filter((s) => s.length >= 2)
+    ),
+  ].slice(0, 60);
+
   // Effective per-batch cap + rate quota for this account (admin global cap, or
   // the client's assigned plan).
   const limits = await effectiveAiLimits(req.user);
@@ -1201,7 +1222,7 @@ export async function generateQuestions(req, res) {
     : [];
 
   // Fire-and-forget — the client polls /api/ai/job/:id for progress.
-  runGenerationJob(id, { workers, fallbackWorkers, model, topic, notes, plan, count, difficulty, types, target, avoid, owner: jobOwner, source });
+  runGenerationJob(id, { workers, fallbackWorkers, model, topic, notes, plan, count, difficulty, types, target, avoid, owner: jobOwner, source, userSubtopics });
 
   res.json({ jobId: id, requested: target, model });
 }

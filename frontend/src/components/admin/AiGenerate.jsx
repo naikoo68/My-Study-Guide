@@ -35,6 +35,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
   const [model, setModel] = useState("");
   const [section, setSection] = useState(defaultSection || sections[0] || ""); // subject to tag generated questions
   const [topic, setTopic] = useState("");
+  const [subtopics, setSubtopics] = useState(""); // optional — specific subtopics to cover in the topic
   const [url, setUrl] = useState(""); // optional source link (web page or YouTube)
   // matrix[typeId] = { Easy, Medium, Hard } counts. Default: 5 medium MCQs.
   const [matrix, setMatrix] = useState({ mcq: { Easy: 0, Medium: 5, Hard: 0 } });
@@ -101,6 +102,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
     try {
       const { jobId, requested } = await aiService.generate({
         topic: topic.trim(),
+        subtopics: subtopics.trim() || undefined, // optional — specific subtopics to spread questions across
         url: url.trim() || undefined, // optional web page / YouTube link → its text/transcript
         plan,
         notes: notes.trim(),
@@ -273,6 +275,20 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
             />
+
+            <label className="mb-1 mt-3 block text-sm font-semibold">
+              Subtopics to cover <span className="font-normal text-slate-400">(optional — one per line or comma-separated)</span>
+            </label>
+            <textarea
+              rows={2}
+              className="input resize-y"
+              placeholder={`e.g. Monsoon mechanism, El Niño & La Niña, Western disturbances, Jet streams, Cyclones, Rainfall distribution, Climatic regions`}
+              value={subtopics}
+              onChange={(e) => setSubtopics(e.target.value)}
+            />
+            <p className="mt-1 text-xs text-slate-400">
+              List the exact subtopics you want questions spread across. Leave empty and the AI works out the subtopics itself to cover the whole syllabus.
+            </p>
 
             <label className="mb-1 mt-3 block text-sm font-semibold">
               Source link <span className="font-normal text-slate-400">(optional — web page or YouTube video)</span>
