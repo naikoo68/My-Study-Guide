@@ -61,6 +61,7 @@ export default function AdminPractice({ clientMode = false }) {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [aiTarget, setAiTarget] = useState(null); // {id,name} — after AI creates a new quiz/test, later batches target it
   const [bankOpen, setBankOpen] = useState(false); // hand-pick questions from the bank
   const [dupOpen, setDupOpen] = useState(false);
   const [dupScope, setDupScope] = useState({ params: null, name: "" }); // duplicate-scan target
@@ -153,6 +154,33 @@ export default function AdminPractice({ clientMode = false }) {
     testService.getQuestions(item._id).then(setTq).catch((e) => setError(e.message)).finally(() => setTqLoading(false));
   };
   const reloadTq = () => testService.getQuestions(qItem._id).then(setTq).catch(() => {});
+
+  // Save an AI-generated / imported batch. When opts.newTarget = { name } is set
+  // (the "New quiz/test" option in the modal) we CREATE a new practice item under
+  // the current parent and insert the batch there; later batches then target it.
+  // Otherwise the batch goes into the item currently open (qItem).
+  const saveAiBatch = async (questions, opts = {}) => {
+    const section = opts.section || normSection(forceSection);
+    let itemId = aiTarget?.id || qItem?._id;
+    if (opts.newTarget) {
+      const name = String(opts.newTarget.name || "").trim();
+      if (!name) throw new Error(`Enter a name for the new ${kind}.`);
+      const created = await practiceService.createItem({
+        name,
+        practiceStream: stream?._id,
+        practiceSubject: subject?._id,
+        practiceTopic: kind === "quiz" ? topic?._id : undefined,
+        practiceKind: kind,
+      });
+      if (!created?._id) throw new Error(`Could not create the new ${kind}.`);
+      itemId = created._id;
+      setAiTarget({ id: itemId, name }); // subsequent batches target the new item
+    }
+    const res = await contentService.bulkQuestions(questions, { testSeries: itemId, section });
+    if (itemId === qItem?._id) await reloadTq(); // refresh questions only when writing to the open item
+    load("items"); // refresh the list so a newly-created quiz/test and updated counts show
+    return res;
+  };
   // Run the per-question extend once confirmed in the modal.
   const runExtendOne = async (fixOptions) => {
     const item = extendOneItem;
@@ -412,8 +440,8 @@ export default function AdminPractice({ clientMode = false }) {
               onCopyCsv={copyCsv}
               onDownloadCsv={downloadCsv}
               onBulkUpload={(subject) => { setForceSection(subject); setBulkOpen(true); }}
-              onAiGenerate={(subject) => { setForceSection(subject); setAiOpen(true); }}
-              onImportWeb={(subject) => { setForceSection(subject); setImportOpen(true); }}
+              onAiGenerate={(subject) => { setForceSection(subject); setAiTarget(null); setAiOpen(true); }}
+              onImportWeb={(subject) => { setForceSection(subject); setAiTarget(null); setImportOpen(true); }}
               onPickFromBank={(subject) => { setForceSection(subject); setBankOpen(true); }}
               onExtendExplanations={() => setExtendItem(qItem)}
               onExtendQuestion={(item) => setExtendOneItem(item)}
@@ -532,13 +560,10 @@ export default function AdminPractice({ clientMode = false }) {
         defaultSection={normSection(forceSection)}
         title={`Generate with AI — ${qItem?.name || ""}${normSection(forceSection) ? ` (${normSection(forceSection)})` : ""}`}
         onClose={() => { setAiOpen(false); setForceSection(""); }}
-        onUpload={async (questions, opts = {}) => {
-          const section = opts.section || normSection(forceSection);
-          const res = await contentService.bulkQuestions(questions, { testSeries: qItem._id, section });
-          await reloadTq();
-          load("items");
-          return res;
-        }}
+        allowNewTarget
+        newLeafLabel={kind}
+        currentTargetName={aiTarget?.name || qItem?.name || ""}
+        onUpload={(questions, opts = {}) => saveAiBatch(questions, opts)}
       />
 
       <AiImport
@@ -547,13 +572,10 @@ export default function AdminPractice({ clientMode = false }) {
         defaultSection={normSection(forceSection)}
         title={`Import from Web — ${qItem?.name || ""}${normSection(forceSection) ? ` (${normSection(forceSection)})` : ""}`}
         onClose={() => { setImportOpen(false); setForceSection(""); }}
-        onUpload={async (questions, opts = {}) => {
-          const section = opts.section || normSection(forceSection);
-          const res = await contentService.bulkQuestions(questions, { testSeries: qItem._id, section });
-          await reloadTq();
-          load("items");
-          return res;
-        }}
+        allowNewTarget
+        newLeafLabel={kind}
+        currentTargetName={aiTarget?.name || qItem?.name || ""}
+        onUpload={(questions, opts = {}) => saveAiBatch(questions, opts)}
       />
 
       <DuplicatesModal
