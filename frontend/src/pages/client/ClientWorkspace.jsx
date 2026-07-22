@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { GraduationCap, LogOut, Moon, Sun, ZoomIn, ZoomOut, LayoutDashboard, Wrench, ArrowRightLeft, Sparkles, FileText, Feather, BookOpen } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
@@ -19,7 +19,7 @@ import AdminNotes from "../admin/AdminNotes";
 // the practice manager in `clientMode`, which the backend scopes to this
 // client's own content.
 export default function ClientWorkspace() {
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { settings } = useSettings();
   const { zoom, zoomIn, zoomOut } = useZoom();
@@ -27,6 +27,16 @@ export default function ClientWorkspace() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [showUpgrade, setShowUpgrade] = useState(false); // opened voluntarily from the dashboard
+
+  // Pull the latest profile once when the workspace opens. This is a long-lived
+  // single-page app, so a client who logged in earlier may be holding a stale
+  // profile — in particular an old `aiAccess: false`. Refreshing here makes
+  // newly-granted AI access (and plan/validity changes) show up without needing
+  // a hard browser refresh or a re-login. Failures are ignored (keep cached).
+  useEffect(() => {
+    refreshUser?.().catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Trial/plan finished → lock the workspace behind the upgrade screen.
   const expired = user?.expiresAt && new Date(user.expiresAt).getTime() < Date.now();
