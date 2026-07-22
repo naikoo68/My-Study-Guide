@@ -1,11 +1,14 @@
 import { uploadImage, isCloudinaryConfigured } from "./cloudinary.js";
 import Settings from "../models/Settings.js";
-import { stringToMathSvg, needsMath } from "./mathSvg.js";
+// NOTE: MathJax is intentionally NOT loaded here. On the free-tier server (512MB)
+// loading full MathJax on each image render risks an out-of-memory crash that
+// takes down the whole API. We use the lightweight native SVG fraction renderer
+// below (real fraction bars, negligible memory) instead.
 
 // Renders a question into a quiz-style card image for Facebook/Instagram, built
-// as an SVG and rasterised to PNG by Cloudinary. Math is rendered by MathJax
-// (real KaTeX-style fraction bars/symbols); if MathJax isn't available it falls
-// back to a native SVG stacked-fraction renderer, then to plain text.
+// as an SVG and rasterised to PNG by Cloudinary. LaTeX \frac renders as a real
+// STACKED fraction with a bar; other math (superscripts, Greek, operators) is
+// converted to Unicode. Lightweight (no MathJax) so it can't OOM the server.
 
 const LETTERS = ["A", "B", "C", "D", "E", "F"];
 const ROMAN = ["I", "II", "III", "IV", "V", "VI"];
@@ -88,19 +91,9 @@ function wrap(text, maxChars) {
   return lines;
 }
 
-// Prepare a content string → { height, emit(x, yTop) }. Tries MathJax (true
-// rendering), then the native stacked-fraction layout, then plain text.
+// Prepare a content string → { height, emit(x, yTop) }. Uses the native
+// stacked-fraction layout for \frac, else plain (Unicode-converted) text.
 async function prepareContent(str, availW, { size, color, weight = "400" }) {
-  if (needsMath(str)) {
-    const m = await stringToMathSvg(str);
-    if (m && m.wEx && m.hEx) {
-      let hPx = size * 1.25;
-      let wPx = hPx * (m.wEx / m.hEx);
-      if (wPx > availW) { wPx = availW; hPx = wPx * (m.hEx / m.wEx); }
-      const inner = m.inner.replace(/currentColor/g, color);
-      return { height: hPx + 8, emit: (x, yTop) => [`<svg x="${x.toFixed(1)}" y="${yTop.toFixed(1)}" width="${wPx.toFixed(1)}" height="${hPx.toFixed(1)}" viewBox="${m.viewBox}" preserveAspectRatio="xMinYMid meet">${inner}</svg>`] };
-    }
-  }
   if (hasFrac(str)) {
     const lay = layoutInline(String(str), size, color, weight);
     const scale = lay.w > availW ? availW / lay.w : 1;
