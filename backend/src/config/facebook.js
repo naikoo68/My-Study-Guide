@@ -339,10 +339,12 @@ export async function runScheduleOnce(sch, cfgOverride) {
   const selfieWatermarkActive = site?.fbSelfieWatermarkEnabled !== false && !!site?.fbSelfieWatermarkUrl;
   let imageUrl = null, imageErr = "";
   if (sch.asImage || wantIg || selfieWatermarkActive) {
-    if (sch.imageUrl) {
-      // A screenshot captured in the admin's browser — the exact quiz rendering.
+    if (sch.imageUrl && !selfieWatermarkActive) {
+      // A screenshot captured in the admin's browser — used only when no
+      // watermark is active (watermark requires server-side rendering).
       imageUrl = sch.imageUrl;
     } else {
+      // Server-rendered image includes the watermark overlay automatically.
       const r = await renderQuestionImage(q, {
         includeOptions: sch.includeOptions,
         includeAnswer: sch.includeAnswer,

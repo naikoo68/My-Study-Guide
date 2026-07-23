@@ -36,11 +36,23 @@ export default function ScheduleQuestionModal({ open, question, onClose }) {
     }
   }, [open, question?._id]);
 
-  // Preview = a screenshot of the exact card that will be posted (rendered in
-  // the browser with the same KaTeX math the students see).
+  // Preview = shows the image that will be posted. When a watermark is
+  // configured, use the server-rendered image (which bakes in the watermark).
+  // Otherwise, use a local screenshot of the card (exact math rendering).
   const doPreview = async () => {
     setPreviewing(true); setMsg(null);
     try {
+      if (settings?.fbSelfieWatermarkEnabled !== false && settings?.fbSelfieWatermarkUrl) {
+        // Server-rendered preview (includes watermark overlay)
+        const r = await facebookService.previewImage({
+          questionId: question._id,
+          includeOptions: opts.includeOptions,
+          includeAnswer: opts.includeAnswer,
+          hashtags: opts.hashtags,
+        });
+        if (r?.url) { setPreviewUrl(r.url); return; }
+      }
+      // Fallback: client-side screenshot (no watermark)
       const blob = await captureNodeToBlob(cardRef.current, { scale: 2 });
       setPreviewUrl(URL.createObjectURL(blob));
     } catch (e) {
@@ -51,7 +63,12 @@ export default function ScheduleQuestionModal({ open, question, onClose }) {
   };
 
   // Capture the card and upload it to Cloudinary → the image URL to post.
+  // When watermark is active, the server ignores client screenshots and renders
+  // its own image with the watermark — so we skip the capture entirely.
   const captureAndUpload = async () => {
+    if (settings?.fbSelfieWatermarkEnabled !== false && settings?.fbSelfieWatermarkUrl) {
+      return ""; // server will render with watermark
+    }
     const blob = await captureNodeToBlob(cardRef.current, { scale: 2 });
     const file = new File([blob], `question-${question._id}.png`, { type: "image/png" });
     const r = await uploadService.file(file);
