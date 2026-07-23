@@ -42,6 +42,7 @@ const fbScheduleSchema = new mongoose.Schema(
     toFacebook: { type: Boolean, default: true }, // post to the Facebook Page
     toInstagram: { type: Boolean, default: false }, // also cross-post to Instagram (forces an image)
     asImage: { type: Boolean, default: false }, // render the question as an image card (Facebook)
+    imageUrl: { type: String, default: "" }, // pre-captured screenshot (client-rendered) to post as-is
 
     // Runtime bookkeeping.
     postedQuestionIds: { type: [mongoose.Schema.Types.ObjectId], default: [] }, // avoid repeats until exhausted

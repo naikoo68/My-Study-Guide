@@ -298,13 +298,18 @@ export async function runScheduleOnce(sch, cfgOverride) {
   // (IG can't post text-only). Falls back to text if rendering fails.
   let imageUrl = null, imageErr = "";
   if (sch.asImage || wantIg) {
-    const r = await renderQuestionImage(q, {
-      includeOptions: sch.includeOptions,
-      includeAnswer: sch.includeAnswer,
-      hashtags: sch.hashtags,
-    });
-    imageUrl = r.url || null;
-    imageErr = r.error || "";
+    if (sch.imageUrl) {
+      // A screenshot captured in the admin's browser — the exact quiz rendering.
+      imageUrl = sch.imageUrl;
+    } else {
+      const r = await renderQuestionImage(q, {
+        includeOptions: sch.includeOptions,
+        includeAnswer: sch.includeAnswer,
+        hashtags: sch.hashtags,
+      });
+      imageUrl = r.url || null;
+      imageErr = r.error || "";
+    }
   }
 
   const notes = [];

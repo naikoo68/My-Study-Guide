@@ -13,6 +13,9 @@ function postOpts(body = {}) {
     includeAnswer: !!body.includeAnswer,
     includeLink: !!body.includeLink,
     hashtags: String(body.hashtags || "").trim(),
+    // Pre-captured, client-rendered screenshot (exactly what students see). When
+    // present the poster uses it instead of the server-drawn card.
+    imageUrl: String(body.imageUrl || "").trim(),
   };
 }
 
@@ -140,7 +143,7 @@ export async function scheduleQuestion(req, res) {
     source: { question: questionId, label: String(req.body.label || "Single question").slice(0, 120) },
     times: [], days: [], timezone: String(req.body.timezone || "Asia/Kolkata"),
     order: "random",
-    ...postOpts(req.body),
+    ...postOpts(req.body), // includes the pre-captured imageUrl (posted at run time)
     createdBy: req.user?._id || null,
   });
   res.status(201).json(sch);

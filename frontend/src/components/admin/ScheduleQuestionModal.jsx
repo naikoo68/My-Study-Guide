@@ -1,7 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X, Send, Clock, Loader2, CheckCircle2, AlertTriangle, Eye } from "lucide-react";
 import { Facebook, Instagram } from "../ui/SocialIcons";
-import { facebookService } from "../../services";
+import { facebookService, uploadService } from "../../services";
+import { useSettings } from "../../context/SettingsContext";
+import QuestionPostCard from "./QuestionPostCard";
+import { captureNodeToBlob } from "../../lib/questionImage";
 
 // Post/schedule ONE specific question to Facebook/Instagram, straight from the
 // question view. Either "Post now" or schedule at a chosen date & time.
@@ -15,6 +18,9 @@ export default function ScheduleQuestionModal({ open, question, onClose }) {
   const [msg, setMsg] = useState(null); // { ok, text }
   const [previewUrl, setPreviewUrl] = useState(null);
   const [previewing, setPreviewing] = useState(false);
+  const { settings } = useSettings();
+  const cardRef = useRef(null); // off-screen node captured into the posted image
+  const siteName = settings?.siteName || "My Study Guide";
 
   useEffect(() => {
     if (open) {
@@ -23,16 +29,26 @@ export default function ScheduleQuestionModal({ open, question, onClose }) {
     }
   }, [open]);
 
+  // Preview = a screenshot of the exact card that will be posted (rendered in
+  // the browser with the same KaTeX math the students see).
   const doPreview = async () => {
     setPreviewing(true); setMsg(null);
     try {
-      const r = await facebookService.previewImage({ questionId: question._id, includeOptions: opts.includeOptions, includeAnswer: opts.includeAnswer, hashtags: opts.hashtags });
-      setPreviewUrl(r?.url || null);
+      const blob = await captureNodeToBlob(cardRef.current, { scale: 2 });
+      setPreviewUrl(URL.createObjectURL(blob));
     } catch (e) {
       setMsg({ ok: false, text: e.message || "Could not generate preview." });
     } finally {
       setPreviewing(false);
     }
+  };
+
+  // Capture the card and upload it to Cloudinary → the image URL to post.
+  const captureAndUpload = async () => {
+    const blob = await captureNodeToBlob(cardRef.current, { scale: 2 });
+    const file = new File([blob], `question-${question._id}.png`, { type: "image/png" });
+    const r = await uploadService.file(file);
+    return r?.url || "";
   };
 
   if (!open || !question) return null;
@@ -47,7 +63,14 @@ export default function ScheduleQuestionModal({ open, question, onClose }) {
     if (scheduled && !when) { setMsg({ ok: false, text: "Pick a date & time first." }); return; }
     setBusy(true); setMsg(null);
     try {
-      const payload = { questionId: question._id, ...opts, label: (question.text || "").slice(0, 80) };
+      // When an image is going out (Facebook image or Instagram), capture the
+      // exact card as a screenshot and post THAT. If capture/upload fails we
+      // send no imageUrl and the server falls back to its own rendering.
+      let imageUrl = "";
+      if (opts.asImage || opts.toInstagram) {
+        try { imageUrl = await captureAndUpload(); } catch { imageUrl = ""; }
+      }
+      const payload = { questionId: question._id, ...opts, imageUrl, label: (question.text || "").slice(0, 80) };
       if (scheduled) {
         await facebookService.scheduleQuestion({ ...payload, runAt: new Date(when).toISOString() });
         setMsg({ ok: true, text: `Scheduled for ${new Date(when).toLocaleString()}. See it under Facebook Auto-Post.` });
@@ -106,7 +129,15 @@ export default function ScheduleQuestionModal({ open, question, onClose }) {
           {previewUrl && (
             <img src={previewUrl} alt="Post preview" className="mt-3 w-full max-w-[360px] rounded-xl border border-slate-200 shadow-sm dark:border-slate-700" />
           )}
-          <p className="mt-1 text-xs text-slate-400">This is the image posted to Instagram, and to Facebook when “image” is on.</p>
+          <p className="mt-1 text-xs text-slate-400">A screenshot of the exact card students see (same math rendering). Posted to Instagram, and to Facebook when “image” is on.</p>
+        </div>
+
+        {/* Off-screen card that gets screenshotted. Kept rendered (not hidden)
+            so html2canvas can capture it; parked far off-screen. */}
+        <div aria-hidden style={{ position: "fixed", left: -100000, top: 0, pointerEvents: "none", opacity: 0 }}>
+          <div ref={cardRef}>
+            <QuestionPostCard question={question} includeOptions={opts.includeOptions} includeAnswer={opts.includeAnswer} siteName={siteName} hashtags={opts.hashtags} />
+          </div>
         </div>
 
         <label className="mb-1 mt-4 flex items-center gap-1.5 text-sm font-semibold"><Clock className="h-4 w-4 text-slate-400" /> Schedule for (optional)</label>
