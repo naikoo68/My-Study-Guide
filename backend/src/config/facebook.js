@@ -334,8 +334,11 @@ export async function runScheduleOnce(sch, cfgOverride) {
 
   // Render an image if a photo post is requested, or if Instagram is a target
   // (IG can't post text-only). Falls back to text if rendering fails.
+  // Also render an image when the selfie watermark is enabled — this ensures the
+  // admin's selfie branding appears on EVERY post (text + image).
+  const selfieWatermarkActive = site?.fbSelfieWatermarkEnabled !== false && !!site?.fbSelfieWatermarkUrl;
   let imageUrl = null, imageErr = "";
-  if (sch.asImage || wantIg) {
+  if (sch.asImage || wantIg || selfieWatermarkActive) {
     if (sch.imageUrl) {
       // A screenshot captured in the admin's browser — the exact quiz rendering.
       imageUrl = sch.imageUrl;
@@ -354,7 +357,9 @@ export async function runScheduleOnce(sch, cfgOverride) {
   let anyOk = false;
 
   if (wantFb) {
-    const r = await postToFacebookPage({ message, link, imageUrl: sch.asImage ? imageUrl : undefined }, cfg);
+    // Always attach the image when a selfie watermark is active (ensures branding on every post).
+    const fbImageUrl = (sch.asImage || selfieWatermarkActive) ? imageUrl : undefined;
+    const r = await postToFacebookPage({ message, link, imageUrl: fbImageUrl }, cfg);
     if (r.ok) { anyOk = true; notes.push("Facebook ✓"); } else notes.push(`Facebook ✗ (${r.error})`);
 
     // Cross-post to any extra Facebook Pages the admin added (each with its own
@@ -364,7 +369,7 @@ export async function runScheduleOnce(sch, cfgOverride) {
       const token = String(t?.token || "").trim();
       if (!pageId || !token) continue;
       const rr = await postToFacebookPage(
-        { message, link, imageUrl: sch.asImage ? imageUrl : undefined },
+        { message, link, imageUrl: fbImageUrl },
         { ...cfg, pageId, token }
       );
       const name = t.label || pageId;

@@ -1,6 +1,7 @@
 import Settings from "../models/Settings.js";
 import { postToFacebookPage, verifyFacebook, getFacebookConfig, getInstagramUserId, postToInstagram } from "../config/facebook.js";
 import { renderQuestionImage } from "../config/socialImage.js";
+import { uploadToCloudinary } from "../config/cloudinary.js";
 
 async function getOrCreate() {
   let s = await Settings.findOne({ key: "site" });
@@ -38,6 +39,7 @@ export async function updateSettings(req, res) {
     "aiMaxPerBatch", "clientPlans",
     "fbEnabled", "fbPageId", "fbAutoOnNotice", "fbGraphVersion", "fbPageAccessToken",
     "fbDefaultHashtags", "fbAutoHashtags", "fbExtraTargets",
+    "fbSelfieWatermarkUrl", "fbSelfieWatermarkEnabled", "fbSelfieWatermarkPosition", "fbSelfieWatermarkSize", "fbSelfieWatermarkOpacity", "fbSelfieWatermarkShape",
     "igEnabled", "igUserId",
   ];
   const update = {};
@@ -65,6 +67,19 @@ export async function updateSettings(req, res) {
   }
   if ("fbGraphVersion" in update) update.fbGraphVersion = String(update.fbGraphVersion || "").trim() || "v21.0";
   if ("igUserId" in update) update.igUserId = String(update.igUserId || "").trim();
+
+  // Selfie watermark: validate position and clamp size/opacity.
+  if ("fbSelfieWatermarkUrl" in update) update.fbSelfieWatermarkUrl = String(update.fbSelfieWatermarkUrl || "").trim();
+  if ("fbSelfieWatermarkPosition" in update) {
+    const pos = String(update.fbSelfieWatermarkPosition || "").trim();
+    update.fbSelfieWatermarkPosition = ["bottom-right", "bottom-left", "top-right", "top-left"].includes(pos) ? pos : "bottom-right";
+  }
+  if ("fbSelfieWatermarkSize" in update) update.fbSelfieWatermarkSize = Math.max(40, Math.min(300, parseInt(update.fbSelfieWatermarkSize, 10) || 120));
+  if ("fbSelfieWatermarkOpacity" in update) update.fbSelfieWatermarkOpacity = Math.max(10, Math.min(100, parseInt(update.fbSelfieWatermarkOpacity, 10) || 90));
+  if ("fbSelfieWatermarkShape" in update) {
+    const sh = String(update.fbSelfieWatermarkShape || "").trim();
+    update.fbSelfieWatermarkShape = ["circle", "rectangle"].includes(sh) ? sh : "circle";
+  }
 
   // AI limits: clamp the admin's global per-batch ceiling.
   if ("aiMaxPerBatch" in update) {
@@ -157,4 +172,49 @@ export async function testInstagramPost(req, res) {
   if (!rendered.url) return res.status(502).json({ ok: false, error: rendered.error || "Could not generate the image." });
   const result = await postToInstagram({ imageUrl: rendered.url, caption: `${title} — Instagram auto-posting is connected. ✅` }, cfg);
   return res.status(result.ok ? 200 : 502).json(result);
+}
+
+// POST /api/settings/selfie-watermark — admin: upload a selfie image to be used
+// as a watermark on Facebook/Instagram image posts. Accepts multipart (file) or
+// a base64 data URI in the body. Stores the Cloudinary URL in Settings.
+export async function uploadSelfieWatermark(req, res) {
+  try {
+    let fileStr = null;
+
+    // If multer attached a file (multipart upload), convert it to a base64 data URI.
+    if (req.file) {
+      const mime = req.file.mimetype || "image/png";
+      fileStr = `data:${mime};base64,${req.file.buffer.toString("base64")}`;
+    } else if (req.body?.image) {
+      // Base64 data URI sent directly in the body (from frontend FileReader).
+      fileStr = String(req.body.image);
+    }
+
+    if (!fileStr) {
+      return res.status(400).json({ ok: false, error: "No image provided. Upload a file or send a base64 image." });
+    }
+
+    const { url } = await uploadToCloudinary(fileStr, "mystudyguide/watermarks");
+    if (!url) return res.status(502).json({ ok: false, error: "Cloudinary upload failed." });
+
+    // Save the URL to settings.
+    const s = await Settings.findOneAndUpdate(
+      { key: "site" },
+      { fbSelfieWatermarkUrl: url },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
+    res.json({ ok: true, url, settings: safeSettings(s) });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message || "Upload failed." });
+  }
+}
+
+// DELETE /api/settings/selfie-watermark — admin: remove the selfie watermark.
+export async function deleteSelfieWatermark(req, res) {
+  const s = await Settings.findOneAndUpdate(
+    { key: "site" },
+    { fbSelfieWatermarkUrl: "" },
+    { new: true, upsert: true, setDefaultsOnInsert: true }
+  );
+  res.json({ ok: true, settings: safeSettings(s) });
 }

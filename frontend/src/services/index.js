@@ -209,6 +209,12 @@ export const settingsService = {
   update: (data) => api.put("/settings", data),
   testFacebook: (data) => api.post("/settings/facebook/test", data || {}), // verify/send a test Page post (admin)
   testInstagram: (data) => api.post("/settings/instagram/test", data || {}), // verify/send a test Instagram post (admin)
+  uploadSelfieWatermark: (file) => {
+    const fd = new FormData();
+    fd.append("image", file);
+    return api.post("/settings/selfie-watermark", fd);
+  },
+  deleteSelfieWatermark: () => api.del("/settings/selfie-watermark"),
 };
 
 // ---- Facebook scheduled auto-posting (admin) ----
