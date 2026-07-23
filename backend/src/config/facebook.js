@@ -152,6 +152,9 @@ export async function verifyFacebook(cfgOverride) {
 import FbSchedule from "../models/FbSchedule.js";
 import Question from "../models/Question.js";
 import Subject from "../models/Subject.js";
+import Session from "../models/Session.js";
+import Topic from "../models/Topic.js";
+import Quiz from "../models/Quiz.js";
 import { renderQuestionImage } from "./socialImage.js";
 
 const LETTERS = ["A", "B", "C", "D", "E", "F"];
@@ -182,12 +185,29 @@ export async function hashtagsForQuestion(q, site, extra = "") {
   for (const w of String(site?.fbDefaultHashtags || "").split(/[\s,]+/)) push(normTag(w));
   if (site?.fbAutoHashtags !== false && q) {
     let subjectName = "";
+    let topicName = "";
     if (q.subject) {
       const s = await Subject.findById(q.subject).select("name").lean().catch(() => null);
       subjectName = s?.name || "";
     }
+    // Look up the Topic name from the session hierarchy (Question → Session → Topic).
+    // Falls back to q.topic (a plain string field used by test-series questions).
+    let sessionId = q.session;
+    if (!sessionId && q.quiz) {
+      // Question linked to a quiz but not directly to a session — get session from quiz.
+      const qz = await Quiz.findById(q.quiz).select("session").lean().catch(() => null);
+      sessionId = qz?.session || null;
+    }
+    if (sessionId) {
+      const sess = await Session.findById(sessionId).select("topic").lean().catch(() => null);
+      if (sess?.topic) {
+        const t = await Topic.findById(sess.topic).select("title").lean().catch(() => null);
+        topicName = t?.title || "";
+      }
+    }
+    if (!topicName && q.topic) topicName = q.topic;
     push(toTagWords(subjectName));
-    push(toTagWords(q.topic));
+    push(toTagWords(topicName));
     push(toTagWords(q.section));
   }
   return out.join(" ");
