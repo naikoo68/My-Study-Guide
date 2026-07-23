@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { listSchedules, createSchedule, updateSchedule, deleteSchedule, postScheduleNow, postQuestionNow, scheduleQuestion, previewQuestionImage } from "../controllers/facebookController.js";
+import { listSchedules, createSchedule, updateSchedule, deleteSchedule, postScheduleNow, postQuestionNow, scheduleQuestion, previewQuestionImage, suggestTags } from "../controllers/facebookController.js";
 import { protect, authorize } from "../middleware/auth.js";
 
 const router = Router();
@@ -17,5 +17,6 @@ router.post("/schedules/:id/post-now", ...admin, postScheduleNow);
 router.post("/post-question", ...admin, postQuestionNow);
 router.post("/schedule-question", ...admin, scheduleQuestion);
 router.post("/preview-image", ...admin, previewQuestionImage);
+router.get("/suggest-tags/:id", ...admin, suggestTags);
 
 export default router;

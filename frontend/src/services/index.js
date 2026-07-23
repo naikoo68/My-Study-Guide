@@ -221,6 +221,7 @@ export const facebookService = {
   postQuestion: (data) => api.post("/facebook/post-question", data), // post ONE question now
   scheduleQuestion: (data) => api.post("/facebook/schedule-question", data), // schedule ONE question at a time
   previewImage: (data) => api.post("/facebook/preview-image", data), // render the question card → { url }
+  suggestTags: (id) => api.get(`/facebook/suggest-tags/${id}`), // auto + default hashtags for a question → { hashtags }
 };
 
 // ---- Contact messages ----

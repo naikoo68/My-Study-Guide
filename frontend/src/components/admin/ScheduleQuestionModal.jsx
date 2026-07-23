@@ -26,8 +26,15 @@ export default function ScheduleQuestionModal({ open, question, onClose }) {
     if (open) {
       setOpts({ toFacebook: true, toInstagram: false, asImage: false, includeOptions: true, includeAnswer: false, hashtags: "" });
       setWhen(""); setMsg(null); setBusy(false); setPreviewUrl(null); setPreviewing(false);
+      // Pre-fill the hashtags: your global default tags + auto tags built from
+      // this question's subject/topic. You can still edit them before posting.
+      if (question?._id) {
+        facebookService.suggestTags(question._id)
+          .then((r) => { if (r?.hashtags) setOpts((o) => ({ ...o, hashtags: r.hashtags })); })
+          .catch(() => {});
+      }
     }
-  }, [open]);
+  }, [open, question?._id]);
 
   // Preview = a screenshot of the exact card that will be posted (rendered in
   // the browser with the same KaTeX math the students see).

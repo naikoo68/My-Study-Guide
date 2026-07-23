@@ -87,6 +87,17 @@ const settingsSchema = new mongoose.Schema(
     fbPageAccessToken: { type: String, default: "" }, // SENSITIVE — long-lived Page access token; never sent to the browser
     fbAutoOnNotice: { type: Boolean, default: false }, // auto-post to the Page whenever a Notice is added
     fbGraphVersion: { type: String, default: "v21.0" }, // Graph API version
+    // Hashtags: a global set appended to EVERY question post, plus auto tags
+    // generated from each question's subject/topic/section.
+    fbDefaultHashtags: { type: String, default: "" },
+    fbAutoHashtags: { type: Boolean, default: true },
+    // Extra Facebook Pages to cross-post to (each needs its OWN page token).
+    // Facebook GROUPS cannot be posted to via the API (deprecated), so only
+    // Pages you manage can be added here.
+    fbExtraTargets: {
+      type: [new mongoose.Schema({ label: { type: String, default: "" }, pageId: { type: String, default: "" }, token: { type: String, default: "" } }, { _id: false })],
+      default: () => [],
+    },
     // Instagram cross-posting (uses the same Page token; IG account linked to the Page)
     igEnabled: { type: Boolean, default: false },
     igUserId: { type: String, default: "" }, // Instagram Business account id (blank = auto-detect from the Page)

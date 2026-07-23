@@ -1,7 +1,17 @@
 import FbSchedule from "../models/FbSchedule.js";
 import Question from "../models/Question.js";
-import { runScheduleOnce, getFacebookConfig } from "../config/facebook.js";
+import Settings from "../models/Settings.js";
+import { runScheduleOnce, getFacebookConfig, hashtagsForQuestion } from "../config/facebook.js";
 import { renderQuestionImage } from "../config/socialImage.js";
+
+// GET /api/facebook/suggest-tags/:id — hashtags for one question (global default
+// + auto tags from its subject/topic/section). Used to pre-fill the post modal.
+export async function suggestTags(req, res) {
+  const q = await Question.findById(req.params.id).lean();
+  if (!q) return res.json({ hashtags: "" });
+  const site = await Settings.findOne({ key: "site" }).lean().catch(() => null);
+  res.json({ hashtags: await hashtagsForQuestion(q, site, "") });
+}
 
 // Common post-format fields from the per-question modal.
 function postOpts(body = {}) {

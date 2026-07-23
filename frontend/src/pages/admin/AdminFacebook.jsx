@@ -93,7 +93,8 @@ export default function AdminFacebook() {
   const { settings, save: saveSettings } = useSettings();
 
   // ---- Connection config ----
-  const [fb, setFb] = useState({ fbEnabled: false, fbPageId: "", fbGraphVersion: "v21.0", igEnabled: false, igUserId: "" });
+  const [fb, setFb] = useState({ fbEnabled: false, fbPageId: "", fbGraphVersion: "v21.0", igEnabled: false, igUserId: "", fbDefaultHashtags: "", fbAutoHashtags: true });
+  const [targets, setTargets] = useState([]); // extra cross-post Pages: [{label, pageId, token, tokenSet}]
   const [fbToken, setFbToken] = useState("");
   const [fbSaving, setFbSaving] = useState(false);
   const [fbTesting, setFbTesting] = useState(false);
@@ -105,13 +106,22 @@ export default function AdminFacebook() {
     setFb({
       fbEnabled: settings?.fbEnabled === true, fbPageId: settings?.fbPageId || "", fbGraphVersion: settings?.fbGraphVersion || "v21.0",
       igEnabled: settings?.igEnabled === true, igUserId: settings?.igUserId || "",
+      fbDefaultHashtags: settings?.fbDefaultHashtags || "", fbAutoHashtags: settings?.fbAutoHashtags !== false,
     });
-  }, [settings?.fbEnabled, settings?.fbPageId, settings?.fbGraphVersion, settings?.igEnabled, settings?.igUserId]);
+    setTargets((settings?.fbExtraTargets || []).map((t) => ({ label: t.label || "", pageId: t.pageId || "", token: "", tokenSet: !!t.tokenSet })));
+  }, [settings?.fbEnabled, settings?.fbPageId, settings?.fbGraphVersion, settings?.igEnabled, settings?.igUserId, settings?.fbDefaultHashtags, settings?.fbAutoHashtags, settings?.fbExtraTargets]);
+
+  const setTarget = (i, k, v) => setTargets((ts) => ts.map((t, idx) => (idx === i ? { ...t, [k]: v } : t)));
+  const addTarget = () => setTargets((ts) => [...ts, { label: "", pageId: "", token: "", tokenSet: false }]);
+  const removeTarget = (i) => setTargets((ts) => ts.filter((_, idx) => idx !== i));
 
   const saveFb = async () => {
     setFbSaving(true); setFbMsg(null);
     try {
-      await saveSettings({ ...fb, ...(fbToken.trim() ? { fbPageAccessToken: fbToken.trim() } : {}) });
+      const fbExtraTargets = targets
+        .filter((t) => String(t.pageId).trim())
+        .map((t) => ({ label: String(t.label).trim(), pageId: String(t.pageId).trim(), token: String(t.token).trim() }));
+      await saveSettings({ ...fb, fbExtraTargets, ...(fbToken.trim() ? { fbPageAccessToken: fbToken.trim() } : {}) });
       setFbToken(""); setFbMsg({ ok: true, text: "Saved." });
     } catch (e) { setFbMsg({ ok: false, text: e.message }); } finally { setFbSaving(false); }
   };
@@ -224,6 +234,53 @@ export default function AdminFacebook() {
           <button type="button" onClick={saveFb} disabled={fbSaving} className="btn-primary">{fbSaving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> Save connection</>}</button>
           <button type="button" onClick={testFb} disabled={fbTesting || !settings?.fbTokenSet} className="btn-outline">{fbTesting ? <><Loader2 className="h-4 w-4 animate-spin" /> Posting…</> : <><Send className="h-4 w-4" /> Send test post</>}</button>
           {fbMsg && <span className={`inline-flex items-center gap-1 text-sm font-medium ${fbMsg.ok ? "text-emerald-600" : "text-rose-600"}`}>{fbMsg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {fbMsg.text}</span>}
+        </div>
+      </div>
+
+      {/* Hashtags */}
+      <div className="card p-5">
+        <h2 className="flex items-center gap-2 font-bold"><ListChecks className="h-4 w-4 text-[#1877F2]" /> Hashtags</h2>
+        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">Added to every question post. Auto tags are also built from each question's subject &amp; topic.</p>
+        <div className="mt-4 space-y-3">
+          <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
+            <span className="text-sm font-medium">Auto-generate tags from the question's subject / topic</span>
+            <button type="button" onClick={() => setFb((f) => ({ ...f, fbAutoHashtags: !f.fbAutoHashtags }))}
+              className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${fb.fbAutoHashtags ? "bg-[#1877F2]" : "bg-slate-300 dark:bg-slate-600"}`}>
+              <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${fb.fbAutoHashtags ? "left-6" : "left-1"}`} />
+            </button>
+          </label>
+          <div>
+            <label className="mb-1 block text-sm font-medium">Default hashtags (applied to all posts)</label>
+            <input className="input" value={fb.fbDefaultHashtags} onChange={(e) => setFb((f) => ({ ...f, fbDefaultHashtags: e.target.value }))} placeholder="#JKSSB #CurrentAffairs #StudyGuide" />
+            <p className="mt-1 text-xs text-slate-400">Space or comma separated. The “#” is optional — it's added automatically.</p>
+          </div>
+        </div>
+        <div className="mt-4">
+          <button type="button" onClick={saveFb} disabled={fbSaving} className="btn-primary">{fbSaving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> Save hashtags</>}</button>
+        </div>
+      </div>
+
+      {/* Cross-post to more Pages */}
+      <div className="card p-5">
+        <h2 className="flex items-center gap-2 font-bold"><Send className="h-4 w-4 text-[#1877F2]" /> Cross-post to more Pages</h2>
+        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
+          Every post also goes to these Pages. Each needs its OWN Page access token (a Page ID + token — a plain link can't authorise posting).
+          <b> Facebook Groups can't be posted to via the API</b>, so only Pages you manage work here.
+        </p>
+        <div className="mt-4 space-y-2">
+          {targets.length === 0 && <p className="text-sm text-slate-400">No extra Pages yet.</p>}
+          {targets.map((t, i) => (
+            <div key={i} className="grid items-center gap-2 sm:grid-cols-[1fr_1fr_1.2fr_auto]">
+              <input className="input" value={t.label} onChange={(e) => setTarget(i, "label", e.target.value)} placeholder="Label (e.g. Backup Page)" />
+              <input className="input" value={t.pageId} onChange={(e) => setTarget(i, "pageId", e.target.value)} placeholder="Page ID" />
+              <input type="password" className="input" value={t.token} onChange={(e) => setTarget(i, "token", e.target.value)} autoComplete="off" placeholder={t.tokenSet ? "•••••••• (saved — type to replace)" : "Page access token"} />
+              <button type="button" onClick={() => removeTarget(i)} title="Remove" className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30"><Trash2 className="h-4 w-4" /></button>
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <button type="button" onClick={addTarget} className="btn-outline"><Plus className="h-4 w-4" /> Add Page</button>
+          <button type="button" onClick={saveFb} disabled={fbSaving} className="btn-primary">{fbSaving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> Save Pages</>}</button>
         </div>
       </div>
 

@@ -14,6 +14,10 @@ function safeSettings(s) {
   const obj = s && s.toObject ? s.toObject() : { ...(s || {}) };
   obj.fbTokenSet = !!obj.fbPageAccessToken;
   delete obj.fbPageAccessToken;
+  // Extra cross-post pages: never send their tokens to the browser.
+  if (Array.isArray(obj.fbExtraTargets)) {
+    obj.fbExtraTargets = obj.fbExtraTargets.map((t) => ({ label: t.label || "", pageId: t.pageId || "", tokenSet: !!t.token }));
+  }
   return obj;
 }
 
@@ -33,6 +37,7 @@ export async function updateSettings(req, res) {
     "aboutHeading", "aboutIntro", "aboutValues", "aboutStats",
     "aiMaxPerBatch", "clientPlans",
     "fbEnabled", "fbPageId", "fbAutoOnNotice", "fbGraphVersion", "fbPageAccessToken",
+    "fbDefaultHashtags", "fbAutoHashtags", "fbExtraTargets",
     "igEnabled", "igUserId",
   ];
   const update = {};
@@ -45,6 +50,19 @@ export async function updateSettings(req, res) {
     if (tok) update.fbPageAccessToken = tok; else delete update.fbPageAccessToken;
   }
   if ("fbPageId" in update) update.fbPageId = String(update.fbPageId || "").trim();
+  // Extra cross-post Pages: keep each page's saved token when the UI submits a
+  // blank one (tokens are never sent to the browser, so blank = "unchanged").
+  if (Array.isArray(update.fbExtraTargets)) {
+    const current = await getOrCreate();
+    const savedTokens = new Map((current.fbExtraTargets || []).map((t) => [String(t.pageId), t.token]));
+    update.fbExtraTargets = update.fbExtraTargets
+      .map((t) => {
+        const pageId = String(t?.pageId || "").trim();
+        const token = String(t?.token || "").trim() || savedTokens.get(pageId) || "";
+        return { label: String(t?.label || "").trim(), pageId, token };
+      })
+      .filter((t) => t.pageId);
+  }
   if ("fbGraphVersion" in update) update.fbGraphVersion = String(update.fbGraphVersion || "").trim() || "v21.0";
   if ("igUserId" in update) update.igUserId = String(update.igUserId || "").trim();
 

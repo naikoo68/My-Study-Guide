@@ -151,6 +151,7 @@ export async function verifyFacebook(cfgOverride) {
 // ---------------------------------------------------------------------------
 import FbSchedule from "../models/FbSchedule.js";
 import Question from "../models/Question.js";
+import Subject from "../models/Subject.js";
 import { renderQuestionImage } from "./socialImage.js";
 
 const LETTERS = ["A", "B", "C", "D", "E", "F"];
@@ -158,6 +159,39 @@ const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"];
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 // Strip inline-LaTeX $…$ markers so the post reads as plain text on Facebook.
 const plain = (s) => String(s || "").replace(/\$/g, "").replace(/[ \t]+\n/g, "\n").trim();
+
+// Turn a label ("Physiography of J&K") into a CamelCase hashtag ("#PhysiographyOfJK").
+function toTagWords(s) {
+  const words = String(s || "").replace(/[^a-zA-Z0-9\s]/g, " ").trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return "";
+  return "#" + words.map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join("");
+}
+// Normalise an admin-typed tag ("economics" / "#Economics" → "#Economics").
+function normTag(s) {
+  const t = String(s || "").trim().replace(/^#+/, "").replace(/[^a-zA-Z0-9_]/g, "");
+  return t ? "#" + t : "";
+}
+
+// Build the hashtag string for a question: per-post tags + the admin's global
+// default tags + auto tags from the question's subject / topic / section.
+// `site` is the Settings doc (fbDefaultHashtags, fbAutoHashtags).
+export async function hashtagsForQuestion(q, site, extra = "") {
+  const out = [];
+  const push = (t) => { if (t && !out.some((x) => x.toLowerCase() === t.toLowerCase())) out.push(t); };
+  for (const w of String(extra || "").split(/[\s,]+/)) push(normTag(w));
+  for (const w of String(site?.fbDefaultHashtags || "").split(/[\s,]+/)) push(normTag(w));
+  if (site?.fbAutoHashtags !== false && q) {
+    let subjectName = "";
+    if (q.subject) {
+      const s = await Subject.findById(q.subject).select("name").lean().catch(() => null);
+      subjectName = s?.name || "";
+    }
+    push(toTagWords(subjectName));
+    push(toTagWords(q.topic));
+    push(toTagWords(q.section));
+  }
+  return out.join(" ");
+}
 
 // Build the Facebook post text for one question, honouring the schedule's
 // formatting options (show options / reveal answer / hashtags).
@@ -287,10 +321,14 @@ export async function runScheduleOnce(sch, cfgOverride) {
 
   const wantFb = sch.toFacebook !== false;
   const wantIg = !!sch.toInstagram && cfg.igEnabled;
+  // Global default + auto hashtags (from the question's subject/topic/section)
+  // merged with any per-post tags — so every post is tagged consistently.
+  const site = await Settings.findOne({ key: "site" }).lean().catch(() => null);
+  const finalTags = await hashtagsForQuestion(q, site, sch.hashtags);
   const message = formatQuestionPost(q, {
     includeOptions: sch.includeOptions,
     includeAnswer: sch.includeAnswer,
-    hashtags: sch.hashtags,
+    hashtags: finalTags,
   });
   const link = sch.includeLink && cfg.siteUrl ? cfg.siteUrl : undefined;
 
@@ -305,7 +343,7 @@ export async function runScheduleOnce(sch, cfgOverride) {
       const r = await renderQuestionImage(q, {
         includeOptions: sch.includeOptions,
         includeAnswer: sch.includeAnswer,
-        hashtags: sch.hashtags,
+        hashtags: finalTags,
       });
       imageUrl = r.url || null;
       imageErr = r.error || "";
@@ -318,6 +356,20 @@ export async function runScheduleOnce(sch, cfgOverride) {
   if (wantFb) {
     const r = await postToFacebookPage({ message, link, imageUrl: sch.asImage ? imageUrl : undefined }, cfg);
     if (r.ok) { anyOk = true; notes.push("Facebook ✓"); } else notes.push(`Facebook ✗ (${r.error})`);
+
+    // Cross-post to any extra Facebook Pages the admin added (each with its own
+    // token). Groups are NOT supported by the Facebook API, so only Pages work.
+    for (const t of site?.fbExtraTargets || []) {
+      const pageId = String(t?.pageId || "").trim();
+      const token = String(t?.token || "").trim();
+      if (!pageId || !token) continue;
+      const rr = await postToFacebookPage(
+        { message, link, imageUrl: sch.asImage ? imageUrl : undefined },
+        { ...cfg, pageId, token }
+      );
+      const name = t.label || pageId;
+      if (rr.ok) { anyOk = true; notes.push(`${name} ✓`); } else notes.push(`${name} ✗ (${rr.error})`);
+    }
   }
   if (wantIg) {
     if (!imageUrl) notes.push(`Instagram ✗ (image failed${imageErr ? `: ${imageErr}` : ""})`);
