@@ -374,7 +374,7 @@ export default function AdminFacebook() {
   const toggleDay = (v) => setForm((f) => ({ ...f, days: f.days.includes(v) ? f.days.filter((d) => d !== v) : [...f.days, v] }));
 
   const saveForm = async () => {
-    if (!form.source.subject && !form.source.session && !form.source.quiz) { setError("Pick a source (subject, session or quiz)."); return; }
+    if (!form.source.subject && !form.source.session && !form.source.quiz && !form.source.testSeries) { setError("Pick a source (subject, session or quiz)."); return; }
     if (!form.times.filter(Boolean).length) { setError("Add at least one time."); return; }
     if (!form.toFacebook && !form.toInstagram) { setError("Choose at least one destination (Facebook and/or Instagram)."); return; }
     setSaving(true); setError("");
