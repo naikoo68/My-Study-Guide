@@ -355,6 +355,7 @@ export const userService = {
   resetPassword: (id) => api.post(`/users/${id}/reset-password`),
   getAccess: (id) => api.get(`/users/${id}/access`),
   updateAccess: (id, data) => api.put(`/users/${id}/access`, data),
+  applyClientFeatures: (features) => api.patch(`/users/clients/feature-access`, { features }), // apply feature flags to ALL clients
 };
 
 // ---- Discount coupons (admin) ----

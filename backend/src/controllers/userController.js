@@ -129,6 +129,10 @@ export async function updateUser(req, res) {
   if ("aiAccess" in req.body) user.aiAccess = !!req.body.aiAccess;
   if ("aiAllowInbuilt" in req.body) user.aiAllowInbuilt = !!req.body.aiAllowInbuilt;
   if ("aiAllowSelf" in req.body) user.aiAllowSelf = !!req.body.aiAllowSelf;
+  // Per-feature client workspace access (applied only when present).
+  for (const f of ["featDashboard", "featBuild", "featNotes", "featDocuments", "featManual", "featAiGenerator"]) {
+    if (f in req.body) user[f] = !!req.body[f];
+  }
   // Assign a subscription plan (admin override). Sets the plan key plus its
   // months & price, so both the billing display and the client's AI generation
   // limits follow the chosen plan. Empty clears it.
@@ -193,6 +197,20 @@ export async function toggleStatus(req, res) {
   user.status = user.status === "blocked" ? "active" : "blocked";
   await user.save();
   res.json({ id: user._id, status: user.status });
+}
+
+// PATCH /api/users/clients/feature-access  (admin) — apply the given feature
+// flags to ALL client accounts at once. Body: { features: { featDashboard,
+// featBuild, featNotes, featDocuments, featManual, aiAccess, featAiGenerator } }.
+// Only the keys present are applied; the rest are left untouched.
+export async function applyClientFeatureAccess(req, res) {
+  const f = req.body?.features || {};
+  const allowed = ["featDashboard", "featBuild", "featNotes", "featDocuments", "featManual", "aiAccess", "featAiGenerator"];
+  const set = {};
+  for (const k of allowed) if (k in f) set[k] = !!f[k];
+  if (!Object.keys(set).length) return res.status(400).json({ message: "No feature flags provided." });
+  const result = await User.updateMany({ role: "client" }, { $set: set });
+  res.json({ message: "Applied to all clients", updated: result.modifiedCount ?? result.nModified ?? 0, features: set });
 }
 
 // PATCH /api/users/:id/plan  (admin) — manage subscription

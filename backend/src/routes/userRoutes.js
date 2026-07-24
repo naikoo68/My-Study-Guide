@@ -10,6 +10,7 @@ import {
   adminResetPassword,
   getUserAccess,
   updateUserAccess,
+  applyClientFeatureAccess,
 } from "../controllers/userController.js";
 import { protect, authorize } from "../middleware/auth.js";
 
@@ -18,6 +19,7 @@ const admin = [protect, authorize("admin")];
 
 router.get("/", ...admin, listUsers);
 router.get("/clients", ...admin, listClients); // self-service client accounts
+router.patch("/clients/feature-access", ...admin, applyClientFeatureAccess); // apply feature flags to ALL clients
 router.post("/", ...admin, createUser);
 router.put("/:id", ...admin, updateUser);
 router.delete("/:id", ...admin, deleteUser);

@@ -181,7 +181,10 @@ function Cascade({ levels, onChange }) {
   );
 }
 
-export default function AdminAiStudio() {
+export default function AdminAiStudio({ clientMode = false }) {
+  // Clients only build their own practice content (My Quiz / My Test); admins
+  // get all four destination types.
+  const destKeys = clientMode ? ["myquiz", "mytest"] : Object.keys(DESTS);
   const [dest, setDest] = useState("myquiz");
   const [sel, setSel] = useState({});
   const [aiOpen, setAiOpen] = useState(false);
@@ -239,7 +242,7 @@ export default function AdminAiStudio() {
 
       {/* Destination type */}
       <div className="flex flex-wrap gap-2">
-        {Object.entries(DESTS).map(([key, d]) => (
+        {destKeys.map((key) => [key, DESTS[key]]).map(([key, d]) => (
           <button
             key={key}
             onClick={() => setDest(key)}

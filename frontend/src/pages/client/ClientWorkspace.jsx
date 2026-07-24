@@ -13,6 +13,7 @@ import ClientUpgrade from "./ClientUpgrade";
 import ClientAiSettings from "./ClientAiSettings";
 import AdminDocuments from "../admin/AdminDocuments";
 import AdminNotes from "../admin/AdminNotes";
+import AdminAiStudio from "../admin/AdminAiStudio";
 
 // The self-service CLIENT workspace. A client only ever sees the My Practice
 // section (their own private content) — no other part of the site. It reuses
@@ -46,25 +47,28 @@ export default function ClientWorkspace() {
     navigate("/login");
   };
 
+  // Per-feature access set by the admin (Clients panel). Dashboard/Build/Notes/
+  // Documents/User-manual default ON; AI (keys) and AI Generator default OFF.
   const tabs = [
-    { key: "dashboard", label: "Dashboard", Icon: LayoutDashboard },
-    { key: "build", label: "Build", Icon: Wrench },
-    { key: "migrate", label: "Migrate", Icon: ArrowRightLeft },
-    // AI + Documents tabs appear when the admin has granted this client AI access.
-    ...(user?.aiAccess ? [
-      { key: "ai", label: "AI", Icon: Sparkles },
-      { key: "documents", label: "Documents", Icon: FileText },
-      { key: "notes", label: "Notes", Icon: Feather },
+    ...(user?.featDashboard !== false ? [{ key: "dashboard", label: "Dashboard", Icon: LayoutDashboard }] : []),
+    ...(user?.featBuild !== false ? [
+      { key: "build", label: "Build", Icon: Wrench },
+      { key: "migrate", label: "Migrate", Icon: ArrowRightLeft },
     ] : []),
-    { key: "manual", label: "User Manual", Icon: BookOpen },
+    ...(user?.aiAccess ? [{ key: "ai", label: "AI", Icon: Sparkles }] : []),
+    ...(user?.featAiGenerator ? [{ key: "aigen", label: "AI Generator", Icon: Sparkles }] : []),
+    ...(user?.featDocuments !== false ? [{ key: "documents", label: "Documents", Icon: FileText }] : []),
+    ...(user?.featNotes !== false ? [{ key: "notes", label: "Notes", Icon: Feather }] : []),
+    ...(user?.featManual !== false ? [{ key: "manual", label: "User Manual", Icon: BookOpen }] : []),
   ];
 
-  // The active tab lives in the URL (?tab=…) so a refresh restores it instead
-  // of dropping back to the Dashboard. Unknown/empty → Dashboard.
+  // The active tab lives in the URL (?tab=…) so a refresh restores it. Unknown/
+  // empty → the first tab the client is allowed to see.
   const allowedTabs = tabs.map((t) => t.key);
+  const firstTab = allowedTabs[0] || "dashboard";
   const paramTab = searchParams.get("tab");
-  const tab = allowedTabs.includes(paramTab) ? paramTab : "dashboard";
-  const setTab = (key) => setSearchParams(key && key !== "dashboard" ? { tab: key } : {});
+  const tab = allowedTabs.includes(paramTab) ? paramTab : firstTab;
+  const setTab = (key) => setSearchParams(key && key !== firstTab ? { tab: key } : {});
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
@@ -128,6 +132,8 @@ export default function ClientWorkspace() {
           <AdminMigration clientMode />
         ) : tab === "ai" ? (
           <ClientAiSettings />
+        ) : tab === "aigen" ? (
+          <AdminAiStudio clientMode />
         ) : tab === "documents" ? (
           <AdminDocuments />
         ) : tab === "notes" ? (

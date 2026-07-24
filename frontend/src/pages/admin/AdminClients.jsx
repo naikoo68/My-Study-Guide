@@ -23,7 +23,25 @@ const blank = {
   aiAllowInbuilt: true,
   aiAllowSelf: true,
   subscriptionPlan: "", // the plan this client is on (drives price + AI limits)
+  // Per-feature workspace access (defaults: most ON, AI Generator OFF).
+  featDashboard: true,
+  featBuild: true,
+  featNotes: true,
+  featDocuments: true,
+  featManual: true,
+  featAiGenerator: false,
 };
+
+// The client workspace features the admin can grant/revoke (label + form key).
+const FEATURES = [
+  { key: "featDashboard", label: "Dashboard" },
+  { key: "featBuild", label: "Build" },
+  { key: "aiAccess", label: "AI (API keys)" },
+  { key: "featAiGenerator", label: "AI Generator" },
+  { key: "featNotes", label: "Notes" },
+  { key: "featDocuments", label: "Documents" },
+  { key: "featManual", label: "User Manual" },
+];
 
 const fmtDate = (d) =>
   new Date(d).toLocaleString(undefined, { day: "2-digit", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
@@ -57,6 +75,10 @@ export default function AdminClients() {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(blank);
   const [saving, setSaving] = useState(false);
+  // "Apply features to all clients" bulk modal.
+  const [featAllOpen, setFeatAllOpen] = useState(false);
+  const [featAll, setFeatAll] = useState({ featDashboard: true, featBuild: true, aiAccess: false, featAiGenerator: false, featNotes: true, featDocuments: true, featManual: true });
+  const [applyingAll, setApplyingAll] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -93,6 +115,12 @@ export default function AdminClients() {
       aiAllowInbuilt: c.aiAllowInbuilt !== false,
       aiAllowSelf: c.aiAllowSelf !== false,
       subscriptionPlan: c.subscriptionPlan || "",
+      featDashboard: c.featDashboard !== false,
+      featBuild: c.featBuild !== false,
+      featNotes: c.featNotes !== false,
+      featDocuments: c.featDocuments !== false,
+      featManual: c.featManual !== false,
+      featAiGenerator: !!c.featAiGenerator,
     });
     setEditing(c);
     setError("");
@@ -147,6 +175,12 @@ export default function AdminClients() {
           aiAllowInbuilt: form.aiAllowInbuilt,
           aiAllowSelf: form.aiAllowSelf,
           subscriptionPlan: form.subscriptionPlan,
+          featDashboard: form.featDashboard,
+          featBuild: form.featBuild,
+          featNotes: form.featNotes,
+          featDocuments: form.featDocuments,
+          featManual: form.featManual,
+          featAiGenerator: form.featAiGenerator,
         };
         if (form.password) payload.password = form.password;
         const updated = await userService.update(editing._id, payload);
@@ -194,10 +228,56 @@ export default function AdminClients() {
             Self-service accounts that build & practice their own private My Practice content. Manage validity, access, passwords and deletion here.
           </p>
         </div>
-        <button onClick={openAdd} className="btn-primary">
-          <UserPlus className="h-4 w-4" /> Add Client
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button onClick={() => setFeatAllOpen(true)} className="btn-outline">
+            <CheckCircle2 className="h-4 w-4" /> Apply features to all
+          </button>
+          <button onClick={openAdd} className="btn-primary">
+            <UserPlus className="h-4 w-4" /> Add Client
+          </button>
+        </div>
       </div>
+
+      {/* Apply feature access to ALL clients at once */}
+      {featAllOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={applyingAll ? undefined : () => setFeatAllOpen(false)}>
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-md animate-scale-in card p-6">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-lg font-bold">Apply features to all clients</h3>
+              <button type="button" onClick={() => setFeatAllOpen(false)} disabled={applyingAll}><X className="h-5 w-5" /></button>
+            </div>
+            <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">Tick the tabs to grant, untick to revoke — this overwrites these features for <b>every</b> client at once.</p>
+            <div className="grid grid-cols-2 gap-2">
+              {FEATURES.map((f) => (
+                <label key={f.key} className="flex cursor-pointer items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-slate-800/60">
+                  <span>{f.label}</span>
+                  <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={!!featAll[f.key]} onChange={(e) => setFeatAll({ ...featAll, [f.key]: e.target.checked })} />
+                </label>
+              ))}
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" onClick={() => setFeatAllOpen(false)} disabled={applyingAll} className="btn-outline">Cancel</button>
+              <button
+                type="button"
+                disabled={applyingAll}
+                onClick={async () => {
+                  if (!window.confirm("Apply these feature settings to ALL clients? This overwrites their current per-tab access.")) return;
+                  setApplyingAll(true);
+                  try {
+                    const res = await userService.applyClientFeatures(featAll);
+                    flash(`Applied to ${res?.updated ?? "all"} client(s).`);
+                    setFeatAllOpen(false);
+                    load();
+                  } catch (e) { flash(e.message); } finally { setApplyingAll(false); }
+                }}
+                className="btn-primary"
+              >
+                {applyingAll ? "Applying..." : "Apply to all"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <Loading label="Loading clients..." />
@@ -425,6 +505,22 @@ export default function AdminClients() {
                     ))}
                   </select>
                   <p className="mt-1 text-xs text-slate-400">Sets this client's plan — its price label and AI generation limits. Manage plans in <b>AI Keys</b>.</p>
+                </div>
+              )}
+
+              {/* Per-feature workspace access */}
+              {editing && (
+                <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-700">
+                  <p className="mb-2 text-sm font-semibold">Workspace features</p>
+                  <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">Tick which tabs this client sees. AI (API keys) &amp; AI Generator are off by default.</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {FEATURES.map((f) => (
+                      <label key={f.key} className="flex cursor-pointer items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-slate-800/60">
+                        <span>{f.label}</span>
+                        <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={!!form[f.key]} onChange={(e) => setForm({ ...form, [f.key]: e.target.checked })} />
+                      </label>
+                    ))}
+                  </div>
                 </div>
               )}
 

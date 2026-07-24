@@ -41,6 +41,15 @@ const userSchema = new mongoose.Schema(
     aiAllowInbuilt: { type: Boolean, default: true },
     aiAllowSelf: { type: Boolean, default: true },
     aiMode: { type: String, enum: ["inbuilt", "self"], default: "inbuilt" },
+    // Per-feature access for the client workspace tabs. Dashboard/Build/Notes/
+    // Documents/User-manual are ON by default; the AI Generator is OFF by default
+    // (the AI keys tab is gated by aiAccess above, also OFF by default).
+    featDashboard: { type: Boolean, default: true },
+    featBuild: { type: Boolean, default: true },
+    featNotes: { type: Boolean, default: true },
+    featDocuments: { type: Boolean, default: true },
+    featManual: { type: Boolean, default: true },
+    featAiGenerator: { type: Boolean, default: false },
     emailVerificationToken: String,
     otpHash: { type: String, select: false },
     otpExpires: { type: Date, select: false },
