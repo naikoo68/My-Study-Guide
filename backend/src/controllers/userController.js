@@ -207,7 +207,7 @@ export async function updatePlan(req, res) {
 
 // GET /api/users/:id/access  (admin) — what content this user can access
 export async function getUserAccess(req, res) {
-  const user = await User.findById(req.params.id).select("name email quizAccess");
+  const user = await User.findById(req.params.id).select("name email quizAccess myQuizAccess myTestAccess");
   if (!user) return res.status(404).json({ message: "User not found" });
 
   const tests = await TestSeries.find({ practice: { $ne: true } }).select("name category access visibleToAll").sort("name").lean();
@@ -216,6 +216,8 @@ export async function getUserAccess(req, res) {
     name: user.name,
     email: user.email,
     quizAccess: user.quizAccess !== false, // quizzes default ON for everyone
+    myQuizAccess: user.myQuizAccess === true, // practice My Quiz — OFF by default
+    myTestAccess: user.myTestAccess === true, // practice My Test — OFF by default
     tests: tests.map((t) => {
       const entry = findAccessEntry(t, user._id);
       return {
@@ -234,10 +236,11 @@ export async function updateUserAccess(req, res) {
   const user = await User.findById(req.params.id);
   if (!user) return res.status(404).json({ message: "User not found" });
 
-  if (typeof req.body.quizAccess === "boolean") {
-    user.quizAccess = req.body.quizAccess;
-    await user.save();
-  }
+  let userChanged = false;
+  if (typeof req.body.quizAccess === "boolean") { user.quizAccess = req.body.quizAccess; userChanged = true; }
+  if (typeof req.body.myQuizAccess === "boolean") { user.myQuizAccess = req.body.myQuizAccess; userChanged = true; }
+  if (typeof req.body.myTestAccess === "boolean") { user.myTestAccess = req.body.myTestAccess; userChanged = true; }
+  if (userChanged) await user.save();
 
   // Apply per-test access for this single user across the affected tests.
   if (Array.isArray(req.body.tests)) {
@@ -263,7 +266,7 @@ export async function updateUserAccess(req, res) {
     }
   }
 
-  res.json({ message: "Access updated", quizAccess: user.quizAccess });
+  res.json({ message: "Access updated", quizAccess: user.quizAccess, myQuizAccess: user.myQuizAccess, myTestAccess: user.myTestAccess });
 }
 
 // POST /api/users/:id/reset-password  (admin) — issue reset token and email it

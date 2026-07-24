@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Search, Ban, CheckCircle2, KeyRound, Crown, UserPlus, Pencil, Trash2, X, Clock, AlarmClock, ListChecks, BookOpen } from "lucide-react";
+import { Search, Ban, CheckCircle2, KeyRound, Crown, UserPlus, Pencil, Trash2, X, Clock, AlarmClock, ListChecks, BookOpen, FileStack } from "lucide-react";
 import { userService, testService } from "../../services";
 import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState } from "../../components/ui/AsyncState";
@@ -85,6 +85,8 @@ export default function AdminUsers() {
     try {
       await userService.updateAccess(accessUser._id, {
         quizAccess: access.quizAccess,
+        myQuizAccess: access.myQuizAccess,
+        myTestAccess: access.myTestAccess,
         tests: access.tests.map((t) => ({ _id: t._id, visible: t.visible, validUntil: t.validUntil })),
       });
       // Reflect temp/test changes in the row's expiry is not needed; just refresh count
@@ -451,6 +453,36 @@ export default function AdminUsers() {
                   <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
                     <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={access.quizAccess} onChange={(e) => setAccess({ ...access, quizAccess: e.target.checked })} />
                     {access.quizAccess ? "Enabled" : "Disabled"}
+                  </label>
+                </div>
+
+                {/* My Quiz access (practice) — OFF by default */}
+                <div className="flex items-center justify-between rounded-xl border border-slate-200 p-4 dark:border-slate-700">
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300"><ListChecks className="h-5 w-5" /></span>
+                    <div>
+                      <p className="font-medium">My Quiz</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">Grants access to all My Quiz practice content. Off by default.</p>
+                    </div>
+                  </div>
+                  <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
+                    <input type="checkbox" className="h-4 w-4 accent-violet-600" checked={!!access.myQuizAccess} onChange={(e) => setAccess({ ...access, myQuizAccess: e.target.checked })} />
+                    {access.myQuizAccess ? "Enabled" : "Disabled"}
+                  </label>
+                </div>
+
+                {/* My Test access (practice) — OFF by default */}
+                <div className="flex items-center justify-between rounded-xl border border-slate-200 p-4 dark:border-slate-700">
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"><FileStack className="h-5 w-5" /></span>
+                    <div>
+                      <p className="font-medium">My Test</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">Grants access to all My Test practice content. Off by default.</p>
+                    </div>
+                  </div>
+                  <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
+                    <input type="checkbox" className="h-4 w-4 accent-amber-600" checked={!!access.myTestAccess} onChange={(e) => setAccess({ ...access, myTestAccess: e.target.checked })} />
+                    {access.myTestAccess ? "Enabled" : "Disabled"}
                   </label>
                 </div>
 

@@ -147,7 +147,10 @@ export async function getTest(req, res) {
   // Admins can always open a test; the owning client can open their own item;
   // students must have access (and it must not be hidden or past validity).
   const isOwner = req.user?.role === "client" && String(test.owner || "") === String(req.user._id);
-  if (req.user?.role !== "admin" && !isOwner && !isTestVisibleToUser(test.toObject(), req.user?._id)) {
+  // Additive master grant for practice content: myQuizAccess unlocks all My-Quiz
+  // items, myTestAccess unlocks all My-Test items.
+  const masterGrant = test.practice === true && (test.practiceKind === "quiz" ? req.user?.myQuizAccess === true : req.user?.myTestAccess === true);
+  if (req.user?.role !== "admin" && !isOwner && !masterGrant && !isTestVisibleToUser(test.toObject(), req.user?._id)) {
     return res.status(403).json({ message: "You don't have access to this test, or your access has expired." });
   }
   const obj = test.toObject();

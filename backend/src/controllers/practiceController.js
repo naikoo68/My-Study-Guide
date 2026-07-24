@@ -374,8 +374,9 @@ export async function playQuiz(req, res) {
   if (!item || !item.practice || item.practiceKind !== "quiz") {
     return res.status(404).json({ message: "Practice quiz not found" });
   }
-  // Admin, the owning client, or a student the item is shared with may play it.
-  if (req.user?.role !== "admin" && !owns(req, item) && !isTestVisibleToUser(item.toObject(), req.user?._id)) {
+  // Admin, the owning client, a student the item is shared with, OR a user with
+  // the My-Quiz master grant may play it.
+  if (req.user?.role !== "admin" && !owns(req, item) && req.user?.myQuizAccess !== true && !isTestVisibleToUser(item.toObject(), req.user?._id)) {
     return res.status(403).json({ message: "You don't have access to this quiz." });
   }
   const obj = item.toObject();
@@ -423,52 +424,59 @@ export async function myItems(req, res) {
 
 /* ---------------- Student browse (visibility-filtered) ---------------- */
 export async function browseStreams(req, res) {
+  const grantAll = req.params.kind === "quiz" ? req.user?.myQuizAccess === true : req.user?.myTestAccess === true;
   const items = await TestSeries.find({ practice: true, practiceKind: req.params.kind, status: "published", owner: null })
     .select("practiceStream visibleToAll access")
     .lean();
-  const ok = new Set(items.filter((t) => isTestVisibleToUser(t, req.user?._id)).map((t) => String(t.practiceStream)));
+  const ok = new Set(items.filter((t) => grantAll || isTestVisibleToUser(t, req.user?._id)).map((t) => String(t.practiceStream)));
   const streams = await PracticeStream.find({ isActive: true, kind: req.params.kind, owner: null }).sort("order name").lean();
   res.json(streams.filter((s) => ok.has(String(s._id))));
 }
 export async function browseSubjects(req, res) {
   const { kind, streamId } = req.params;
+  const grantAll = kind === "quiz" ? req.user?.myQuizAccess === true : req.user?.myTestAccess === true;
   const items = await TestSeries.find({ practice: true, practiceKind: kind, status: "published", practiceStream: streamId, owner: null })
     .select("practiceSubject visibleToAll access")
     .lean();
-  const ok = new Set(items.filter((t) => isTestVisibleToUser(t, req.user?._id)).map((t) => String(t.practiceSubject)));
+  const ok = new Set(items.filter((t) => grantAll || isTestVisibleToUser(t, req.user?._id)).map((t) => String(t.practiceSubject)));
   const subjects = await PracticeSubject.find({ stream: streamId, isActive: true, owner: null }).sort("order name").lean();
   res.json(subjects.filter((s) => ok.has(String(s._id))));
 }
 // My Test Series: items under subject.
 export async function browseItems(req, res) {
   const { kind, subjectId } = req.params;
+  // Additive master grant: a user with myQuizAccess/myTestAccess sees ALL of
+  // that practice type; otherwise the usual per-item visibility applies.
+  const grantAll = kind === "quiz" ? req.user?.myQuizAccess === true : req.user?.myTestAccess === true;
   const items = await TestSeries.find({ practice: true, practiceKind: kind, status: "published", practiceSubject: subjectId, owner: null })
     .sort("createdAt")
     .lean();
   res.json(
     items
-      .filter((t) => isTestVisibleToUser(t, req.user?._id))
+      .filter((t) => grantAll || isTestVisibleToUser(t, req.user?._id))
       .map((t) => ({ _id: t._id, name: t.name, duration: t.duration, marks: t.marks, difficulty: t.difficulty, questionCount: t.questions?.length || 0 }))
   );
 }
 // My Quiz: topics under a subject that contain visible quizzes.
 export async function browseTopics(req, res) {
   const { subjectId } = req.params;
+  const grantAll = req.user?.myQuizAccess === true; // master grant to all My Quiz
   const items = await TestSeries.find({ practice: true, practiceKind: "quiz", status: "published", practiceSubject: subjectId, owner: null })
     .select("practiceTopic visibleToAll access")
     .lean();
-  const ok = new Set(items.filter((t) => isTestVisibleToUser(t, req.user?._id)).map((t) => String(t.practiceTopic)));
+  const ok = new Set(items.filter((t) => grantAll || isTestVisibleToUser(t, req.user?._id)).map((t) => String(t.practiceTopic)));
   const topics = await PracticeTopic.find({ subject: subjectId, isActive: true, owner: null }).sort("order name").lean();
   res.json(topics.filter((t) => ok.has(String(t._id))));
 }
 // My Quiz: quizzes under a topic.
 export async function browseTopicItems(req, res) {
+  const grantAll = req.user?.myQuizAccess === true; // master grant to all My Quiz
   const items = await TestSeries.find({ practice: true, practiceKind: "quiz", status: "published", practiceTopic: req.params.topicId, owner: null })
     .sort("createdAt")
     .lean();
   res.json(
     items
-      .filter((t) => isTestVisibleToUser(t, req.user?._id))
+      .filter((t) => grantAll || isTestVisibleToUser(t, req.user?._id))
       .map((t) => ({ _id: t._id, name: t.name, duration: t.duration, marks: t.marks, difficulty: t.difficulty, questionCount: t.questions?.length || 0 }))
   );
 }

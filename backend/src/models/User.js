@@ -21,6 +21,12 @@ const userSchema = new mongoose.Schema(
     // can revoke quiz access for a specific user. Test-series access is stored
     // per test on the TestSeries model.
     quizAccess: { type: Boolean, default: true },
+  // Practice-content access grants. OFF by default: a user only sees the
+  // My-Quiz / My-Test items explicitly shared with them (per-item visibility).
+  // Turning these ON grants the user access to ALL My Quiz / My Test content
+  // (an additive master grant — it never removes per-item access).
+  myQuizAccess: { type: Boolean, default: false },
+  myTestAccess: { type: Boolean, default: false },
     // AI access for client accounts. aiAccess is the master switch. New clients
     // and active subscribers get it turned ON automatically (every plan carries
     // AI limits); an admin can still turn it OFF for a specific client. The
