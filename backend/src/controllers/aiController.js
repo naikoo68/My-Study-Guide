@@ -1870,6 +1870,61 @@ export async function inferTopic(req, res) {
   res.json({ topic });
 }
 
+// POST /api/ai/outline-units — read SOURCE MATERIAL (a PDF / pasted text) and
+// return the distinct UNITS / CHAPTERS / TOPICS it is organised into, so the
+// caller can auto-create one topic per unit under a subject and generate
+// questions per topic. Returns { units: ["Unit name", ...] }.
+export async function outlineUnits(req, res) {
+  const scope = resolveScope(req.user, req.body?.mode);
+  if (scope.denied) return res.status(403).json({ message: "AI access is not enabled for your account." });
+  const chosen = await resolveModel(String(req.body?.model || "").trim(), scope);
+  if (!chosen || !chosen.endpoints.length) {
+    return res.status(400).json({
+      message: scope.mode === "self" ? "No API keys added yet." : "AI is not configured. Add an API key in Admin → AI Keys.",
+    });
+  }
+  let source = String(req.body?.source || "").trim();
+  if (!source) return res.status(400).json({ message: "Provide the PDF/source text to detect units from." });
+  source = source.slice(0, 24000);
+
+  const userPrompt = [
+    "You are a curriculum analyst. Read the SOURCE MATERIAL below and identify the distinct UNITS / CHAPTERS / TOPICS it is organised into (the natural sections a teacher would split it into for separate quizzes).",
+    "Rules:",
+    "- Base the list ONLY on what is actually present in this material — do NOT invent outside units.",
+    "- Prefer the document's own unit/chapter/section headings when present; otherwise group by distinct themes.",
+    "- Keep each unit name a short, clear title (3-10 words).",
+    "- Return between 2 and 30 units, in the order they appear.",
+    "",
+    "SOURCE MATERIAL:",
+    source,
+    "",
+    'Return ONLY a JSON array of strings, e.g. ["Unit 1 title","Unit 2 title"]. No commentary, no markdown.',
+  ].join("\n");
+
+  const r = await callWithFallback({
+    endpoints: chosen.endpoints,
+    model: chosen.model,
+    userPrompt,
+    maxTokens: 1500,
+    owner: scope.owner,
+    systemPrompt: "You output ONLY a JSON array of short strings — no markdown, no commentary.",
+  });
+  if (!r.ok) {
+    return res.status(502).json({ message: r.status === 429 ? quota429Message(r.detail) : `AI provider error (${r.status}). ${(r.detail || "").slice(0, 160)}` });
+  }
+  // De-duplicate case-insensitively, keep order, cap at 30.
+  const seen = new Set();
+  const units = [];
+  for (const u of parseStringArray(r.content)) {
+    const k = u.toLowerCase().replace(/\s+/g, " ").trim();
+    if (k.length < 2 || seen.has(k)) continue;
+    seen.add(k);
+    units.push(u.replace(/\s+/g, " ").trim());
+    if (units.length >= 30) break;
+  }
+  res.json({ units });
+}
+
 // POST /api/ai/coverage-gaps — given a topic and the stems of questions ALREADY
 // made across a set of quizzes, list the syllabus subtopics/areas NOT yet
 // covered so the user can generate questions to fill the gaps. Returns

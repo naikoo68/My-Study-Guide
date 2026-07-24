@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Sparkles, Wand2, Globe, ArrowRight } from "lucide-react";
+import { Sparkles, Wand2, Globe, ArrowRight, Layers } from "lucide-react";
 import { practiceService, contentService, examService, testService } from "../../services";
 import AiGenerate from "../../components/admin/AiGenerate";
 import AiImport from "../../components/admin/AiImport";
+import AiPdfTopics from "../../components/admin/AiPdfTopics";
 
 // A standalone home for AI question generation / import. Pick a destination
 // (like the Migration tool), then Generate or Import questions straight into it.
@@ -25,6 +26,17 @@ const DESTS = {
     target: (s) => ({ testSeries: s.item }),
     createLeaf: async (s, name) =>
       (await practiceService.createItem({ name, practiceStream: s.stream, practiceSubject: s.subject, practiceTopic: s.topic, practiceKind: "quiz" }))?._id,
+    // PDF → Topics support (needs a Subject selected). Creates a practice topic
+    // per unit, then a quiz item under it.
+    subjectKey: "subject",
+    topicAdapter: {
+      createTopic: async (s, name) => (await practiceService.createTopic({ subject: s.subject, name }))?._id,
+      createQuizAndContext: async (s, topicId, name) => {
+        const itemId = (await practiceService.createItem({ name, practiceStream: s.stream, practiceSubject: s.subject, practiceTopic: topicId, practiceKind: "quiz" }))?._id;
+        return { testSeries: itemId };
+      },
+      bulk: (questions, context) => contentService.bulkQuestions(questions, context),
+    },
   },
   mytest: {
     label: "My Test",
@@ -55,6 +67,18 @@ const DESTS = {
     target: (s) => ({ subject: s.subject, session: s.session, quiz: s.quiz }),
     createLeaf: async (s, name) =>
       (await contentService.createQuiz({ title: name, subject: s.subject, session: s.session }))?._id,
+    // PDF → Topics support (needs a Subject selected). Creates a content topic
+    // per unit, then a session + quiz under it.
+    subjectKey: "subject",
+    topicAdapter: {
+      createTopic: async (s, name) => (await contentService.createTopic({ subject: s.subject, title: name }))?._id,
+      createQuizAndContext: async (s, topicId, name) => {
+        const sessionId = (await contentService.createSession({ subject: s.subject, topic: topicId, title: name }))?._id;
+        const quizId = (await contentService.createQuiz({ subject: s.subject, session: sessionId, title: name }))?._id;
+        return { subject: s.subject, session: sessionId, quiz: quizId };
+      },
+      bulk: (questions, context) => contentService.bulkQuestions(questions, context),
+    },
   },
   testseries: {
     label: "Test Series",
@@ -123,11 +147,15 @@ export default function AdminAiStudio() {
   const [sel, setSel] = useState({});
   const [aiOpen, setAiOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [pdfTopicsOpen, setPdfTopicsOpen] = useState(false);
   const [msg, setMsg] = useState("");
 
   const cfg = DESTS[dest];
   const leafId = sel[cfg.leafKey];
   const ready = Boolean(leafId);
+  // PDF → Topics only needs a SUBJECT selected (it auto-creates the topics +
+  // quizzes below it). Available on destinations that have a topic level.
+  const subjectReady = cfg.topicAdapter && Boolean(sel[cfg.subjectKey]);
   // Name of the current destination leaf — shown in the modal as "current
   // quiz". Updated when a new quiz/test is auto-created for a batch.
   const [currentName, setCurrentName] = useState("");
@@ -202,8 +230,16 @@ export default function AdminAiStudio() {
           <button onClick={() => { setMsg(""); setImportOpen(true); }} disabled={!ready} className="btn-outline disabled:opacity-50">
             <Globe className="h-4 w-4" /> From Document / PDF / Web / Text
           </button>
-          {!ready && <span className="flex items-center gap-1 text-sm text-slate-400"><ArrowRight className="h-4 w-4" /> pick a destination first</span>}
+          {cfg.topicAdapter && (
+            <button onClick={() => { setMsg(""); setPdfTopicsOpen(true); }} disabled={!subjectReady} className="btn-outline disabled:opacity-50" title="Upload a PDF → auto-create a topic per unit → generate & insert questions per topic">
+              <Layers className="h-4 w-4" /> PDF → Topics (auto-split)
+            </button>
+          )}
+          {!ready && !subjectReady && <span className="flex items-center gap-1 text-sm text-slate-400"><ArrowRight className="h-4 w-4" /> pick a destination first</span>}
         </div>
+        {cfg.topicAdapter && subjectReady && !ready && (
+          <p className="mt-2 text-xs text-slate-400">Tip: with just a <b>Subject</b> chosen, use <b>PDF → Topics</b> to auto-create a topic for each unit in your PDF and fill them with questions.</p>
+        )}
       </div>
 
       <AiGenerate
@@ -225,6 +261,16 @@ export default function AdminAiStudio() {
         newLeafLabel={cfg.newLabel}
         currentTargetName={currentName}
       />
+      {cfg.topicAdapter && (
+        <AiPdfTopics
+          open={pdfTopicsOpen}
+          onClose={() => setPdfTopicsOpen(false)}
+          adapter={cfg.topicAdapter}
+          sel={sel}
+          subjectName={cfg.label}
+          label={cfg.newLabel}
+        />
+      )}
     </div>
   );
 }
