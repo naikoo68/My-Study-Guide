@@ -41,9 +41,13 @@ const SYSTEM_SCOPE = { owner: null, includeEnv: true, mode: "inbuilt", access: t
 // with no AI access (or with both pools disabled) is denied.
 function resolveScope(user, requestedMode) {
   if (!user || user.role !== "client") return { ...SYSTEM_SCOPE };
-  if (!user.aiAccess) return { owner: null, includeEnv: false, access: false, denied: true };
+  // A client may use AI generation if they have AI access (the AI-keys tab) OR
+  // the AI Generator feature. Own-keys ("self") require the AI-keys tab, so a
+  // client granted ONLY the AI Generator uses the platform's built-in keys.
+  const hasAi = user.aiAccess || user.featAiGenerator;
+  if (!hasAi) return { owner: null, includeEnv: false, access: false, denied: true };
   const allowInbuilt = user.aiAllowInbuilt !== false;
-  const allowSelf = user.aiAllowSelf !== false;
+  const allowSelf = user.aiAccess && user.aiAllowSelf !== false;
   if (!allowInbuilt && !allowSelf) return { owner: null, includeEnv: false, access: false, denied: true };
   // A per-request choice (picked in the AI generator) wins over the saved
   // preference; otherwise fall back to the client's stored mode. Either way the
