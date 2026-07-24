@@ -48,6 +48,7 @@ export default function AiPdfTopics({ open, onClose, adapter, sel, subjectName =
   // Per-topic question mix: matrix[typeId] = { Easy, Medium, Hard }. Default 20 medium MCQs.
   const [matrix, setMatrix] = useState({ mcq: { Easy: 0, Medium: 20, Hard: 0 } });
   const [quizSize, setQuizSize] = useState(50); // questions per quiz at insert time
+  const [includeExisting, setIncludeExisting] = useState(true); // also copy questions already in the PDF
 
   const [generating, setGenerating] = useState(false);
   const [results, setResults] = useState([]);     // [{ unit, questions:[], status, count }]
@@ -60,7 +61,7 @@ export default function AiPdfTopics({ open, onClose, adapter, sel, subjectName =
   useEffect(() => {
     if (!open) return;
     setText(""); setPdfName(""); setUnits([]); setResults([]); setCoverage(null); setMsg("");
-    setMatrix({ mcq: { Easy: 0, Medium: 20, Hard: 0 } }); setQuizSize(50); setGenerating(false); setInserting(false);
+    setMatrix({ mcq: { Easy: 0, Medium: 20, Hard: 0 } }); setQuizSize(50); setIncludeExisting(true); setGenerating(false); setInserting(false);
     aiService.status(isClient ? apiSource : undefined).then(setStatus).catch(() => setStatus(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -162,49 +163,91 @@ export default function AiPdfTopics({ open, onClose, adapter, sel, subjectName =
     return await pollJob(jobId);
   };
 
+  // Extract the EXISTING questions already present in the PDF, then file each
+  // under its best-matching unit. Returns an array (per unit) of question lists.
+  const extractExistingByUnit = async (unitNames) => {
+    const grouped = unitNames.map(() => []);
+    setMsg("Reading questions already in the PDF…");
+    const { jobId } = await aiService.extract({ content: text.trim(), mode: isClient ? apiSource : undefined });
+    if (!jobId) return { grouped, extracted: 0, unfiled: 0 };
+    const existing = await pollJob(jobId);
+    if (!existing.length) return { grouped, extracted: 0, unfiled: 0 };
+    setMsg(`Filing ${existing.length} existing question(s) under the right topics…`);
+    let assign = [];
+    try {
+      const r = await aiService.classifyUnits({ units: unitNames, questions: existing.map((q) => q.text), mode: isClient ? apiSource : undefined });
+      assign = r?.assign || [];
+    } catch { /* if classification fails, everything is unfiled */ }
+    let unfiled = 0;
+    existing.forEach((q, idx) => {
+      const u = (assign[idx] || 0) - 1;
+      if (u >= 0 && u < unitNames.length) grouped[u].push(q); else unfiled += 1;
+    });
+    return { grouped, extracted: existing.length, unfiled };
+  };
+
   const generateAll = async () => {
     const clean = units.map((u) => u.name.trim()).filter(Boolean);
     if (!clean.length) { setMsg("Add at least one unit/topic."); return; }
     if (!text.trim()) { setMsg("Upload a PDF or paste text first."); return; }
     const plan = buildPlan();
-    if (!plan.length) { setMsg("Set at least one question count in the grid below."); return; }
-    if (perTopicTotal > maxPerBatch) { setMsg(`Keep each topic to ${maxPerBatch} questions or fewer.`); return; }
     const requested = perTopicTotal;
+    const wantGenerate = plan.length > 0;
+    if (!wantGenerate && !includeExisting) { setMsg("Set question counts above, or tick “Also copy questions already in the PDF”."); return; }
+    if (wantGenerate && perTopicTotal > maxPerBatch) { setMsg(`Keep each topic to ${maxPerBatch} questions or fewer.`); return; }
     const MAX_TOPUP_ROUNDS = 4; // extra passes to fill any shortfall per topic
     setGenerating(true); setMsg(""); setCoverage(null);
     // A topic is auto-CREATED under the subject for each unit as we go, so the
     // topics appear immediately (even before questions are inserted).
-    const out = clean.map((unit) => ({ unit, questions: [], status: "pending", count: 0, requested, topicId: null }));
+    const out = clean.map((unit) => ({ unit, questions: [], status: "pending", count: 0, requested: wantGenerate ? requested : 0, topicId: null }));
     setResults(out.slice());
     try {
+      // 0) Copy any questions ALREADY in the PDF and file them under each unit.
+      let grouped = clean.map(() => []);
+      let extractInfo = { extracted: 0, unfiled: 0 };
+      if (includeExisting) {
+        try {
+          const r = await extractExistingByUnit(clean);
+          grouped = r.grouped;
+          extractInfo = { extracted: r.extracted, unfiled: r.unfiled };
+        } catch { /* extraction is best-effort — continue with generation */ }
+      }
+
       for (let i = 0; i < clean.length; i++) {
         const unit = clean[i];
         out[i].status = "working"; setResults(out.slice());
-        setMsg(`Creating topic + generating ${requested} questions for “${unit}” (${i + 1}/${clean.length})…`);
         try {
           // 1) Auto-create the topic under the subject.
           if (!out[i].topicId) out[i].topicId = await adapter.createTopic(sel, unit);
 
-          // 2) First pass — the full type/difficulty mix.
+          // 2) Seed with the existing PDF questions filed under this unit (verbatim).
           const collected = [];
-          mergeUnique(collected, await genOnce(unit, { plan }));
+          mergeUnique(collected, grouped[i]);
           out[i].count = collected.length; setResults(out.slice());
 
-          // 3) Top-up rounds — refill the shortfall (avoiding duplicates) until
-          //    the target is met or a round adds nothing (source exhausted/quota).
-          let round = 0;
-          while (collected.length < requested && round < MAX_TOPUP_ROUNDS) {
-            const shortfall = requested - collected.length;
-            setMsg(`Topping up “${unit}” — ${collected.length}/${requested} so far (round ${round + 1})…`);
-            const before = collected.length;
-            let more = [];
-            try {
-              more = await genOnce(unit, { count: shortfall, avoid: collected.map((q) => q.text).filter(Boolean) });
-            } catch { /* keep what we have */ }
-            mergeUnique(collected, more);
-            out[i].count = collected.length; setResults(out.slice());
-            if (collected.length <= before) break; // no new distinct questions — stop retrying
-            round += 1;
+          // 3) Generate NEW questions to reach the target (if a count was set).
+          if (wantGenerate && collected.length < requested) {
+            setMsg(`Generating for “${unit}” (${i + 1}/${clean.length})…`);
+            // First pass uses the full type/difficulty mix only when nothing was
+            // seeded; otherwise fill the shortfall by count (avoiding duplicates).
+            if (collected.length === 0) {
+              mergeUnique(collected, await genOnce(unit, { plan, avoid: [] }));
+              out[i].count = collected.length; setResults(out.slice());
+            }
+            let round = 0;
+            while (collected.length < requested && round < MAX_TOPUP_ROUNDS) {
+              const shortfall = requested - collected.length;
+              setMsg(`Topping up “${unit}” — ${collected.length}/${requested} (round ${round + 1})…`);
+              const before = collected.length;
+              let more = [];
+              try {
+                more = await genOnce(unit, { count: shortfall, avoid: collected.map((q) => q.text).filter(Boolean) });
+              } catch { /* keep what we have */ }
+              mergeUnique(collected, more);
+              out[i].count = collected.length; setResults(out.slice());
+              if (collected.length <= before) break; // no new distinct questions — stop
+              round += 1;
+            }
           }
 
           out[i].questions = collected;
@@ -217,10 +260,11 @@ export default function AiPdfTopics({ open, onClose, adapter, sel, subjectName =
       }
       const total = out.reduce((s, r) => s + r.count, 0);
       const madeTopics = out.filter((r) => r.topicId).length;
-      const short = out.filter((r) => r.status === "done" && r.count < requested);
+      const short = out.filter((r) => r.status === "done" && r.requested && r.count < r.requested);
+      const copied = extractInfo.extracted ? ` Copied ${extractInfo.extracted} question(s) already in the PDF${extractInfo.unfiled ? ` (${extractInfo.unfiled} didn't match a topic and were skipped)` : ""}.` : "";
       setMsg(
-        `✓ Created ${madeTopics} topic(s) and generated ${total} question(s).` +
-        (short.length ? ` ${short.length} topic(s) came up short (likely the AI's daily quota, or the PDF doesn't have enough distinct content for that unit) — click “Top up short topics” to try again.` : " Review below, then click Insert.")
+        `✓ Created ${madeTopics} topic(s), ${total} question(s) total.${copied}` +
+        (short.length ? ` ${short.length} topic(s) came up short — click “Top up short topics” to try again.` : " Review below, then click Insert.")
       );
       // Overall coverage against the PDF (areas covered vs not).
       refreshCoverage(out.flatMap((r) => r.questions.map((q) => q.text)).filter(Boolean));
@@ -437,10 +481,23 @@ export default function AiPdfTopics({ open, onClose, adapter, sel, subjectName =
           </div>
         )}
 
+        {/* Copy existing questions option */}
+        {units.some((u) => u.name.trim()) && (
+          <label className="mt-4 flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-700">
+            <input type="checkbox" className="mt-0.5 h-4 w-4 accent-brand-600" checked={includeExisting} onChange={(e) => setIncludeExisting(e.target.checked)} />
+            <span>
+              <span className="font-medium">Also copy questions already in the PDF</span>
+              <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">
+                If the PDF already contains questions, they're extracted verbatim and filed under the matching topic. New questions are then generated to reach each topic's target. Leave the grid above at 0 to <b>only</b> copy existing questions.
+              </span>
+            </span>
+          </label>
+        )}
+
         {/* Step 4 — generate */}
         {units.some((u) => u.name.trim()) && (
-          <button type="button" onClick={generateAll} disabled={generating || inserting || !status?.enabled} className="btn-primary mt-4 w-full">
-            {generating ? <><Loader2 className="h-4 w-4 animate-spin" /> Creating topics &amp; generating…</> : <><Sparkles className="h-4 w-4" /> Create topics &amp; generate questions</>}
+          <button type="button" onClick={generateAll} disabled={generating || inserting || !status?.enabled} className="btn-primary mt-3 w-full">
+            {generating ? <><Loader2 className="h-4 w-4 animate-spin" /> Working…</> : <><Sparkles className="h-4 w-4" /> Create topics &amp; build questions</>}
           </button>
         )}
 

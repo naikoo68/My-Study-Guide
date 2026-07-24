@@ -1925,6 +1925,55 @@ export async function outlineUnits(req, res) {
   res.json({ units });
 }
 
+// POST /api/ai/classify-units — given a UNIT list and a set of question stems,
+// return which unit each question belongs to (so extracted PDF questions can be
+// filed under the right topic). Returns { assign: [unitIndex per question] }
+// where unitIndex is 1-based (0 = none/unclear). Batches internally.
+export async function classifyUnits(req, res) {
+  const scope = resolveScope(req.user, req.body?.mode);
+  if (scope.denied) return res.status(403).json({ message: "AI access is not enabled for your account." });
+  const chosen = await resolveModel(String(req.body?.model || "").trim(), scope);
+  if (!chosen || !chosen.endpoints.length) {
+    return res.status(400).json({ message: scope.mode === "self" ? "No API keys added yet." : "AI is not configured. Add an API key in Admin → AI Keys." });
+  }
+  const units = (Array.isArray(req.body?.units) ? req.body.units : []).map((u) => String(u || "").trim()).filter(Boolean).slice(0, 30);
+  const stems = (Array.isArray(req.body?.questions) ? req.body.questions : []).map((s) => String(s?.text || s || "").trim()).filter(Boolean).slice(0, 600);
+  if (!units.length || !stems.length) return res.json({ assign: [] });
+
+  const assign = new Array(stems.length).fill(0);
+  const BATCH = 60;
+  for (let start = 0; start < stems.length; start += BATCH) {
+    const batch = stems.slice(start, start + BATCH);
+    const prompt = [
+      "You are filing exam questions under the correct unit/topic.",
+      "UNITS (numbered):",
+      units.map((u, i) => `${i + 1}. ${u}`).join("\n"),
+      "",
+      `QUESTIONS (numbered ${start + 1}..${start + batch.length}):`,
+      batch.map((s, i) => `${start + i + 1}. ${s.slice(0, 160)}`).join("\n"),
+      "",
+      "For EACH question, choose the SINGLE best-matching unit NUMBER. If none fit, use 0.",
+      `Return ONLY a JSON array of ${batch.length} integers, in the same order as the questions, e.g. [1,3,2,0,...]. No commentary.`,
+    ].join("\n");
+    const r = await callWithFallback({
+      endpoints: chosen.endpoints,
+      model: chosen.model,
+      userPrompt: prompt,
+      maxTokens: 1200,
+      owner: scope.owner,
+      systemPrompt: "You output ONLY a JSON array of integers — no markdown, no commentary.",
+    });
+    if (r.ok) {
+      const nums = (String(r.content).match(/-?\d+/g) || []).map(Number);
+      for (let i = 0; i < batch.length; i++) {
+        const n = nums[i];
+        assign[start + i] = Number.isInteger(n) && n >= 1 && n <= units.length ? n : 0;
+      }
+    }
+  }
+  res.json({ assign });
+}
+
 // POST /api/ai/coverage-gaps — given a topic and the stems of questions ALREADY
 // made across a set of quizzes, list the syllabus subtopics/areas NOT yet
 // covered so the user can generate questions to fill the gaps. Returns

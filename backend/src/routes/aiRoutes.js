@@ -2,7 +2,7 @@ import { Router } from "express";
 import {
   aiStatus, generateQuestions, jobStatus, extractQuestions, generateNotes, extendExplanations, extendOneExplanation, regenerateQuestion, regenerateAll,
   listKeys, createKey, bulkCreateKeys, updateKey, deleteKey, testKey, importEnvKeys, testAllKeys, listKeyModels, autoDetectKeyModel,
-  getAiAccess, setAiMode, inferTopic, coverageGaps, outlineUnits,
+  getAiAccess, setAiMode, inferTopic, coverageGaps, outlineUnits, classifyUnits,
 } from "../controllers/aiController.js";
 import { protect, authorize } from "../middleware/auth.js";
 
@@ -21,6 +21,7 @@ router.post("/notes", ...manage, generateNotes); // generate study notes (Markdo
 router.post("/infer-topic", ...manage, inferTopic); // name the topic a quiz's existing questions belong to
 router.post("/coverage-gaps", ...manage, coverageGaps); // list uncovered syllabus areas for a topic
 router.post("/outline-units", ...manage, outlineUnits); // detect units/chapters/topics in a PDF/source
+router.post("/classify-units", ...manage, classifyUnits); // file question stems under the right unit
 router.post("/extend-explanations", ...manage, extendExplanations); // AI-enrich all explanations in a quiz/test
 router.post("/extend-explanation", ...manage, extendOneExplanation); // AI-enrich ONE question's explanation
 router.post("/regenerate-question", ...manage, regenerateQuestion); // analyse ONE question and rebuild its options/answer
