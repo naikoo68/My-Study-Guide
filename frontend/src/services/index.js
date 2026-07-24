@@ -157,6 +157,8 @@ export const practiceService = {
   createItem: (data) => api.post("/practice/items", data),
   updateItem: (id, data) => api.patch(`/practice/items/${id}`, data), // name / remembered AI topic
   moveItem: (id, target) => api.patch(`/practice/items/${id}/move`, target), // internal practice migration
+  splitItem: (id, perQuiz) => api.post(`/practice/items/${id}/split`, { perQuiz }), // split one My-Quiz item into quizzes of N
+  splitTopic: (id, perQuiz) => api.post(`/practice/topics/${id}/split`, { perQuiz }), // split all a topic's questions into quizzes of N
 };
 
 // ---- CBT online exams (single public portal; name+email sign-in; deferred results) ----

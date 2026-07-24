@@ -269,6 +269,102 @@ export async function moveItem(req, res) {
   res.json({ message: "Migrated", _id: item._id });
 }
 
+// POST /api/practice/items/:id/split  { perQuiz }
+// Split ONE practice quiz item's questions into multiple quiz items of `perQuiz`
+// each. The original keeps the first chunk (renamed "Quiz 1"); the rest go into
+// new items "Quiz 2".."Quiz N" under the same topic. Owner-scoped (covers client
+// quizzes). e.g. 300 questions at 50/quiz → Quiz 1..Quiz 6.
+export async function splitItem(req, res) {
+  const per = Math.max(1, Math.min(500, parseInt(req.body?.perQuiz, 10) || 50));
+  const item = await TestSeries.findOne({ _id: req.params.id, practice: true, practiceKind: "quiz", ...ownerFilter(req) });
+  if (!item) return res.status(404).json({ message: "Quiz not found" });
+
+  const qids = (item.questions || []).map((q) => q);
+  const total = qids.length;
+  if (total <= per) {
+    return res.json({ message: `No split needed — this quiz has ${total} question(s) (≤ ${per}).`, quizzes: 1, created: 0 });
+  }
+
+  const chunks = [];
+  for (let i = 0; i < total; i += per) chunks.push(qids.slice(i, i + per));
+
+  // Original item becomes "Quiz 1" and keeps the first chunk.
+  item.name = "Quiz 1";
+  item.questions = chunks[0];
+  await item.save();
+
+  for (let k = 1; k < chunks.length; k++) {
+    const newItem = await TestSeries.create({
+      name: `Quiz ${k + 1}`,
+      owner: ownerValue(req),
+      practice: true,
+      practiceKind: "quiz",
+      practiceStream: item.practiceStream,
+      practiceSubject: item.practiceSubject,
+      practiceTopic: item.practiceTopic,
+      category: item.category || "Full-Length",
+      duration: item.duration,
+      marks: item.marks,
+      difficulty: item.difficulty,
+      status: "published",
+      visibleToAll: false,
+      questions: chunks[k],
+    });
+    // Point each moved question at its new item.
+    await Question.updateMany({ _id: { $in: chunks[k] } }, { $set: { testSeries: newItem._id } });
+  }
+  res.json({ message: `Split ${total} questions into ${chunks.length} quizzes.`, quizzes: chunks.length, created: chunks.length - 1 });
+}
+
+// POST /api/practice/topics/:id/split  { perQuiz }
+// Split ALL questions in a My-Quiz topic (across its quiz items) into quiz items
+// of `perQuiz` each, named "Quiz 1".."Quiz N". The topic's old items are replaced
+// (questions preserved). Owner-scoped. e.g. 200 questions at 50/quiz → Quiz 1..4.
+export async function splitTopic(req, res) {
+  const per = Math.max(1, Math.min(500, parseInt(req.body?.perQuiz, 10) || 50));
+  const topic = await PracticeTopic.findOne({ _id: req.params.id, ...ownerFilter(req) });
+  if (!topic) return res.status(404).json({ message: "Topic not found" });
+
+  const items = await TestSeries.find({ practice: true, practiceKind: "quiz", practiceTopic: topic._id, ...ownerFilter(req) }).sort("createdAt");
+  if (!items.length) return res.json({ message: "This topic has no quizzes yet.", quizzes: 0, created: 0 });
+
+  const allQids = items.flatMap((i) => i.questions || []);
+  const total = allQids.length;
+  if (!total) return res.json({ message: "This topic has no questions yet.", quizzes: 0, created: 0 });
+
+  const ctx = {
+    practiceStream: items[0].practiceStream,
+    practiceSubject: items[0].practiceSubject,
+    practiceTopic: topic._id,
+  };
+
+  // Remove the topic's existing quiz items (their questions are preserved and
+  // reassigned to the fresh items below).
+  await TestSeries.deleteMany({ _id: { $in: items.map((i) => i._id) } });
+
+  const chunks = [];
+  for (let i = 0; i < total; i += per) chunks.push(allQids.slice(i, i + per));
+
+  for (let k = 0; k < chunks.length; k++) {
+    const newItem = await TestSeries.create({
+      name: `Quiz ${k + 1}`,
+      owner: ownerValue(req),
+      practice: true,
+      practiceKind: "quiz",
+      ...ctx,
+      category: "Full-Length",
+      duration: 15,
+      marks: 0,
+      difficulty: "Medium",
+      status: "published",
+      visibleToAll: false,
+      questions: chunks[k],
+    });
+    await Question.updateMany({ _id: { $in: chunks[k] } }, { $set: { testSeries: newItem._id } });
+  }
+  res.json({ message: `Split ${total} questions into ${chunks.length} quizzes.`, quizzes: chunks.length, created: chunks.length });
+}
+
 // GET /api/practice/quiz/:id/play — full questions WITH answers, so a "My Quiz"
 // practice quiz can reveal correctness instantly (like the regular Quiz).
 // Restricted to practice items of kind "quiz" that are visible to the user, so

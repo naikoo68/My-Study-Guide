@@ -21,7 +21,7 @@ import RegenerateAllModal from "../../components/admin/RegenerateAllModal";
 import ScheduleQuestionModal from "../../components/admin/ScheduleQuestionModal";
 import MigrateQuizModal from "../../components/admin/MigrateQuizModal";
 import MigrateTopicsModal from "../../components/admin/MigrateTopicsModal";
-import { Files, ScanSearch, Loader2, Sparkles } from "lucide-react";
+import { Files, ScanSearch, Loader2, Sparkles, Scissors } from "lucide-react";
 
 // Subject names from a practice item's typed plan (for "add to subject" tools).
 const sectionsOf = (item) => (item?.subjectPlan || []).map((p) => p.subject).filter(Boolean);
@@ -51,6 +51,10 @@ export default function AdminPractice({ clientMode = false }) {
   const [error, setError] = useState("");
   const [modal, setModal] = useState(null); // { type, mode, data }
   const [saving, setSaving] = useState(false);
+  // Split a My-Quiz item / topic into quizzes of N. { kind:"quiz"|"topic", id, name, count }
+  const [splitTarget, setSplitTarget] = useState(null);
+  const [splitPer, setSplitPer] = useState(50);
+  const [splitting, setSplitting] = useState(false);
 
   // Question management for one item
   const [qItem, setQItem] = useState(null);
@@ -154,6 +158,26 @@ export default function AdminPractice({ clientMode = false }) {
       else if (type === "item") await testService.remove(id);
       load(view);
     } catch (e) { setError(e.message); }
+  };
+
+  // Split a My-Quiz item (or a whole topic) into quizzes of `splitPer` each.
+  const doSplit = async () => {
+    if (!splitTarget) return;
+    const per = Math.max(1, parseInt(splitPer, 10) || 50);
+    setSplitting(true);
+    setError("");
+    try {
+      const res = splitTarget.kind === "topic"
+        ? await practiceService.splitTopic(splitTarget.id, per)
+        : await practiceService.splitItem(splitTarget.id, per);
+      setSplitTarget(null);
+      window.alert(res?.message || "Done.");
+      load(view);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSplitting(false);
+    }
   };
 
   // ---- Questions ----
@@ -455,6 +479,15 @@ export default function AdminPractice({ clientMode = false }) {
                       <Files className="h-4 w-4" />
                     </button>
                   )}
+                  {view === "topics" && (
+                    <button
+                      onClick={() => { setSplitPer(50); setSplitTarget({ kind: "topic", id: item._id, name: item.name, count: null }); }}
+                      title="Split this topic's questions into quizzes of N"
+                      className="rounded-lg p-2 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30"
+                    >
+                      <Scissors className="h-4 w-4" />
+                    </button>
+                  )}
                   {view !== "items" && (
                     <button onClick={() => setModal({ type: view === "streams" ? "stream" : view === "subjects" ? "subject" : "topic", mode: "edit", data: item })} className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30"><Pencil className="h-4 w-4" /></button>
                   )}
@@ -467,6 +500,9 @@ export default function AdminPractice({ clientMode = false }) {
                   {kind === "quiz" && (
                     <button onClick={() => setMigrateItem(item)} className="btn-outline py-1.5 text-xs" title="Move or copy this quiz (My Quiz → My Quiz, or My Quiz → Content)"><ArrowRightLeft className="h-3.5 w-3.5" /> Migrate</button>
                   )}
+                  {kind === "quiz" && (
+                    <button onClick={() => { setSplitPer(50); setSplitTarget({ kind: "quiz", id: item._id, name: item.name, count: item.questionCount ?? null }); }} className="btn-outline py-1.5 text-xs text-indigo-600" title="Split this quiz into quizzes of N (Quiz 1, Quiz 2, …)"><Scissors className="h-3.5 w-3.5" /> Split</button>
+                  )}
                   {/* Public share link (no login needed) — for My Quiz AND My Test */}
                   <button onClick={() => setShareItem(item)} className={`btn-outline py-1.5 text-xs ${item.publicShare ? "text-emerald-600" : ""}`} title="Share a public link (anyone with the link can take this — no login/account needed)"><Share2 className="h-3.5 w-3.5" /> Share</button>
                   {!clientMode && (
@@ -478,6 +514,41 @@ export default function AdminPractice({ clientMode = false }) {
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Split a My-Quiz item / topic into quizzes of N */}
+      {splitTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={splitting ? undefined : () => setSplitTarget(null)}>
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-md animate-scale-in card p-6">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-lg font-bold"><Scissors className="h-5 w-5 text-indigo-600" /> Split into quizzes</h3>
+              <button type="button" onClick={() => setSplitTarget(null)} disabled={splitting}><X className="h-5 w-5" /></button>
+            </div>
+            <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
+              {splitTarget.kind === "topic"
+                ? <>Split all questions in the topic <b>“{splitTarget.name}”</b> into quizzes named Quiz 1, Quiz 2, …</>
+                : <>Split the quiz <b>“{splitTarget.name}”</b>{splitTarget.count != null ? <> ({splitTarget.count} questions)</> : null} into quizzes named Quiz 1, Quiz 2, …</>}
+            </p>
+            <label className="mb-1 block text-sm font-semibold">Questions per quiz</label>
+            <input type="number" min={1} max={500} value={splitPer} onChange={(e) => setSplitPer(e.target.value)} className="input" autoFocus />
+            {splitTarget.count != null && (
+              <p className="mt-1 text-xs text-slate-400">
+                {splitTarget.count} questions ÷ {Math.max(1, parseInt(splitPer, 10) || 1)} = about {Math.ceil((splitTarget.count || 0) / Math.max(1, parseInt(splitPer, 10) || 1))} quiz(zes).
+              </p>
+            )}
+            {splitTarget.kind === "topic" && (
+              <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
+                This reorganises the whole topic: all its questions move into fresh Quiz 1…N, and the topic's old quizzes are replaced.
+              </p>
+            )}
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" onClick={() => setSplitTarget(null)} disabled={splitting} className="btn-outline">Cancel</button>
+              <button type="button" onClick={doSplit} disabled={splitting} className="btn-primary">
+                {splitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Splitting…</> : <><Scissors className="h-4 w-4" /> Split</>}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
