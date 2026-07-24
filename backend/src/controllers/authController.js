@@ -55,6 +55,17 @@ const sanitize = (u) => ({
   aiAllowInbuilt: u.aiAllowInbuilt !== false,
   aiAllowSelf: u.aiAllowSelf !== false,
   aiMode: u.aiMode === "self" ? "self" : "inbuilt",
+  // Practice-content master grants.
+  myQuizAccess: u.myQuizAccess === true,
+  myTestAccess: u.myTestAccess === true,
+  // Per-feature client workspace access (Dashboard/Build/Notes/Documents/
+  // User-manual default ON; AI Generator default OFF).
+  featDashboard: u.featDashboard !== false,
+  featBuild: u.featBuild !== false,
+  featNotes: u.featNotes !== false,
+  featDocuments: u.featDocuments !== false,
+  featManual: u.featManual !== false,
+  featAiGenerator: u.featAiGenerator === true,
 });
 
 // Client subscription plans now live in Settings (admin-editable, with AI
