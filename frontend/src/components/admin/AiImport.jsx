@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { X, Globe, Download, CheckCircle2, AlertTriangle, Loader2, Server, KeyRound, FileText, Upload, Files, ScanText, Maximize2, Minimize2, Plus, Sparkles } from "lucide-react";
+import { X, Globe, Download, CheckCircle2, AlertTriangle, Loader2, Server, KeyRound, FileText, Upload, Files, ScanText, Maximize2, Minimize2, Plus, Sparkles, ListChecks, Circle } from "lucide-react";
 import { aiService, documentService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
 
 const LETTERS = ["A", "B", "C", "D"];
-const BATCH = 20; // group the extracted questions into batches of this size for insertion
+const BATCH = 50; // group the extracted questions into batches of this size for insertion
 // Max questions per "Generate from source" run (generated in chunks; large
 // batches just take longer). Matches the AI Generator.
 const MAX_TOTAL = 500;
@@ -37,6 +37,12 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
   // Stems already generated this session — sent so a "Generate more" batch never
   // repeats earlier questions (Generate-new mode, mirrors the AI Generator).
   const [avoidStems, setAvoidStems] = useState([]);
+  // Optional topic/syllabus name for the "Generate from source" tab — enables
+  // the covered / not-covered analysis (areas covered) after each batch.
+  const [genTopic, setGenTopic] = useState("");
+  const [coverage, setCoverage] = useState(null); // { covered:[], missing:[] }
+  const [coverageLoading, setCoverageLoading] = useState(false);
+  const [syllabus, setSyllabus] = useState(null); // FIXED checklist so totals stay stable across batches
   const [destChoice, setDestChoice] = useState("current"); // "current" | "new" — where a batch is inserted
   const [newName, setNewName] = useState("");
   const [status, setStatus] = useState(null);
@@ -71,6 +77,10 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
     setPdfFile(null);
     setScanned(false);
     setAvoidStems([]);
+    setGenTopic("");
+    setCoverage(null);
+    setCoverageLoading(false);
+    setSyllabus(null);
     setDestChoice("current");
     setNewName("");
     setSection(defaultSection || sections[0] || ""); // re-sync target subject on open
@@ -280,6 +290,25 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
     );
   const genTotal = Q_TYPES.reduce((s, t) => s + rowTotal(t.id), 0);
 
+  // After a batch, summarise which areas of the topic are now covered vs still
+  // missing. Only runs when a Topic/syllabus name is provided (coverage needs a
+  // topic to build its checklist). Best-effort — silent on error.
+  const refreshCoverage = async (stems) => {
+    const t = genTopic.trim();
+    const list = (stems || []).filter(Boolean);
+    if (!t || !list.length) { setCoverage(null); return; }
+    setCoverageLoading(true);
+    try {
+      const r = await aiService.coverageGaps({ topic: t, questions: list.slice(0, 300), syllabus: syllabus || undefined, mode: isClient ? source : undefined });
+      if (!syllabus && Array.isArray(r?.syllabus) && r.syllabus.length) setSyllabus(r.syllabus);
+      setCoverage({ covered: r?.covered || [], missing: r?.missing || [] });
+    } catch {
+      /* coverage is a nice-to-have — ignore failures */
+    } finally {
+      setCoverageLoading(false);
+    }
+  };
+
   // GENERATE mode: make NEW questions FROM the link/paragraph, using the exact
   // per-type × per-difficulty counts. Uses the same background job + polling.
   // `append` = "Generate more": keep the current preview and add a fresh batch
@@ -299,6 +328,7 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
       const { jobId, requested } = await aiService.generate({
         source: text.trim() || undefined,
         url: url.trim() || undefined,
+        topic: genTopic.trim() || undefined, // optional — enables coverage analysis
         plan,
         notes: notes.trim() || undefined,
         model: model || undefined,
@@ -317,7 +347,10 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
           const qs = s.questions || [];
           setPreview((prev) => (append ? [...prev, ...qs] : qs));
           // Remember these stems so the NEXT batch avoids repeating them.
-          setAvoidStems((prev) => Array.from(new Set([...prev, ...qs.map((q) => q.text).filter(Boolean)])));
+          const batchStems = qs.map((q) => q.text).filter(Boolean);
+          setAvoidStems((prev) => Array.from(new Set([...prev, ...batchStems])));
+          // Refresh the covered / not-covered summary (only if a topic is set).
+          refreshCoverage(Array.from(new Set([...avoidStems, ...batchStems])));
           setMsg(qs.length
             ? (append
                 ? `✓ Added ${qs.length} more question(s) — no duplicates of the earlier ones. Review, then insert.`
@@ -594,6 +627,16 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
 
             {task === "generate" && (
               <div className="mt-3">
+                {/* Optional topic name → enables the covered / not-covered analysis. */}
+                <label className="mb-1 block text-sm font-semibold">Topic / syllabus name <span className="font-normal text-slate-400">(optional — shows areas covered)</span></label>
+                <input
+                  type="text"
+                  value={genTopic}
+                  onChange={(e) => setGenTopic(e.target.value)}
+                  placeholder='e.g. "Indian Economy", "French Revolution" — enables coverage tracking'
+                  className="input mb-3"
+                />
+
                 {/* How many of each type × difficulty. Total = sum of all cells. */}
                 <div className="flex items-center justify-between">
                   <label className="block text-sm font-semibold">Questions by type &amp; difficulty</label>
@@ -664,6 +707,48 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
               >
                 {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating more…</> : <><Sparkles className="h-4 w-4" /> Generate more from this source (no duplicates)</>}
               </button>
+            )}
+
+            {/* Covered vs still-uncovered areas of the topic (only when a Topic
+                name is set on the Generate tab), refreshed after each batch. */}
+            {task === "generate" && (coverage || coverageLoading) && (
+              <div className="mt-4 rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+                <p className="mb-2 flex items-center gap-2 text-sm font-semibold">
+                  <ListChecks className="h-4 w-4 text-brand-600" /> Areas covered so far
+                  {coverageLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />}
+                </p>
+                {coverage && (
+                  <>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <p className="mb-1 text-xs font-bold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">Covered ({coverage.covered.length})</p>
+                        {coverage.covered.length ? (
+                          <ul className="max-h-44 space-y-1 overflow-y-auto text-xs text-slate-600 dark:text-slate-300">
+                            {coverage.covered.map((c, i) => (
+                              <li key={i} className="flex gap-1.5"><CheckCircle2 className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-emerald-500" />{c}</li>
+                            ))}
+                          </ul>
+                        ) : <p className="text-xs text-slate-400">—</p>}
+                      </div>
+                      <div>
+                        <p className="mb-1 text-xs font-bold uppercase tracking-wide text-amber-600 dark:text-amber-400">Not yet covered ({coverage.missing.length})</p>
+                        {coverage.missing.length ? (
+                          <ul className="max-h-44 space-y-1 overflow-y-auto text-xs text-slate-600 dark:text-slate-300">
+                            {coverage.missing.map((c, i) => (
+                              <li key={i} className="flex gap-1.5"><Circle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-amber-500" />{c}</li>
+                            ))}
+                          </ul>
+                        ) : <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">All covered 🎉</p>}
+                      </div>
+                    </div>
+                    {coverage.missing.length > 0 && (
+                      <button type="button" onClick={() => setNotes((n) => `${n ? n + " " : ""}Focus on these uncovered areas: ${coverage.missing.join(", ")}.`)} className="btn-outline mt-3 text-xs">
+                        <Sparkles className="h-3.5 w-3.5" /> Add uncovered areas to instructions → generate them next
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
             )}
 
             {/* Where to save this batch: the current quiz/test, or a brand-new one. */}
