@@ -47,6 +47,7 @@ export default function AiPdfTopics({ open, onClose, adapter, sel, subjectName =
   const [detecting, setDetecting] = useState(false);
   // Per-topic question mix: matrix[typeId] = { Easy, Medium, Hard }. Default 20 medium MCQs.
   const [matrix, setMatrix] = useState({ mcq: { Easy: 0, Medium: 20, Hard: 0 } });
+  const [quizSize, setQuizSize] = useState(50); // questions per quiz at insert time
 
   const [generating, setGenerating] = useState(false);
   const [results, setResults] = useState([]);     // [{ unit, questions:[], status, count }]
@@ -59,7 +60,7 @@ export default function AiPdfTopics({ open, onClose, adapter, sel, subjectName =
   useEffect(() => {
     if (!open) return;
     setText(""); setPdfName(""); setUnits([]); setResults([]); setCoverage(null); setMsg("");
-    setMatrix({ mcq: { Easy: 0, Medium: 20, Hard: 0 } }); setGenerating(false); setInserting(false);
+    setMatrix({ mcq: { Easy: 0, Medium: 20, Hard: 0 } }); setQuizSize(50); setGenerating(false); setInserting(false);
     aiService.status(isClient ? apiSource : undefined).then(setStatus).catch(() => setStatus(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -197,7 +198,7 @@ export default function AiPdfTopics({ open, onClose, adapter, sel, subjectName =
     const ready = results.filter((r) => r.questions.length);
     if (!ready.length) { setMsg("Nothing to insert yet — generate first."); return; }
     setInserting(true); setMsg("");
-    const QUIZ_SIZE = 50; // each topic's questions are split into quizzes of 50
+    const QUIZ_SIZE = Math.max(1, parseInt(quizSize, 10) || 50); // questions per quiz
     let topics = 0, quizzes = 0, inserted = 0;
     try {
       for (const r of ready) {
@@ -244,7 +245,7 @@ export default function AiPdfTopics({ open, onClose, adapter, sel, subjectName =
 
         <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
           Upload a PDF — the AI detects its units/chapters, creates a topic for each under this subject, generates
-          questions per topic, and splits them into quizzes of 50 (Quiz 1, Quiz 2, …) under every topic.
+          questions per topic, and splits them into quizzes (Quiz 1, Quiz 2, …) of the size you choose.
         </p>
 
         {canChooseSource && (
@@ -333,6 +334,18 @@ export default function AiPdfTopics({ open, onClose, adapter, sel, subjectName =
             <p className="mt-1 text-xs text-slate-400">
               Set a count in any cell (e.g. 30 Medium MCQ + 10 Matching). Up to {maxPerBatch} per topic · total ≈ {totalToGenerate} across all topics.
             </p>
+
+            {/* How to split each topic's questions into quizzes on insert. */}
+            <div className="mt-3">
+              <label className="mb-1 block text-sm font-semibold">Questions per quiz</label>
+              <input type="number" min={1} max={500} value={quizSize} onChange={(e) => setQuizSize(e.target.value)} className="input sm:max-w-[200px]" />
+              <p className="mt-1 text-xs text-slate-400">
+                Each topic's questions are split into quizzes of this size (Quiz 1, Quiz 2, …).
+                {perTopicTotal > 0 && (
+                  <> With {perTopicTotal}/topic ÷ {Math.max(1, parseInt(quizSize, 10) || 1)} = about {Math.ceil(perTopicTotal / Math.max(1, parseInt(quizSize, 10) || 1))} quiz(zes) per topic.</>
+                )}
+              </p>
+            </div>
           </div>
         )}
 
