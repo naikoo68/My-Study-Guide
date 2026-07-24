@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Sparkles, Wand2, Globe, ArrowRight, Layers } from "lucide-react";
+import { Sparkles, Wand2, Globe, ArrowRight, Layers, Plus } from "lucide-react";
 import { practiceService, contentService, examService, testService } from "../../services";
 import AiGenerate from "../../components/admin/AiGenerate";
 import AiImport from "../../components/admin/AiImport";
@@ -16,10 +16,10 @@ const DESTS = {
     label: "My Quiz",
     hint: "Practice quiz item",
     levels: [
-      { key: "stream", label: "Stream…", load: () => practiceService.adminStreams("quiz") },
-      { key: "subject", label: "Subject…", load: (v) => practiceService.adminSubjects(v) },
-      { key: "topic", label: "Topic…", load: (v) => practiceService.adminTopics(v) },
-      { key: "item", label: "Quiz…", load: (v) => practiceService.adminTopicItems(v) },
+      { key: "stream", label: "Stream…", load: () => practiceService.adminStreams("quiz"), create: (s, name) => practiceService.createStream({ name, kind: "quiz" }) },
+      { key: "subject", label: "Subject…", load: (v) => practiceService.adminSubjects(v), create: (s, name) => practiceService.createSubject({ name, stream: s.stream }) },
+      { key: "topic", label: "Topic…", load: (v) => practiceService.adminTopics(v), create: (s, name) => practiceService.createTopic({ name, subject: s.subject }) },
+      { key: "item", label: "Quiz…", load: (v) => practiceService.adminTopicItems(v), create: (s, name) => practiceService.createItem({ name, practiceStream: s.stream, practiceSubject: s.subject, practiceTopic: s.topic, practiceKind: "quiz" }) },
     ],
     leafKey: "item",
     newLabel: "quiz",
@@ -45,9 +45,9 @@ const DESTS = {
     label: "My Test",
     hint: "Practice test item",
     levels: [
-      { key: "stream", label: "Stream…", load: () => practiceService.adminStreams("test") },
-      { key: "subject", label: "Subject…", load: (v) => practiceService.adminSubjects(v) },
-      { key: "item", label: "Test…", load: (v) => practiceService.adminItems(v, "test") },
+      { key: "stream", label: "Stream…", load: () => practiceService.adminStreams("test"), create: (s, name) => practiceService.createStream({ name, kind: "test" }) },
+      { key: "subject", label: "Subject…", load: (v) => practiceService.adminSubjects(v), create: (s, name) => practiceService.createSubject({ name, stream: s.stream }) },
+      { key: "item", label: "Test…", load: (v) => practiceService.adminItems(v, "test"), create: (s, name) => practiceService.createItem({ name, practiceStream: s.stream, practiceSubject: s.subject, practiceKind: "test" }) },
     ],
     leafKey: "item",
     newLabel: "test",
@@ -59,11 +59,11 @@ const DESTS = {
     label: "Content Quiz",
     hint: "Platform quiz",
     levels: [
-      { key: "stream", label: "Stream…", load: () => contentService.streams() },
-      { key: "subject", label: "Subject…", load: (v) => contentService.subjectsByStream(v) },
-      { key: "topic", label: "Topic…", load: (v) => contentService.topics(v), labelKey: "title" },
-      { key: "session", label: "Session…", load: (v) => contentService.sessions(v), labelKey: "title" },
-      { key: "quiz", label: "Quiz…", load: (v) => contentService.quizzes(v), labelKey: "title" },
+      { key: "stream", label: "Stream…", load: () => contentService.streams(), create: (s, name) => contentService.createStream({ name }) },
+      { key: "subject", label: "Subject…", load: (v) => contentService.subjectsByStream(v), create: (s, name) => contentService.createSubject({ name, stream: s.stream }) },
+      { key: "topic", label: "Topic…", load: (v) => contentService.topics(v), labelKey: "title", create: (s, name) => contentService.createTopic({ title: name, subject: s.subject }) },
+      { key: "session", label: "Session…", load: (v) => contentService.sessions(v), labelKey: "title", create: (s, name) => contentService.createSession({ title: name, subject: s.subject, topic: s.topic }) },
+      { key: "quiz", label: "Quiz…", load: (v) => contentService.quizzes(v), labelKey: "title", create: (s, name) => contentService.createQuiz({ title: name, subject: s.subject, session: s.session }) },
     ],
     leafKey: "quiz",
     newLabel: "quiz",
@@ -89,9 +89,9 @@ const DESTS = {
     label: "Test Series",
     hint: "Platform test",
     levels: [
-      { key: "exam", label: "Exam…", load: () => examService.exams() },
-      { key: "post", label: "Post…", load: (v) => examService.posts(v) },
-      { key: "test", label: "Test…", load: (v) => testService.adminList(v) },
+      { key: "exam", label: "Exam…", load: () => examService.exams(), create: (s, name) => examService.createExam({ name }) },
+      { key: "post", label: "Post…", load: (v) => examService.posts(v), create: (s, name) => examService.createPost({ name, exam: s.exam }) },
+      { key: "test", label: "Test…", load: (v) => testService.adminList(v), create: (s, name) => testService.create({ name, exam: s.exam, post: s.post, category: "Full-Length", status: "published" }) },
     ],
     leafKey: "test",
     newLabel: "test",
@@ -127,22 +127,56 @@ function Cascade({ levels, onChange }) {
     }
   };
 
+  // Create a new entry at level i (Stream / Subject / Topic / Session / Quiz …)
+  // right from the picker, then select it and load the next level.
+  const addNew = async (i) => {
+    const lv = levels[i];
+    if (!lv.create) return;
+    if (i > 0 && !sel[levels[i - 1].key]) return; // parent not chosen yet
+    const label = lv.label.replace(/…$/, "");
+    const name = window.prompt(`New ${label} name`);
+    if (!name || !name.trim()) return;
+    try {
+      const node = await lv.create(sel, name.trim());
+      if (!node?._id) throw new Error("Could not create it.");
+      setOpts((o) => { const c = [...o]; c[i] = [...(c[i] || []), node]; return c; });
+      pick(i, node._id);
+    } catch (e) {
+      window.alert(e.message || `Could not create the ${label}.`);
+    }
+  };
+
   return (
     <div className="space-y-2">
-      {levels.map((lv, i) => (
-        <select
-          key={lv.key + i}
-          value={sel[lv.key] || ""}
-          disabled={i > 0 && !sel[levels[i - 1].key]}
-          onChange={(e) => pick(i, e.target.value)}
-          className="input"
-        >
-          <option value="">{lv.label}</option>
-          {(opts[i] || []).map((o) => (
-            <option key={o._id} value={o._id}>{o[lv.labelKey || "name"] || o.name || o.title}</option>
-          ))}
-        </select>
-      ))}
+      {levels.map((lv, i) => {
+        const disabled = i > 0 && !sel[levels[i - 1].key];
+        return (
+          <div key={lv.key + i} className="flex items-center gap-2">
+            <select
+              value={sel[lv.key] || ""}
+              disabled={disabled}
+              onChange={(e) => pick(i, e.target.value)}
+              className="input flex-1"
+            >
+              <option value="">{lv.label}</option>
+              {(opts[i] || []).map((o) => (
+                <option key={o._id} value={o._id}>{o[lv.labelKey || "name"] || o.name || o.title}</option>
+              ))}
+            </select>
+            {lv.create && (
+              <button
+                type="button"
+                onClick={() => addNew(i)}
+                disabled={disabled}
+                title={`Add new ${lv.label.replace(/…$/, "")}`}
+                className="flex-shrink-0 rounded-lg border border-slate-200 p-2 text-brand-600 hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:hover:bg-brand-900/30"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
