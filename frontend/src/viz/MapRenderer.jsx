@@ -36,6 +36,7 @@ const MapRenderer = forwardRef(function MapRenderer({ spec }, ref) {
 
   useEffect(() => {
     let cancelled = false;
+    let map = null; // the map THIS effect run owns (so cleanup can't kill a newer one)
     const m = spec?.map;
     if (!m) { setError(""); return; }
     ensureCss();
@@ -43,9 +44,18 @@ const MapRenderer = forwardRef(function MapRenderer({ spec }, ref) {
       try {
         const L = (await import(/* @vite-ignore */ LEAFLET_JS)).default;
         if (cancelled || !holder.current) return;
+        const container = holder.current;
+        // Tear down any map still bound to this DOM node before re-initialising.
+        // Leaflet stamps the node with `_leaflet_id`; if it lingers (StrictMode
+        // double-mount or a rapid re-generate), L.map() throws
+        // "Map container is already initialized". Clearing it makes init safe.
         try { mapRef.current?.remove?.(); } catch { /* ignore */ }
+        if (container._leaflet_id != null) {
+          container._leaflet_id = undefined;
+          container.innerHTML = "";
+        }
         const center = Array.isArray(m.center) && m.center.length === 2 ? m.center : [20.6, 78.9];
-        const map = L.map(holder.current).setView(center, m.zoom || 4);
+        map = L.map(container).setView(center, m.zoom || 4);
         mapRef.current = map;
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
 
@@ -74,7 +84,15 @@ const MapRenderer = forwardRef(function MapRenderer({ spec }, ref) {
         if (!cancelled) setError(e?.message || "Couldn't load the map.");
       }
     })();
-    return () => { cancelled = true; try { mapRef.current?.remove?.(); } catch { /* ignore */ } };
+    return () => {
+      cancelled = true;
+      // Only remove the map this run created; if a newer run already replaced
+      // mapRef, don't tear down the live map.
+      try { map?.remove?.(); } catch { /* ignore */ }
+      if (mapRef.current === map) mapRef.current = null;
+      const container = holder.current;
+      if (container && container._leaflet_id != null) { container._leaflet_id = undefined; container.innerHTML = ""; }
+    };
   }, [spec?.map]);
 
   return (
