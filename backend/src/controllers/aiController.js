@@ -602,6 +602,27 @@ function normalizeGraph(g) {
   };
 }
 
+// Infer a question's real type from its SHAPE when the model omitted or gave an
+// invalid "type". Without this, a perfectly good statement/matching/assertion/
+// table question that lacks the "type" field silently defaults to "mcq" and its
+// structured fields (columnA, assertion/reason, tableRows) get dropped on save —
+// which is exactly how a "plan"-mode batch can collapse to 100% MCQ.
+function inferType(q) {
+  if (TYPES.includes(q?.type)) return q.type;
+  const filled = (a) => Array.isArray(a) && a.filter((x) => x != null && String(x).trim() !== "").length;
+  if (String(q?.assertion || "").trim() && String(q?.reason || "").trim()) return "assertion";
+  if (Array.isArray(q?.tableRows) && q.tableRows.length) return "table";
+  const a = filled(q?.columnA), b = filled(q?.columnB);
+  if (a && b) {
+    // matching options look like "1-III, 2-I"; pair/pairselect options are
+    // counts or combinations ("1 and 2 only", "Only one pair").
+    const opts = Array.isArray(q?.options) ? q.options.map((o) => String(o)) : [];
+    return opts.some((o) => /\d\s*[-–—]\s*[ivxlc]+/i.test(o)) ? "matching" : "pairselect";
+  }
+  if (a || filled(q?.statements) || filled(q?.statementList) || filled(q?.points)) return "statement";
+  return "mcq";
+}
+
 // Coerce anything the model returned into a valid Question document shape.
 function normalize(list) {
   const clampIdx = (n) => Math.min(3, Math.max(0, parseInt(n, 10) || 0));
@@ -610,7 +631,7 @@ function normalize(list) {
 
   return (Array.isArray(list) ? list : [])
     .map((q) => {
-      const type = TYPES.includes(q?.type) ? q.type : "mcq";
+      const type = inferType(q);
 
       let options = arrStr(q?.options);
       while (options.length < 4) options.push("");
