@@ -276,17 +276,33 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
     try {
       const target = total;
       const autoLoop = autoContinue && !append; // manual "Generate more" stays a single wave
+      const MAX_WAVES = 12; // hard cap so it can never loop forever
+      const MIN_YIELD = Math.max(3, Math.round(target * 0.03)); // a wave below this = "barely any progress"
       setMsg(append ? `Generating ${total} more from this topic (no duplicates)…` : `Starting generation of ${total} question(s)…`);
       let producedTotal = 0;
       let firstWave = true;
+      let wave = 0;
+      let lowYield = 0; // consecutive waves that produced almost nothing
       let last;
       while (true) {
         last = await runWave(firstWave ? append : true);
         producedTotal += last.produced || 0;
         firstWave = false;
+        wave += 1;
+        lowYield = (last.produced || 0) < MIN_YIELD ? lowYield + 1 : 0;
         const reached = producedTotal >= target;
-        const canContinue = autoLoop && !stopRef.current && !reached && (last.produced || 0) > 0 && (last.short || last.quota) && !last.errored && !last.timedOut;
-        if (!canContinue) { finalize(last, producedTotal, target); break; }
+        // The free quota is clearly tapped out if two waves in a row barely
+        // produced, or we've hit the wave cap — stop instead of waiting forever.
+        const stalled = lowYield >= 2 || wave >= MAX_WAVES;
+        const canContinue = autoLoop && !stopRef.current && !reached && (last.produced || 0) > 0 && (last.short || last.quota) && !last.errored && !last.timedOut && !stalled;
+        if (!canContinue) {
+          if (autoLoop && stalled && !reached && !stopRef.current && !last.errored && !last.timedOut) {
+            setMsg(`⏸ Auto-continue stopped at ${producedTotal} of ${target}. Your free-tier quota is limiting output right now — most keys are rate-limited or near their daily cap, so waiting longer won't help today. Insert these ${producedTotal}, then generate the rest later (the daily free quota resets), or add keys from other Google accounts for more quota.`);
+          } else {
+            finalize(last, producedTotal, target);
+          }
+          break;
+        }
         // Interruptible wait for the per-minute limit to refill.
         for (let k = 60; k > 0 && !stopRef.current; k--) {
           setMsg(`Auto-continue: ${producedTotal} of ${target} so far. Waiting ${k}s for the free-tier limit to reset… (press Stop to keep what you have)`);
