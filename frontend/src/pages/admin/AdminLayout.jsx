@@ -50,6 +50,7 @@ const nav = [
   { to: "/admin/documents", label: "Documents", icon: FileText },
   { to: "/admin/notes", label: "Handwritten Notes", icon: Feather },
   { to: "/admin/pdf-builder", label: "PDF Builder", icon: FilePlus2 },
+  { to: "/admin/resume", label: "Resume Builder", icon: FileText },
   { to: "/admin/users", label: "Users", icon: Users },
   { to: "/admin/performance", label: "Performance", icon: Trophy },
   { to: "/admin/feedback", label: "Feedback", icon: MessageSquare },

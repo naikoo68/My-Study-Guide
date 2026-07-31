@@ -213,6 +213,7 @@ const router = createHashRouter([
       { path: "documents", element: S(AdminDocuments) },
       { path: "notes", element: S(AdminNotes) },
       { path: "pdf-builder", element: S(AdminPdfBuilder) },
+      { path: "resume", element: S(ResumeBuilder) },
       { path: "cbt", element: S(AdminCbt) },
       { path: "ai-keys", element: S(AdminAiKeys) },
       { path: "customization", element: S(AdminCustomization) },
