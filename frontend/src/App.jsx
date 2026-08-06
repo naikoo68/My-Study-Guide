@@ -63,6 +63,7 @@ const AdminFeedback = lazy(() => import("./pages/admin/AdminFeedback"));
 const AdminUsers = lazy(() => import("./pages/admin/AdminUsers"));
 const AdminMessages = lazy(() => import("./pages/admin/AdminMessages"));
 const AdminCustomization = lazy(() => import("./pages/admin/AdminCustomization"));
+const AdminUserManual = lazy(() => import("./pages/admin/AdminUserManual"));
 const AdminNotices = lazy(() => import("./pages/admin/AdminNotices"));
 const AdminFacebook = lazy(() => import("./pages/admin/AdminFacebook"));
 const AdminPerformance = lazy(() => import("./pages/admin/AdminPerformance"));
@@ -231,6 +232,7 @@ const router = createHashRouter([
       { path: "cbt", element: S(AdminCbt) },
       { path: "ai-keys", element: S(AdminAiKeys) },
       { path: "customization", element: S(AdminCustomization) },
+      { path: "manual", element: S(AdminUserManual) },
     ],
   },
 

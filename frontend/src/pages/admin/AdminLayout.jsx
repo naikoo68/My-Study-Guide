@@ -21,6 +21,7 @@ import {
   Share2,
   MonitorCheck,
   SearchCheck,
+  BookOpen,
   LogOut,
   Menu,
   Moon,
@@ -65,6 +66,7 @@ const nav = [
   { to: "/admin/visualize", label: "Visualization Studio", icon: LayoutGrid },
   { to: "/admin/ai-keys", label: "AI Keys", icon: KeyRound },
   { to: "/admin/customization", label: "Customization", icon: Palette },
+  { to: "/admin/manual", label: "User Manual", icon: BookOpen },
 ];
 
 export default function AdminLayout() {
