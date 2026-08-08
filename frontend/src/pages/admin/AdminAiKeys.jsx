@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { KeyRound, Plus, Trash2, Pencil, X, CheckCircle2, XCircle, Loader2, RefreshCw, Power, PowerOff, Download, List, Layers, Wand2, AlertTriangle, Eye, EyeOff, Copy, Check } from "lucide-react";
+import { KeyRound, Plus, Trash2, Pencil, X, CheckCircle2, XCircle, Loader2, RefreshCw, Power, PowerOff, Download, List, Layers, Wand2, AlertTriangle, Eye, EyeOff, Copy, Check, ChevronDown, ChevronUp } from "lucide-react";
 import { aiService } from "../../services";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 import AiPlansManager from "../../components/admin/AiPlansManager";
@@ -87,6 +87,7 @@ export default function AdminAiKeys({ clientMode = false }) {
   const [bulkSaving, setBulkSaving] = useState(false);
   const [bulkResult, setBulkResult] = useState(null); // { created, skipped } after a bulk add
   const [testing, setTesting] = useState({}); // id -> bool
+  const [openError, setOpenError] = useState({}); // id -> bool (tap a key's error to expand the full text)
   const [busy, setBusy] = useState({}); // id -> bool (toggle/delete)
   const [bulkBusy, setBulkBusy] = useState(""); // "" | "test" | "import"
   const [keyModels, setKeyModels] = useState({}); // id -> available model ids
@@ -506,8 +507,18 @@ export default function AdminAiKeys({ clientMode = false }) {
   const StatusBadge = ({ k }) => {
     if (!k.enabled) return <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500 dark:bg-slate-800">Disabled</span>;
     if (k.lastStatus === "ok") return <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"><CheckCircle2 className="h-3.5 w-3.5" /> Active</span>;
-    if (k.lastStatus === "limited") return <span title={k.lastError || ""} className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"><AlertTriangle className="h-3.5 w-3.5" /> Rate-limited</span>;
-    if (k.lastStatus === "error") return <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700 dark:bg-rose-900/40 dark:text-rose-300"><XCircle className="h-3.5 w-3.5" /> Not working</span>;
+    if (k.lastStatus === "limited") {
+      const cls = "inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300";
+      return k.lastError
+        ? <button type="button" onClick={() => setOpenError((s) => ({ ...s, [k._id]: !s[k._id] }))} title="Tap to see the full error" className={cls}><AlertTriangle className="h-3.5 w-3.5" /> Rate-limited</button>
+        : <span className={cls}><AlertTriangle className="h-3.5 w-3.5" /> Rate-limited</span>;
+    }
+    if (k.lastStatus === "error") {
+      const cls = "inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700 dark:bg-rose-900/40 dark:text-rose-300";
+      return k.lastError
+        ? <button type="button" onClick={() => setOpenError((s) => ({ ...s, [k._id]: !s[k._id] }))} title="Tap to see the full error" className={cls}><XCircle className="h-3.5 w-3.5" /> Not working</button>
+        : <span className={cls}><XCircle className="h-3.5 w-3.5" /> Not working</span>;
+    }
     return <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500 dark:bg-slate-800">Untested</span>;
   };
 
@@ -692,8 +703,20 @@ export default function AdminAiKeys({ clientMode = false }) {
                 </div>
                 <p className="mt-1 truncate text-xs text-slate-400">
                   {k.models} · {k.baseUrl}
-                  {(k.lastStatus === "error" || k.lastStatus === "limited") && k.lastError ? ` · ${k.lastError}` : ""}
                 </p>
+                {(k.lastStatus === "error" || k.lastStatus === "limited") && k.lastError && (
+                  <button
+                    type="button"
+                    onClick={() => setOpenError((s) => ({ ...s, [k._id]: !s[k._id] }))}
+                    aria-expanded={!!openError[k._id]}
+                    title={openError[k._id] ? "Hide full error" : "Tap to see the full error"}
+                    className={`mt-1 flex w-full items-start gap-1 rounded text-left text-xs ${k.lastStatus === "limited" ? "text-amber-600 dark:text-amber-400" : "text-rose-600 dark:text-rose-400"}`}
+                  >
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                    <span className={`min-w-0 flex-1 ${openError[k._id] ? "whitespace-pre-wrap break-words" : "truncate"}`}>{k.lastError}</span>
+                    {openError[k._id] ? <ChevronUp className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" /> : <ChevronDown className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />}
+                  </button>
+                )}
                 {k.source !== "env" && (
                   <p className="mt-1 text-xs text-slate-400">
                     <span className="font-semibold text-slate-500 dark:text-slate-300">{fmt(k.usedRequests)}</span> requests ·{" "}
