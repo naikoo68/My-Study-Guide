@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { KeyRound, Plus, Trash2, Pencil, X, CheckCircle2, XCircle, Loader2, RefreshCw, Power, PowerOff, Download, List, Layers, Wand2, AlertTriangle, Eye, EyeOff } from "lucide-react";
+import { KeyRound, Plus, Trash2, Pencil, X, CheckCircle2, XCircle, Loader2, RefreshCw, Power, PowerOff, Download, List, Layers, Wand2, AlertTriangle, Eye, EyeOff, Copy, Check } from "lucide-react";
 import { aiService } from "../../services";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 import AiPlansManager from "../../components/admin/AiPlansManager";
@@ -80,6 +80,7 @@ export default function AdminAiKeys({ clientMode = false }) {
   const [saving, setSaving] = useState(false);
   const [showKey, setShowKey] = useState(false); // reveal the API key text in the add/edit modal
   const [revealing, setRevealing] = useState(false); // fetching the stored key for the edit modal
+  const [copied, setCopied] = useState(false); // brief "Copied!" state after copying the key
   const [detecting, setDetecting] = useState(false); // auto-detecting a working model after add
   const [bulkModal, setBulkModal] = useState(false);
   const [bulkForm, setBulkForm] = useState(blankBulk);
@@ -209,9 +210,37 @@ export default function AdminAiKeys({ clientMode = false }) {
     }
   };
 
-  const openAdd = () => { setForm(blank); setShowKey(false); setModal({ mode: "add" }); };
+  // Copy the current key value to the clipboard. Falls back to a hidden textarea
+  // + execCommand for older / non-secure-context mobile browsers where
+  // navigator.clipboard is unavailable.
+  const copyKey = async () => {
+    const text = String(form.key || "");
+    if (!text) return;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard blocked — user can still select the revealed text manually */
+    }
+  };
+
+  const openAdd = () => { setForm(blank); setShowKey(false); setCopied(false); setModal({ mode: "add" }); };
   const openEdit = (k) => {
     setShowKey(false);
+    setCopied(false);
     setForm({ label: k.label || "", baseUrl: k.baseUrl, models: k.models, key: "", creditLimit: k.creditLimit || "" }); // key blank = keep existing
     setModal({ mode: "edit", data: k });
     // Env/server keys aren't stored in the DB, so there's nothing to reveal.
@@ -796,22 +825,35 @@ export default function AdminAiKeys({ clientMode = false }) {
                 <label className="mb-1 block text-sm font-semibold">API key {modal.mode === "edit" && <span className="font-normal text-slate-400">(leave blank to keep the current one)</span>}</label>
                 <div className="relative">
                   <input
-                    className="input pr-10"
+                    className="input pr-20"
                     type={showKey ? "text" : "password"}
                     value={form.key}
                     onChange={(e) => setForm({ ...form, key: e.target.value })}
                     placeholder={revealing ? "Loading current key…" : modal.mode === "edit" ? "•••• (unchanged)" : "Paste the API key"}
                     autoComplete="off"
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowKey((s) => !s)}
-                    title={showKey ? "Hide key" : "Show key"}
-                    aria-label={showKey ? "Hide key" : "Show key"}
-                    className="absolute inset-y-0 right-0 flex items-center px-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                  >
-                    {revealing ? <Loader2 className="h-4 w-4 animate-spin" /> : showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
+                  <div className="absolute inset-y-0 right-0 flex items-center">
+                    {form.key && (
+                      <button
+                        type="button"
+                        onClick={copyKey}
+                        title={copied ? "Copied!" : "Copy key"}
+                        aria-label={copied ? "Copied" : "Copy key"}
+                        className="flex items-center px-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                      >
+                        {copied ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setShowKey((s) => !s)}
+                      title={showKey ? "Hide key" : "Show key"}
+                      aria-label={showKey ? "Hide key" : "Show key"}
+                      className="flex items-center px-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                    >
+                      {revealing ? <Loader2 className="h-4 w-4 animate-spin" /> : showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
                 </div>
               </div>
 
