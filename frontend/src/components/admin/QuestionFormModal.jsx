@@ -233,6 +233,7 @@ export default function QuestionFormModal({ question, saving, onClose, onSave, s
               onChange={(e) => setForm({ ...form, type: e.target.value })}
             >
               <option value="mcq">Multiple Choice (4 options)</option>
+              <option value="numericalmcq">Numerical MCQ (calculation-based, 4 options)</option>
               <option value="matching">Matching (left ↔ right)</option>
               <option value="statement">Statement-based (numbered statements)</option>
               <option value="pair">Pair-matching (how many pairs correct)</option>
