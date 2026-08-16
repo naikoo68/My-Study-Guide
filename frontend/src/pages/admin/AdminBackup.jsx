@@ -41,7 +41,8 @@ export default function AdminBackup() {
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(url);
       const c = data?.counts || {};
-      setMsg({ ok: true, text: `Backed up ${c.quizzes || 0} quizzes, ${(c.contentQuestions || 0) + (c.testQuestions || 0)} questions, ${c.series || 0} test series and ${c.smFiles || 0} study files. Save this file somewhere safe (e.g. Google Drive).` });
+      const totalQ = (c.contentQuestions || 0) + (c.testQuestions || 0) + (c.practiceQuestions || 0);
+      setMsg({ ok: true, text: `Backed up ${c.quizzes || 0} quizzes, ${totalQ} questions, ${c.series || 0} test series, ${c.practiceItems || 0} My Practice items and ${c.smFiles || 0} study files. Save this file somewhere safe (e.g. Google Drive).` });
     } catch (e) {
       setMsg({ ok: false, text: e?.message || "Backup failed — please try again." });
     } finally {
@@ -70,7 +71,8 @@ export default function AdminBackup() {
         if (st.status === "error") throw new Error(st.error || "Restore failed.");
       }
       const r = st.result || {};
-      setMsg({ ok: true, text: `Restore complete. Added ${r.quizzes || 0} quizzes, ${r.questions || 0} questions, ${r.series || 0} test series, ${r.smFiles || 0} study files (existing items were reused, not duplicated).` });
+      const totalQ = (r.questions || 0) + (r.practiceQuestions || 0);
+      setMsg({ ok: true, text: `Restore complete. Added ${r.quizzes || 0} quizzes, ${totalQ} questions, ${r.series || 0} test series, ${r.practiceItems || 0} My Practice items, ${r.smFiles || 0} study files (existing items were reused, not duplicated).` });
     } catch (err) {
       setMsg({ ok: false, text: err?.message || "Restore failed — please check the file and try again." });
     } finally {
@@ -92,7 +94,7 @@ export default function AdminBackup() {
 
       <div className="card mt-5 p-5">
         <p className="text-sm text-slate-600 dark:text-slate-300">
-          This backs up <b>everything</b>: quiz content (streams, subjects, topics, sessions, quizzes &amp; questions), study material, and test series — with their questions.
+          This backs up <b>everything</b>: quiz content (streams, subjects, topics, sessions, quizzes &amp; questions), study material, test series, and <b>My Practice</b> — all with their questions.
         </p>
         <div className="mt-4 flex flex-col gap-2 sm:flex-row">
           <button onClick={backup} disabled={!!busy} className="btn-primary flex-1">
