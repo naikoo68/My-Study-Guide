@@ -11,6 +11,30 @@ import { useTheme } from "../context/ThemeContext";
 // Mermaid's own dependency tree into a single module.
 const MERMAID_CDN = "https://esm.sh/mermaid@11";
 
+// Repair the most common ways AI-authored Mermaid breaks the parser, so a
+// diagram renders instead of dumping a raw "Parse error" at the student:
+//  - Unicode/HTML arrows (→ ⟶ ➜ -&gt;) used instead of Mermaid's "-->" edge.
+//  - "->" written as a flow edge (valid only in sequence diagrams) → "-->".
+//  - stray surrounding code fences / labels.
+// It's deliberately conservative: it only touches arrow glyphs and fences.
+function sanitizeMermaidCode(raw) {
+  let code = String(raw || "").trim();
+  // Strip a wrapping ```mermaid ... ``` fence if the model included one.
+  code = code.replace(/^```(?:mermaid)?\s*/i, "").replace(/```\s*$/i, "").trim();
+  const isSequence = /^\s*sequenceDiagram/m.test(code);
+  // Normalise unicode/HTML arrows to Mermaid's flow arrow (except in sequence
+  // diagrams, whose arrows are ->> / -->> and should not be rewritten).
+  if (!isSequence) {
+    code = code
+      .replace(/&gt;/g, ">")
+      .replace(/[\u2192\u27F6\u2794\u2799\u279C\u27A1\u2B95]/g, "-->") // → ⟶ ➔ ➙ ➜ ➡ ⮕
+      .replace(/-{1,}\s*>/g, "-->")   // "->", "- >", "--->" → "-->"
+      .replace(/={2,}\s*>/g, "==>")   // "==>" thick arrow kept
+      .replace(/-->\s*-->/g, "-->");  // collapse any doubled arrows from the above
+  }
+  return code.trim();
+}
+
 const MermaidRenderer = forwardRef(function MermaidRenderer({ spec }, ref) {
   const holder = useRef(null);
   const [error, setError] = useState("");
@@ -21,7 +45,7 @@ const MermaidRenderer = forwardRef(function MermaidRenderer({ spec }, ref) {
 
   useEffect(() => {
     let cancelled = false;
-    const code = String(spec?.code || "").trim();
+    const code = sanitizeMermaidCode(spec?.code);
     if (!code) { setError(""); if (holder.current) holder.current.innerHTML = ""; return; }
 
     (async () => {
@@ -36,15 +60,27 @@ const MermaidRenderer = forwardRef(function MermaidRenderer({ spec }, ref) {
           theme: theme === "dark" ? "dark" : "default",
           securityLevel: "loose",
           fontFamily: "inherit",
+          suppressErrorRendering: true, // never inject Mermaid's "bomb" error graphic
         });
         const id = "mmd-" + Math.random().toString(36).slice(2);
+        // Validate first so a bad diagram throws here (caught below) instead of
+        // Mermaid painting a parse-error graphic into the page.
+        if (typeof mermaid.parse === "function") await mermaid.parse(code);
         const { svg } = await mermaid.render(id, code);
         if (!cancelled && holder.current) {
           holder.current.innerHTML = svg;
           setError("");
         }
-      } catch (e) {
-        if (!cancelled) setError(e?.message || "Couldn't render this diagram — check the Mermaid code.");
+      } catch {
+        // Clean up any stray node Mermaid may have appended to <body> on failure,
+        // then show a neutral message — never the raw parser dump to a student.
+        document.querySelectorAll('[id^="dmmd-"], [id^="mmd-"]').forEach((n) => {
+          if (n && n.parentNode === document.body) n.remove();
+        });
+        if (!cancelled) {
+          if (holder.current) holder.current.innerHTML = "";
+          setError("This diagram couldn't be displayed.");
+        }
       }
     })();
 
