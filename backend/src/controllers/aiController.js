@@ -1753,37 +1753,47 @@ function splitByQuestions(text, perChunk = QUESTIONS_PER_CHUNK) {
   let prev = null;
   for (const mk of usable) {
     if (prev === null) {
-      if (hasStrong || mk.num <= 3) { starts.push(mk.pos); prev = mk.num; }
+      if (hasStrong || mk.num <= 3) { starts.push({ pos: mk.pos, num: mk.num }); prev = mk.num; }
     } else if (mk.num === 1 || (hasStrong ? mk.num > prev : mk.num === prev + 1)) {
-      starts.push(mk.pos);
+      starts.push({ pos: mk.pos, num: mk.num });
       prev = mk.num;
     }
   }
   if (starts.length < 2) return null; // no reliable numbering — fall back
 
-  // One text block per detected question.
+  // One text block per detected question (carrying its printed number).
   const blocks = [];
   for (let i = 0; i < starts.length; i++) {
-    const end = i + 1 < starts.length ? starts[i + 1] : text.length;
-    const block = text.slice(starts[i], end).trim();
-    if (block) blocks.push(block);
+    const end = i + 1 < starts.length ? starts[i + 1].pos : text.length;
+    const block = text.slice(starts[i].pos, end).trim();
+    if (block) blocks.push({ text: block, num: starts[i].num });
   }
 
-  // Group into batches of `perChunk`, but start a new batch early if adding the
-  // next question would exceed the char ceiling.
+  // Group the per-question blocks into batches of `perChunk` (starting a new
+  // batch early if the char ceiling would be exceeded). Each chunk carries HOW
+  // MANY questions it holds and its first/last printed number, so the extractor
+  // can be told exactly how many questions to return for that chunk (and a chunk
+  // that comes back short can be retried until it delivers them all).
   const chunks = [];
   let cur = [];
   let curChars = 0;
+  const flush = () => {
+    if (!cur.length) return;
+    chunks.push({
+      text: cur.map((b) => b.text).join("\n\n"),
+      count: cur.length,
+      firstNum: cur[0].num,
+      lastNum: cur[cur.length - 1].num,
+    });
+    cur = [];
+    curChars = 0;
+  };
   for (const b of blocks) {
-    if (cur.length && (cur.length >= perChunk || curChars + b.length > QUESTION_CHUNK_MAX_CHARS)) {
-      chunks.push(cur.join("\n\n"));
-      cur = [];
-      curChars = 0;
-    }
+    if (cur.length && (cur.length >= perChunk || curChars + b.text.length > QUESTION_CHUNK_MAX_CHARS)) flush();
     cur.push(b);
-    curChars += b.length + 2;
+    curChars += b.text.length + 2;
   }
-  if (cur.length) chunks.push(cur.join("\n\n"));
+  flush();
   return { count: blocks.length, chunks };
 }
 
@@ -2071,16 +2081,30 @@ async function fetchPageText(url) {
   }
 }
 
-function buildExtractPrompt(sourceText, notes = "") {
+function buildExtractPrompt(sourceText, notes = "", meta = {}) {
   const instr = String(notes || "").trim();
+  const count = Number(meta?.count) || 0;
+  const firstNum = meta?.firstNum;
+  const lastNum = meta?.lastNum;
+  // When the splitter has already isolated a known number of questions for this
+  // batch, tell the model the EXACT target so it can neither skip any nor invent
+  // extras — the single biggest lever for "extract every question, no duplicates".
+  const countLine = count
+    ? `EXACT COUNT — CRITICAL: this text contains EXACTLY ${count} question${count === 1 ? "" : "s"}${
+        Number.isFinite(firstNum) && Number.isFinite(lastNum) && lastNum >= firstNum
+          ? ` (the printed numbers ${firstNum} to ${lastNum})`
+          : ""
+      }. Return EXACTLY ${count} question object${count === 1 ? "" : "s"} — one per printed question, in order. Not one more, not one fewer. If your draft has a different count, RECHECK the text and fix it before answering.`
+    : "MOST IMPORTANT: capture EVERY question in the material below — do not skip, summarise or merge any. If the text contains 40 questions, return all 40, in their original order.";
   return [
     'You extract questions from an exam/quiz document. Return ONLY JSON: {"questions":[...]}.',
     ...(instr
       ? ["", `======================\nMANDATORY USER INSTRUCTIONS (HIGHEST PRIORITY)\nThe user gave these instructions — follow them EXACTLY while extracting (e.g. only keep questions on a given topic, translate/clean wording, fix obvious OCR typos, set difficulty, etc.). They OVERRIDE any conflicting rule below:\n${instr}\n======================`]
       : []),
     "",
-    "MOST IMPORTANT: capture EVERY question in the material below — do not skip, summarise or merge any. If the text contains 40 questions, return all 40, in their original order.",
-    "Equally important: do NOT invent questions, do NOT repeat/duplicate a question, and do NOT split one question (or its sub-parts/options) into multiple questions. The number you return must NOT exceed the number actually present in the text.",
+    countLine,
+    "Capture EVERY question — do not skip, summarise or merge any, and go all the way to the LAST question in the text (do not stop early).",
+    "Equally important: do NOT invent questions, do NOT repeat/duplicate a question, and do NOT split one question (or its sub-parts/options) into multiple questions. Every returned question must be DISTINCT — never output the same question twice, even reworded.",
     "The source questions are NUMBERED. For EACH question, include its printed source number as an integer field \"n\", and return EXACTLY ONE object per printed question, in the original order. Never merge two questions into one object, and NEVER split one question into two.",
     "Question numbers may RESTART at 1 for every new SECTION / PART of the paper (e.g. several sections each beginning at \"Question No. 1\") — that is normal and expected, and the same number can appear in several sections. Treat EVERY printed question as its own separate object even when its number repeats across sections; never drop, merge or renumber a question just because that number appeared earlier.",
     "A single question OFTEN CONTAINS internal structure — a data / frequency / marks table, x/y value rows, a \"Match the following\" list (I, II, III, IV), an assertion–reason pair, or numbered statements (1., 2., 3., …). ALL of that is PART OF ONE question. NEVER treat a table row, a match item, a statement line, a sub-part, or an answer option as a separate question. Keep the whole thing as exactly ONE object of the appropriate type.",
@@ -2147,18 +2171,23 @@ async function runExtractionJob(id, { endpoints, model, chunks, owner = null, ha
   // errors, is rate-limited, or parses to zero questions is retried on a later
   // pass, and a 429 makes us WAIT for the per-minute limit to reset (surfaced via
   // `waitUntil` for a live countdown) instead of giving up on the rest.
-  const MAX_ROUNDS = 4;
-  const doneIdx = new Set(); // chunks that returned a usable (parseable) reply
-  let pending = chunks.map((text, idx) => ({ text, idx }));
+  const MAX_ROUNDS = 5;
+  const doneIdx = new Set(); // chunks that delivered ALL their questions
+  let pending = chunks.map((c, idx) => ({ ...c, idx, tries: 0 }));
   try {
     for (let round = 0; round < MAX_ROUNDS && pending.length && Date.now() < deadline && !job.cancelled; round++) {
       const failed = [];
       for (const item of pending) {
         if (Date.now() > deadline || job.cancelled) { failed.push(item); continue; }
+        item.tries += 1;
         const r = await callWithFallback({
           endpoints,
           model,
-          userPrompt: buildExtractPrompt(item.text, notes),
+          userPrompt: buildExtractPrompt(item.text, notes, {
+            count: item.count,
+            firstNum: item.firstNum,
+            lastNum: item.lastNum,
+          }),
           maxTokens: 16000,
           owner,
         });
@@ -2175,6 +2204,7 @@ async function runExtractionJob(id, { endpoints, model, chunks, owner = null, ha
         }
         const parsed = normalize(parseQuestions(r.content));
         if (!parsed.length) { failed.push(item); continue; } // parse failed / empty / truncated to nothing — retry
+        let added = 0;
         for (const q of parsed) {
           if (!isRealQuestion(q)) continue; // keep ONLY genuine questions — drop headers/instructions/etc.
           // De-duplicate by the STABLE CONTENT SIGNATURE (same key on every pass and
@@ -2185,8 +2215,20 @@ async function runExtractionJob(id, { endpoints, model, chunks, owner = null, ha
           if (seen.has(key)) continue; // skip duplicates across chunks / re-runs
           seen.add(key);
           collected.push(q);
+          added += 1;
         }
-        doneIdx.add(item.idx);
+        // COMPLETENESS: when we know exactly how many questions this batch holds
+        // and the model returned FEWER (it skipped some / its reply was truncated),
+        // re-queue the batch so a later pass picks up the missed ones — the de-dup
+        // set means only the genuinely-missing questions get added. Bounded by
+        // MAX_ROUNDS so a batch whose "extra" lines aren't real questions can't loop
+        // forever. Batches with no known count (character fallback) are done in one pass.
+        const short = item.count && added < item.count;
+        if (short && item.tries < MAX_ROUNDS && Date.now() < deadline && !job.cancelled) {
+          failed.push(item);
+        } else {
+          doneIdx.add(item.idx);
+        }
         save({ questions: collected.slice(), chunksDone: doneIdx.size });
       }
       pending = failed;
@@ -2256,7 +2298,9 @@ export async function extractQuestions(req, res) {
   // batches of ~20 questions each. If numbering can't be detected reliably,
   // fall back to character-based splitting.
   const detected = splitByQuestions(source);
-  const chunks = detected ? detected.chunks : splitSource(source, SOURCE_CHUNK_CHARS);
+  // Chunks are always objects { text, count?, firstNum?, lastNum? }. The
+  // character-based fallback has no per-chunk count (unknown numbering).
+  const chunks = detected ? detected.chunks : splitSource(source, SOURCE_CHUNK_CHARS).map((text) => ({ text }));
 
   cleanupJobs();
   const id = newJobId();
