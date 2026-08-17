@@ -62,6 +62,12 @@ const userSchema = new mongoose.Schema(
     emailVerificationToken: String,
     otpHash: { type: String, select: false },
     otpExpires: { type: Date, select: false },
+    // A pending email change (from the Account page). The new address is held
+    // here — and only swapped into `email` once the user confirms the OTP we
+    // send to it — so a typo can never lock them out of their account.
+    pendingEmail: { type: String, lowercase: true, trim: true },
+    pendingEmailOtpHash: { type: String, select: false },
+    pendingEmailOtpExpires: { type: Date, select: false },
     resetPasswordToken: String,
     resetPasswordExpires: Date,
     enrolledTests: [{ type: mongoose.Schema.Types.ObjectId, ref: "TestSeries" }],

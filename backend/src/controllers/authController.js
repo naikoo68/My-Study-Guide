@@ -44,6 +44,8 @@ const sanitize = (u) => ({
   id: u._id,
   name: u.name,
   email: u.email,
+  // A new email awaiting OTP confirmation (empty when there's no pending change).
+  pendingEmail: u.pendingEmail || "",
   phone: u.phone || "",
   role: u.role,
   plan: u.plan,
@@ -460,8 +462,11 @@ export async function updateProfile(req, res) {
     user.name = req.body.name.trim().slice(0, 80);
   }
 
-  // Email — normalise, validate format and enforce uniqueness (it's the login
-  // identifier). Reject if another account already uses it.
+  // Email — validate format and enforce uniqueness (it's the login identifier).
+  // We DON'T switch the email straight away: instead we email an OTP to the new
+  // address and only swap it in once the user confirms it (see verifyEmailChange),
+  // so a typo can never lock them out. `emailChange` is returned to the client.
+  let emailChange = null;
   if (typeof req.body.email === "string") {
     const email = norm(req.body.email);
     if (!email) {
@@ -470,12 +475,23 @@ export async function updateProfile(req, res) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return res.status(400).json({ message: "Please enter a valid email address." });
     }
-    if (email !== norm(user.email)) {
+    if (email === norm(user.email)) {
+      // Same as current — cancel any pending change that was in flight.
+      user.pendingEmail = undefined;
+      user.pendingEmailOtpHash = undefined;
+      user.pendingEmailOtpExpires = undefined;
+    } else {
       const taken = await User.findOne({ email, _id: { $ne: user._id } }).select("_id");
       if (taken) {
         return res.status(409).json({ message: "That email is already in use by another account." });
       }
-      user.email = email;
+      const otp = genOtp();
+      user.pendingEmail = email;
+      user.pendingEmailOtpHash = hashOtp(otp);
+      user.pendingEmailOtpExpires = new Date(Date.now() + OTP_TTL_MS);
+      const emailSent = await sendOtpEmail(email, user.name, otp).catch(() => false);
+      const exposeDevOtp = !emailSent && process.env.NODE_ENV !== "production";
+      emailChange = { pending: true, pendingEmail: email, emailSent, ...(exposeDevOtp ? { devOtp: otp } : {}) };
     }
   }
 
@@ -511,7 +527,64 @@ export async function updateProfile(req, res) {
     }
     throw e;
   }
+  res.json({ user: sanitize(user), ...(emailChange ? { emailChange } : {}) });
+}
+
+// POST /api/auth/verify-email-change — confirm the OTP sent to a NEW email and
+// swap it in as the account's email. Keeps the account verified. Protected.
+export async function verifyEmailChange(req, res) {
+  // req.user (from attachUser) doesn't include the select:false OTP fields — re-fetch.
+  const user = await User.findById(req.user._id).select("+pendingEmailOtpHash +pendingEmailOtpExpires");
+  if (!user) return res.status(401).json({ message: "Not authenticated" });
+  if (!user.pendingEmail) {
+    return res.status(400).json({ message: "There's no email change to confirm." });
+  }
+  if (!user.pendingEmailOtpHash || !user.pendingEmailOtpExpires || user.pendingEmailOtpExpires.getTime() < Date.now()) {
+    return res.status(400).json({ message: "Your code has expired. Please request a new one." });
+  }
+  if (hashOtp(req.body.otp) !== user.pendingEmailOtpHash) {
+    return res.status(400).json({ message: "Incorrect code. Please try again." });
+  }
+  // Re-check uniqueness in case the address was taken while the OTP was pending.
+  const taken = await User.findOne({ email: user.pendingEmail, _id: { $ne: user._id } }).select("_id");
+  if (taken) {
+    user.pendingEmail = undefined;
+    user.pendingEmailOtpHash = undefined;
+    user.pendingEmailOtpExpires = undefined;
+    await user.save();
+    return res.status(409).json({ message: "That email is already in use by another account." });
+  }
+
+  user.email = user.pendingEmail;
+  user.isEmailVerified = true; // they just proved they own the new address
+  user.pendingEmail = undefined;
+  user.pendingEmailOtpHash = undefined;
+  user.pendingEmailOtpExpires = undefined;
+  try {
+    await user.save();
+  } catch (e) {
+    if (e?.code === 11000 && e?.keyPattern?.email) {
+      return res.status(409).json({ message: "That email is already in use by another account." });
+    }
+    throw e;
+  }
   res.json({ user: sanitize(user) });
+}
+
+// POST /api/auth/resend-email-change-otp — send a fresh code to the pending
+// new email. Protected.
+export async function resendEmailChangeOtp(req, res) {
+  const user = req.user;
+  if (!user?.pendingEmail) {
+    return res.status(400).json({ message: "There's no email change to confirm." });
+  }
+  const otp = genOtp();
+  user.pendingEmailOtpHash = hashOtp(otp);
+  user.pendingEmailOtpExpires = new Date(Date.now() + OTP_TTL_MS);
+  await user.save();
+  const emailSent = await sendOtpEmail(user.pendingEmail, user.name, otp).catch(() => false);
+  const exposeDevOtp = !emailSent && process.env.NODE_ENV !== "production";
+  res.json({ pendingEmail: user.pendingEmail, emailSent, ...(exposeDevOtp ? { devOtp: otp } : {}) });
 }
 
 // GET /api/auth/plans — public list of client subscription plans + pricing.

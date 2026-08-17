@@ -12,7 +12,9 @@ export const authService = {
   resendOtp: (email) => api.post("/auth/resend-otp", { email }, { auth: false }),
   google: (profile) => api.post("/auth/google", profile, { auth: false }),
   me: () => api.get("/auth/me"),
-  updateProfile: (data) => api.put("/auth/profile", data), // update own name / photo
+  updateProfile: (data) => api.put("/auth/profile", data), // update own name / photo (email change → OTP)
+  verifyEmailChange: (otp) => api.post("/auth/verify-email-change", { otp }), // confirm new email
+  resendEmailChangeOtp: () => api.post("/auth/resend-email-change-otp"), // resend new-email OTP
   forgotPassword: (email) => api.post("/auth/forgot-password", { email }, { auth: false }),
   resetPassword: (token, password) => api.post(`/auth/reset-password/${token}`, { password }, { auth: false }),
 };
