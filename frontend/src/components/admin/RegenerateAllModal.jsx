@@ -14,6 +14,7 @@ const Q_TYPE_OPTIONS = [
   { value: "assertion", label: "Only Assertion" },
   { value: "table", label: "Only Table" },
   { value: "journal", label: "Only Journal / Ledger" },
+  { value: "not_updated", label: "Only Not Updated" },
 ];
 
 /**

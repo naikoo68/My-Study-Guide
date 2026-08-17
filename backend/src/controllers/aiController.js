@@ -3366,8 +3366,12 @@ export async function extendExplanations(req, res) {
   if (!filter) return res.status(400).json({ message: "Provide a quiz or test to update." });
   // Optional: restrict to ONE question type (e.g. only "matching" / only "pair").
   // "all" (or any unknown value) means every type.
+  // Special value "not_updated" = only questions never edited since upload.
   const onlyType = String(req.body?.type || "").trim();
-  if (onlyType && onlyType !== "all" && TYPES.includes(onlyType)) filter.type = onlyType;
+  if (onlyType && onlyType !== "all" && onlyType !== "not_updated" && TYPES.includes(onlyType)) filter.type = onlyType;
+  if (onlyType === "not_updated") {
+    filter.$expr = { $lte: [{ $subtract: ["$updatedAt", "$createdAt"] }, 5000] };
+  }
 
   // Process LEAST-RECENTLY-UPDATED first. Extending a question bumps its
   // updatedAt, so when a run stops early on quota, clicking "Extend" again
@@ -3969,8 +3973,12 @@ export async function regenerateAll(req, res) {
   if (!filter) return res.status(400).json({ message: "Provide a quiz or test to update." });
   // Optional: restrict to ONE question type (e.g. only "matching" / only "pair").
   // "all" (or any unknown value) means every type.
+  // Special value "not_updated" = only questions never edited since upload.
   const onlyType = String(req.body?.type || "").trim();
-  if (onlyType && onlyType !== "all" && TYPES.includes(onlyType)) filter.type = onlyType;
+  if (onlyType && onlyType !== "all" && onlyType !== "not_updated" && TYPES.includes(onlyType)) filter.type = onlyType;
+  if (onlyType === "not_updated") {
+    filter.$expr = { $lte: [{ $subtract: ["$updatedAt", "$createdAt"] }, 5000] };
+  }
 
   // Least-recently-updated first so repeated runs finish the whole set.
   const questions = await Question.find(filter).sort("updatedAt").select("_id type text options correct columnA columnB tableRows assertion reason explanation optionExplanations").lean();

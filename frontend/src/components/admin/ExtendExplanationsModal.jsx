@@ -13,6 +13,7 @@ const Q_TYPE_OPTIONS = [
   { value: "pairselect", label: "Only Pair-select" },
   { value: "assertion", label: "Only Assertion" },
   { value: "table", label: "Only Table" },
+  { value: "not_updated", label: "Only Not Updated" },
 ];
 
 /**
