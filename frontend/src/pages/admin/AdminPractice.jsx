@@ -1377,6 +1377,7 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
         open={autoOpen}
         testId={qItem?._id}
         testName={qItem?.name || ""}
+        plan={qItem?.subjectPlan || []}
         practice
         onClose={() => setAutoOpen(false)}
         onDone={async () => { await reloadTq(); load(view); }}

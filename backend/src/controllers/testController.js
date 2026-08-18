@@ -187,12 +187,12 @@ export async function autoBuildTest(req, res) {
 
   if (copies.length) {
     const created = await Question.insertMany(copies);
-    // Keep the test's subjectPlan (the "questions by subject" view) accurate.
+    // Fill questions INTO the test's existing (predefined) subjects — do NOT
+    // change a predefined subject's planned target, and only add a plan entry
+    // for a section that wasn't already defined (so ad-hoc pulls still appear).
     const plan = [...(test.subjectPlan || [])];
-    for (const [subject, count] of Object.entries(pulled)) {
-      const existing = plan.find((p) => (p.subject || "") === subject);
-      if (existing) existing.count = (existing.count || 0) + count;
-      else plan.push({ subject, count });
+    for (const section of Object.keys(pulled)) {
+      if (!plan.find((p) => (p.subject || "") === section)) plan.push({ subject: section, count: pulled[section] });
     }
     await TestSeries.findByIdAndUpdate(test._id, {
       $push: { questions: { $each: created.map((c) => c._id) } },

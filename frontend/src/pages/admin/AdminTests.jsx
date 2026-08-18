@@ -940,6 +940,7 @@ export default function AdminTests() {
         open={!!autoTest}
         testId={autoTest?._id}
         testName={autoTest?.name || ""}
+        plan={autoTest?.subjectPlan || []}
         onClose={() => { setAutoTest(null); if (qTest) reloadTq(); }}
         onDone={() => { load(); if (qTest) reloadTq(); }}
       />

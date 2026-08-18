@@ -1,33 +1,35 @@
 import { useEffect, useMemo, useState } from "react";
-import { X, Wand2, Loader2, CheckCircle2 } from "lucide-react";
+import { X, Wand2, Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
 import { contentService, practiceService, testService } from "../../services";
 import { QUESTION_TYPE_LABELS } from "../../lib/questions";
 
-// Auto-build a test the EASY way: pick ONE subject, then just type HOW MANY
-// questions you want — either per TOPIC (its topics are listed automatically) or
-// per TYPE (all question types listed). No repetitive manual row-picking. A
-// single Difficulty filter (and, in topic mode, a single Type filter) applies to
-// the whole pull. The backend then auto-selects matching questions from your
-// existing quizzes and adds them to the test.
+// Auto-build a test the EASY way. You pick one of the test's OWN predefined
+// subjects (from its subject plan) — it does NOT create new subjects — then just
+// type HOW MANY questions you want, either per TOPIC (auto-listed) or per TYPE.
+// A single Difficulty (and, in topic mode, a single Type) filter applies to the
+// whole pull. Questions are auto-selected from your existing quizzes and filed
+// under that predefined subject.
 //
-// `practice` = true builds a "My Test" from the caller's OWN My Practice quizzes;
-// otherwise an admin Test Series from the platform quiz bank.
+// `plan`     = the test's subjectPlan [{ subject: <name>, count }] — the fixed
+//              subjects to fill. If empty, we fall back to the whole quiz-bank
+//              subject list (a test with no predefined plan).
+// `practice` = build a "My Test" from the caller's own My Practice quizzes.
 const DIFFS = ["Easy", "Medium", "Hard"];
 const TYPE_KEYS = Object.keys(QUESTION_TYPE_LABELS);
 
-export default function AutoBuildTest({ open, onClose, testId, testName = "", practice = false, onDone }) {
-  const [subjects, setSubjects] = useState([]);
-  const [subjectId, setSubjectId] = useState("");
-  const [topics, setTopics] = useState([]); // topics of the chosen subject
+export default function AutoBuildTest({ open, onClose, testId, testName = "", plan = [], practice = false, onDone }) {
+  const [libSubjects, setLibSubjects] = useState([]); // quiz-bank subjects (for name→id + topics)
+  const [section, setSection] = useState(""); // the CHOSEN predefined subject NAME
+  const [topics, setTopics] = useState([]);
   const [topicsLoading, setTopicsLoading] = useState(false);
 
   const [splitBy, setSplitBy] = useState("topic"); // "topic" | "type"
-  const [difficulty, setDifficulty] = useState(""); // "" = Any (applies to whole pull)
-  const [type, setType] = useState(""); // "" = Any — only used in topic mode
+  const [difficulty, setDifficulty] = useState("");
+  const [type, setType] = useState("");
 
-  const [topicCounts, setTopicCounts] = useState({}); // topicId -> count
-  const [otherTopicCount, setOtherTopicCount] = useState(0); // questions from the subject regardless of topic
-  const [typeCounts, setTypeCounts] = useState({}); // typeKey -> count
+  const [topicCounts, setTopicCounts] = useState({});
+  const [otherTopicCount, setOtherTopicCount] = useState(0);
+  const [typeCounts, setTypeCounts] = useState({});
 
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -36,71 +38,82 @@ export default function AutoBuildTest({ open, onClose, testId, testName = "", pr
 
   useEffect(() => {
     if (!open) return;
-    // reset
-    setSubjectId(""); setTopics([]); setSplitBy("topic"); setDifficulty(""); setType("");
+    setSection(""); setTopics([]); setSplitBy("topic"); setDifficulty(""); setType("");
     setTopicCounts({}); setOtherTopicCount(0); setTypeCounts({}); setMsg(""); setReport(null);
     setLoading(true);
     const load = practice
       ? practiceService.allSubjects().then((s) => (s || []).filter((x) => (x.kind ? x.kind === "quiz" : true)))
       : contentService.subjects();
-    load.then(setSubjects).catch(() => setSubjects([])).finally(() => setLoading(false));
+    load.then(setLibSubjects).catch(() => setLibSubjects([])).finally(() => setLoading(false));
   }, [open, practice]);
 
-  // Load the chosen subject's topics.
+  // Map a quiz-bank subject NAME (case-insensitive) → its record (for id + topics).
+  const libByName = useMemo(() => {
+    const m = {};
+    for (const s of libSubjects) m[String(s.name || "").trim().toLowerCase()] = s;
+    return m;
+  }, [libSubjects]);
+
+  // The subjects to offer: the test's predefined plan subjects when it has them,
+  // otherwise the whole quiz-bank subject list.
+  const subjectOptions = useMemo(() => {
+    if (Array.isArray(plan) && plan.length) {
+      return plan
+        .map((p) => String(p.subject || "").trim())
+        .filter(Boolean)
+        .map((name) => ({ name, planned: (plan.find((p) => (p.subject || "") === name) || {}).count || 0, lib: libByName[name.toLowerCase()] || null }));
+    }
+    return libSubjects.map((s) => ({ name: s.name, planned: 0, lib: s }));
+  }, [plan, libSubjects, libByName]);
+
+  const chosen = subjectOptions.find((o) => o.name === section) || null;
+  const resolvedId = chosen?.lib?._id || ""; // the quiz-bank subject to pull FROM
+
+  // Load the chosen subject's topics (from its matching quiz-bank subject).
   useEffect(() => {
-    if (!open || !subjectId) { setTopics([]); return; }
+    if (!open || !resolvedId) { setTopics([]); return; }
     setTopicsLoading(true);
     setTopicCounts({}); setOtherTopicCount(0);
-    const load = practice ? practiceService.adminTopics(subjectId) : contentService.topics(subjectId);
+    const load = practice ? practiceService.adminTopics(resolvedId) : contentService.topics(resolvedId);
     load.then((t) => setTopics(t || [])).catch(() => setTopics([])).finally(() => setTopicsLoading(false));
-  }, [subjectId, open, practice]);
-
-  const subjectName = useMemo(
-    () => subjects.find((s) => String(s._id) === String(subjectId))?.name || "",
-    [subjects, subjectId]
-  );
+  }, [resolvedId, open, practice]);
 
   const total = useMemo(() => {
-    if (splitBy === "topic") {
-      return Object.values(topicCounts).reduce((s, n) => s + (parseInt(n, 10) || 0), 0) + (parseInt(otherTopicCount, 10) || 0);
-    }
+    if (splitBy === "topic") return Object.values(topicCounts).reduce((s, n) => s + (parseInt(n, 10) || 0), 0) + (parseInt(otherTopicCount, 10) || 0);
     return Object.values(typeCounts).reduce((s, n) => s + (parseInt(n, 10) || 0), 0);
   }, [splitBy, topicCounts, otherTopicCount, typeCounts]);
 
   if (!open) return null;
 
-  // Build the blueprint rows for the backend from the friendly inputs.
   const buildBlueprint = () => {
     const rows = [];
-    const subjKeys = (extra = {}) => (practice
-      ? { practiceSubject: subjectId, section: subjectName, ...extra }
-      : { subject: subjectId, section: subjectName, ...extra });
+    // Always file questions under the chosen PREDEFINED subject name (section),
+    // and pull them from that subject's matching quiz-bank subject (resolvedId).
+    const base = (extra = {}) => (practice
+      ? { practiceSubject: resolvedId, section, ...extra }
+      : { subject: resolvedId, section, ...extra });
 
     if (splitBy === "topic") {
       for (const t of topics) {
         const count = parseInt(topicCounts[t._id], 10) || 0;
         if (count <= 0) continue;
-        rows.push(subjKeys({
-          ...(practice ? { practiceTopic: t._id } : { topic: t._id }),
-          type: type || undefined,
-          difficulty: difficulty || undefined,
-          count,
-        }));
+        rows.push(base({ ...(practice ? { practiceTopic: t._id } : { topic: t._id }), type: type || undefined, difficulty: difficulty || undefined, count }));
       }
       const other = parseInt(otherTopicCount, 10) || 0;
-      if (other > 0) rows.push(subjKeys({ type: type || undefined, difficulty: difficulty || undefined, count: other }));
+      if (other > 0) rows.push(base({ type: type || undefined, difficulty: difficulty || undefined, count: other }));
     } else {
       for (const k of TYPE_KEYS) {
         const count = parseInt(typeCounts[k], 10) || 0;
         if (count <= 0) continue;
-        rows.push(subjKeys({ type: k, difficulty: difficulty || undefined, count }));
+        rows.push(base({ type: k, difficulty: difficulty || undefined, count }));
       }
     }
     return rows;
   };
 
   const submit = async () => {
-    if (!subjectId) { setMsg("Choose a subject first."); return; }
+    if (!section) { setMsg("Choose a subject first."); return; }
+    if (!resolvedId) { setMsg(`No matching quiz subject named "${section}" to pull questions from. Build a quiz under that subject first.`); return; }
     const blueprint = buildBlueprint();
     if (!blueprint.length) { setMsg("Enter how many questions you want (per topic or per type)."); return; }
     setBusy(true); setMsg(""); setReport(null);
@@ -108,12 +121,10 @@ export default function AutoBuildTest({ open, onClose, testId, testName = "", pr
       const res = await testService.autoBuild(testId, blueprint);
       const n = res?.inserted ?? 0;
       setReport(res?.report || []);
-      setMsg(n ? `\u2713 Added ${n} question(s) from ${subjectName} to the test.` : "No matching questions were found — try higher counts, a different topic/type, or 'Any' difficulty.");
+      setMsg(n ? `\u2713 Added ${n} question(s) to "${section}".` : "No matching questions were found — try higher counts, a different topic/type, or 'Any' difficulty.");
       if (n) {
         onDone?.(n);
-        // keep the window open so you can pick ANOTHER subject and add more,
-        // but clear the counts for a fresh start on the next subject.
-        setTopicCounts({}); setOtherTopicCount(0); setTypeCounts({});
+        setTopicCounts({}); setOtherTopicCount(0); setTypeCounts({}); // ready for the next subject
       }
     } catch (e) {
       setMsg(e.message || "Couldn't build the test.");
@@ -122,7 +133,7 @@ export default function AutoBuildTest({ open, onClose, testId, testName = "", pr
     }
   };
 
-  const noSubjects = !loading && subjects.length === 0;
+  const noSubjects = !loading && subjectOptions.length === 0;
   const countInput = (value, onChange) => (
     <input type="number" min="0" value={value || ""} onChange={(e) => onChange(e.target.value)} placeholder="0" className="input w-20 py-1.5 text-center text-sm" />
   );
@@ -137,29 +148,36 @@ export default function AutoBuildTest({ open, onClose, testId, testName = "", pr
           <button type="button" onClick={onClose}><X className="h-5 w-5" /></button>
         </div>
         <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
-          Pick <b>one subject</b>, then just type how many questions you want — per <b>topic</b> or per <b>type</b>. We pick matching questions from your existing quizzes automatically. Build for one subject, then choose another and build again to add more.
+          Choose one of this test's <b>subjects</b>, then type how many questions you want — per <b>topic</b> or per <b>type</b>. Questions are auto-picked from your existing quizzes and filed under that subject. Do one subject, then pick another and build again.
         </p>
 
         {loading ? (
           <div className="py-8 text-center"><Loader2 className="mx-auto h-5 w-5 animate-spin text-slate-400" /></div>
         ) : noSubjects ? (
           <p className="rounded-lg border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500 dark:border-slate-700">
-            No subjects with questions found yet. Build some quizzes first, then come back.
+            This test has no subjects defined yet. Add its subjects (subject plan) first, then come back.
           </p>
         ) : (
           <div className="space-y-4">
-            {/* 1. ONE subject */}
+            {/* 1. One of the test's PREDEFINED subjects */}
             <div>
-              <label className="mb-1 block text-sm font-semibold">Subject</label>
-              <select value={subjectId} onChange={(e) => setSubjectId(e.target.value)} className="input py-2 text-sm">
+              <label className="mb-1 block text-sm font-semibold">Subject {Array.isArray(plan) && plan.length ? "(from this test's plan)" : ""}</label>
+              <select value={section} onChange={(e) => setSection(e.target.value)} className="input py-2 text-sm">
                 <option value="">Choose a subject…</option>
-                {subjects.map((s) => <option key={s._id} value={s._id}>{s.name}</option>)}
+                {subjectOptions.map((o) => (
+                  <option key={o.name} value={o.name}>{o.name}{o.planned ? ` (plan: ${o.planned})` : ""}{!o.lib ? " — no matching quiz" : ""}</option>
+                ))}
               </select>
+              {section && !resolvedId && (
+                <p className="mt-1 flex items-start gap-1 text-xs text-amber-600 dark:text-amber-400">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                  No quiz subject named "{section}" exists, so there's nothing to auto-pull. Create a quiz under that subject, or hand-pick instead.
+                </p>
+              )}
             </div>
 
-            {subjectId && (
+            {section && resolvedId && (
               <>
-                {/* 2. Split mode + global difficulty */}
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-sm font-semibold">How many by:</span>
                   <div className="inline-flex overflow-hidden rounded-lg border border-slate-200 text-xs font-semibold dark:border-slate-700">
@@ -175,7 +193,6 @@ export default function AutoBuildTest({ open, onClose, testId, testName = "", pr
                   </span>
                 </div>
 
-                {/* topic mode: optional single Type filter for the whole pull */}
                 {splitBy === "topic" && (
                   <div className="flex items-center gap-2 text-sm">
                     <span className="text-slate-500 dark:text-slate-400">Question type</span>
@@ -186,12 +203,9 @@ export default function AutoBuildTest({ open, onClose, testId, testName = "", pr
                   </div>
                 )}
 
-                {/* 3. Auto-listed counts */}
                 {splitBy === "topic" ? (
                   <div>
-                    <div className="mb-1 flex items-center justify-between text-xs font-semibold text-slate-400">
-                      <span>Topic</span><span>Questions</span>
-                    </div>
+                    <div className="mb-1 flex items-center justify-between text-xs font-semibold text-slate-400"><span>Topic</span><span>Questions</span></div>
                     {topicsLoading ? (
                       <div className="py-4 text-center"><Loader2 className="mx-auto h-4 w-4 animate-spin text-slate-400" /></div>
                     ) : (
@@ -212,9 +226,7 @@ export default function AutoBuildTest({ open, onClose, testId, testName = "", pr
                   </div>
                 ) : (
                   <div>
-                    <div className="mb-1 flex items-center justify-between text-xs font-semibold text-slate-400">
-                      <span>Question type</span><span>Questions</span>
-                    </div>
+                    <div className="mb-1 flex items-center justify-between text-xs font-semibold text-slate-400"><span>Question type</span><span>Questions</span></div>
                     <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
                       {TYPE_KEYS.map((k) => (
                         <div key={k} className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-1.5 dark:bg-slate-800/60">
@@ -226,7 +238,7 @@ export default function AutoBuildTest({ open, onClose, testId, testName = "", pr
                   </div>
                 )}
 
-                {total > 0 && <p className="text-xs text-slate-400">Total to add from {subjectName}: <b>{total}</b> question(s).</p>}
+                {total > 0 && <p className="text-xs text-slate-400">Total to add to {section}: <b>{total}</b> question(s).</p>}
               </>
             )}
           </div>
@@ -260,7 +272,7 @@ export default function AutoBuildTest({ open, onClose, testId, testName = "", pr
 
         <div className="mt-5 flex justify-end gap-3">
           <button type="button" onClick={onClose} className="btn-outline">Close</button>
-          <button type="button" onClick={submit} disabled={busy || loading || noSubjects || !subjectId || total <= 0} className="btn-primary">
+          <button type="button" onClick={submit} disabled={busy || loading || noSubjects || !section || !resolvedId || total <= 0} className="btn-primary">
             {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Building…</> : <><Wand2 className="h-4 w-4" /> Build ({total})</>}
           </button>
         </div>
