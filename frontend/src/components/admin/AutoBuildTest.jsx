@@ -3,13 +3,16 @@ import { X, Wand2, Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
 import { contentService, practiceService, testService } from "../../services";
 import { QUESTION_TYPE_LABELS } from "../../lib/questions";
 
-// Auto-build a test the EASY way. Pick one of the test's OWN predefined subjects
-// (from its plan) — it never creates new subjects — then fill a GRID: rows are
-// the test's topics (or the question types) and columns are difficulty
-// (Easy / Medium / Hard / Any). Type a count in as many cells as you like — you
-// can set, e.g. "MCQ Easy 5" AND "Matching Hard 3" AND "Topic X Medium 4" all at
-// once. Questions are auto-picked from your existing quizzes and filed under the
-// chosen subject.
+// Auto-build a test the EASY way.
+//   1. Pick which of the test's PREDEFINED subjects to fill (from its plan).
+//   2. Pick which QUIZ SUBJECT to pull questions FROM (defaults to the same-named
+//      one when it exists, but you can choose any — so a test subject like
+//      "Accountancy" can pull from whatever quiz subject actually holds those
+//      questions). No new subjects are ever created.
+//   3. Fill a GRID: rows = that source's topics (or question types), columns =
+//      difficulty (Easy / Medium / Hard / Any). Type counts in as many cells as
+//      you like at once. Build pulls them all and files them under the chosen
+//      predefined subject.
 //
 // `plan`     = the test's subjectPlan [{ subject:<name>, count }].
 // `practice` = build a "My Test" from the caller's own My Practice quizzes.
@@ -17,27 +20,27 @@ const DIFF_COLS = [
   { key: "Easy", label: "Easy" },
   { key: "Medium", label: "Med" },
   { key: "Hard", label: "Hard" },
-  { key: "", label: "Any" }, // "" = any difficulty
+  { key: "", label: "Any" },
 ];
 const TYPE_KEYS = Object.keys(QUESTION_TYPE_LABELS);
+const OTHER = "__other__";
 
 export default function AutoBuildTest({ open, onClose, testId, testName = "", plan = [], practice = false, onDone }) {
-  const [libSubjects, setLibSubjects] = useState([]);
-  const [section, setSection] = useState("");
+  const [libSubjects, setLibSubjects] = useState([]); // quiz-bank subjects to pull FROM
+  const [section, setSection] = useState("");         // TARGET: the test's predefined subject (name)
+  const [sourceId, setSourceId] = useState("");       // SOURCE: the quiz subject id to pull from
   const [topics, setTopics] = useState([]);
   const [topicsLoading, setTopicsLoading] = useState(false);
-  const [rowDim, setRowDim] = useState("topic"); // "topic" | "type" — what the grid rows are
-  const [cells, setCells] = useState({}); // `${rowKey}|${diffKey}` -> count
+  const [rowDim, setRowDim] = useState("topic");
+  const [cells, setCells] = useState({});
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [report, setReport] = useState(null);
 
-  const OTHER = "__other__"; // the "any/other topic" row key
-
   useEffect(() => {
     if (!open) return;
-    setSection(""); setTopics([]); setRowDim("topic"); setCells({}); setMsg(""); setReport(null);
+    setSection(""); setSourceId(""); setTopics([]); setRowDim("topic"); setCells({}); setMsg(""); setReport(null);
     setLoading(true);
     const load = practice
       ? practiceService.allSubjects().then((s) => (s || []).filter((x) => (x.kind ? x.kind === "quiz" : true)))
@@ -51,26 +54,32 @@ export default function AutoBuildTest({ open, onClose, testId, testName = "", pl
     return m;
   }, [libSubjects]);
 
-  const subjectOptions = useMemo(() => {
+  // TARGET subjects: the test's plan subjects (or the quiz-bank list if no plan).
+  const targetOptions = useMemo(() => {
     if (Array.isArray(plan) && plan.length) {
       return plan.map((p) => String(p.subject || "").trim()).filter(Boolean)
-        .map((name) => ({ name, planned: (plan.find((p) => (p.subject || "") === name) || {}).count || 0, lib: libByName[name.toLowerCase()] || null }));
+        .map((name) => ({ name, planned: (plan.find((p) => (p.subject || "") === name) || {}).count || 0 }));
     }
-    return libSubjects.map((s) => ({ name: s.name, planned: 0, lib: s }));
-  }, [plan, libSubjects, libByName]);
+    return libSubjects.map((s) => ({ name: s.name, planned: 0 }));
+  }, [plan, libSubjects]);
 
-  const chosen = subjectOptions.find((o) => o.name === section) || null;
-  const resolvedId = chosen?.lib?._id || "";
+  // When the target subject changes, default the SOURCE to a same-named quiz
+  // subject if one exists (so the common case is one tap).
+  const onPickSection = (name) => {
+    setSection(name);
+    setCells({});
+    const match = libByName[name.trim().toLowerCase()];
+    setSourceId(match?._id || "");
+  };
 
   useEffect(() => {
-    if (!open || !resolvedId) { setTopics([]); return; }
+    if (!open || !sourceId) { setTopics([]); return; }
     setTopicsLoading(true);
     setCells({});
-    const load = practice ? practiceService.adminTopics(resolvedId) : contentService.topics(resolvedId);
+    const load = practice ? practiceService.adminTopics(sourceId) : contentService.topics(sourceId);
     load.then((t) => setTopics(t || [])).catch(() => setTopics([])).finally(() => setTopicsLoading(false));
-  }, [resolvedId, open, practice]);
+  }, [sourceId, open, practice]);
 
-  // Grid rows for the current dimension.
   const rows = useMemo(() => {
     if (rowDim === "type") return TYPE_KEYS.map((k) => ({ key: k, label: QUESTION_TYPE_LABELS[k] }));
     const t = topics.map((x) => ({ key: x._id, label: x.title || x.name }));
@@ -87,18 +96,15 @@ export default function AutoBuildTest({ open, onClose, testId, testName = "", pl
   const buildBlueprint = () => {
     const out = [];
     const base = (extra = {}) => (practice
-      ? { practiceSubject: resolvedId, section, ...extra }
-      : { subject: resolvedId, section, ...extra });
+      ? { practiceSubject: sourceId, section, ...extra }
+      : { subject: sourceId, section, ...extra });
     for (const r of rows) {
       for (const c of DIFF_COLS) {
         const count = parseInt(cells[cellKey(r.key, c.key)], 10) || 0;
         if (count <= 0) continue;
         const extra = { difficulty: c.key || undefined, count };
-        if (rowDim === "type") {
-          extra.type = r.key;
-        } else if (r.key !== OTHER) {
-          if (practice) extra.practiceTopic = r.key; else extra.topic = r.key;
-        }
+        if (rowDim === "type") extra.type = r.key;
+        else if (r.key !== OTHER) { if (practice) extra.practiceTopic = r.key; else extra.topic = r.key; }
         out.push(base(extra));
       }
     }
@@ -106,8 +112,8 @@ export default function AutoBuildTest({ open, onClose, testId, testName = "", pl
   };
 
   const submit = async () => {
-    if (!section) { setMsg("Choose a subject first."); return; }
-    if (!resolvedId) { setMsg(`No matching quiz subject named "${section}" to pull from.`); return; }
+    if (!section) { setMsg("Choose which subject to fill."); return; }
+    if (!sourceId) { setMsg("Choose a quiz subject to pull questions from."); return; }
     const blueprint = buildBlueprint();
     if (!blueprint.length) { setMsg("Type a count in at least one cell of the grid."); return; }
     setBusy(true); setMsg(""); setReport(null);
@@ -115,7 +121,7 @@ export default function AutoBuildTest({ open, onClose, testId, testName = "", pl
       const res = await testService.autoBuild(testId, blueprint);
       const n = res?.inserted ?? 0;
       setReport(res?.report || []);
-      setMsg(n ? `\u2713 Added ${n} question(s) to "${section}".` : "No matching questions were found — try higher counts or 'Any'.");
+      setMsg(n ? `\u2713 Added ${n} question(s) to "${section}".` : "No matching questions were found — try higher counts or 'Any', or a different source subject.");
       if (n) { onDone?.(n); setCells({}); }
     } catch (e) {
       setMsg(e.message || "Couldn't build the test.");
@@ -124,7 +130,8 @@ export default function AutoBuildTest({ open, onClose, testId, testName = "", pl
     }
   };
 
-  const noSubjects = !loading && subjectOptions.length === 0;
+  const noSubjects = !loading && targetOptions.length === 0;
+  const noSources = !loading && libSubjects.length === 0;
 
   return (
     <div className="fixed inset-0 z-[55] flex items-start justify-center overflow-y-auto bg-black/50 p-4">
@@ -136,7 +143,7 @@ export default function AutoBuildTest({ open, onClose, testId, testName = "", pl
           <button type="button" onClick={onClose}><X className="h-5 w-5" /></button>
         </div>
         <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
-          Pick one of this test's <b>subjects</b>, then fill the grid: type how many questions you want for each <b>{rowDim === "type" ? "type" : "topic"}</b> and <b>difficulty</b> — set as many cells as you like at once. Questions are auto-picked from your quizzes and filed under that subject.
+          Choose which of this test's <b>subjects</b> to fill, pick the <b>quiz subject</b> to pull from, then type how many questions per <b>{rowDim === "type" ? "type" : "topic"}</b> and <b>difficulty</b>. Nothing new is created.
         </p>
 
         {loading ? (
@@ -145,25 +152,41 @@ export default function AutoBuildTest({ open, onClose, testId, testName = "", pl
           <p className="rounded-lg border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500 dark:border-slate-700">
             This test has no subjects defined yet. Add its subjects (subject plan) first.
           </p>
+        ) : noSources ? (
+          <p className="rounded-lg border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500 dark:border-slate-700">
+            No quizzes with questions found to pull from yet. Build some quizzes first.
+          </p>
         ) : (
           <div className="space-y-3">
+            {/* TARGET: which predefined subject to fill */}
             <div>
-              <label className="mb-1 block text-sm font-semibold">Subject {Array.isArray(plan) && plan.length ? "(from this test's plan)" : ""}</label>
-              <select value={section} onChange={(e) => setSection(e.target.value)} className="input py-2 text-sm">
+              <label className="mb-1 block text-sm font-semibold">Fill this subject {Array.isArray(plan) && plan.length ? "(from the test's plan)" : ""}</label>
+              <select value={section} onChange={(e) => onPickSection(e.target.value)} className="input py-2 text-sm">
                 <option value="">Choose a subject…</option>
-                {subjectOptions.map((o) => (
-                  <option key={o.name} value={o.name}>{o.name}{o.planned ? ` (plan: ${o.planned})` : ""}{!o.lib ? " — no matching quiz" : ""}</option>
+                {targetOptions.map((o) => (
+                  <option key={o.name} value={o.name}>{o.name}{o.planned ? ` (plan: ${o.planned})` : ""}</option>
                 ))}
               </select>
-              {section && !resolvedId && (
-                <p className="mt-1 flex items-start gap-1 text-xs text-amber-600 dark:text-amber-400">
-                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
-                  No quiz subject named "{section}" exists, so there's nothing to auto-pull.
-                </p>
-              )}
             </div>
 
-            {section && resolvedId && (
+            {/* SOURCE: which quiz subject to pull FROM */}
+            {section && (
+              <div>
+                <label className="mb-1 block text-sm font-semibold">Pull questions from</label>
+                <select value={sourceId} onChange={(e) => setSourceId(e.target.value)} className="input py-2 text-sm">
+                  <option value="">Choose a quiz subject…</option>
+                  {libSubjects.map((s) => <option key={s._id} value={s._id}>{s.name}</option>)}
+                </select>
+                {!sourceId && (
+                  <p className="mt-1 flex items-start gap-1 text-xs text-amber-600 dark:text-amber-400">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                    Pick the quiz subject that holds "{section}" questions (no quiz is named exactly "{section}").
+                  </p>
+                )}
+              </div>
+            )}
+
+            {section && sourceId && (
               <>
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-semibold">Rows:</span>
@@ -178,7 +201,6 @@ export default function AutoBuildTest({ open, onClose, testId, testName = "", pl
                   <div className="py-4 text-center"><Loader2 className="mx-auto h-4 w-4 animate-spin text-slate-400" /></div>
                 ) : (
                   <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-                    {/* header */}
                     <div className="flex items-center gap-1 border-b border-slate-200 bg-slate-50 px-2 py-1.5 text-[11px] font-semibold text-slate-500 dark:border-slate-700 dark:bg-slate-800/60">
                       <span className="min-w-0 flex-1">{rowDim === "type" ? "Question type" : "Topic"}</span>
                       {DIFF_COLS.map((c) => <span key={c.key} className="w-12 flex-shrink-0 text-center">{c.label}</span>)}
@@ -199,7 +221,6 @@ export default function AutoBuildTest({ open, onClose, testId, testName = "", pl
                           ))}
                         </div>
                       ))}
-                      {rows.length === 0 && <p className="py-3 text-center text-xs text-slate-400">No topics — switch to "By type" or add topics.</p>}
                     </div>
                   </div>
                 )}
@@ -237,7 +258,7 @@ export default function AutoBuildTest({ open, onClose, testId, testName = "", pl
 
         <div className="mt-5 flex justify-end gap-3">
           <button type="button" onClick={onClose} className="btn-outline">Close</button>
-          <button type="button" onClick={submit} disabled={busy || loading || noSubjects || !section || !resolvedId || total <= 0} className="btn-primary">
+          <button type="button" onClick={submit} disabled={busy || loading || noSubjects || !section || !sourceId || total <= 0} className="btn-primary">
             {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Building…</> : <><Wand2 className="h-4 w-4" /> Build ({total})</>}
           </button>
         </div>
