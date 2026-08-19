@@ -1,12 +1,44 @@
 import Settings from "../models/Settings.js";
+import Tenant from "../models/Tenant.js";
+import { getCurrentTenantId } from "../utils/tenantContext.js";
 import { postToFacebookPage, verifyFacebook, getFacebookConfig, getInstagramUserId, postToInstagram } from "../config/facebook.js";
 import { renderQuestionImage } from "../config/socialImage.js";
 import { uploadToCloudinary } from "../config/cloudinary.js";
 
+// A freshly-provisioned institute must start as a CLEAN SLATE — it should carry
+// only its own name, never the platform's demo branding, marketing copy, fake
+// testimonials/stats or contact details. We pass these fields explicitly (empty)
+// so Mongoose does NOT fall back to the schema defaults ("My Study Guide", the
+// sample toppers, "1,20,000+ students", hello@mystudyguide.com, …). Functional
+// defaults (colours, nav sizing, watermark, subscription plans) are left to the
+// schema so the institute still has sensible, working settings.
+function cleanTenantSeed(instituteName) {
+  return {
+    key: "site",
+    siteName: instituteName || "",
+    tagline: "",
+    aboutHeading: "",
+    aboutIntro: "",
+    aboutValues: [],
+    aboutStats: [],
+    testimonials: [],
+    contacts: [],
+    socialLinks: [],
+  };
+}
+
+// Fetch this scope's settings, creating the doc on first access. For a NON-default
+// institute the new doc is seeded empty (its own name only); the default/platform
+// tenant keeps the full demo defaults so nothing about the main site changes.
 async function getOrCreate() {
   let s = await Settings.findOne({ key: "site" });
-  if (!s) s = await Settings.create({ key: "site" });
-  return s;
+  if (s) return s;
+  const tenantId = getCurrentTenantId();
+  if (tenantId) {
+    const t = await Tenant.findById(tenantId).select("name isDefault").lean();
+    if (t && !t.isDefault) return Settings.create(cleanTenantSeed(t.name));
+  }
+  return Settings.create({ key: "site" });
 }
 
 // Never send the Facebook access token to the browser. Replace it with a
@@ -29,6 +61,11 @@ export async function getSettings(req, res) {
 
 // PUT /api/settings — admin only
 export async function updateSettings(req, res) {
+  // Ensure the settings doc already exists (clean-seeded for institutes) BEFORE
+  // the update below, so a first-save by an institute admin can't trigger the
+  // upsert's setDefaultsOnInsert and re-introduce the platform demo content.
+  await getOrCreate();
+
   const allowed = [
     "siteName", "tagline", "logoUrl", "primaryColor", "accentColor",
     "fontFamily", "socialLinks", "contacts",
