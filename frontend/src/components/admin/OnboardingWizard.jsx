@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { School, ImagePlus, Upload, X, FileText, Check, CheckCircle2, Loader2, ArrowRight, Mail, Phone, Info, Sparkles } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { School, ImagePlus, Upload, X, FileText, Check, CheckCircle2, Loader2, ArrowRight, Mail, Phone, Info, Sparkles, Share2, BookCopy, FileStack, BookMarked, MonitorCheck } from "lucide-react";
 import { useSettings } from "../../context/SettingsContext";
 import { useAuth } from "../../context/AuthContext";
 import { fileToResizedDataUrl } from "../../lib/imageResize";
@@ -34,14 +35,16 @@ If you were charged in error or believe there is a genuine problem with your pur
 
 To request help with a payment, reach us using the details on our Contact page.`;
 
-// A one-time, first-run setup wizard shown to a new institute admin. Four steps:
+// A one-time, first-run setup wizard shown to a new institute admin. Five steps:
 //   1. Logo & name   2. Company (About + Contact)   3. Resources (policies)
-//   4. Product (optional). Steps 1–3 are mandatory; step 4 can be skipped.
-// Each step saves its own fields; the final step marks onboardingCompleted so
-// the wizard never auto-opens again.
+//   4. Social links (optional)   5. Product (build quizzes/tests — optional).
+// Steps 1–3 are mandatory; 4 and 5 can be skipped. Each step saves its own
+// fields; finishing marks onboardingCompleted so the wizard never auto-opens
+// again. The Product step can also jump straight to a build page.
 export default function OnboardingWizard({ onDone }) {
   const { save } = useSettings();
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [step, setStep] = useState(1);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -130,15 +133,22 @@ export default function OnboardingWizard({ onDone }) {
     );
   };
 
-  // Finish (from step 4 — used by both "Finish" and "Skip this step").
-  const finish = async () => {
+  // Step 4 (Social links, optional): save any provided links, then go to step 5.
+  const next4 = () => {
     const socialLinks = [
       ["facebook", f.facebook], ["instagram", f.instagram], ["whatsapp", f.whatsapp], ["youtube", f.youtube],
     ].filter(([, url]) => url && url.trim()).map(([platform, url]) => ({ platform, url: url.trim() }));
+    if (socialLinks.length) commit({ socialLinks }, 5);
+    else { setError(""); setStep(5); }
+  };
+
+  // Mark the wizard finished (called on step 5). Optionally jump to a build page.
+  const finish = async (goTo) => {
     setSaving(true); setError("");
     try {
-      await save({ ...(socialLinks.length ? { socialLinks } : {}), onboardingCompleted: true });
+      await save({ onboardingCompleted: true });
       onDone?.();
+      if (goTo) navigate(goTo);
     } catch (e) {
       setError(e.message || "Could not finish. Please try again.");
     } finally {
@@ -150,7 +160,16 @@ export default function OnboardingWizard({ onDone }) {
     { n: 1, label: "Logo & Name", Icon: ImagePlus },
     { n: 2, label: "Company", Icon: Info },
     { n: 3, label: "Resources", Icon: FileText },
-    { n: 4, label: "Product", Icon: Sparkles },
+    { n: 4, label: "Social Links", Icon: Share2 },
+    { n: 5, label: "Product", Icon: Sparkles },
+  ];
+
+  // Quick-launch tiles for the final "Product" step — jump straight to building.
+  const BUILD_LINKS = [
+    { to: "/admin/content", label: "Quizzes & Questions", Icon: BookCopy },
+    { to: "/admin/tests", label: "Test Series", Icon: FileStack },
+    { to: "/admin/study", label: "Study Material", Icon: BookMarked },
+    { to: "/admin/cbt", label: "Online Exams", Icon: MonitorCheck },
   ];
 
   return (
@@ -168,7 +187,7 @@ export default function OnboardingWizard({ onDone }) {
         </div>
 
         {/* Step indicator */}
-        <div className="mt-5 grid grid-cols-4 gap-2">
+        <div className="mt-5 grid grid-cols-5 gap-1.5">
           {STEPS.map((s) => {
             const state = step === s.n ? "active" : step > s.n ? "done" : "todo";
             return (
@@ -276,16 +295,40 @@ export default function OnboardingWizard({ onDone }) {
 
           {step === 4 && (
             <>
-              <div className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-900/20 dark:text-emerald-200">
-                <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0" />
-                Your product pages — Quizzes, Test Series, Study Material and Dashboard — are ready automatically. Add your content anytime from the admin menu.
-              </div>
-              <p className="text-sm text-slate-500 dark:text-slate-400">Optionally add your social links (they appear in your footer). You can skip this and add them later.</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">Add your social links — they appear in your website footer. This step is optional; you can skip it and add them later.</p>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div><label className="mb-1 block text-xs font-medium text-slate-500">Facebook</label><input className="input" value={f.facebook} onChange={(e) => set("facebook", e.target.value)} placeholder="https://facebook.com/…" /></div>
                 <div><label className="mb-1 block text-xs font-medium text-slate-500">Instagram</label><input className="input" value={f.instagram} onChange={(e) => set("instagram", e.target.value)} placeholder="https://instagram.com/…" /></div>
                 <div><label className="mb-1 block text-xs font-medium text-slate-500">WhatsApp</label><input className="input" value={f.whatsapp} onChange={(e) => set("whatsapp", e.target.value)} placeholder="https://wa.me/…" /></div>
                 <div><label className="mb-1 block text-xs font-medium text-slate-500">YouTube</label><input className="input" value={f.youtube} onChange={(e) => set("youtube", e.target.value)} placeholder="https://youtube.com/@…" /></div>
+              </div>
+            </>
+          )}
+
+          {step === 5 && (
+            <>
+              <div className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-900/20 dark:text-emerald-200">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                Your website is set up! Now add your product — build quizzes, tests and more. Jump in below, or tap Finish and do it later from the admin menu.
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {BUILD_LINKS.map((b) => (
+                  <button
+                    key={b.to}
+                    type="button"
+                    onClick={() => finish(b.to)}
+                    disabled={saving}
+                    className="flex items-center gap-3 rounded-xl border border-slate-200 p-3 text-left transition hover:border-brand-400 hover:bg-brand-50 disabled:opacity-50 dark:border-slate-700 dark:hover:bg-brand-900/20"
+                  >
+                    <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-brand-100 text-brand-600 dark:bg-brand-900/40 dark:text-brand-300">
+                      <b.Icon className="h-5 w-5" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold">{b.label}</span>
+                      <span className="block text-xs text-slate-400">Open &amp; start building</span>
+                    </span>
+                  </button>
+                ))}
               </div>
             </>
           )}
@@ -299,14 +342,18 @@ export default function OnboardingWizard({ onDone }) {
 
           <div className="flex items-center gap-2">
             {step === 4 && (
-              <button type="button" onClick={finish} disabled={saving} className="btn-ghost text-slate-500">Skip this step</button>
+              <button type="button" onClick={() => { setError(""); setStep(5); }} disabled={saving} className="btn-ghost text-slate-500">Skip this step</button>
             )}
             {step < 4 ? (
               <button type="button" onClick={step === 1 ? next1 : step === 2 ? next2 : next3} disabled={saving} className="btn-primary">
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Continue <ArrowRight className="h-4 w-4" /></>}
               </button>
+            ) : step === 4 ? (
+              <button type="button" onClick={next4} disabled={saving} className="btn-primary">
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Continue <ArrowRight className="h-4 w-4" /></>}
+              </button>
             ) : (
-              <button type="button" onClick={finish} disabled={saving} className="btn-primary">
+              <button type="button" onClick={() => finish()} disabled={saving} className="btn-primary">
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Check className="h-4 w-4" /> Finish</>}
               </button>
             )}
