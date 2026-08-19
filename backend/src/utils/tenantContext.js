@@ -19,7 +19,17 @@ export function getCurrentTenantId() {
 // X-Tenant-Host header can't scope a session to another institute's data.
 export function setCurrentTenantId(tenantId) {
   const s = tenantStore.getStore();
-  if (s) s.tenantId = tenantId;
+  if (s) {
+    s.tenantId = tenantId;
+    s.bypass = false; // targeting a tenant re-enables scoping to it
+  }
+}
+
+// Mark the current request as cross-tenant (unscoped) — used for a super-admin
+// who legitimately operates across all institutes.
+export function setUnscoped() {
+  const s = tenantStore.getStore();
+  if (s) s.bypass = true;
 }
 
 // True when the current context has explicitly opted OUT of tenant scoping

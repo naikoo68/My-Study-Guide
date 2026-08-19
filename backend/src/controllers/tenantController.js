@@ -1,13 +1,15 @@
 import Tenant from "../models/Tenant.js";
+import User from "../models/User.js";
+import Question from "../models/Question.js";
+import TestSeries from "../models/TestSeries.js";
+import { runUnscoped } from "../utils/tenantContext.js";
 
-// Super-admin management of tenants (institutes). Phase 1: manual create/list/
-// suspend so the super-admin can set institutes up and test the foundation.
-// The public, paid, self-service onboarding that auto-creates a tenant arrives
-// in Phase 5 (it will reuse createTenant's provisioning logic).
+// Super-admin management of tenants (institutes) + the super-admin console data
+// (per-institute stats, create an institute admin). All routes run behind
+// [protect, superAdminOnly] — never an institute_admin action.
 //
-// All routes here run behind [protect, authorize("admin")] — the existing
-// platform admin acts as the super-admin until the dedicated super_admin role
-// lands in Phase 4.
+// Counts are gathered with runUnscoped() so they aggregate ACROSS institutes
+// regardless of the current request's tenant context.
 
 const RESERVED_SLUGS = new Set([
   "www", "api", "app", "admin", "mail", "static", "assets", "cdn", "help",
@@ -17,21 +19,50 @@ const RESERVED_SLUGS = new Set([
 const normSlug = (s) =>
   String(s || "").toLowerCase().trim().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
 
-const sanitize = (t) => ({
+const sanitize = (t, stats) => ({
   id: t._id,
   name: t.name,
   slug: t.slug,
   customDomain: t.customDomain || "",
   status: t.status,
+  isDefault: !!t.isDefault,
   ownerName: t.ownerName || "",
   ownerEmail: t.ownerEmail || "",
   subscriptionPlan: t.subscriptionPlan,
   isTrial: t.isTrial,
   expiresAt: t.expiresAt,
   createdAt: t.createdAt,
+  ...(stats ? { stats } : {}),
 });
 
-// GET /api/tenants — list all institutes (newest first).
+// Build { [tenantId]: { students, instituteAdmins, clients, questions, tests } }
+// for the given tenant ids, aggregating across all institutes.
+async function statsFor(ids) {
+  if (!ids.length) return {};
+  const [userAgg, qAgg, tAgg] = await runUnscoped(() =>
+    Promise.all([
+      User.aggregate([
+        { $match: { tenantId: { $in: ids } } },
+        { $group: { _id: { t: "$tenantId", r: "$role" }, c: { $sum: 1 } } },
+      ]),
+      Question.aggregate([{ $match: { tenantId: { $in: ids } } }, { $group: { _id: "$tenantId", c: { $sum: 1 } } }]),
+      TestSeries.aggregate([{ $match: { tenantId: { $in: ids } } }, { $group: { _id: "$tenantId", c: { $sum: 1 } } }]),
+    ])
+  );
+  const out = {};
+  const ensure = (id) => (out[id] ||= { students: 0, instituteAdmins: 0, clients: 0, questions: 0, tests: 0 });
+  for (const r of userAgg) {
+    const s = ensure(String(r._id.t));
+    if (r._id.r === "student") s.students += r.c;
+    else if (r._id.r === "institute_admin") s.instituteAdmins += r.c;
+    else if (r._id.r === "client") s.clients += r.c;
+  }
+  for (const r of qAgg) ensure(String(r._id)).questions += r.c;
+  for (const r of tAgg) ensure(String(r._id)).tests += r.c;
+  return out;
+}
+
+// GET /api/tenants — list all institutes (newest first) with per-institute stats.
 export async function listTenants(req, res) {
   const search = String(req.query.search || "").trim();
   const filter = { deleted: { $ne: true } };
@@ -39,15 +70,17 @@ export async function listTenants(req, res) {
     const rx = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
     filter.$or = [{ name: rx }, { slug: rx }, { ownerEmail: rx }];
   }
-  const tenants = await Tenant.find(filter).sort("-createdAt").lean();
-  res.json({ tenants: tenants.map(sanitize), total: tenants.length });
+  const tenants = await runUnscoped(() => Tenant.find(filter).sort("-createdAt").lean());
+  const stats = await statsFor(tenants.map((t) => t._id));
+  res.json({ tenants: tenants.map((t) => sanitize(t, stats[String(t._id)] || {})), total: tenants.length });
 }
 
 // GET /api/tenants/:id
 export async function getTenant(req, res) {
-  const t = await Tenant.findById(req.params.id);
+  const t = await runUnscoped(() => Tenant.findById(req.params.id));
   if (!t || t.deleted) return res.status(404).json({ message: "Tenant not found" });
-  res.json(sanitize(t));
+  const stats = await statsFor([t._id]);
+  res.json(sanitize(t, stats[String(t._id)] || {}));
 }
 
 // POST /api/tenants — create an institute (super-admin, manual).
@@ -58,7 +91,7 @@ export async function createTenant(req, res) {
   if (!slug) return res.status(400).json({ message: "A valid subdomain is required" });
   if (RESERVED_SLUGS.has(slug)) return res.status(409).json({ message: "That subdomain is reserved. Please choose another." });
 
-  const exists = await Tenant.findOne({ slug });
+  const exists = await runUnscoped(() => Tenant.findOne({ slug }));
   if (exists) return res.status(409).json({ message: "That subdomain is already taken" });
 
   const t = await Tenant.create({
@@ -77,9 +110,30 @@ export async function updateTenantStatus(req, res) {
   if (!["pending", "active", "suspended"].includes(status)) {
     return res.status(400).json({ message: "Invalid status" });
   }
-  const t = await Tenant.findById(req.params.id);
+  const t = await runUnscoped(() => Tenant.findById(req.params.id));
   if (!t || t.deleted) return res.status(404).json({ message: "Tenant not found" });
   t.status = status;
   await t.save();
   res.json(sanitize(t));
+}
+
+// POST /api/tenants/:id/admin — create an INSTITUTE ADMIN for a tenant.
+export async function createTenantAdmin(req, res) {
+  const t = await runUnscoped(() => Tenant.findById(req.params.id));
+  if (!t || t.deleted) return res.status(404).json({ message: "Tenant not found" });
+
+  const name = String(req.body?.name || "").trim();
+  const email = String(req.body?.email || "").toLowerCase().trim();
+  const password = String(req.body?.password || "");
+  if (!name || !email || !password) return res.status(400).json({ message: "Name, email and password are required" });
+  if (password.length < 6) return res.status(400).json({ message: "Password must be at least 6 characters" });
+
+  const exists = await runUnscoped(() => User.findOne({ email }).select("_id"));
+  if (exists) return res.status(409).json({ message: "Email already registered" });
+
+  // Explicit tenantId (not from context) — this admin belongs to THIS institute.
+  const user = await runUnscoped(() =>
+    User.create({ name, email, password, role: "institute_admin", tenantId: t._id, isEmailVerified: true })
+  );
+  res.status(201).json({ id: user._id, name: user.name, email: user.email, role: user.role, tenantId: user.tenantId });
 }

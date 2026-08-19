@@ -4,10 +4,10 @@ import {
   startAdminBackup, adminBackupJob, adminBackupFile,
   startAdminRestore, adminRestoreJob,
 } from "../controllers/backupController.js";
-import { protect, authorize } from "../middleware/auth.js";
+import { protect, superAdminOnly } from "../middleware/auth.js";
 
 const router = Router();
-const admin = [protect, authorize("admin")];
+const admin = [protect, superAdminOnly]; // full-library backup/restore is platform-wide (super-admin only)
 // A full-library restore can be a large JSON — allow a higher body limit than
 // the app-wide default just for the restore endpoint.
 const bigJson = express.json({ limit: "60mb" });

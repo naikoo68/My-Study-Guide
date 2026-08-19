@@ -5,10 +5,11 @@ import {
   getAiAccess, setAiMode, inferTopic, coverageGaps, outlineUnits, classifyUnits, parseSyllabus, autoDetectAllKeys, setAllKeysEnabled,
   checkQuestionsSemantic,
 } from "../controllers/aiController.js";
-import { protect, authorize } from "../middleware/auth.js";
+import { protect, authorize, superAdminOnly } from "../middleware/auth.js";
 
 const router = Router();
-const admin = [protect, authorize("admin")];
+// Platform-level AI admin endpoints (env-key import etc.) — super-admin only.
+const admin = [protect, superAdminOnly];
 // Clients may generate/import questions with AI too. Key MANAGEMENT is also
 // open to clients but every controller scopes strictly to the caller's own
 // keys (admin → platform keys, client → their own), so pools never mix.

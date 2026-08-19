@@ -12,7 +12,9 @@ const userSchema = new mongoose.Schema(
     avatar: { type: String },
     // "client" = a self-service account that can ONLY use the My Practice
     // section, where it builds & practices its own private content.
-    role: { type: String, enum: ["student", "admin", "client"], default: "student" },
+    // "admin" = platform super-admin (cross-tenant). "institute_admin" = an
+    // institute's own admin (scoped to their tenant). "client"/"student" as before.
+    role: { type: String, enum: ["student", "admin", "institute_admin", "client"], default: "student" },
     plan: { type: String, enum: ["Free", "Premium", "Pro"], default: "Free" },
     status: { type: String, enum: ["active", "blocked"], default: "active" },
     // Soft delete (recoverable). When true the account is in the "Recycle bin":
