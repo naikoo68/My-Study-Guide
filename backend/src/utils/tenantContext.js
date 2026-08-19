@@ -14,6 +14,14 @@ export function getCurrentTenantId() {
   return s ? s.tenantId : null;
 }
 
+// Override the current context's tenant. Used by auth to bind an authenticated
+// request to the LOGGED-IN USER's own tenant (a trusted source), so a spoofed
+// X-Tenant-Host header can't scope a session to another institute's data.
+export function setCurrentTenantId(tenantId) {
+  const s = tenantStore.getStore();
+  if (s) s.tenantId = tenantId;
+}
+
 // True when the current context has explicitly opted OUT of tenant scoping
 // (super-admin cross-tenant work, auth lookups, internal maintenance).
 export function isUnscoped() {

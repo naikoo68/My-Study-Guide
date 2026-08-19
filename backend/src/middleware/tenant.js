@@ -46,7 +46,10 @@ async function lookupTenant(host, headerSlug) {
 export async function resolveTenant(req, res, next) {
   let ctx = { tenantId: null, tenant: null, bypass: false };
   try {
-    const host = baseHost(req.headers["x-forwarded-host"] || req.headers.host);
+    // Prefer the browser's own hostname (sent by the frontend as X-Tenant-Host)
+    // so subdomain/custom-domain resolution works even when the frontend and API
+    // are on different domains. Falls back to the request's own host.
+    const host = baseHost(req.headers["x-tenant-host"] || req.headers["x-forwarded-host"] || req.headers.host);
     const headerSlug = String(req.headers["x-tenant"] || "").toLowerCase().trim();
     const key = headerSlug ? `h:${headerSlug}` : `d:${host}`;
     const now = Date.now();

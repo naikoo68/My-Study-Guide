@@ -49,6 +49,19 @@ async function request(path, { method = "GET", body, auth = true, headers = {}, 
     if (token) finalHeaders.Authorization = `Bearer ${token}`;
   }
 
+  // Multi-tenancy: tell the backend which institute this browser is for, derived
+  // from the site's own hostname (e.g. acme.example.com). The backend maps it to
+  // a tenant (subdomain / custom domain) to serve that institute's branding &
+  // data. Safe: for authenticated requests the server binds scope to the logged-
+  // in user's OWN tenant, so this header can't reach another institute's data.
+  try {
+    if (typeof window !== "undefined" && window.location?.hostname) {
+      finalHeaders["X-Tenant-Host"] = window.location.hostname;
+    }
+  } catch {
+    /* non-browser / unavailable — the backend falls back to the default tenant */
+  }
+
   // If the caller passed an already-aborted signal, bail immediately.
   if (signal?.aborted) { const e = new Error("Cancelled"); e.aborted = true; throw e; }
 
