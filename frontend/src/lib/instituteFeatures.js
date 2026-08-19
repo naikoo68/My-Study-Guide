@@ -18,6 +18,8 @@ export const INSTITUTE_FEATURES = [
   { key: "resume", label: "Resume Builder" },
   { key: "users", label: "Users / Students (& their subscriptions)" },
   { key: "clients", label: "Clients (& their subscriptions)" },
+  { key: "plans", label: "Plans (subscription pricing)" },
+  { key: "coupons", label: "Coupons (discount codes)" },
   { key: "performance", label: "Performance" },
   { key: "feedback", label: "Feedback" },
   { key: "reviews", label: "Reviews" },
