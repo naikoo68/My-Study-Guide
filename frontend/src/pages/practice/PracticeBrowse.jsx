@@ -5,7 +5,7 @@ import { ArrowRight, ChevronLeft, Clock, HelpCircle, Play, Lock, Unlock, Eye, Fi
 import { practiceService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
-import { subjectIconName } from "../../lib/subjectIcon";
+import { subjectIconName, subjectEmoji, subjectColor } from "../../lib/subjectIcon";
 
 const KIND_LABEL = { quiz: "My Quiz", test: "My Test", paper: "Previous Papers" };
 
@@ -131,18 +131,26 @@ export default function PracticeBrowse() {
       ) : (
         <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {rows.map((s, i) => {
-            // Subjects: use the custom uploaded logo if any; else the subject's
-            // explicit icon; else auto-pick a relevant icon from its name.
-            const autoName = level === "subjects" ? subjectIconName(s.name) : null;
-            const iconName = s.icon && s.icon !== "BookOpen" ? s.icon : autoName || s.icon;
+            // Subjects get a realistic, colourful logo: a custom uploaded image
+            // wins; otherwise a subject-specific emoji on a per-subject colour
+            // tile, both auto-derived from the name. Streams/topics keep icons.
+            const isSubject = level === "subjects";
+            const iconName = s.icon && s.icon !== "BookOpen" ? s.icon : isSubject ? subjectIconName(s.name) : s.icon;
             const Icon = Icons[iconName] || (level === "streams" ? Icons.GraduationCap : level === "topics" ? Icons.Layers : Icons.BookOpen);
+            const tileColor = isSubject && (!s.color || s.color === "from-violet-500 to-fuchsia-600") ? subjectColor(s.name) : s.color || "from-violet-500 to-fuchsia-600";
             const to = level === "streams" ? `/practice/${kind}/${s._id}`
               : level === "subjects" ? `/practice/${kind}/${streamId}/${s._id}`
               : `/practice/${kind}/${streamId}/${subjectId}/${s._id}`;
             return (
               <Link key={s._id} to={to} style={{ animationDelay: `${i * 40}ms` }} className="card-hover group animate-fade-in-up p-6 opacity-0">
-                <div className={`flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl shadow-soft ${s.image ? "border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800" : `bg-gradient-to-br ${s.color || "from-violet-500 to-fuchsia-600"} text-white`}`}>
-                  {s.image ? <img src={s.image} alt="" className="h-full w-full object-cover" /> : <Icon className="h-7 w-7" />}
+                <div className={`flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl shadow-soft ${s.image ? "border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800" : `bg-gradient-to-br ${tileColor} text-white`}`}>
+                  {s.image ? (
+                    <img src={s.image} alt="" className="h-full w-full object-cover" />
+                  ) : isSubject ? (
+                    <span className="text-3xl leading-none drop-shadow-sm" role="img" aria-label={s.name}>{subjectEmoji(s.name)}</span>
+                  ) : (
+                    <Icon className="h-7 w-7" />
+                  )}
                 </div>
                 <h3 className="mt-4 text-lg font-bold">{s.name}</h3>
                 {s.description && <p className="mt-1 line-clamp-2 text-sm text-slate-500 dark:text-slate-400">{s.description}</p>}

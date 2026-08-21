@@ -1,34 +1,49 @@
-// Map a subject NAME to a sensible lucide icon name, so each subject shows a
-// relevant logo automatically (used when no custom icon/image is set).
+// Map a subject NAME to a relevant logo automatically, so each subject shows a
+// realistic, recognisable symbol instead of the same generic book.
 //
-// Only widely-available lucide icon names are used. The caller looks the name up
-// as `Icons[name]` and falls back to BookOpen if a build doesn't include it, so
-// an unknown name can never crash the page.
+// Each rule is [regex, lucideIconName, emoji, gradientColor]:
+//  - emoji         → colourful, realistic glyph shown on the subject card
+//  - lucideIconName→ line-icon fallback (also used for streams/topics)
+//  - gradientColor → per-subject tile colour so cards look varied
+//
+// Unknown names fall back to a book, so this can never crash.
+const DEFAULT_ICON = "BookOpen";
+const DEFAULT_EMOJI = "📘";
+const DEFAULT_COLOR = "from-violet-500 to-fuchsia-600";
+
 const RULES = [
-  [/account|ledger|book.?keep|commerce|audit|tally/i, "Calculator"],
-  [/econom|micro|macro|trade|market|finance|bank|gdp/i, "TrendingUp"],
-  [/business|management|\bmba\b|marketing|entrepreneur/i, "Briefcase"],
-  [/biolog|botany|zoolog|life scien|anatomy|physiolog|genetic|cell/i, "Dna"],
-  [/chem/i, "FlaskConical"],
-  [/physic/i, "Atom"],
-  [/math|algebra|geometry|calculus|arithmetic|quant|numerical|mensuration/i, "Sigma"],
-  [/reasoning|aptitude|logic/i, "Brain"],
-  [/comput|coding|program|software|\bit\b|informatics|data structure|cyber/i, "Cpu"],
-  [/environment|ecolog|pollution|nature|biodiversity/i, "Leaf"],
-  [/current affairs|general knowledge|\bgk\b|news|awareness/i, "Newspaper"],
-  [/english|grammar|vocab|literature|verbal|comprehension/i, "Languages"],
-  [/hindi|urdu|sanskrit|kashmiri|dogri|punjabi|arabic|persian|language/i, "Languages"],
-  [/histor|ancient|medieval|civilization|freedom|dynasty|heritage/i, "Landmark"],
-  [/geograph|\bmap\b|earth|physiograph|climate|river|terrain/i, "Globe"],
-  [/polit|civics|constitution|governance|polity|law|legal|\bact\b/i, "Scale"],
-  [/nursing|medical|health|pharma|disease|clinical/i, "Stethoscope"],
-  [/psycholog/i, "Brain"],
-  [/general scien|\bscience\b|ncert/i, "FlaskConical"],
-  [/exam|paper|mock|previous year|\bpyq\b|\b20\d\d\b/i, "GraduationCap"],
+  [/account|ledger|book.?keep|commerce|audit|tally/i, "Calculator", "🧮", "from-amber-500 to-orange-600"],
+  [/econom|micro|macro|trade|market|finance|bank|gdp/i, "TrendingUp", "📈", "from-emerald-500 to-teal-600"],
+  [/business|management|\bmba\b|marketing|entrepreneur/i, "Briefcase", "💼", "from-yellow-500 to-amber-600"],
+  [/biolog|botany|zoolog|life scien|physiolog|genetic|\bcell\b/i, "Dna", "🧬", "from-green-500 to-emerald-600"],
+  [/chem/i, "FlaskConical", "⚗️", "from-cyan-500 to-blue-600"],
+  [/physic/i, "Atom", "⚛️", "from-indigo-500 to-violet-600"],
+  [/math|algebra|geometry|calculus|arithmetic|quant|numerical|mensuration/i, "Sigma", "➗", "from-blue-500 to-indigo-600"],
+  [/reasoning|aptitude|logic|psycholog/i, "Brain", "🧠", "from-pink-500 to-rose-600"],
+  [/comput|coding|program|software|\bit\b|informatics|data structure|cyber/i, "Cpu", "💻", "from-slate-600 to-slate-800"],
+  [/environment|ecolog|pollution|nature|biodiversity/i, "Leaf", "🌿", "from-lime-500 to-green-600"],
+  [/current affairs|general knowledge|\bgk\b|\bnews\b|awareness/i, "Newspaper", "📰", "from-rose-500 to-red-600"],
+  [/english|grammar|vocab|literature|verbal|comprehension/i, "Languages", "🔤", "from-fuchsia-500 to-purple-600"],
+  [/hindi|urdu|sanskrit|kashmiri|dogri|punjabi|arabic|persian|language/i, "Languages", "🗣️", "from-fuchsia-500 to-purple-600"],
+  [/histor|ancient|medieval|civilization|freedom|dynasty|heritage/i, "Landmark", "🏛️", "from-amber-600 to-yellow-700"],
+  [/geograph|\bmap\b|earth|physiograph|climate|river|terrain/i, "Globe", "🌍", "from-sky-500 to-cyan-600"],
+  [/polit|civics|constitution|governance|polity|\blaw\b|legal|\bact\b/i, "Scale", "⚖️", "from-slate-500 to-gray-700"],
+  [/nursing|medical|health|pharma|disease|clinical|anatomy/i, "Stethoscope", "🩺", "from-red-500 to-rose-600"],
+  [/general scien|\bscience\b|ncert/i, "FlaskConical", "🔬", "from-teal-500 to-cyan-600"],
+  [/exam|paper|mock|previous year|\bpyq\b|\b20\d\d\b/i, "GraduationCap", "🎓", "from-violet-500 to-fuchsia-600"],
 ];
 
-export function subjectIconName(name) {
+function match(name) {
   const n = String(name || "");
-  for (const [re, icon] of RULES) if (re.test(n)) return icon;
-  return "BookOpen";
+  return RULES.find(([re]) => re.test(n)) || null;
+}
+
+export function subjectIconName(name) {
+  return match(name)?.[1] || DEFAULT_ICON;
+}
+export function subjectEmoji(name) {
+  return match(name)?.[2] || DEFAULT_EMOJI;
+}
+export function subjectColor(name) {
+  return match(name)?.[3] || DEFAULT_COLOR;
 }
