@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import * as Icons from "lucide-react";
 import { ChevronLeft, ArrowRight, Layers, FileQuestion } from "lucide-react";
 import { contentService } from "../../services";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
+import SubjectLogo from "../../components/ui/SubjectLogo";
 
 export default function SubjectTopics() {
   const { subjectId } = useParams();
@@ -38,7 +38,6 @@ export default function SubjectTopics() {
     );
   }
 
-  const Icon = Icons[subject.icon] || Icons.BookOpen;
   const backTo = subject.stream ? `/quiz/stream/${subject.stream}` : "/quiz";
 
   return (
@@ -48,9 +47,7 @@ export default function SubjectTopics() {
       </Link>
 
       <div className="flex flex-col gap-5 rounded-3xl border border-slate-200 bg-white p-6 sm:flex-row sm:items-center dark:border-slate-800 dark:bg-slate-900">
-        <div className={`flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br ${subject.color} text-white shadow-soft`}>
-          <Icon className="h-8 w-8" />
-        </div>
+        <SubjectLogo name={subject.name} icon={subject.icon} color={subject.color} image={subject.image} size={64} />
         <div className="flex-1">
           <h1 className="text-3xl font-extrabold">{subject.name}</h1>
           <p className="mt-1 text-slate-600 dark:text-slate-300">{subject.description}</p>

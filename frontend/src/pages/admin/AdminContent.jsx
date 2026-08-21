@@ -1022,7 +1022,7 @@ function FormModal({ modal, saving, onClose, onSave }) {
   const { type, mode, data } = modal;
   const [form, setForm] = useState(() => {
     if (type === "stream") return { name: data.name || "", description: data.description || "", icon: data.icon || "GraduationCap", color: data.color || COLORS[0] };
-    if (type === "subject") return { name: data.name || "", description: data.description || "", icon: data.icon || "BookOpen", color: data.color || COLORS[0] };
+    if (type === "subject") return { name: data.name || "", description: data.description || "", icon: data.icon || "BookOpen", color: data.color || COLORS[0], image: data.image || "" };
     if (type === "topic") return { title: data.title || "", description: data.description || "", index: data.index || 1 };
     if (type === "session") return { title: data.title || "", difficulty: data.difficulty || "Medium", index: data.index || 1 };
     if (type === "quiz") return { title: data.title || "", difficulty: data.difficulty || "Medium", index: data.index || 1 };
@@ -1031,6 +1031,30 @@ function FormModal({ modal, saving, onClose, onSave }) {
 
   const titleMap = { stream: "Stream", subject: "Subject", topic: "Topic", session: "Session", quiz: "Quiz" };
   const submit = (e) => { e.preventDefault(); onSave(form); };
+
+  // Upload a custom subject logo, downscaled to a 128×128 PNG data URI.
+  const onPickImage = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const s = 128;
+        const canvas = document.createElement("canvas");
+        canvas.width = s;
+        canvas.height = s;
+        const ctx = canvas.getContext("2d");
+        const scale = Math.max(s / img.width, s / img.height);
+        const w = img.width * scale;
+        const h = img.height * scale;
+        ctx.drawImage(img, (s - w) / 2, (s - h) / 2, w, h);
+        setForm((f) => ({ ...f, image: canvas.toDataURL("image/png") }));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4">
@@ -1053,6 +1077,18 @@ function FormModal({ modal, saving, onClose, onSave }) {
                   ))}
                 </div>
               </Field>
+              {type === "subject" && (
+                <Field label="Custom logo (optional)">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+                      {form.image ? <img src={form.image} alt="" className="h-full w-full object-cover" /> : <BookOpen className="h-6 w-6 text-slate-400" />}
+                    </div>
+                    <label className="btn-outline cursor-pointer"><Upload className="h-4 w-4" /> Upload<input type="file" accept="image/*" className="hidden" onChange={onPickImage} /></label>
+                    {form.image && <button type="button" onClick={() => setForm({ ...form, image: "" })} className="text-sm font-medium text-rose-600 hover:underline">Remove</button>}
+                  </div>
+                  <p className="mt-1 text-xs text-slate-400">Overrides the icon. Leave empty to auto-pick an emoji from the subject name.</p>
+                </Field>
+              )}
             </>
           )}
 

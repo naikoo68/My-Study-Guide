@@ -1,9 +1,9 @@
 import { Link, useParams } from "react-router-dom";
-import * as Icons from "lucide-react";
 import { ArrowRight, Search, ChevronLeft, FileQuestion } from "lucide-react";
 import { useEffect, useState } from "react";
 import { contentService } from "../../services";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
+import SubjectLogo from "../../components/ui/SubjectLogo";
 
 // Subjects inside a chosen stream. Each subject links to its topics (unchanged).
 export default function StreamSubjects() {
@@ -72,7 +72,6 @@ export default function StreamSubjects() {
         <>
           <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {filtered.map((s, i) => {
-              const Icon = Icons[s.icon] || Icons.BookOpen;
               return (
                 <Link
                   key={s._id}
@@ -80,9 +79,7 @@ export default function StreamSubjects() {
                   style={{ animationDelay: `${i * 40}ms` }}
                   className="card-hover group animate-fade-in-up p-6 opacity-0"
                 >
-                  <div className={`flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br ${s.color} text-white shadow-soft`}>
-                    <Icon className="h-7 w-7" />
-                  </div>
+                  <SubjectLogo name={s.name} icon={s.icon} color={s.color} image={s.image} size={56} />
                   <h3 className="mt-4 text-lg font-bold">{s.name}</h3>
                   <p className="mt-1 line-clamp-2 text-sm text-slate-500 dark:text-slate-400">{s.description}</p>
                   <div className="mt-4 flex items-center justify-between">

@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { authService, practiceService, searchService, testService } from "../../services";
 import { loadNav, saveNav } from "../../lib/navState";
+import SubjectLogo from "../../components/ui/SubjectLogo";
 import { useAuth } from "../../context/AuthContext";
 import Badge from "../../components/ui/Badge";
 import QuestionView from "../../components/admin/QuestionView";
@@ -622,9 +623,13 @@ export default function ClientDashboard({ onBuild, onUpgrade }) {
                     onClick={() => openNode(node)}
                     className="card-hover group w-full p-5 text-left"
                   >
-                    <div className={`flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br ${node.color || "from-violet-500 to-fuchsia-600"} text-white shadow-soft`}>
-                      <Icon className="h-6 w-6" />
-                    </div>
+                    {level === "subjects" ? (
+                      <SubjectLogo name={node.name} icon={node.icon} color={node.color} image={node.image} size={48} />
+                    ) : (
+                      <div className={`flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br ${node.color || "from-violet-500 to-fuchsia-600"} text-white shadow-soft`}>
+                        <Icon className="h-6 w-6" />
+                      </div>
+                    )}
                     <h3 className="mt-3 font-bold">{node.name}</h3>
                     {node.sharedByOther && (
                       <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-brand-600 dark:text-brand-400"><Share2 className="h-3 w-3" /> Shared with you</span>
