@@ -5,7 +5,7 @@ import {
 } from "lucide-react";
 import { aiService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
-import LanguageSelect from "./LanguageSelect";
+import LanguageSelect, { DifficultySelect } from "./LanguageSelect";
 
 // The question types the generator can produce (same set as the AI Generator).
 const Q_TYPES = [
@@ -51,6 +51,7 @@ export default function AiPdfTopics({ open, onClose, adapter, sel, subjectName =
   const [quizSize, setQuizSize] = useState(50); // questions per quiz at insert time
   const [includeExisting, setIncludeExisting] = useState(true); // also copy questions already in the PDF
   const [language, setLanguage] = useState(""); // output language for generated questions ("" = English/default)
+  const [level, setLevel] = useState(""); // overall difficulty level ("" = Mixed/use the grid)
 
   const [generating, setGenerating] = useState(false);
   const [stopping, setStopping] = useState(false); // user asked to cancel the current run
@@ -77,7 +78,7 @@ export default function AiPdfTopics({ open, onClose, adapter, sel, subjectName =
   useEffect(() => {
     if (!open) return;
     setText(""); setPdfName(""); setUnits([]); setResults([]); setCoverage(null); setMsg("");
-    setMatrix({ mcq: { Easy: 0, Medium: 20, Hard: 0 } }); setQuizSize(50); setIncludeExisting(true); setLanguage(""); setGenerating(false); setInserting(false);
+    setMatrix({ mcq: { Easy: 0, Medium: 20, Hard: 0 } }); setQuizSize(50); setIncludeExisting(true); setLanguage(""); setLevel(""); setGenerating(false); setInserting(false);
     setStopping(false); stopRef.current = false; jobIdRef.current = null;
     aiService.status(isClient ? apiSource : undefined).then(setStatus).catch(() => setStatus(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -180,6 +181,7 @@ export default function AiPdfTopics({ open, onClose, adapter, sel, subjectName =
       topic: unit,
       notes: `Write the questions ONLY about "${unit}" as covered in the source material.`,
       language: language || undefined, // write questions in this language (blank = English/default)
+      level: level || undefined, // force overall difficulty (blank = use the grid mix)
       mode: isClient ? apiSource : undefined,
     };
     if (plan) body.plan = plan; else body.count = count;
@@ -578,6 +580,7 @@ export default function AiPdfTopics({ open, onClose, adapter, sel, subjectName =
             </p>
 
             <LanguageSelect className="mt-3" value={language} onChange={setLanguage} />
+            <DifficultySelect className="mt-3" value={level} onChange={setLevel} />
 
             {/* How to split each topic's questions into quizzes on insert. */}
             <div className="mt-3">

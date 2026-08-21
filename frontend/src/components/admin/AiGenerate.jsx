@@ -4,7 +4,7 @@ import { aiService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
 import GraphView from "../ui/GraphView";
 import VizView from "../ui/VizView";
-import LanguageSelect from "./LanguageSelect";
+import LanguageSelect, { DifficultySelect } from "./LanguageSelect";
 
 const TYPE_OPTIONS = [
   { id: "mcq", label: "MCQ" },
@@ -70,6 +70,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
   const [matrix, setMatrix] = useState({ mcq: { Easy: 0, Medium: 5, Hard: 0 } });
   const [notes, setNotes] = useState("");
   const [language, setLanguage] = useState(""); // output language for generated questions ("" = English/default)
+  const [level, setLevel] = useState(""); // overall difficulty level ("" = Mixed/use the grid)
   const [preview, setPreview] = useState([]);
   const [busy, setBusy] = useState(false);
   const [stopping, setStopping] = useState(false); // user asked to stop the current generation
@@ -407,6 +408,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
           plan: wavePlan,
           notes: notes.trim(),
           language: language || undefined, // write questions in this language (blank = English/default)
+          level: level || undefined, // force overall difficulty (blank = use the grid mix)
           numerical: numerical || undefined, // include calculation-based numerical questions only when ticked
           model: model || undefined,
           avoid: avoidLocal, // don't repeat anything from earlier waves/batches
@@ -1028,6 +1030,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
             </p>
 
             <LanguageSelect className="mt-3" value={language} onChange={setLanguage} />
+            <DifficultySelect className="mt-3" value={level} onChange={setLevel} />
 
             <label className="mb-1 mt-3 block text-sm font-semibold">Instructions (optional — followed strictly)</label>
             {/* English/language instruction presets — always available. Tap to

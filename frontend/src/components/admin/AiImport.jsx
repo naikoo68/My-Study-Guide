@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { X, Globe, Download, CheckCircle2, AlertTriangle, Loader2, Server, KeyRound, FileText, Upload, Files, ScanText, Maximize2, Minimize2, Plus, Sparkles, ListChecks, Circle, Trash2 } from "lucide-react";
 import { aiService, documentService } from "../../services";
-import LanguageSelect from "./LanguageSelect";
+import LanguageSelect, { DifficultySelect } from "./LanguageSelect";
 import { useAuth } from "../../context/AuthContext";
 import GraphView from "../ui/GraphView";
 
@@ -41,6 +41,7 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
   const [matrix, setMatrix] = useState({ mcq: { Easy: 0, Medium: 5, Hard: 0 } });
   const [notes, setNotes] = useState(""); // optional strong instructions (both tabs)
   const [language, setLanguage] = useState(""); // output language for GENERATED questions ("" = English/default)
+  const [level, setLevel] = useState(""); // overall difficulty level for GENERATED questions ("" = Mixed/grid)
   // Stems already generated this session — sent so a "Generate more" batch never
   // repeats earlier questions (Generate-new mode, mirrors the AI Generator).
   const [avoidStems, setAvoidStems] = useState([]);
@@ -418,6 +419,7 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
           plan: wavePlan,
           notes: notes.trim() || undefined,
           language: language || undefined, // write generated questions in this language
+          level: level || undefined, // force overall difficulty (blank = use the grid mix)
           numerical: numerical || undefined,
           model: model || undefined,
           avoid: avoidLocal, // don't repeat anything from earlier waves/batches
@@ -851,6 +853,7 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
                 />
 
                 <LanguageSelect className="mb-3" value={language} onChange={setLanguage} />
+                <DifficultySelect className="mb-3" value={level} onChange={setLevel} />
 
                 {/* How many of each type × difficulty. Total = sum of all cells. */}
                 <div className="flex items-center justify-between">
