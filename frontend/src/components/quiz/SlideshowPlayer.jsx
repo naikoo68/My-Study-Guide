@@ -73,6 +73,9 @@ function CountdownRing({ remaining, total, label }) {
 
 const DURATION_CHOICES = [3, 5, 6, 8, 10, 12, 15, 20];
 
+// Clamp a manually-typed duration to a sane 1s–1h range (blank/NaN → 1).
+const clampSecs = (v) => Math.max(1, Math.min(3600, parseInt(v, 10) || 1));
+
 // Reusable slideshow / presentation player. Given a ready list of `questions`
 // (each with options, `correct` index and `explanation`), it auto-advances
 // question → answer on configurable timers — built for screen-recording a video
@@ -113,6 +116,13 @@ export default function SlideshowPlayer({ questions = [], quizTitle = "Quiz", cr
   const remainingRef = useRef(0);
   const hideTimerRef = useRef(null);
   const mediaRecorderRef = useRef(null);
+  // In-browser video export (canvas render → MediaRecorder, no screen share).
+  const capturingRef = useRef(false);
+  const recCanvasRef = useRef(null);
+  const recCtxRef = useRef(null);
+  const lastShotRef = useRef(null);
+  const keepAliveRef = useRef(null);
+  const html2canvasRef = useRef(null);
 
   const siteName = settings?.siteName || "My Study Guide";
 
@@ -205,51 +215,127 @@ export default function SlideshowPlayer({ questions = [], quizTitle = "Quiz", cr
     setPlaying(true);
   };
 
-  // Record the slideshow to a downloadable video, entirely in the browser.
-  // Uses the Screen Capture API: the user shares this tab, we play the show
-  // start-to-finish, then a .webm file downloads automatically at the end.
-  const startRecording = async () => {
+  // Paint a rasterised slide (an html2canvas snapshot) onto the recording
+  // canvas, letterboxed to fit the 16:9 frame.
+  const RECORD_BG = "#0f172a";
+  const blit = (shot) => {
+    const c = recCanvasRef.current;
+    const ctx = recCtxRef.current;
+    if (!c || !ctx || !shot) return;
+    ctx.fillStyle = RECORD_BG;
+    ctx.fillRect(0, 0, c.width, c.height);
+    const r = Math.min(c.width / shot.width, c.height / shot.height);
+    const w = shot.width * r;
+    const h = shot.height * r;
+    ctx.drawImage(shot, (c.width - w) / 2, (c.height - h) / 2, w, h);
+  };
+
+  // While exporting, snapshot the on-screen slide whenever the stage/phase/
+  // question changes and blit it to the recording canvas.
+  useEffect(() => {
+    if (!capturingRef.current) return;
+    const el = containerRef.current;
+    const h2c = html2canvasRef.current;
+    if (!el || !h2c) return;
+    let cancelled = false;
+    // small delay lets KaTeX / layout settle before the snapshot
+    const t = setTimeout(async () => {
+      try {
+        const shot = await h2c(el, {
+          useCORS: true,
+          backgroundColor: RECORD_BG,
+          logging: false,
+          scale: 1,
+          width: el.clientWidth,
+          height: el.clientHeight,
+        });
+        if (cancelled) return;
+        lastShotRef.current = shot;
+        blit(shot);
+      } catch {
+        /* skip this frame */
+      }
+    }, 200);
+    return () => { cancelled = true; clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage, phase, index]);
+
+  // Render the slideshow to a downloadable video ENTIRELY in the browser — no
+  // screen sharing. Each slide is rasterised with html2canvas and painted to an
+  // off-screen canvas; MediaRecorder captures that canvas and a video file is
+  // downloaded automatically when the show ends.
+  const downloadVideo = async () => {
     setRecError("");
-    if (!navigator.mediaDevices?.getDisplayMedia || typeof MediaRecorder === "undefined") {
-      setRecError("Your browser can't record here. Use the latest Chrome or Edge on desktop — or just screen-record manually while it plays.");
+    const canvasOk = typeof HTMLCanvasElement !== "undefined" && HTMLCanvasElement.prototype.captureStream;
+    if (typeof MediaRecorder === "undefined" || !canvasOk) {
+      setRecError("Video export needs a modern browser — it works best on desktop Chrome or Edge.");
       return;
     }
-    let stream;
+    // Load the rasteriser on demand from a CDN (avoids adding a build-time
+    // dependency / lockfile change). Cached by the browser after first use.
     try {
-      stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: true });
+      if (!html2canvasRef.current) {
+        const mod = await import(/* @vite-ignore */ "https://esm.sh/html2canvas@1.4.1");
+        html2canvasRef.current = mod.default || mod;
+      }
     } catch {
-      setRecError("Screen sharing was cancelled. To download a video, allow sharing and pick “This Tab”.");
+      setRecError("Couldn't load the video exporter (needs internet access). Please try again.");
       return;
     }
-    const mime = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"].find((m) => MediaRecorder.isTypeSupported(m)) || "";
-    const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = 1280;
+    canvas.height = 720;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = RECORD_BG;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    recCanvasRef.current = canvas;
+    recCtxRef.current = ctx;
+    lastShotRef.current = null;
+
+    let stream;
+    try { stream = canvas.captureStream(30); } catch { setRecError("Video export isn't supported on this device."); return; }
+
+    const mime = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm", "video/mp4"]
+      .find((m) => { try { return MediaRecorder.isTypeSupported(m); } catch { return false; } }) || "";
+    let rec;
+    try { rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined); } catch {
+      setRecError("Video export isn't supported on this device.");
+      return;
+    }
     const chunks = [];
     rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onerror = () => setRecError("Recording failed. If this quiz has external images, try one without — or use desktop Chrome.");
     rec.onstop = () => {
+      if (keepAliveRef.current) { clearInterval(keepAliveRef.current); keepAliveRef.current = null; }
       stream.getTracks().forEach((t) => t.stop());
-      const blob = new Blob(chunks, { type: rec.mimeType || "video/webm" });
+      capturingRef.current = false;
+      setRecording(false);
+      mediaRecorderRef.current = null;
+      if (!chunks.length) return;
+      const type = rec.mimeType || "video/webm";
+      const ext = type.includes("mp4") ? "mp4" : "webm";
+      const blob = new Blob(chunks, { type });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${(quizTitle || "quiz").replace(/[^\w-]+/g, "_")}-slideshow.webm`;
+      a.download = `${(quizTitle || "quiz").replace(/[^\w-]+/g, "_")}-slideshow.${ext}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 10000);
-      setRecording(false);
-      mediaRecorderRef.current = null;
     };
-    // If the user stops sharing from the browser's own bar, wrap up cleanly.
-    stream.getVideoTracks()[0]?.addEventListener("ended", () => {
-      if (rec.state !== "inactive") rec.stop();
-    });
+
     mediaRecorderRef.current = rec;
-    rec.start();
+    capturingRef.current = true;
     setRecording(true);
-    // Force a clean, finite run: no loop and keep the outro so recording ends.
+    // Keep the canvas stream alive (some browsers only emit frames on change).
+    keepAliveRef.current = setInterval(() => { if (lastShotRef.current) blit(lastShotRef.current); }, 200);
+    // Force a clean, finite run: no loop, keep the outro so recording ends.
     setConfig((c) => ({ ...c, loop: false, showOutro: true }));
     setControlsVisible(false);
     setStarted(true);
+    rec.start(1000);
     goToStage(config.showIntro ? "intro" : "q", 0, "show");
     setPlaying(true);
   };
@@ -321,14 +407,25 @@ export default function SlideshowPlayer({ questions = [], quizTitle = "Quiz", cr
             </span>
             <h1 className="mt-4 text-2xl font-extrabold">Slideshow — {quizTitle}</h1>
             <p className="mt-1 text-slate-500 dark:text-slate-400">
-              {questions.length} questions · Auto-plays each question, then reveals the answer. Perfect for screen-recording a YouTube video.
+              {questions.length} questions · Auto-plays each question, then reveals the answer. Set your timings and download it as a video for YouTube.
             </p>
           </div>
 
           <div className="mt-6 space-y-5">
             <div>
-              <label className="mb-1.5 flex items-center gap-2 text-sm font-semibold">
-                <Clock className="h-4 w-4 text-brand-600" /> Show each question for
+              <label className="mb-1.5 flex items-center justify-between gap-2 text-sm font-semibold">
+                <span className="flex items-center gap-2"><Clock className="h-4 w-4 text-brand-600" /> Show each question for</span>
+                <span className="flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    min={1}
+                    max={3600}
+                    value={config.questionSecs}
+                    onChange={(e) => setConfig((c) => ({ ...c, questionSecs: clampSecs(e.target.value) }))}
+                    className="w-20 rounded-lg border-2 border-brand-300 px-2 py-1 text-right text-sm font-bold tabular-nums outline-none focus:border-brand-500 dark:border-slate-700 dark:bg-slate-900"
+                  />
+                  <span className="text-slate-400">sec</span>
+                </span>
               </label>
               <div className="flex flex-wrap gap-2">
                 {DURATION_CHOICES.map((s) => (
@@ -348,8 +445,19 @@ export default function SlideshowPlayer({ questions = [], quizTitle = "Quiz", cr
             </div>
 
             <div>
-              <label className="mb-1.5 flex items-center gap-2 text-sm font-semibold">
-                <CheckCircle2 className="h-4 w-4 text-emerald-600" /> Show the answer for
+              <label className="mb-1.5 flex items-center justify-between gap-2 text-sm font-semibold">
+                <span className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-emerald-600" /> Show the answer for</span>
+                <span className="flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    min={1}
+                    max={3600}
+                    value={config.answerSecs}
+                    onChange={(e) => setConfig((c) => ({ ...c, answerSecs: clampSecs(e.target.value) }))}
+                    className="w-20 rounded-lg border-2 border-emerald-300 px-2 py-1 text-right text-sm font-bold tabular-nums outline-none focus:border-emerald-500 dark:border-slate-700 dark:bg-slate-900"
+                  />
+                  <span className="text-slate-400">sec</span>
+                </span>
               </label>
               <div className="flex flex-wrap gap-2">
                 {DURATION_CHOICES.map((s) => (
@@ -391,8 +499,7 @@ export default function SlideshowPlayer({ questions = [], quizTitle = "Quiz", cr
             <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
               <Settings2 className="mr-1.5 inline h-4 w-4" />
               Estimated length: <span className="font-semibold text-slate-700 dark:text-slate-200">{mins}m {secs}s</span>.
-              Tip: press <kbd className="rounded bg-white px-1 dark:bg-slate-700">F</kbd> for full screen,
-              <kbd className="ml-1 rounded bg-white px-1 dark:bg-slate-700">Space</kbd> to pause, then start your screen recorder.
+              Use <b>Start slideshow</b> to preview/present, or <b>Download video</b> to save it as a file.
             </div>
 
             <button onClick={begin} className="btn-primary w-full justify-center py-3 text-base">
@@ -400,16 +507,17 @@ export default function SlideshowPlayer({ questions = [], quizTitle = "Quiz", cr
             </button>
 
             <button
-              onClick={startRecording}
+              onClick={downloadVideo}
               disabled={recording}
               className="btn-outline w-full justify-center py-3 text-base disabled:opacity-60"
             >
-              <Download className="h-5 w-5" /> {recording ? "Recording…" : "Record & download video"}
+              <Download className="h-5 w-5" /> {recording ? "Rendering video…" : "Download video"}
             </button>
             {recError && <p className="text-sm font-medium text-rose-600 dark:text-rose-400">{recError}</p>}
             <p className="text-xs text-slate-400">
-              Downloading records this tab: when asked, share <b>“This Tab”</b>. The slideshow plays start-to-finish and a
-              <b> .webm</b> video saves automatically at the end. (Works in Chrome/Edge on desktop.)
+              Renders the slideshow to a <b>video file</b> right here — no screen sharing. It plays through once and the
+              file downloads automatically at the end (a full-length run takes about the estimated time above, so shorter
+              timings = faster). Works best on <b>desktop Chrome or Edge</b>.
             </p>
           </div>
         </div>
