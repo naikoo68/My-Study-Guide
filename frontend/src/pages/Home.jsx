@@ -271,8 +271,8 @@ export default function Home() {
           {/* Hero boxes for the three products */}
           <div className="mt-14 grid gap-5 sm:grid-cols-3">
             {[
-              { to: "/quiz", label: "Quizzes", desc: "Subject-wise adaptive quizzes with instant solutions.", Icon: ListChecks, cls: "from-brand-600 to-indigo-600" },
-              { to: "/test-series", label: "Test Series", desc: "Full-length & sectional mocks with real exam timing.", Icon: FileText, cls: "from-accent-500 to-orange-600" },
+              { to: "/choose/practice", label: "Quizzes", desc: "Subject-wise adaptive quizzes with instant solutions.", Icon: ListChecks, cls: "from-brand-600 to-indigo-600" },
+              { to: "/choose/tests", label: "Test Series", desc: "Full-length & sectional mocks with real exam timing.", Icon: FileText, cls: "from-accent-500 to-orange-600" },
               { to: "/study", label: "Study Material", desc: "Curated notes, PDFs and resources to revise faster.", Icon: BookMarked, cls: "from-emerald-500 to-teal-600" },
             ].map((p) => (
               <Link key={p.to} to={p.to} className="card-hover group relative overflow-hidden p-6">
@@ -432,7 +432,7 @@ export default function Home() {
             <Link to="/register" className="btn bg-white text-brand-700 hover:bg-slate-100">
               Create Free Account
             </Link>
-            <Link to="/quiz" className="btn border border-white/40 text-white hover:bg-white/10">
+            <Link to="/choose/practice" className="btn border border-white/40 text-white hover:bg-white/10">
               Browse Quizzes
             </Link>
           </div>
