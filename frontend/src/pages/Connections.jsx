@@ -123,9 +123,9 @@ export default function Connections({ embedded = false }) {
           <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm dark:border-slate-700 dark:bg-slate-800/60">
             <p className="flex items-center gap-2 font-semibold"><Puzzle className="h-4 w-4 text-brand-600" /> Install the extension (developer / unpacked)</p>
             <ol className="mt-2 list-decimal space-y-1 pl-5 text-slate-600 dark:text-slate-300">
-              <li>Click <b>Download Companion</b> above to save <code>companion-extension.zip</code>, then unzip it to get the <code>extension</code> folder. <span className="text-slate-400">(Use a computer — browser extensions don't install on phones.)</span></li>
+              <li>Click <b>Download Companion</b> above to save <code>companion-extension.zip</code>, then unzip it. <span className="text-slate-400">(Use a computer — browser extensions don't install on phones.)</span></li>
               <li>Open your browser's Extensions page (in Chrome/Brave/Edge, go to <code>chrome://extensions</code>) and turn on <b>Developer mode</b>.</li>
-              <li>Click <b>Load unpacked</b> and select the unzipped <code>extension</code> folder.</li>
+              <li>Click <b>Load unpacked</b> and select the unzipped folder.</li>
               <li>Open the Companion, click <b>Sign in</b>, and log in with this My Study Guide account.</li>
             </ol>
             <p className="mt-2 text-xs text-slate-400">A one-click store listing will be added later; for now it installs as an unpacked extension.</p>
