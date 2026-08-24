@@ -67,7 +67,7 @@ export const CATALOG = {
   ],
   biology: [
     "Cell Structure", "DNA", "RNA", "Mitosis", "Meiosis", "Food Chain", "Food Web", "Human Body",
-    "Plant Cell", "Animal Cell", "Ecosystem", "Classification Tree",
+    "Plant Cell", "Animal Cell", "Neuron", "Ecosystem", "Classification Tree",
   ],
   chemistry: [
     "Bohr Model", "Atomic Structure", "Molecular Structure", "Reaction Diagram",
@@ -366,6 +366,7 @@ Object.assign(MODULES, {
   cellstructure:     _il("cellstructure", "Cell Structure", "biology", { kind: "cell", type: "animal" }),
   animalcell:        _il("animalcell", "Animal Cell", "biology", { kind: "cell", type: "animal" }),
   plantcell:         _il("plantcell", "Plant Cell", "biology", { kind: "cell", type: "plant" }),
+  neuron:            _il("neuron", "Neuron", "biology", { kind: "neuron" }),
 });
 
 // ---- Phase 10: fill remaining catalog (aliases + charts/graphs/tables/illustrations) ----

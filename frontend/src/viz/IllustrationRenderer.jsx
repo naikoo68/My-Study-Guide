@@ -14,6 +14,7 @@
 //   bmagnet   {}
 import { forwardRef, useImperativeHandle, useRef } from "react";
 import { PALETTE as P, VizDefs, Sphere } from "./vizStyle";
+import { AnimalCell, PlantCell, Neuron } from "./assets/anatomy";
 
 const W = 760, H = 520;
 const num = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
@@ -267,32 +268,14 @@ function Dna({ s, single }) {
   );
 }
 
-// ---- Cell (animal / plant) -------------------------------------------------
-function label(x, y, tx, ty, text, color) {
-  return <g><line x1={x} y1={y} x2={tx} y2={ty} stroke="#94a3b8" strokeWidth="1" /><circle cx={x} cy={y} r="2.5" fill={color} /><text x={tx + (tx > W / 2 ? 4 : -4)} y={ty + 3} fontSize="11" fill="currentColor" textAnchor={tx > W / 2 ? "start" : "end"}>{text}</text></g>;
-}
+// ---- Cell (animal / plant) — detailed asset-pack figures -------------------
+// Delegates to the curated, higher-detail figures in ./assets/anatomy (real
+// organelle shapes with cristae/ER/Golgi/ribosomes), which reuse the shared
+// shading defs already present in this renderer's <defs>.
 function Cell({ s }) {
-  const plant = s.type === "plant", cx = W / 2, cy = H / 2;
-  return (
-    <g>
-      {plant && <rect x={cx - 220} y={cy - 150} width="440" height="300" rx="14" fill="#dcfce7" stroke="#16a34a" strokeWidth="6" />}
-      <ellipse cx={cx} cy={cy} rx={plant ? 200 : 210} ry={plant ? 135 : 140} fill={plant ? "#f0fdf4" : "#eff6ff"} stroke={plant ? "#65a30d" : "#3b82f6"} strokeWidth="2.5" filter="url(#viz-shadow)" />
-      {plant && <ellipse cx={cx + 40} cy={cy} rx="120" ry="80" fill="#bfdbfe66" stroke="#60a5fa" strokeWidth="1.5" />}
-      <Sphere cx={cx - 70} cy={cy - 20} r={46} fill="#c7d2fe" stroke="#4f46e5" strokeWidth={2} />
-      <Sphere cx={cx - 70} cy={cy - 20} r={16} fill="#4f46e5" />
-      {[[cx + 70, cy - 60], [cx + 100, cy + 40], [cx - 20, cy + 70]].map(([mx, my], i) => (
-        <g key={i}><ellipse cx={mx} cy={my} rx="30" ry="15" fill="#fecaca" stroke="#ef4444" strokeWidth="1.5" /><path d={`M${mx - 22} ${my} q11 -8 22 0 q11 8 22 0`} fill="none" stroke="#ef4444" strokeWidth="1.2" /></g>
-      ))}
-      {plant && [[cx + 30, cy - 30], [cx + 60, cy - 10], [cx - 30, cy + 40]].map(([gx, gy], i) => <ellipse key={i} cx={gx} cy={gy} rx="16" ry="10" fill="#22c55e" stroke="#15803d" strokeWidth="1.2" />)}
-      {Array.from({ length: 14 }).map((_, i) => <circle key={i} cx={cx - 130 + (i % 7) * 30} cy={cy + 30 + Math.floor(i / 7) * 24} r="2.5" fill="#f59e0b" />)}
-      {label(cx - 70, cy - 20, cx - 250, cy - 90, "Nucleus", "#4f46e5")}
-      {label(cx + 70, cy - 60, cx + 250, cy - 100, "Mitochondrion", "#ef4444")}
-      {label(cx - 130, cy + 30, cx - 250, cy + 110, "Ribosomes", "#f59e0b")}
-      {plant ? label(cx - 200, cy - 150, cx - 250, cy - 150, "Cell wall", "#16a34a") : label(cx, cy - 140, cx + 250, cy + 110, "Cell membrane", "#3b82f6")}
-      {plant && label(cx + 40, cy, cx + 250, cy + 40, "Vacuole", "#60a5fa")}
-      {plant && label(cx + 30, cy - 30, cx + 250, cy - 30, "Chloroplast", "#22c55e")}
-    </g>
-  );
+  return s.type === "plant"
+    ? <PlantCell showLabels={s.showLabels !== false} />
+    : <AnimalCell showLabels={s.showLabels !== false} />;
 }
 
 // ---- Electric field --------------------------------------------------------
@@ -573,7 +556,7 @@ const KINDS = {
   mechanism: (p) => <Mechanism {...p} />,
   ray: (p) => <Ray {...p} />, molecule: (p) => <Molecule {...p} />, reaction: (p) => <Reaction {...p} />,
   orbital: (p) => <Orbital {...p} />, dna: (p) => <Dna {...p} />, rna: (p) => <Dna {...p} single />,
-  cell: (p) => <Cell {...p} />, efield: (p) => <EField {...p} />, bmagnet: (p) => <BMagnet {...p} />,
+  cell: (p) => <Cell {...p} />, neuron: (p) => <Neuron showLabels={p.s?.showLabels !== false} />, efield: (p) => <EField {...p} />, bmagnet: (p) => <BMagnet {...p} />,
   field: (p) => <Field {...p} />, table: (p) => <TableFig {...p} />, celldivision: (p) => <CellDivision {...p} />,
   humanbody: (p) => <HumanBody {...p} />, periodictable: (p) => <PeriodicTable {...p} />, fishbone: (p) => <Fishbone {...p} />,
   flashcards: (p) => <Flashcards {...p} />,
