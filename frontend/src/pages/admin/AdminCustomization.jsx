@@ -134,8 +134,6 @@ const DEFAULTS = {
   restrictCopy: true,
   screenshotGuard: false,
   guardHoldMs: 1500,
-  publicClientEnabled: true,
-  publicInstituteEnabled: true,
   socialLinks: [
     { platform: "facebook", url: "" },
     { platform: "instagram", url: "" },
@@ -309,32 +307,6 @@ export default function AdminCustomization() {
       </div>
 
       {error && <div className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">{error}</div>}
-
-      {/* Public sign-up visibility — hide the Client / Institute features from the public site */}
-      <div className="card p-6">
-        <h3 className="mb-1 flex items-center gap-2 font-bold"><Eye className="h-5 w-5 text-brand-600" /> Public sign-up visibility</h3>
-        <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
-          Choose whether visitors can see &amp; join the <b>Client</b> and <b>Institute</b> options on your public site — the sign-up tabs, the pricing page audiences and the sign-in links. Turning one <b>Off</b> hides it everywhere for the public. Your existing clients/institutes and their accounts are <b>not</b> affected.
-        </p>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <label className="mb-1.5 block text-sm font-medium">Client sign-up</label>
-            <select className="input" value={form.publicClientEnabled === false ? "0" : "1"} onChange={(e) => set("publicClientEnabled", e.target.value === "1")}>
-              <option value="1">Shown to public</option>
-              <option value="0">Hidden from public</option>
-            </select>
-            <p className="mt-1 text-xs text-slate-400">Off = visitors can't see or register as a Client.</p>
-          </div>
-          <div>
-            <label className="mb-1.5 block text-sm font-medium">Institute sign-up</label>
-            <select className="input" value={form.publicInstituteEnabled === false ? "0" : "1"} onChange={(e) => set("publicInstituteEnabled", e.target.value === "1")}>
-              <option value="1">Shown to public</option>
-              <option value="0">Hidden from public</option>
-            </select>
-            <p className="mt-1 text-xs text-slate-400">Off = visitors can't see or register an Institute.</p>
-          </div>
-        </div>
-      </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Branding + Logo upload */}

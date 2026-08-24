@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Search, Ban, CheckCircle2, KeyRound, UserPlus, Trash2, X, ListChecks, FileStack, HelpCircle, Store, Pencil, Clock, AlarmClock, Gift, Ticket, Sparkles, Undo2, Archive } from "lucide-react";
+import { Search, Ban, CheckCircle2, KeyRound, UserPlus, Trash2, X, ListChecks, FileStack, HelpCircle, Store, Pencil, Clock, AlarmClock, Gift, Ticket, Sparkles, Undo2, Archive, Eye, EyeOff } from "lucide-react";
 import { userService, settingsService } from "../../services";
+import { useSettings } from "../../context/SettingsContext";
 import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 
@@ -78,6 +79,8 @@ export default function AdminClients() {
   const [toast, setToast] = useState("");
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState(null);
+  const { settings, save: saveSettings } = useSettings();
+  const [togglingPublic, setTogglingPublic] = useState(false);
   const [form, setForm] = useState(blank);
   const [saving, setSaving] = useState(false);
   // "Apply features to all clients" bulk modal.
@@ -103,6 +106,20 @@ export default function AdminClients() {
   const flash = (msg) => {
     setToast(msg);
     setTimeout(() => setToast(""), 2800);
+  };
+
+  // Public visibility of the whole Client feature (sign-up tabs, pricing, links).
+  const publicClientOn = settings?.publicClientEnabled !== false;
+  const togglePublicClient = async () => {
+    setTogglingPublic(true);
+    try {
+      await saveSettings({ publicClientEnabled: !publicClientOn });
+      flash(!publicClientOn ? "Client sign-up is now visible on your public site." : "Client sign-up is now hidden from the public.");
+    } catch (e) {
+      flash(e.message || "Could not update.");
+    } finally {
+      setTogglingPublic(false);
+    }
   };
 
   // Load the client subscription plans so a client can be assigned one.
@@ -267,6 +284,9 @@ export default function AdminClients() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <button onClick={togglePublicClient} disabled={togglingPublic} title="Show or hide the Client sign-up option on your public website. Existing clients are not affected." className={`btn-outline ${publicClientOn ? "" : "!border-amber-300 !text-amber-700 dark:!text-amber-300"}`}>
+            {publicClientOn ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />} {publicClientOn ? "Public sign-up: On" : "Public sign-up: Hidden"}
+          </button>
           <button onClick={() => setFeatAllOpen(true)} className="btn-outline">
             <CheckCircle2 className="h-4 w-4" /> Apply features to all
           </button>

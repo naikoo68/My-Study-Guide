@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { School, Plus, UserPlus, X, Search, CheckCircle2, Ban, Users, FileStack, HelpCircle, Store, ShieldCheck, Globe, Copy, Trash2, AlertTriangle, ListChecks } from "lucide-react";
+import { School, Plus, UserPlus, X, Search, CheckCircle2, Ban, Users, FileStack, HelpCircle, Store, ShieldCheck, Globe, Copy, Trash2, AlertTriangle, ListChecks, Eye, EyeOff } from "lucide-react";
 import { tenantService } from "../../services";
 import { INSTITUTE_FEATURES } from "../../lib/instituteFeatures";
 import { useAuth } from "../../context/AuthContext";
+import { useSettings } from "../../context/SettingsContext";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 import Badge from "../../components/ui/Badge";
 
@@ -20,6 +21,8 @@ export default function AdminInstitutes() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
+  const { settings, save: saveSettings } = useSettings();
+  const [togglingPublic, setTogglingPublic] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState(blankTenant);
   const [saving, setSaving] = useState(false);
@@ -100,6 +103,22 @@ export default function AdminInstitutes() {
       setError(err.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Public visibility of the whole Institute feature (public sign-up tab,
+  // pricing "For Institutes", /institute/register). Existing institutes are
+  // unaffected — this only controls what new public visitors can discover.
+  const publicInstituteOn = settings?.publicInstituteEnabled !== false;
+  const togglePublicInstitute = async () => {
+    setTogglingPublic(true);
+    try {
+      await saveSettings({ publicInstituteEnabled: !publicInstituteOn });
+      flash(!publicInstituteOn ? "Institute sign-up is now visible on your public site." : "Institute sign-up is now hidden from the public.");
+    } catch (e) {
+      flash(e.message || "Could not update.");
+    } finally {
+      setTogglingPublic(false);
     }
   };
 
@@ -232,6 +251,9 @@ export default function AdminInstitutes() {
           <p className="text-slate-500 dark:text-slate-400">Every institute (tenant) on the platform. Create institutes, give each its own admin, and activate/suspend them.</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <button onClick={togglePublicInstitute} disabled={togglingPublic} title="Show or hide the Institute sign-up option on your public website. Existing institutes are not affected." className={`btn-outline ${publicInstituteOn ? "" : "!border-amber-300 !text-amber-700 dark:!text-amber-300"}`}>
+            {publicInstituteOn ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />} {publicInstituteOn ? "Public sign-up: On" : "Public sign-up: Hidden"}
+          </button>
           <button onClick={openFeaturesAll} className="btn-outline">
             <ListChecks className="h-4 w-4" /> Manage access (all)
           </button>
