@@ -23,6 +23,27 @@
       })();
     </script>
 
+    <!-- Guard against the "Failed to execute 'removeChild' / 'insertBefore' on
+         'Node'" crash that browser page-translation (Google / Brave Translate)
+         triggers by swapping out React-managed text nodes. If the target's
+         parent no longer matches, no-op instead of throwing so the app keeps
+         running. Applied before React loads. See facebook/react#11538. -->
+    <script>
+      (function () {
+        if (typeof Node !== "function" || !Node.prototype) return;
+        var realRemoveChild = Node.prototype.removeChild;
+        Node.prototype.removeChild = function (child) {
+          if (child.parentNode !== this) return child;
+          return realRemoveChild.apply(this, arguments);
+        };
+        var realInsertBefore = Node.prototype.insertBefore;
+        Node.prototype.insertBefore = function (newNode, referenceNode) {
+          if (referenceNode && referenceNode.parentNode !== this) return newNode;
+          return realInsertBefore.apply(this, arguments);
+        };
+      })();
+    </script>
+
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#2563eb" />
