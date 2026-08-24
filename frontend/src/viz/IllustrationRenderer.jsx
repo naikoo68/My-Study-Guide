@@ -14,7 +14,7 @@
 //   bmagnet   {}
 import { forwardRef, useImperativeHandle, useRef } from "react";
 import { PALETTE as P, VizDefs, Sphere } from "./vizStyle";
-import { AnimalCell, PlantCell, Neuron } from "./assets/anatomy";
+import { AnimalCell, PlantCell, Neuron, Heart, Flower, DigestiveSystem } from "./assets/anatomy";
 
 const W = 760, H = 520;
 const num = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
@@ -556,7 +556,10 @@ const KINDS = {
   mechanism: (p) => <Mechanism {...p} />,
   ray: (p) => <Ray {...p} />, molecule: (p) => <Molecule {...p} />, reaction: (p) => <Reaction {...p} />,
   orbital: (p) => <Orbital {...p} />, dna: (p) => <Dna {...p} />, rna: (p) => <Dna {...p} single />,
-  cell: (p) => <Cell {...p} />, neuron: (p) => <Neuron showLabels={p.s?.showLabels !== false} />, efield: (p) => <EField {...p} />, bmagnet: (p) => <BMagnet {...p} />,
+  cell: (p) => <Cell {...p} />, neuron: (p) => <Neuron showLabels={p.s?.showLabels !== false} />,
+  heart: (p) => <Heart showLabels={p.s?.showLabels !== false} />, flower: (p) => <Flower showLabels={p.s?.showLabels !== false} />,
+  digestive: (p) => <DigestiveSystem showLabels={p.s?.showLabels !== false} />,
+  efield: (p) => <EField {...p} />, bmagnet: (p) => <BMagnet {...p} />,
   field: (p) => <Field {...p} />, table: (p) => <TableFig {...p} />, celldivision: (p) => <CellDivision {...p} />,
   humanbody: (p) => <HumanBody {...p} />, periodictable: (p) => <PeriodicTable {...p} />, fishbone: (p) => <Fishbone {...p} />,
   flashcards: (p) => <Flashcards {...p} />,
