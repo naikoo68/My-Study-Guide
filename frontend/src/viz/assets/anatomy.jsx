@@ -2299,3 +2299,153 @@ export function RiverCourse({ showLabels = true }) {
     </g>
   );
 }
+
+
+// ---- Prism dispersion ------------------------------------------------------
+export function PrismDispersion({ showLabels = true }) {
+  const cx = W / 2, cy = H / 2, ax = cx, ay = cy - 90, bl = cx - 70, br = cx + 70, by = cy + 80;
+  const rainbow = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#0ea5e9", "#3b82f6", "#7c3aed"];
+  const exX = cx + 30, exY = cy + 20;
+  return (
+    <g>
+      {/* Prism */}
+      <path d={`M ${ax} ${ay} L ${bl} ${by} L ${br} ${by} Z`} fill="#e0f2fe" stroke="#0284c7" strokeWidth="2.5" filter="url(#viz-shadow)" />
+      <path d={`M ${ax} ${ay} L ${bl} ${by} L ${br} ${by} Z`} fill="url(#viz-gloss)" opacity="0.4" />
+      {/* Incoming white light */}
+      <line x1={70} y1={cy - 10} x2={cx - 34} y2={exY - 6} stroke="#e2e8f0" strokeWidth="5" />
+      <line x1={70} y1={cy - 10} x2={cx - 34} y2={exY - 6} stroke="#94a3b8" strokeWidth="1" />
+      {/* Dispersed spectrum */}
+      {rainbow.map((c, i) => <line key={i} x1={exX} y1={exY} x2={W - 60} y2={cy - 60 + i * 26} stroke={c} strokeWidth="3.5" />)}
+      {showLabels && (
+        <g>
+          <text x={110} y={cy - 20} fontSize="12" fontWeight="600" fill="#64748b">white light</text>
+          <text x={cx} y={by + 22} fontSize="12" fontWeight="700" fill="#0284c7" textAnchor="middle">glass prism</text>
+          <text x={W - 60} y={cy - 78} fontSize="11.5" fontWeight="700" fill="#ef4444" textAnchor="end">spectrum (red → violet)</text>
+        </g>
+      )}
+    </g>
+  );
+}
+
+// ---- Seasons (Earth's axial tilt) ------------------------------------------
+export function Seasons({ showLabels = true }) {
+  const cx = W / 2, cy = H / 2, R = 175;
+  // 4 positions: left=N summer (axis tilts toward Sun), right=N winter, top/bottom=equinoxes
+  const pos = [
+    [cx - R, cy, "Summer (N)", "N pole tilts toward Sun"],
+    [cx, cy - R + 20, "Equinox", "neither pole tilts"],
+    [cx + R, cy, "Winter (N)", "N pole tilts away"],
+    [cx, cy + R - 20, "Equinox", "neither pole tilts"],
+  ];
+  return (
+    <g>
+      <circle cx={cx} cy={cy} r={R} fill="none" stroke="#cbd5e1" strokeWidth="1" strokeDasharray="3 6" />
+      <g filter="url(#viz-shadow)"><Sphere cx={cx} cy={cy} r={40} fill="#f59e0b" /></g>
+      <text x={cx} y={cy + 4} fontSize="12" fontWeight="800" fill="#fff" textAnchor="middle">Sun</text>
+      {pos.map(([x, y, name, sub], i) => (
+        <g key={i}>
+          <g filter="url(#viz-shadow)"><Sphere cx={x} cy={y} r={26} fill="#2563eb" /></g>
+          {/* tilted axis — all parallel (~23.5° from vertical, tilting right) */}
+          <line x1={x + 12} y1={y - 30} x2={x - 12} y2={y + 30} stroke="#f8fafc" strokeWidth="2.5" />
+          {showLabels && <><text x={x} y={y + (y < cy ? -40 : 50)} fontSize="12" fontWeight="700" fill="#2563eb" textAnchor="middle">{name}</text>
+            <text x={x} y={y + (y < cy ? -26 : 64)} fontSize="9.5" fill="#64748b" textAnchor="middle">{sub}</text></>}
+        </g>
+      ))}
+    </g>
+  );
+}
+
+// ---- Simple pendulum -------------------------------------------------------
+export function Pendulum({ showLabels = true }) {
+  const px = W / 2, py = 90, L = 260, ang = 28 * Math.PI / 180;
+  const bx = px + L * Math.sin(ang), by = py + L * Math.cos(ang);
+  const eqY = py + L;
+  return (
+    <g>
+      {/* Support */}
+      <line x1={px - 90} y1={py} x2={px + 90} y2={py} stroke="#334155" strokeWidth="6" strokeLinecap="round" />
+      {[...Array(7)].map((_, i) => <line key={i} x1={px - 84 + i * 24} y1={py} x2={px - 92 + i * 24} y2={py + 12} stroke="#94a3b8" strokeWidth="1.5" />)}
+      {/* Equilibrium (dashed) + string + bob */}
+      <line x1={px} y1={py} x2={px} y2={eqY} stroke="#94a3b8" strokeWidth="1.5" strokeDasharray="5 5" />
+      <line x1={px} y1={py} x2={bx} y2={by} stroke="#334155" strokeWidth="2" />
+      <g filter="url(#viz-shadow)"><Sphere cx={bx} cy={by} r={22} fill="#dc2626" /></g>
+      {/* Swing arc */}
+      <path d={`M ${px - (bx - px)} ${by} A ${L} ${L} 0 0 1 ${bx} ${by}`} fill="none" stroke="#0ea5e9" strokeWidth="1.6" strokeDasharray="4 4" />
+      {showLabels && (
+        <g>
+          <text x={px + 96} y={py + 4} fontSize="11" fill="#334155">pivot</text>
+          <text x={(px + bx) / 2 + 8} y={(py + by) / 2} fontSize="11" fill="#334155">length L</text>
+          <text x={px + 6} y={eqY - 6} fontSize="11" fill="#94a3b8">equilibrium</text>
+          <text x={bx + 26} y={by + 4} fontSize="11" fontWeight="600" fill="#dc2626">bob</text>
+        </g>
+      )}
+    </g>
+  );
+}
+
+// ---- Crude oil fractional distillation -------------------------------------
+export function CrudeOil({ showLabels = true }) {
+  const topX = W / 2 - 90, botX = W / 2 - 150, colTop = 70, colBot = H - 70, w1 = 180, w2 = 300;
+  const cx = W / 2;
+  const fractions = [
+    ["Refinery gas", "#a78bfa", 0.06], ["Petrol (gasoline)", "#60a5fa", 0.24],
+    ["Kerosene", "#34d399", 0.44], ["Diesel", "#fbbf24", 0.62], ["Fuel oil", "#f97316", 0.8], ["Bitumen", "#78350f", 0.95],
+  ];
+  const yAt = (t) => colTop + t * (colBot - colTop);
+  const halfAt = (t) => (w1 + (w2 - w1) * t) / 2;
+  return (
+    <g>
+      {/* Column (trapezoid, wider at hot bottom) */}
+      <path d={`M ${cx - w1 / 2} ${colTop} L ${cx + w1 / 2} ${colTop} L ${cx + w2 / 2} ${colBot} L ${cx - w2 / 2} ${colBot} Z`} fill="#f1f5f9" stroke="#334155" strokeWidth="2.5" filter="url(#viz-shadow)" />
+      {/* Fraction outlets */}
+      {fractions.map(([name, color, t], i) => {
+        const y = yAt(t), hx = halfAt(t);
+        return (
+          <g key={i}>
+            <line x1={cx - 4} y1={y} x2={cx - 6} y2={y} stroke="#334155" strokeWidth="1" />
+            <line x1={cx + hx} y1={y} x2={cx + hx + 40} y2={y} stroke={color} strokeWidth="5" markerEnd="url(#il-arrow)" />
+            {showLabels && <text x={cx + hx + 46} y={y + 4} fontSize="11" fontWeight="600" fill={color}>{name}</text>}
+          </g>
+        );
+      })}
+      {/* Crude in + heat */}
+      <line x1={40} y1={colBot - 30} x2={cx - w2 / 2} y2={colBot - 30} stroke="#334155" strokeWidth="5" markerEnd="url(#il-arrow)" />
+      <path d={`M ${cx} ${colBot} q -8 20 0 34 q 8 -14 0 -34`} fill="#f97316" />
+      {showLabels && (
+        <g>
+          <text x={44} y={colBot - 38} fontSize="11" fontWeight="600" fill="#334155">crude oil + heat</text>
+          <text x={cx - w1 / 2 - 6} y={colTop + 4} fontSize="10" fill="#0284c7" textAnchor="end">cooler ↑</text>
+          <text x={cx - w2 / 2 - 6} y={colBot} fontSize="10" fill="#dc2626" textAnchor="end">hotter ↓</text>
+        </g>
+      )}
+    </g>
+  );
+}
+
+// ---- Immune response -------------------------------------------------------
+export function ImmuneResponse({ showLabels = true }) {
+  const cx = W / 2, cy = H / 2;
+  const antibody = (x, y, rot) => <g transform={`rotate(${rot} ${x} ${y})`} stroke="#2563eb" strokeWidth="4" fill="none" strokeLinecap="round"><line x1={x} y1={y} x2={x} y2={y + 22} /><line x1={x} y1={y} x2={x - 12} y2={y - 16} /><line x1={x} y1={y} x2={x + 12} y2={y - 16} /></g>;
+  return (
+    <g>
+      {/* Phagocyte engulfing (right) */}
+      <path d={`M ${cx + 150} ${cy - 70} q 120 -10 120 70 q 0 90 -120 70 q -40 -6 -30 -60 q -12 -50 30 -50 Z`} fill="#e9d5ff" stroke="#7c3aed" strokeWidth="2.5" filter="url(#viz-shadow)" />
+      <circle cx={cx + 210} cy={cy} r="18" fill="#7c3aed" />
+      {/* Pathogen with antigen spikes (left) */}
+      <g filter="url(#viz-shadow)"><Sphere cx={cx - 120} cy={cy} r={44} fill="#dc2626" /></g>
+      {[...Array(12)].map((_, i) => { const a = (i / 12) * 2 * Math.PI; return <line key={i} x1={cx - 120 + 44 * Math.cos(a)} y1={cy + 44 * Math.sin(a)} x2={cx - 120 + 58 * Math.cos(a)} y2={cy + 58 * Math.sin(a)} stroke="#991b1b" strokeWidth="3" />; })}
+      {/* Antibodies binding */}
+      {antibody(cx - 120, cy - 66, 0)}
+      {antibody(cx - 186, cy, -90)}
+      {antibody(cx - 120, cy + 66, 180)}
+      {showLabels && (
+        <g>
+          <Leader x={cx - 120} y={cy} tx={70} ty={cy + 150} text="Pathogen" color="#dc2626" side="left" />
+          <text x={cx - 120 + 60} y={cy - 56} fontSize="10" fill="#991b1b">antigen</text>
+          <Leader x={cx - 186} y={cy} tx={70} ty={cy - 130} text="Antibody" color="#2563eb" side="left" />
+          <Leader x={cx + 210} y={cy} tx={W - 70} ty={cy - 120} text="Phagocyte (engulfs pathogen)" color="#7c3aed" side="right" />
+        </g>
+      )}
+    </g>
+  );
+}

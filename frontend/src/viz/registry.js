@@ -65,7 +65,7 @@ export const CATALOG = {
     "Topographic Profile", "Contour Diagram", "Map", "Choropleth", "Flow Map", "Elevation",
     "DEM", "Terrain", "Wind Rose", "Water Cycle", "Rock Cycle", "Volcano",
     "Layers of the Earth", "Layers of the Atmosphere", "Greenhouse Effect", "Plate Tectonics", "Soil Horizons",
-    "Weather Fronts", "River Course",
+    "Weather Fronts", "River Course", "Seasons (Earth's tilt)",
   ],
   biology: [
     "Cell Structure", "DNA", "RNA", "Mitosis", "Meiosis", "Food Chain", "Food Web", "Human Body",
@@ -76,7 +76,7 @@ export const CATALOG = {
     "Frog Life Cycle", "Plant Life Cycle", "Energy Pyramid", "Kidney (gross anatomy)",
     "Reflex Arc", "Food Chain (illustrated)", "Seed Structure", "Punnett Square",
     "Types of Joints", "Skin (cross-section)", "Protein Synthesis", "Oxygen Cycle",
-    "Breathing Mechanism", "Synapse", "Endocrine System", "Antagonistic Muscles",
+    "Breathing Mechanism", "Synapse", "Endocrine System", "Antagonistic Muscles", "Immune Response",
     "Ecosystem", "Classification Tree",
   ],
   chemistry: [
@@ -85,13 +85,14 @@ export const CATALOG = {
     "Elimination Mechanism", "Rearrangement Mechanism", "Combined Mechanisms",
     "Periodic Table", "Electron Configuration", "Energy Level", "Orbital Diagram",
     "States of Matter", "pH Scale", "Ionic vs Covalent Bonding", "Electrolysis", "Distillation",
-    "Titration Curve",
+    "Titration Curve", "Crude Oil Distillation",
   ],
   physics: [
     "Free Body Diagram", "Projectile Motion", "Wave", "Circuit Diagram", "Optics", "Ray Diagram",
     "Electric Field", "Magnetic Field", "Energy Diagram", "Solar System", "Phases of the Moon",
     "Electromagnetic Spectrum", "Series & Parallel Circuits", "Transverse & Longitudinal Waves",
     "Levers", "Solar & Lunar Eclipse", "Simple Machines", "Star Life Cycle", "Reflection & Refraction",
+    "Prism Dispersion", "Simple Pendulum",
   ],
   cs: [
     "Flowchart", "Algorithm Flow", "ER Diagram", "DFD", "UML", "Sequence Diagram",
@@ -439,6 +440,11 @@ Object.assign(MODULES, {
   titrationcurve:    _il("titrationcurve", "Titration Curve", "chemistry", { kind: "titration" }),
   weatherfronts:     _il("weatherfronts", "Weather Fronts", "geography", { kind: "weatherfronts" }),
   rivercourse:       _il("rivercourse", "River Course", "geography", { kind: "rivercourse" }),
+  prismdispersion:   _il("prismdispersion", "Prism Dispersion", "physics", { kind: "prism" }),
+  seasons:           _il("seasons", "Seasons (Earth's tilt)", "geography", { kind: "seasons" }),
+  pendulum:          _il("pendulum", "Simple Pendulum", "physics", { kind: "pendulum" }),
+  crudeoildistillation: _il("crudeoildistillation", "Crude Oil Distillation", "chemistry", { kind: "crudeoil" }),
+  immuneresponse:    _il("immuneresponse", "Immune Response", "biology", { kind: "immune" }),
 });
 
 // ---- Phase 10: fill remaining catalog (aliases + charts/graphs/tables/illustrations) ----
