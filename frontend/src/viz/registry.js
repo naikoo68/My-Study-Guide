@@ -68,6 +68,7 @@ export const CATALOG = {
   biology: [
     "Cell Structure", "DNA", "RNA", "Mitosis", "Meiosis", "Food Chain", "Food Web", "Human Body",
     "Plant Cell", "Animal Cell", "Neuron", "Human Heart", "Flower (parts)", "Digestive System",
+    "Respiratory System", "Eye (cross-section)", "Nephron", "Ear", "Leaf Cross-section",
     "Ecosystem", "Classification Tree",
   ],
   chemistry: [
@@ -371,6 +372,11 @@ Object.assign(MODULES, {
   heart:             _il("heart", "Human Heart", "biology", { kind: "heart" }),
   flower:            _il("flower", "Flower (parts)", "biology", { kind: "flower" }),
   digestivesystem:   _il("digestivesystem", "Digestive System", "biology", { kind: "digestive" }),
+  respiratorysystem: _il("respiratorysystem", "Respiratory System", "biology", { kind: "respiratory" }),
+  eye:               _il("eye", "Eye (cross-section)", "biology", { kind: "eye" }),
+  nephron:           _il("nephron", "Nephron", "biology", { kind: "nephron" }),
+  ear:               _il("ear", "Ear", "biology", { kind: "ear" }),
+  leafsection:       _il("leafsection", "Leaf Cross-section", "biology", { kind: "leaf" }),
 });
 
 // ---- Phase 10: fill remaining catalog (aliases + charts/graphs/tables/illustrations) ----

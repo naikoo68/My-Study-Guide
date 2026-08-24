@@ -466,3 +466,222 @@ export function DigestiveSystem({ showLabels = true }) {
     </g>
   );
 }
+
+
+// ---- Respiratory system ----------------------------------------------------
+export function Respiratory({ showLabels = true }) {
+  const cx = W / 2;
+  const cart = "#94a3b8", cartD = "#475569", lung = "#fecdd3", lungD = "#e11d48";
+  const leftLung = `M ${cx - 46} 250 C ${cx - 176} 252 ${cx - 198} 384 ${cx - 150} 428 C ${cx - 96} 452 ${cx - 46} 430 ${cx - 46} 372 C ${cx - 46} 330 ${cx - 40} 296 ${cx - 46} 250 Z`;
+  const rightLung = `M ${cx + 46} 250 C ${cx + 186} 252 ${cx + 210} 392 ${cx + 158} 434 C ${cx + 98} 456 ${cx + 46} 432 ${cx + 46} 372 C ${cx + 46} 326 ${cx + 40} 296 ${cx + 46} 250 Z`;
+  return (
+    <g>
+      {/* Lungs (behind the airways) */}
+      <path d={leftLung} fill={lung} stroke={lungD} strokeWidth="2.5" filter="url(#viz-shadow)" />
+      <path d={rightLung} fill={lung} stroke={lungD} strokeWidth="2.5" filter="url(#viz-shadow)" />
+      <path d={leftLung} fill="url(#viz-gloss)" opacity="0.5" />
+      <path d={rightLung} fill="url(#viz-gloss)" opacity="0.5" />
+      {/* Trachea with cartilage rings */}
+      <rect x={cx - 14} y={58} width="28" height="152" rx="14" fill={cart} stroke={cartD} strokeWidth="2" />
+      {Array.from({ length: 6 }).map((_, i) => <line key={i} x1={cx - 13} y1={80 + i * 22} x2={cx + 13} y2={80 + i * 22} stroke={cartD} strokeWidth="1.3" />)}
+      {/* Primary bronchi */}
+      <path d={`M ${cx - 6} 206 C ${cx - 40} 232 ${cx - 72} 252 ${cx - 96} 300`} stroke={cartD} strokeWidth="10" fill="none" strokeLinecap="round" />
+      <path d={`M ${cx + 6} 206 C ${cx + 40} 232 ${cx + 72} 252 ${cx + 96} 300`} stroke={cartD} strokeWidth="10" fill="none" strokeLinecap="round" />
+      {/* Bronchioles (branching inside each lung) */}
+      {[-1, 1].map((d, i) => (
+        <g key={i} stroke={cartD} strokeWidth="3" fill="none" strokeLinecap="round" opacity="0.8">
+          <path d={`M ${cx + d * 96} 300 q ${d * 20} 30 ${d * 14} 66`} />
+          <path d={`M ${cx + d * 104} 340 q ${d * 34} 8 ${d * 44} 30`} strokeWidth="2" />
+          <path d={`M ${cx + d * 100} 320 q ${d * -24} 20 ${d * -30} 48`} strokeWidth="2" />
+        </g>
+      ))}
+      {/* Alveoli cluster (inset) */}
+      {[[cx + 150, 360], [cx + 166, 350], [cx + 168, 372], [cx + 182, 362]].map(([ax, ay], i) => (
+        <Sphere key={i} cx={ax} cy={ay} r={9} fill="#fda4af" />
+      ))}
+      {/* Diaphragm */}
+      <path d={`M ${cx - 200} 452 Q ${cx} 500 ${cx + 208} 452`} stroke="#a16207" strokeWidth="6" fill="none" strokeLinecap="round" />
+      {showLabels && (
+        <g>
+          <Leader x={cx} y={110} tx={70} ty={110} text="Trachea" color={cartD} side="left" />
+          <Leader x={cx - 90} y={296} tx={70} ty={300} text="Bronchus" color={cartD} side="left" />
+          <Leader x={cx - 120} y={356} tx={70} ty={380} text="Bronchioles" color={cartD} side="left" />
+          <Leader x={cx - 120} y={380} tx={70} ty={430} text="Left lung" color={lungD} side="left" />
+          <Leader x={cx + 130} y={300} tx={W - 80} ty={280} text="Right lung" color={lungD} side="right" />
+          <Leader x={cx + 168} y={362} tx={W - 80} ty={370} text="Alveoli" color="#e11d48" side="right" />
+          <Leader x={cx + 120} y={455} tx={W - 80} ty={470} text="Diaphragm" color="#a16207" side="right" />
+        </g>
+      )}
+    </g>
+  );
+}
+
+// ---- Eye (horizontal cross-section, front = left) --------------------------
+export function Eye({ showLabels = true }) {
+  const cx = W / 2 + 10, cy = H / 2, R = 150;
+  return (
+    <g>
+      {/* Sclera + vitreous */}
+      <circle cx={cx} cy={cy} r={R} fill="#eff6ff" stroke="#e5e7eb" strokeWidth="8" filter="url(#viz-shadow)" />
+      <circle cx={cx} cy={cy} r={R} fill="#dbeafe" opacity="0.5" />
+      {/* Retina (inner lining at the back) */}
+      <path d={`M ${cx - R * 0.2} ${cy - R * 0.95} A ${R - 6} ${R - 6} 0 0 0 ${cx - R * 0.2} ${cy + R * 0.95}`} fill="none" stroke="#f59e0b" strokeWidth="6" />
+      {/* Cornea (front bulge, left) */}
+      <path d={`M ${cx - R * 0.86} ${cy - 62} Q ${cx - R - 34} ${cy} ${cx - R * 0.86} ${cy + 62}`} fill="#cffafe" stroke="#0891b2" strokeWidth="3" />
+      {/* Iris + pupil + lens */}
+      <line x1={cx - R * 0.86} y1={cy - 60} x2={cx - R * 0.86} y2={cy - 22} stroke="#7c3aed" strokeWidth="6" strokeLinecap="round" />
+      <line x1={cx - R * 0.86} y1={cy + 22} x2={cx - R * 0.86} y2={cy + 60} stroke="#7c3aed" strokeWidth="6" strokeLinecap="round" />
+      <ellipse cx={cx - R * 0.72} cy={cy} rx="18" ry="40" fill="#bae6fd" stroke="#0284c7" strokeWidth="2.5" />
+      {/* Optic nerve (exits back, slightly below axis) */}
+      <path d={`M ${cx + R * 0.9} ${cy + 30} q 60 6 84 34`} stroke="#f59e0b" strokeWidth="16" fill="none" strokeLinecap="round" />
+      <circle cx={cx + R * 0.86} cy={cy + 26} r="7" fill="#f59e0b" />
+      {showLabels && (
+        <g>
+          <Leader x={cx - R - 20} y={cy} tx={70} ty={cy - 40} text="Cornea" color="#0891b2" side="left" />
+          <Leader x={cx - R * 0.86} y={cy - 44} tx={70} ty={cy - 90} text="Iris" color="#7c3aed" side="left" />
+          <Leader x={cx - R * 0.86} y={cy} tx={70} ty={cy + 10} text="Pupil" color="#334155" side="left" />
+          <Leader x={cx - R * 0.72} y={cy + 40} tx={70} ty={cy + 90} text="Lens" color="#0284c7" side="left" />
+          <Leader x={cx + R * 0.5} y={cy - R * 0.78} tx={W - 80} ty={cy - 120} text="Retina" color="#f59e0b" side="right" />
+          <Leader x={cx + R * 0.95} y={cy - 30} tx={W - 80} ty={cy - 20} text="Sclera" color="#94a3b8" side="right" />
+          <Leader x={cx + R + 60} y={cy + 60} tx={W - 80} ty={cy + 90} text="Optic nerve" color="#f59e0b" side="right" />
+          <Leader x={cx + 30} y={cy} tx={cx + 30} ty={cy + R - 20} text="Vitreous humour" color="#3b82f6" side="right" />
+        </g>
+      )}
+    </g>
+  );
+}
+
+// ---- Nephron (functional unit of the kidney) -------------------------------
+export function Nephron({ showLabels = true }) {
+  const teal = "#0d9488", tealD = "#0f766e", red = "#dc2626";
+  // A continuous tubule: Bowman's capsule → PCT → loop of Henle → DCT → duct.
+  const tubule = `M 190 150 C 250 130 300 150 300 190 C 300 230 250 230 250 200
+    C 250 178 280 178 288 200 C 320 300 320 300 340 420
+    C 350 470 400 470 410 420 C 430 320 430 300 452 200
+    C 458 176 486 176 492 198 C 500 240 470 246 470 210
+    C 470 172 520 156 576 178`;
+  return (
+    <g>
+      {/* Bowman's capsule + glomerulus */}
+      <path d={`M 150 150 A 46 46 0 1 0 196 196`} fill="#e0f2fe" stroke="#0284c7" strokeWidth="3" />
+      <path d="M 150 150 q 22 -8 30 14 q 18 -6 12 18 q 16 8 -4 20 q 8 18 -18 12 q -14 14 -24 -8 q -20 2 -10 -22 q -10 -18 14 -22 q 0 -18 10 -12 Z"
+        fill="none" stroke={red} strokeWidth="2.5" transform="translate(2 4)" />
+      {/* Tubule */}
+      <path d={tubule} fill="none" stroke={teal} strokeWidth="9" strokeLinecap="round" strokeLinejoin="round" />
+      {/* Collecting duct outlet */}
+      <path d="M 576 178 C 610 200 610 380 590 460" fill="none" stroke={tealD} strokeWidth="12" strokeLinecap="round" />
+      {showLabels && (
+        <g>
+          <Leader x={168} y={172} tx={70} ty={120} text="Glomerulus" color={red} side="left" />
+          <Leader x={150} y={196} tx={70} ty={230} text="Bowman's capsule" color="#0284c7" side="left" />
+          <Leader x={276} y={210} tx={70} ty={300} text="Proximal tubule (PCT)" color={teal} side="left" />
+          <Leader x={378} y={430} tx={cx0(378)} ty={H - 20} text="Loop of Henle" color={teal} side="right" />
+          <Leader x={470} y={210} tx={W - 80} ty={200} text="Distal tubule (DCT)" color={teal} side="right" />
+          <Leader x={600} y={330} tx={W - 80} ty={340} text="Collecting duct" color={tealD} side="right" />
+        </g>
+      )}
+    </g>
+  );
+}
+// tiny helper so a downward leader stays on-canvas
+function cx0(x) { return x; }
+
+// ---- Ear -------------------------------------------------------------------
+export function Ear({ showLabels = true }) {
+  const cy = H / 2;
+  const skin = "#fcd34d", skinD = "#b45309", bone = "#e2e8f0", boneD = "#64748b", nerve = "#f59e0b";
+  // Cochlea spiral (inward)
+  const turns = 2.6, steps = 120, sx = 560, sy = cy + 60, rMax = 46;
+  let sp = "";
+  for (let i = 0; i <= steps; i++) {
+    const a = (i / steps) * turns * 2 * Math.PI;
+    const r = rMax * (1 - (i / steps) * 0.82);
+    sp += `${i ? "L" : "M"} ${(sx + r * Math.cos(a)).toFixed(1)} ${(sy + r * Math.sin(a)).toFixed(1)} `;
+  }
+  return (
+    <g>
+      {/* Pinna (outer ear) */}
+      <path d={`M 120 ${cy - 90} C 60 ${cy - 90} 60 ${cy + 90} 120 ${cy + 80} C 100 ${cy + 40} 150 ${cy + 30} 150 ${cy} C 150 ${cy - 40} 150 ${cy - 70} 120 ${cy - 90} Z`}
+        fill={skin} stroke={skinD} strokeWidth="2.5" filter="url(#viz-shadow)" />
+      {/* Ear canal */}
+      <rect x={150} y={cy - 20} width="180" height="40" rx="8" fill="#fef3c7" stroke={skinD} strokeWidth="2" />
+      {/* Eardrum */}
+      <line x1={330} y1={cy - 26} x2={344} y2={cy + 26} stroke="#9a3412" strokeWidth="5" strokeLinecap="round" />
+      {/* Ossicles (malleus, incus, stapes) */}
+      <path d={`M 344 ${cy - 8} l 26 -14 l 22 18 l 20 -6`} fill="none" stroke={boneD} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+      {[[366, cy - 22], [392, cy - 4], [412, cy - 10]].map(([bx, by], i) => <Sphere key={i} cx={bx} cy={by} r={8} fill={bone} stroke={boneD} strokeWidth={1.5} />)}
+      {/* Semicircular canals */}
+      {[0, 1, 2].map((i) => (
+        <ellipse key={i} cx={520} cy={cy - 70} rx="34" ry="16" transform={`rotate(${i * 60 - 60} 520 ${cy - 70})`} fill="none" stroke="#0891b2" strokeWidth="4" />
+      ))}
+      {/* Cochlea */}
+      <path d={sp} fill="none" stroke="#0891b2" strokeWidth="6" strokeLinecap="round" />
+      {/* Auditory nerve */}
+      <path d={`M ${sx + 30} ${sy + 20} q 60 20 96 6`} stroke={nerve} strokeWidth="12" fill="none" strokeLinecap="round" />
+      {/* Eustachian tube */}
+      <path d={`M 400 ${cy + 12} q 20 60 -30 96`} stroke={skinD} strokeWidth="8" fill="none" strokeLinecap="round" />
+      {showLabels && (
+        <g>
+          <Leader x={90} y={cy - 60} tx={70} ty={cy - 120} text="Pinna" color={skinD} side="left" />
+          <Leader x={240} y={cy - 20} tx={200} ty={cy - 90} text="Ear canal" color={skinD} side="left" />
+          <Leader x={337} y={cy} tx={300} ty={cy + 110} text="Eardrum" color="#9a3412" side="left" />
+          <Leader x={392} y={cy - 4} tx={392} ty={cy - 90} text="Ossicles" color={boneD} side="right" />
+          <Leader x={520} y={cy - 84} tx={W - 70} ty={cy - 120} text="Semicircular canals" color="#0891b2" side="right" />
+          <Leader x={sx} y={sy} tx={W - 70} ty={cy + 40} text="Cochlea" color="#0891b2" side="right" />
+          <Leader x={sx + 90} y={sy + 24} tx={W - 70} ty={cy + 110} text="Auditory nerve" color={nerve} side="right" />
+        </g>
+      )}
+    </g>
+  );
+}
+
+// ---- Leaf cross-section ----------------------------------------------------
+export function LeafSection({ showLabels = true }) {
+  const x0 = 150, x1 = 610, top = 120, green = "#16a34a", greenD = "#15803d";
+  const layerY = { cutT: top, upEpi: top + 6, palis: top + 46, spongy: top + 130, lowEpi: top + 206 };
+  return (
+    <g>
+      {/* Upper cuticle + epidermis */}
+      <line x1={x0} y1={layerY.cutT} x2={x1} y2={layerY.cutT} stroke="#f59e0b" strokeWidth="4" />
+      {Array.from({ length: 10 }).map((_, i) => <rect key={i} x={x0 + i * ((x1 - x0) / 10)} y={layerY.upEpi} width={(x1 - x0) / 10 - 2} height="38" rx="6" fill="#dcfce7" stroke={greenD} strokeWidth="1.4" />)}
+      {/* Palisade mesophyll (tall cells with chloroplasts) */}
+      {Array.from({ length: 12 }).map((_, i) => {
+        const px = x0 + 8 + i * ((x1 - x0 - 16) / 12);
+        return (
+          <g key={i}>
+            <rect x={px} y={layerY.palis} width={(x1 - x0 - 16) / 12 - 4} height="78" rx="8" fill="#bbf7d0" stroke={greenD} strokeWidth="1.4" />
+            {[0, 1, 2].map((k) => <circle key={k} cx={px + 12} cy={layerY.palis + 18 + k * 22} r="5" fill={green} />)}
+          </g>
+        );
+      })}
+      {/* Spongy mesophyll (rounded cells + air spaces) */}
+      {Array.from({ length: 20 }).map((_, i) => {
+        const gx = x0 + 20 + (i % 10) * ((x1 - x0 - 40) / 10);
+        const gy = layerY.spongy + 12 + Math.floor(i / 10) * 34;
+        return <circle key={i} cx={gx} cy={gy} r="15" fill="#86efac" stroke={greenD} strokeWidth="1.4" />;
+      })}
+      {/* Vein (vascular bundle): xylem (top) + phloem (bottom) */}
+      <circle cx={(x0 + x1) / 2} cy={layerY.spongy + 40} r="26" fill="#fef9c3" stroke="#a16207" strokeWidth="2" />
+      <path d={`M ${(x0 + x1) / 2 - 16} ${layerY.spongy + 34} h 32`} stroke="#b91c1c" strokeWidth="4" />
+      <path d={`M ${(x0 + x1) / 2 - 16} ${layerY.spongy + 48} h 32`} stroke="#2563eb" strokeWidth="4" />
+      {/* Lower epidermis + cuticle + stoma with guard cells */}
+      {Array.from({ length: 10 }).map((_, i) => <rect key={i} x={x0 + i * ((x1 - x0) / 10)} y={layerY.lowEpi} width={(x1 - x0) / 10 - 2} height="34" rx="6" fill="#dcfce7" stroke={greenD} strokeWidth="1.4" />)}
+      <line x1={x0} y1={layerY.lowEpi + 40} x2={x1} y2={layerY.lowEpi + 40} stroke="#f59e0b" strokeWidth="4" />
+      <g>
+        <path d={`M ${x0 + 250} ${layerY.lowEpi} q -18 20 0 40`} fill="none" stroke={greenD} strokeWidth="6" />
+        <path d={`M ${x0 + 290} ${layerY.lowEpi} q 18 20 0 40`} fill="none" stroke={greenD} strokeWidth="6" />
+      </g>
+      {showLabels && (
+        <g>
+          <Leader x={x1} y={layerY.cutT} tx={W - 70} ty={top - 6} text="Cuticle" color="#a16207" side="right" />
+          <Leader x={x1 - 30} y={layerY.upEpi + 18} tx={W - 70} ty={layerY.upEpi + 18} text="Upper epidermis" color={greenD} side="right" />
+          <Leader x={x1 - 30} y={layerY.palis + 40} tx={W - 70} ty={layerY.palis + 40} text="Palisade mesophyll" color={greenD} side="right" />
+          <Leader x={x1 - 30} y={layerY.spongy + 20} tx={W - 70} ty={layerY.spongy + 78} text="Spongy mesophyll" color={greenD} side="right" />
+          <Leader x={(x0 + x1) / 2 + 26} y={layerY.spongy + 40} tx={W - 70} ty={layerY.spongy + 130} text="Vein (xylem/phloem)" color="#a16207" side="right" />
+          <Leader x={x0 + 30} y={layerY.lowEpi + 16} tx={70} ty={layerY.lowEpi + 16} text="Lower epidermis" color={greenD} side="left" />
+          <Leader x={x0 + 270} y={layerY.lowEpi + 40} tx={70} ty={layerY.lowEpi + 70} text="Stoma + guard cells" color={greenD} side="left" />
+        </g>
+      )}
+    </g>
+  );
+}
