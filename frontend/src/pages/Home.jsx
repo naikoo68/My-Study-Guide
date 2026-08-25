@@ -296,18 +296,18 @@ export default function Home() {
     stats:
       stats.length > 0 ? (
         <section className="container-page">
-          <div className="grid grid-cols-2 gap-3 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:grid-cols-3 sm:gap-4 dark:border-slate-800 dark:bg-slate-900">
-            {stats.map((s) => (
-              <div key={s.label} className="flex items-center justify-center gap-3 py-4 sm:gap-4">
-                <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl bg-brand-100 text-brand-600 sm:h-14 sm:w-14 dark:bg-brand-900/40 dark:text-brand-300">
-                  <s.icon className="h-5 w-5 sm:h-7 sm:w-7" />
-                </span>
-                <div>
-                  <p className="text-xl font-extrabold sm:text-3xl">{s.value}</p>
-                  <p className="text-xs text-slate-500 sm:text-sm dark:text-slate-400">{s.label}</p>
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              {stats.map((s) => (
+                <div key={s.label} className="flex flex-col items-center gap-2 rounded-2xl bg-slate-50 p-5 text-center dark:bg-slate-800/60">
+                  <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-100 text-brand-600 dark:bg-brand-900/40 dark:text-brand-300">
+                    <s.icon className="h-6 w-6" />
+                  </span>
+                  <p className="text-2xl font-extrabold sm:text-3xl">{s.value}</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">{s.label}</p>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </section>
       ) : null,
