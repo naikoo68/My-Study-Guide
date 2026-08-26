@@ -220,7 +220,7 @@ function compose(title, questions, opts = {}) {
     `.chA{color:${brandColor}}.chB{color:${accentColor}}` +
     `.opts{margin:${z(5)} 0 0 ${z(16)}}.opt{margin:${z(2)} 0;color:#0f172a;font-weight:500}.opt.correct{color:#15803d;font-weight:700}` +
     `.ans{margin:${z(5)} 0 0 ${z(16)};color:#15803d;font-weight:700}.exp{margin:${z(2)} 0 0 ${z(16)};color:#334155;font-size:${z(13)}}` +
-    `.tbl{border-collapse:collapse;margin:${z(5)} 0}.tbl td{border:1px solid #cbd5e1;padding:${z(3)} ${z(8)};font-size:${z(13)}}` +
+    `.tbl{border-collapse:collapse;margin:${z(5)} 0}.tbl td{border:1px solid #cbd5e1;padding:${z(3)} ${z(8)};font-size:${z(13)};color:#0f172a;font-weight:500}` +
     `.kh{font-size:${z(15)};margin:0 0 ${z(6)};color:${brandColor}}.grid{display:flex;flex-wrap:wrap;gap:${z(6)} ${z(18)};margin:0 0 ${z(6)};font-size:${z(13)}}.cell{white-space:nowrap}` +
     `.foot{margin-top:${z(16)};border-top:1px solid ${hexA(brandColor, 0.2)};padding-top:${z(8)};text-align:center;font-size:${z(11)};color:#94a3b8}` +
     // Per-page watermark (behind the content).

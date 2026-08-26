@@ -19,7 +19,7 @@ export default function PaperExport({ title = "Question Paper", questions = null
   const [previewMode, setPreviewMode] = useState("paper"); // "paper" | "key"
   const [previewFull, setPreviewFull] = useState(false); // full-screen PDF preview
   const [autoGroups, setAutoGroups] = useState(null); // length-based page grouping (Auto)
-  const [textScale, setTextScale] = useState(1); // manual text-size multiplier (+/-), default 100% (full, readable size)
+  const [textScale, setTextScale] = useState(0.6); // manual text-size multiplier (+/-), default 60%
   const bumpText = (d) => setTextScale((s) => Math.min(1.6, Math.max(0.1, Math.round((s + d) * 100) / 100)));
 
   const { settings } = useSettings();
