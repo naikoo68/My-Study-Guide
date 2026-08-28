@@ -32,7 +32,7 @@ import { allModels } from "../db/odm.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const normalize = (s) => String(s).toLowerCase().replace(/[^a-z0-9]/g, "");
-const CHUNK = 100;                 // docs written per checkpoint (keeps memory + progress small)
+const CHUNK = Number(process.env.MIGRATION_CHUNK) || 50; // docs per checkpoint (small = light + frequent progress)
 const STATE_TABLE = tableName("MigrationState");
 const STATE_ID = "mongo-import";
 
@@ -99,21 +99,31 @@ async function importCollection(db, job, state, deadline) {
   let done = typeof p === "number" ? p : (p.done || 0);
   let afterId = typeof p === "number" ? null : (p.afterId || null);
 
+  const DEBUG = process.env.MIGRATION_DEBUG === "true";
+  let slice = 0;
   // eslint-disable-next-line no-constant-condition
   while (true) {
+    slice += 1;
     const query = afterId ? { _id: { $gt: afterId } } : {};
+    const t0 = Date.now();
+    if (DEBUG) console.log(`      [${modelName}] slice#${slice}: fetching up to ${CHUNK} after _id=${afterId ?? "(start)"}…`);
     // Small, bounded fetch: only CHUNK docs, ordered by _id.
     // eslint-disable-next-line no-await-in-loop
     const rows = await coll.find(query, { sort: { _id: 1 }, limit: CHUNK }).toArray();
+    const tFetch = Date.now() - t0;
+    if (DEBUG) console.log(`      [${modelName}] slice#${slice}: fetched ${rows.length} in ${tFetch}ms; writing…`);
     if (!rows.length) break; // collection fully imported
 
+    const t1 = Date.now();
     // eslint-disable-next-line no-await-in-loop
     await writeBatch(job.model, rows.map(convert));
+    const tWrite = Date.now() - t1;
     done += rows.length;
     afterId = rows[rows.length - 1]._id; // Mongo _id of the last written doc
     state.progress[modelName] = { done, afterId: String(afterId) };
     // eslint-disable-next-line no-await-in-loop
     await saveState(state);
+    if (DEBUG) console.log(`      [${modelName}] slice#${slice}: wrote ${rows.length} in ${tWrite}ms; total ${done} (fetch ${tFetch}ms)`);
     if (global.gc) global.gc();
 
     if (rows.length < CHUNK) break;            // last (partial) slice done
@@ -146,7 +156,14 @@ export async function migrateFromMongo(uri, { maxMs = 0, reset = false } = {}) {
     return { complete: true, imported: state.progress || {} };
   }
 
-  const client = new MongoClient(uri);
+  // Timeouts so a slow/hung fetch FAILS FAST and visibly (instead of silently
+  // eating the whole pass with 0 progress).
+  const client = new MongoClient(uri, {
+    serverSelectionTimeoutMS: 15000,
+    socketTimeoutMS: 120000,
+    connectTimeoutMS: 15000,
+    maxPoolSize: 3,
+  });
   await client.connect();
   console.log("✔ Connected to source MongoDB.");
   const deadline = maxMs > 0 ? Date.now() + maxMs : Number.MAX_SAFE_INTEGER;
