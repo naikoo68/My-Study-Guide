@@ -1,10 +1,13 @@
 // ---------------------------------------------------------------------------
 // Database engine SELECTOR.
 //
-// One codebase, two databases — chosen at startup by the DB_ENGINE env var:
+// One codebase, three databases — chosen at startup by the DB_ENGINE env var:
 //
 //   DB_ENGINE=dynamo   -> AWS DynamoDB (via the compatibility ODM)
 //   DB_ENGINE=mongo    -> MongoDB (real Mongoose)   [default when unset]
+//   DB_ENGINE=oracle   -> Oracle Autonomous Database via its MongoDB-compatible
+//                         API. Speaks the SAME Mongoose engine as `mongo`; only
+//                         the connection (URI + options) differs (see config/db.js).
 //
 // Every model does `import mongoose from "../db/odm.js"` and uses the
 // mongoose‑style API (Schema, model, Schema.Types, connection, plugin…). Both
@@ -27,11 +30,17 @@ if (ENGINE === "dynamo") {
   _allModels = engine.allModels;
   console.log("🗄  DB_ENGINE=dynamo — using AWS DynamoDB.");
 } else {
-  // Real Mongoose / MongoDB.
+  // Real Mongoose — used by BOTH MongoDB (mongo) and Oracle Autonomous Database
+  // (oracle, via its MongoDB-compatible API). Same driver/API; only the
+  // connection differs, which is handled in config/db.js.
   const mongoose = (await import("mongoose")).default;
   _default = mongoose;
   _allModels = () => Object.values(mongoose.models || {});
-  console.log("🗄  DB_ENGINE=mongo — using MongoDB (Mongoose).");
+  console.log(
+    ENGINE === "oracle"
+      ? "🗄  DB_ENGINE=oracle — using Oracle Autonomous Database via the MongoDB API (Mongoose)."
+      : "🗄  DB_ENGINE=mongo — using MongoDB (Mongoose)."
+  );
 }
 
 // Default export = the mongoose-style object the models use.
