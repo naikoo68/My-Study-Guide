@@ -27,7 +27,6 @@ import { ddb } from "../config/dynamo.js";
 import { ensureTables } from "../db/createTables.js";
 import "../models/index.js";
 import { allModels } from "../db/odm.js";
-import { serialize } from "../db/helpers.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const normalize = (s) => String(s).toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -70,7 +69,9 @@ function matchModel(collectionName, models) {
 // Write up to 25 items (one DynamoDB BatchWrite), retrying any unprocessed.
 async function writeBatch(model, docs) {
   for (let i = 0; i < docs.length; i += 25) {
-    let items = docs.slice(i, i + 25).map((d) => ({ PutRequest: { Item: serialize(d) } }));
+    // _prepForWrite drops null/empty indexed keys so DynamoDB won't reject the
+    // write with "Type mismatch ... Expected: S Actual: NULL" on a GSI field.
+    let items = docs.slice(i, i + 25).map((d) => ({ PutRequest: { Item: model._prepForWrite(d) } }));
     let attempt = 0;
     while (items.length) {
       // eslint-disable-next-line no-await-in-loop

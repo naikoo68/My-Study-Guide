@@ -505,8 +505,23 @@ class Model {
     return Item || null;
   }
 
+  // DynamoDB cannot index a NULL/empty value. For every field that has a GSI on
+  // it, if the value is null/undefined/"" we DROP that attribute entirely so the
+  // item is simply absent from that index (correct behaviour) instead of failing
+  // the write with "Type mismatch ... Expected: S Actual: NULL". The value is
+  // still recoverable as null via normal reads (missing == null in our matcher).
+  _prepForWrite(data) {
+    const item = serialize(data);
+    for (const field of indexedFields(this.modelName)) {
+      const v = item[field];
+      if (v === null || v === undefined || v === "") delete item[field];
+      else if (typeof v !== "string") item[field] = String(v); // index keys are strings
+    }
+    return item;
+  }
+
   async _put(data) {
-    await ddb.send(new PutCommand({ TableName: this.tableName, Item: serialize(data) }));
+    await ddb.send(new PutCommand({ TableName: this.tableName, Item: this._prepForWrite(data) }));
   }
 
   async _deleteById(id) {
@@ -620,7 +635,7 @@ class Model {
     for (let i = 0; i < docs.length; i += 25) {
       const chunk = docs.slice(i, i + 25);
       await ddb.send(new BatchWriteCommand({
-        RequestItems: { [this.tableName]: chunk.map((d) => ({ PutRequest: { Item: serialize(d) } })) },
+        RequestItems: { [this.tableName]: chunk.map((d) => ({ PutRequest: { Item: this._prepForWrite(d) } })) },
       }));
     }
   }
