@@ -36,6 +36,23 @@ async function cached(key, ttlMs, producer) {
   return value;
 }
 
+const isDynamo = () => (process.env.DB_ENGINE || "").toLowerCase() === "dynamo";
+
+// Count docs where `field` is one of `ids`, in SMALL batches. A single $in with
+// thousands of ids works on MongoDB but is REJECTED by Oracle's MongoDB API —
+// that failure was blanking the dashboard's "My Practice" / "Content" sections.
+// Batching keeps each $in small and Oracle-safe. (On DynamoDB a single big $in
+// is cheaper — one paged scan — so the caller keeps that path separate.)
+async function countByIdBatches(Model, field, ids, batchSize = 100) {
+  let total = 0;
+  for (let i = 0; i < ids.length; i += batchSize) {
+    const chunk = ids.slice(i, i + batchSize);
+    // eslint-disable-next-line no-await-in-loop
+    total += await Model.countDocuments({ [field]: { $in: chunk } });
+  }
+  return total;
+}
+
 // GET /api/stats — public, live counts for the Home/About statistics section.
 // Recomputed on every request, so it updates the moment a user registers or
 // content is added. Any of these keys can be bound to a stat row in admin.
@@ -143,10 +160,23 @@ export async function adminContentOverview(req, res) {
     }
 
     // Practice questions = questions attributed to a practice test series.
-    // Paged count (bounded memory) — never materialises the 57k-row table.
-    const pQuestions = practiceIds.length
-      ? await Question.countDocuments({ testSeries: { $in: practiceIds } })
-      : 0;
+    //  • Oracle: a single huge $in fails, so count in small batches.
+    //  • DynamoDB: a single $in is one paged scan (bounded memory), so keep that.
+    // Wrapped so a failure here can NEVER blank the whole dashboard section — it
+    // just falls back to 0 rather than erroring the endpoint.
+    let pQuestions = 0;
+    try {
+      if (!practiceIds.length) {
+        pQuestions = 0;
+      } else if (isDynamo()) {
+        pQuestions = await Question.countDocuments({ testSeries: { $in: practiceIds } });
+      } else {
+        pQuestions = await countByIdBatches(Question, "testSeries", practiceIds, 100);
+      }
+    } catch (err) {
+      console.error("content-overview: practice-question count failed; defaulting to 0:", err.message);
+      pQuestions = 0;
+    }
 
     return {
       practice: {
