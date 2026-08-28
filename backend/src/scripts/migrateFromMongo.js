@@ -23,7 +23,7 @@
 //                   the logs say "import complete", then remove it)
 // ---------------------------------------------------------------------------
 
-import { MongoClient } from "mongodb";
+import { MongoClient, ObjectId } from "mongodb";
 import { GetCommand, PutCommand, BatchWriteCommand } from "@aws-sdk/lib-dynamodb";
 import { ddb, tableName } from "../config/dynamo.js";
 import { ensureTables } from "../db/createTables.js";
@@ -31,6 +31,22 @@ import "../models/index.js";
 import { allModels } from "../db/odm.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Turn a resume checkpoint value into a query-safe _id.
+//
+// The checkpoint saves the last-imported _id as a STRING (see saveState below).
+// MongoDB comparison operators are TYPE-BRACKETED: `{ _id: { $gt: "<hex>" } }`
+// only matches documents whose _id is *also a string*. When the source _id is
+// an ObjectId (the norm), a resumed run (fresh process) therefore matches ZERO
+// docs and the import freezes at the checkpoint forever. So: if the saved value
+// is a 24-char hex ObjectId, rebuild the ObjectId so the range query works.
+// Genuine string _ids (rare) are left untouched. Values already an ObjectId
+// (the in-process path) pass straight through.
+function resumeId(v) {
+  if (v instanceof ObjectId) return v;
+  if (typeof v === "string" && /^[a-fA-F0-9]{24}$/.test(v)) return new ObjectId(v);
+  return v;
+}
 const normalize = (s) => String(s).toLowerCase().replace(/[^a-z0-9]/g, "");
 const CHUNK = Number(process.env.MIGRATION_CHUNK) || 50; // docs per checkpoint (small = light + frequent progress)
 const STATE_TABLE = tableName("MigrationState");
@@ -109,7 +125,7 @@ async function importCollection(db, job, state, deadline, expected) {
   // eslint-disable-next-line no-constant-condition
   while (true) {
     slice += 1;
-    const query = afterId ? { _id: { $gt: afterId } } : {};
+    const query = afterId ? { _id: { $gt: resumeId(afterId) } } : {};
     const t0 = Date.now();
     if (DEBUG) console.log(`      [${modelName}] slice#${slice}: fetching up to ${CHUNK} after _id=${afterId ?? "(start)"}…`);
     // Small, bounded fetch: only CHUNK docs, ordered by _id.
