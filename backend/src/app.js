@@ -78,6 +78,16 @@ import { resolveTenant } from "./middleware/tenant.js";
 
 const app = express();
 
+// Trust the reverse proxy in front of us (Render / most PaaS hosts terminate
+// TLS and forward requests, setting the `X-Forwarded-For` header with the real
+// client IP). Without this, Express treats the proxy's IP as the client and
+// express-rate-limit throws ERR_ERL_UNEXPECTED_X_FORWARDED_FOR because it can't
+// trust the forwarded IP. We trust exactly ONE hop (Render's proxy) rather than
+// `true`: trusting all proxies would let a client spoof X-Forwarded-For and
+// evade rate limiting. Bump this number if you add more proxy layers (e.g. a
+// CDN in front of Render).
+app.set("trust proxy", 1);
+
 // Security & parsing.
 // In production, restrict CORS to the configured CLIENT_URL (and common Vercel
 // preview URLs). In development, allow any origin for convenience.
@@ -178,7 +188,7 @@ app.get("/api/health", async (req, res) => {
     // Bump this whenever backend code changes so we can verify Render actually
     // redeployed: open /api/health and check `version`. If it's older than the
     // latest, the backend did NOT deploy and server-side fixes aren't live.
-    version: "2026-08-13-db-aware-health-v47",
+    version: "2026-08-28-trust-proxy-v48",
     features: ["ai-scope", "ai-key-owner", "extract-batches", "matching-labels", "documents", "extract-remaining", "notes-gen", "latex-json-repair", "no-currency-dollar", "parallel-small-chunks", "provider-timeout", "addtotest-drilldown", "mytest-subjectplan", "reshuffle-subjects-questions-options", "db-indexes", "extend-verify-numeric", "extend-verify-matching-pairs", "generate-extract-formula-verify", "regenerate-question", "wrap-numeric-options-latex", "regenerate-fixall-render", "regenerate-columns-not-in-stem", "regenerate-table-not-in-stem", "regenerate-strip-list-markers", "youtube-transcript-source", "shared-link-tracker", "shared-link-opens", "youtube-innertube-retry", "cbt-online-exams", "cbt-emailed-results", "cbt-rankings", "cbt-exam-portal", "cbt-live-toggle", "cbt-deferred-results", "cbt-otp-registration", "cbt-scheduled-window", "cbt-one-attempt", "cbt-portal-registration", "cbt-portal-login-password", "cbt-student-dashboard", "cbt-reset-password", "cbt-change-password", "cbt-admin-candidates", "cbt-late-entry-cutoff", "cbt-entry-allowlist", "cbt-student-status", "cbt-late-entry-access", "cbt-manual-result-mode", "cbt-result-autorelease-on-ping"],
     mailConfigured: isMailConfigured(),
     uploadConfigured: isCloudinaryConfigured(),
