@@ -197,7 +197,30 @@ async function start() {
     console.log(`✔ My Study Guide API running on http://localhost:${PORT}`);
   });
 
-  // Migrate Settings uniqueness to per-tenant (one-time, idempotent).
+  // One-time data import from an existing MongoDB. When RUN_MONGO_MIGRATION is
+  // "true" (and MONGO_URI is set), copy everything from the old MongoDB into
+  // DynamoDB (replacing sample data) and SKIP the normal bootstrap. Remove the
+  // RUN_MONGO_MIGRATION variable afterwards.
+  if (
+    process.env.RUN_MONGO_MIGRATION === "true" &&
+    process.env.MONGO_URI &&
+    (process.env.DB_ENGINE || "").toLowerCase() === "dynamo"
+  ) {
+    console.log("↻ RUN_MONGO_MIGRATION is on — importing your existing MongoDB data into DynamoDB…");
+    import("./scripts/migrateFromMongo.js")
+      .then(({ migrateFromMongo }) => migrateFromMongo(process.env.MONGO_URI))
+      .then((s) => {
+        console.log("✅ MongoDB → DynamoDB import complete.", JSON.stringify(s.imported));
+        console.log("👉 Now REMOVE the RUN_MONGO_MIGRATION variable (and MONGO_URI) in your host settings.");
+      })
+      .catch((err) => console.error("✖ MongoDB import failed (nothing was cleared if it couldn't connect):", err.message));
+    return; // skip the sample-data bootstrap while importing
+  }
+
+  const usingDynamo = (process.env.DB_ENGINE || "").toLowerCase() === "dynamo";
+
+  // Settings index migration — real on MongoDB, a harmless no-op on DynamoDB
+  // (DynamoDB has no secondary indexes in this layer).
   ensureSettingsIndexes();
 
   // Clear legacy empty customDomain values so a 2nd institute can be created.
@@ -215,8 +238,10 @@ async function start() {
   // Hide the first-run setup guide from existing creators (new sign-ups only).
   grandfatherCreatorGuide();
 
-  // Assign existing data to the default institute (one-time multi-tenant backfill).
-  backfillTenantsOnce();
+  // Multi-tenant backfill is MongoDB-specific (indexes + per-collection work),
+  // so run it only on MongoDB. On DynamoDB it's skipped (tenant scoping is off
+  // by default = single institute).
+  if (!usingDynamo) backfillTenantsOnce();
 
   // Facebook scheduled auto-posting: check every minute for due schedules.
   // (The /api/health ping also triggers this as a safety net after downtime.)
