@@ -10,6 +10,32 @@ import PracticeStream from "../models/PracticeStream.js";
 import PracticeSubject from "../models/PracticeSubject.js";
 import PracticeTopic from "../models/PracticeTopic.js";
 
+// ---------------------------------------------------------------------------
+// Tiny in-process TTL cache for the expensive admin-dashboard endpoints.
+//
+// Under DB_ENGINE=dynamo there is no native count/aggregate — the ODM emulates
+// them by SCANNING whole tables. The admin dashboard's /admin/analytics and
+// /admin/content-overview therefore re-scan large tables (Attempt, Question)
+// on every load/refresh, which is very slow as data grows. These numbers only
+// change when content/attempts change, so serving a value that's a few seconds
+// stale is perfectly fine — and it turns repeat loads into instant responses.
+//
+// Keyed by tenant so a multi-tenant deployment never serves one institute's
+// counts to another. Tune the window with ANALYTICS_CACHE_TTL_MS (default 60s).
+const ANALYTICS_TTL_MS = Number(process.env.ANALYTICS_CACHE_TTL_MS) || 60 * 1000;
+const _analyticsCache = new Map(); // key -> { at, value }
+
+const tenantKey = (req) => (req?.tenantId != null ? String(req.tenantId) : "default");
+
+async function cached(key, ttlMs, producer) {
+  const hit = _analyticsCache.get(key);
+  const now = Date.now();
+  if (hit && now - hit.at < ttlMs) return hit.value;
+  const value = await producer();
+  _analyticsCache.set(key, { at: now, value });
+  return value;
+}
+
 // GET /api/stats — public, live counts for the Home/About statistics section.
 // Recomputed on every request, so it updates the moment a user registers or
 // content is added. Any of these keys can be bound to a stat row in admin.
@@ -77,68 +103,123 @@ export async function publicStats(req, res) {
 //   • content   → the platform "Content & Test Series" side (Stream/Subject/
 //                 Topic/Quiz + regular TestSeries with practice!=true).
 export async function adminContentOverview(req, res) {
-  // Ids of every practice item, to attribute questions to practice vs content.
-  const practiceItems = await TestSeries.find({ practice: true }).select("_id").lean();
-  const practiceIds = practiceItems.map((i) => i._id);
+  const payload = await cached(`content-overview:${tenantKey(req)}`, ANALYTICS_TTL_MS, async () => {
+    // Perf: the previous version scanned TestSeries FIVE times and the (huge)
+    // Question table TWICE. We now scan each of the two big/hot tables exactly
+    // once and derive the split counts in JS; the small lookup tables keep their
+    // single-scan countDocuments and all run in parallel. Same response shape.
+    const [
+      allTestSeries, allQuestions,
+      pStreams, pSubjects, pTopics,
+      cStreams, cSubjects, cTopics, cQuizzes,
+    ] = await Promise.all([
+      TestSeries.find({}).select("practice practiceKind").lean(), // TestSeries ×1
+      Question.find({}).select("testSeries").lean(), // Questions ×1 (was ×2)
+      PracticeStream.countDocuments(),
+      PracticeSubject.countDocuments(),
+      PracticeTopic.countDocuments(),
+      Stream.countDocuments(),
+      Subject.countDocuments(),
+      Topic.countDocuments(),
+      Quiz.countDocuments(),
+    ]);
 
-  const [
-    pStreams, pSubjects, pTopics, pQuizzes, pTests, pPapers, pQuestions,
-    cStreams, cSubjects, cTopics, cQuizzes, cTests, totalQuestions,
-  ] = await Promise.all([
-    PracticeStream.countDocuments(),
-    PracticeSubject.countDocuments(),
-    PracticeTopic.countDocuments(),
-    TestSeries.countDocuments({ practice: true, practiceKind: "quiz" }),
-    TestSeries.countDocuments({ practice: true, practiceKind: "test" }),
-    TestSeries.countDocuments({ practice: true, practiceKind: "paper" }),
-    Question.countDocuments({ testSeries: { $in: practiceIds } }),
-    Stream.countDocuments(),
-    Subject.countDocuments(),
-    Topic.countDocuments(),
-    Quiz.countDocuments(),
-    TestSeries.countDocuments({ practice: { $ne: true } }),
-    Question.countDocuments(),
-  ]);
+    // Attribute each test series to practice-vs-content, and collect the ids of
+    // practice items so questions can be attributed the same way.
+    const practiceIds = new Set();
+    let pQuizzes = 0;
+    let pTests = 0;
+    let pPapers = 0;
+    let cTests = 0; // regular test series (practice !== true)
+    for (const t of allTestSeries) {
+      if (t.practice === true) {
+        practiceIds.add(String(t._id));
+        if (t.practiceKind === "quiz") pQuizzes += 1;
+        else if (t.practiceKind === "test") pTests += 1;
+        else if (t.practiceKind === "paper") pPapers += 1;
+      } else {
+        cTests += 1;
+      }
+    }
+
+    let pQuestions = 0;
+    for (const q of allQuestions) {
+      if (q.testSeries != null && practiceIds.has(String(q.testSeries))) pQuestions += 1;
+    }
+    const totalQuestions = allQuestions.length;
+
+    return {
+      practice: {
+        streams: pStreams, subjects: pSubjects, topics: pTopics,
+        quizzes: pQuizzes, tests: pTests, papers: pPapers, questions: pQuestions,
+      },
+      content: {
+        streams: cStreams, subjects: cSubjects, topics: cTopics,
+        quizzes: cQuizzes, tests: cTests,
+        // Content questions = everything not attributed to a practice item.
+        questions: Math.max(0, totalQuestions - pQuestions),
+      },
+    };
+  });
 
   res.set("Cache-Control", "no-store");
-  res.json({
-    practice: {
-      streams: pStreams, subjects: pSubjects, topics: pTopics,
-      quizzes: pQuizzes, tests: pTests, papers: pPapers, questions: pQuestions,
-    },
-    content: {
-      streams: cStreams, subjects: cSubjects, topics: cTopics,
-      quizzes: cQuizzes, tests: cTests,
-      // Content questions = everything not attributed to a practice item.
-      questions: Math.max(0, totalQuestions - pQuestions),
-    },
-  });
+  res.json(payload);
 }
 
 const initials = (name = "") =>
   name.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase();
 
 // GET /api/admin/analytics  (admin) — platform-wide stats
+//
+// Perf: the previous implementation issued SIX table scans (Attempt scanned 3×
+// via distinct + countDocuments + aggregate; User scanned 2× via countDocuments
+// + aggregate; TestSeries once). Under DynamoDB every one of those is a full
+// table scan. We now scan each table EXACTLY ONCE and derive every metric from
+// the rows in JS, then cache the result briefly. Same response shape.
 export async function platformAnalytics(req, res) {
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const [totalUsers, activeUsers, totalTests, totalAttempts] = await Promise.all([
-    User.countDocuments(),
-    Attempt.distinct("user", { createdAt: { $gte: since } }).then((a) => a.length),
-    TestSeries.countDocuments(),
-    Attempt.countDocuments(),
-  ]);
+  const payload = await cached(`analytics:${tenantKey(req)}`, ANALYTICS_TTL_MS, async () => {
+    const since = Date.now() - 24 * 60 * 60 * 1000;
 
-  const planAgg = await User.aggregate([{ $group: { _id: "$plan", count: { $sum: 1 } } }]);
-  const avgScoreAgg = await Attempt.aggregate([{ $group: { _id: null, avg: { $avg: "$percentage" } } }]);
+    // One scan per table, in parallel.
+    const [users, attempts, totalTests] = await Promise.all([
+      User.find({}).select("plan").lean(), // Users ×1
+      Attempt.find({}).select("user percentage createdAt").lean(), // Attempts ×1
+      TestSeries.countDocuments(), // TestSeries ×1
+    ]);
 
-  res.json({
-    totalUsers,
-    activeUsers,
-    totalTests,
-    totalAttempts,
-    planDistribution: planAgg,
-    avgScore: Math.round(avgScoreAgg[0]?.avg || 0),
+    // Plan distribution (mirrors the old $group by "$plan").
+    const planCounts = new Map();
+    for (const u of users) {
+      const p = u.plan ?? null;
+      planCounts.set(p, (planCounts.get(p) || 0) + 1);
+    }
+    const planDistribution = [...planCounts.entries()].map(([_id, count]) => ({ _id, count }));
+
+    // Active-in-24h (distinct users) + average percentage, in a single pass.
+    const activeUsers = new Set();
+    let pctSum = 0;
+    let pctCount = 0;
+    for (const a of attempts) {
+      const created = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      if (created >= since && a.user != null) activeUsers.add(String(a.user));
+      if (typeof a.percentage === "number") {
+        pctSum += a.percentage;
+        pctCount += 1;
+      }
+    }
+
+    return {
+      totalUsers: users.length,
+      activeUsers: activeUsers.size,
+      totalTests,
+      totalAttempts: attempts.length,
+      planDistribution,
+      avgScore: Math.round(pctCount ? pctSum / pctCount : 0),
+    };
   });
+
+  res.set("Cache-Control", "no-store");
+  res.json(payload);
 }
 
 // GET /api/me/dashboard — everything the student dashboard needs in one call.
