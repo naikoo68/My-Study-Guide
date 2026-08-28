@@ -1,7 +1,7 @@
 {
   "name": "my-study-guide-backend",
   "version": "1.0.0",
-  "description": "REST API for My Study Guide — quizzes & test series platform (DynamoDB)",
+  "description": "REST API for My Study Guide — quizzes & test series platform (MongoDB or DynamoDB via DB_ENGINE)",
   "type": "module",
   "main": "src/server.js",
   "scripts": {
@@ -33,6 +33,7 @@
     "jsonwebtoken": "^9.0.2",
     "mathjax-full": "^3.2.2",
     "mongodb": "^6.9.0",
+    "mongoose": "^8.8.0",
     "morgan": "^1.10.0",
     "multer": "^2.0.0",
     "nodemailer": "^9.0.3",
