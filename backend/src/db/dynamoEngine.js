@@ -558,6 +558,63 @@ class Model {
     return items;
   }
 
+  // ---- memory-light COUNTING -------------------------------------------------
+  // DynamoDB has no native count, so counts used to be emulated by loading the
+  // WHOLE table into memory and taking `.length`. On a large table (e.g. 57k
+  // questions) that OOM-crashes a small instance ("Exited with status 134").
+  // These helpers instead PAGE through the table and keep only a running total,
+  // so peak memory stays ~one scan page regardless of table size.
+
+  // Total row count with no item transfer (DynamoDB counts server-side).
+  async _scanCountAll() {
+    let count = 0;
+    let ExclusiveStartKey;
+    do {
+      const res = await ddb.send(new ScanCommand({
+        TableName: this.tableName,
+        Select: "COUNT",
+        ExclusiveStartKey,
+      }));
+      count += res.Count || 0;
+      ExclusiveStartKey = res.LastEvaluatedKey;
+    } while (ExclusiveStartKey);
+    return count;
+  }
+
+  // Count matches for `filter` by scanning page-by-page — each page is filtered
+  // then discarded, never accumulated.
+  async _countByScanPaged(filter) {
+    let count = 0;
+    let ExclusiveStartKey;
+    do {
+      const res = await ddb.send(new ScanCommand({ TableName: this.tableName, ExclusiveStartKey }));
+      for (const it of res.Items || []) if (matchesFilter(it, filter)) count += 1;
+      ExclusiveStartKey = res.LastEvaluatedKey;
+    } while (ExclusiveStartKey);
+    return count;
+  }
+
+  // Same, but the candidate set comes from a GSI equality (narrower than a full
+  // scan). The FULL filter is still applied per page so extra conditions in the
+  // filter are honoured exactly.
+  async _countByIndexPaged(field, value, filter) {
+    let count = 0;
+    let ExclusiveStartKey;
+    do {
+      const res = await ddb.send(new QueryCommand({
+        TableName: this.tableName,
+        IndexName: indexNameForField(field),
+        KeyConditionExpression: "#f = :v",
+        ExpressionAttributeNames: { "#f": field },
+        ExpressionAttributeValues: { ":v": String(value) },
+        ExclusiveStartKey,
+      }));
+      for (const it of res.Items || []) if (matchesFilter(it, filter)) count += 1;
+      ExclusiveStartKey = res.LastEvaluatedKey;
+    } while (ExclusiveStartKey);
+    return count;
+  }
+
   // Pick the narrowest fetch for a filter:
   //   1) `_id: "<string>"`            -> GetItem (one row)
   //   2) `_id: { $in: [...] }`        -> BatchGet-style parallel GetItems
@@ -811,9 +868,37 @@ class Model {
   }
 
   async countDocuments(filter = {}) {
-    if (!Object.keys(filter).length) return (await this._scanAll()).length;
-    const all = await this._loadForFilter(filter);
-    return all.filter((it) => matchesFilter(it, filter)).length;
+    // No filter → server-side COUNT (no items loaded into memory at all).
+    if (!filter || !Object.keys(filter).length) return this._scanCountAll();
+
+    // Narrow, id-based filters resolve to a tiny candidate set — count directly.
+    if (typeof filter._id === "string") {
+      const it = await this._get(filter._id);
+      return it && matchesFilter(it, filter) ? 1 : 0;
+    }
+    if (filter._id && Array.isArray(filter._id.$in)) {
+      const ids = [...new Set(filter._id.$in.map(String))];
+      const rows = (await Promise.all(ids.map((id) => this._get(id)))).filter(Boolean);
+      return rows.filter((it) => matchesFilter(it, filter)).length;
+    }
+
+    // Indexed equality → count via the GSI, paged (full filter still applied).
+    for (const field of indexedFields(this.modelName)) {
+      const v = filter[field];
+      const scalar = v !== undefined && v !== null && (typeof v !== "object" || v instanceof Date);
+      if (scalar) {
+        try {
+          return await this._countByIndexPaged(field, v, filter);
+        } catch (err) {
+          // Index not ready yet (still creating) -> fall back to a paged scan.
+          if (err.name === "ValidationException" || err.name === "ResourceNotFoundException") break;
+          throw err;
+        }
+      }
+    }
+
+    // Fallback: full-table scan, counted page-by-page (bounded memory).
+    return this._countByScanPaged(filter);
   }
 
   async estimatedDocumentCount() {
@@ -821,14 +906,21 @@ class Model {
   }
 
   async distinct(field, filter = {}) {
-    const all = Object.keys(filter).length ? await this._loadForFilter(filter) : await this._scanAll();
-    const matched = Object.keys(filter).length ? all.filter((it) => matchesFilter(it, filter)) : all;
+    // Page through the table collecting distinct values, discarding each page —
+    // so memory is bounded by the number of DISTINCT values, not table size.
+    const hasFilter = filter && Object.keys(filter).length > 0;
     const set = new Set();
-    for (const it of matched) {
-      const v = it[field];
-      if (Array.isArray(v)) v.forEach((x) => set.add(x));
-      else if (v !== undefined) set.add(v);
-    }
+    let ExclusiveStartKey;
+    do {
+      const res = await ddb.send(new ScanCommand({ TableName: this.tableName, ExclusiveStartKey }));
+      for (const it of res.Items || []) {
+        if (hasFilter && !matchesFilter(it, filter)) continue;
+        const v = it[field];
+        if (Array.isArray(v)) v.forEach((x) => set.add(x));
+        else if (v !== undefined) set.add(v);
+      }
+      ExclusiveStartKey = res.LastEvaluatedKey;
+    } while (ExclusiveStartKey);
     return [...set];
   }
 

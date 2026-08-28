@@ -109,12 +109,12 @@ export async function adminContentOverview(req, res) {
     // once and derive the split counts in JS; the small lookup tables keep their
     // single-scan countDocuments and all run in parallel. Same response shape.
     const [
-      allTestSeries, allQuestions,
+      allTestSeries, totalQuestions,
       pStreams, pSubjects, pTopics,
       cStreams, cSubjects, cTopics, cQuizzes,
     ] = await Promise.all([
-      TestSeries.find({}).select("practice practiceKind").lean(), // TestSeries ×1
-      Question.find({}).select("testSeries").lean(), // Questions ×1 (was ×2)
+      TestSeries.find({}).select("practice practiceKind").lean(), // small table (~1.6k rows)
+      Question.countDocuments(), // memory-light server-side COUNT (was a full 57k-row scan)
       PracticeStream.countDocuments(),
       PracticeSubject.countDocuments(),
       PracticeTopic.countDocuments(),
@@ -126,14 +126,14 @@ export async function adminContentOverview(req, res) {
 
     // Attribute each test series to practice-vs-content, and collect the ids of
     // practice items so questions can be attributed the same way.
-    const practiceIds = new Set();
+    const practiceIds = [];
     let pQuizzes = 0;
     let pTests = 0;
     let pPapers = 0;
     let cTests = 0; // regular test series (practice !== true)
     for (const t of allTestSeries) {
       if (t.practice === true) {
-        practiceIds.add(String(t._id));
+        practiceIds.push(t._id);
         if (t.practiceKind === "quiz") pQuizzes += 1;
         else if (t.practiceKind === "test") pTests += 1;
         else if (t.practiceKind === "paper") pPapers += 1;
@@ -142,11 +142,11 @@ export async function adminContentOverview(req, res) {
       }
     }
 
-    let pQuestions = 0;
-    for (const q of allQuestions) {
-      if (q.testSeries != null && practiceIds.has(String(q.testSeries))) pQuestions += 1;
-    }
-    const totalQuestions = allQuestions.length;
+    // Practice questions = questions attributed to a practice test series.
+    // Paged count (bounded memory) — never materialises the 57k-row table.
+    const pQuestions = practiceIds.length
+      ? await Question.countDocuments({ testSeries: { $in: practiceIds } })
+      : 0;
 
     return {
       practice: {
