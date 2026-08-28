@@ -92,7 +92,12 @@ async function writeBatch(model, docs) {
 // one we imported, writes them, and saves a checkpoint (the last _id + count).
 // This is cheap even on a huge collection and a weak server: no growing skip, no
 // full sort scan — each pass reliably makes progress and resumes exactly.
-async function importCollection(db, job, state, deadline) {
+// `expected` = MongoDB's count for this collection. A collection is considered
+// FINISHED only when we've reached the end AND imported at least `expected`
+// docs. This prevents the previous bug where a short/hiccuping batch (fewer than
+// CHUNK rows) was mistaken for "end of collection" and the rest (e.g. 40k
+// questions) was silently skipped.
+async function importCollection(db, job, state, deadline, expected) {
   const coll = db.collection(job.name);
   const modelName = job.model.modelName;
   const p = state.progress[modelName] || { done: 0, afterId: null };
@@ -112,7 +117,15 @@ async function importCollection(db, job, state, deadline) {
     const rows = await coll.find(query, { sort: { _id: 1 }, limit: CHUNK }).toArray();
     const tFetch = Date.now() - t0;
     if (DEBUG) console.log(`      [${modelName}] slice#${slice}: fetched ${rows.length} in ${tFetch}ms; writing…`);
-    if (!rows.length) break; // collection fully imported
+
+    if (!rows.length) {
+      // No more docs after this id. Only truly finished if we've reached the
+      // expected count; otherwise something is off — report NOT finished so the
+      // caller re-attempts on the next pass (never silently skip remaining data).
+      const finished = done >= expected;
+      if (!finished && DEBUG) console.log(`      [${modelName}] cursor empty at ${done}/${expected} — will retry next pass (not marking done).`);
+      return { done, finished };
+    }
 
     const t1 = Date.now();
     // eslint-disable-next-line no-await-in-loop
@@ -123,13 +136,15 @@ async function importCollection(db, job, state, deadline) {
     state.progress[modelName] = { done, afterId: String(afterId) };
     // eslint-disable-next-line no-await-in-loop
     await saveState(state);
-    if (DEBUG) console.log(`      [${modelName}] slice#${slice}: wrote ${rows.length} in ${tWrite}ms; total ${done} (fetch ${tFetch}ms)`);
+    if (DEBUG) console.log(`      [${modelName}] slice#${slice}: wrote ${rows.length} in ${tWrite}ms; total ${done}/${expected} (fetch ${tFetch}ms)`);
     if (global.gc) global.gc();
 
-    if (rows.length < CHUNK) break;            // last (partial) slice done
+    // IMPORTANT: do NOT treat "rows.length < CHUNK" as done — a short batch can
+    // happen mid-collection. We only stop when the cursor is truly empty (above)
+    // or we hit the expected count.
+    if (done >= expected) return { done, finished: true };
     if (Date.now() > deadline) return { done, finished: false }; // pass time up — resume next boot
   }
-  return { done, finished: true };
 }
 
 // Run ONE time-boxed pass. Returns true when the whole migration is complete.
@@ -217,7 +232,7 @@ export async function migrateFromMongo(uri, { maxMs = 0, reset = false } = {}) {
       const model = modelByName[job.model];
       console.log(`  → Importing ${job.model} (${already}/${job.count} done)…`);
       // eslint-disable-next-line no-await-in-loop
-      const r = await importCollection(db, { name: job.name, model }, state, deadline);
+      const r = await importCollection(db, { name: job.name, model }, state, deadline, job.count);
       console.log(`    ${job.model}: ${r.done}/${job.count}`);
       if (!r.finished && Date.now() > deadline) {
         console.log("⏸ Pass time limit reached — progress saved; will resume on next run.");
@@ -226,11 +241,21 @@ export async function migrateFromMongo(uri, { maxMs = 0, reset = false } = {}) {
       }
     }
 
-    // All collections done.
+    // GUARD: only mark the whole migration "done" when EVERY collection has
+    // reached its expected count. If any is short (e.g. questions 17700/57369),
+    // do NOT finish — report incomplete so the next pass resumes the shortfall.
+    const shortfalls = state.plan.filter((job) => doneCount(state.progress[job.model]) < job.count);
+    const counts = Object.fromEntries(Object.entries(state.progress).map(([k, v]) => [k, doneCount(v)]));
+    if (shortfalls.length) {
+      console.log("↩ Not fully done yet — remaining:",
+        shortfalls.map((j) => `${j.model} ${doneCount(state.progress[j.model])}/${j.count}`).join(", "));
+      return { complete: false, imported: counts };
+    }
+
+    // All collections verified complete.
     state.phase = "done";
     state.finishedAt = new Date().toISOString();
     await saveState(state);
-    const counts = Object.fromEntries(Object.entries(state.progress).map(([k, v]) => [k, doneCount(v)]));
     console.log("✅ MongoDB → DynamoDB import complete.", JSON.stringify(counts));
     return { complete: true, imported: counts };
   } finally {
