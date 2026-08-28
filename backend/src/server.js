@@ -212,7 +212,10 @@ async function start() {
     // no restart-from-zero). Keep RUN_MONGO_MIGRATION on until you see
     // "import complete"; then remove it.
     import("./scripts/migrateFromMongo.js")
-      .then(({ migrateFromMongo }) => migrateFromMongo(process.env.MONGO_URI, { maxMs: 4 * 60 * 1000 }))
+      .then(({ migrateFromMongo }) => migrateFromMongo(process.env.MONGO_URI, {
+        maxMs: 4 * 60 * 1000,
+        reset: process.env.RESET_MIGRATION === "true",
+      }))
       .then((s) => {
         if (s.complete) {
           console.log("✅ MongoDB → DynamoDB import complete.", JSON.stringify(s.imported));
