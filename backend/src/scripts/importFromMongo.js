@@ -1,0 +1,239 @@
+// ---------------------------------------------------------------------------
+// One-time data importer: copies ALL collections from an existing MongoDB into
+// the CURRENT Mongoose-backed database. Its main use is loading your data into
+// Oracle Autonomous Database (reached via the MongoDB API on DB_ENGINE=oracle),
+// but it works for any Mongoose target.
+//
+// Mirrors the Mongo→Dynamo importer's design:
+//   • RESUMABLE + CHECKPOINTED — imports each collection in small _id-range
+//     slices and saves progress (in a `_mongoImportState` doc in the TARGET),
+//     so a restart resumes instead of restarting.
+//   • Clears the target collections ONCE (guarded) to drop any sample/seed
+//     data, then imports. It NEVER touches the source MongoDB.
+//   • Time-boxed per pass so a weak host (Render free tier) still makes progress
+//     across restarts.
+//   • Preserves every _id and reference (raw document copy).
+//
+// Usage:
+//   • On startup:  RUN_ORACLE_IMPORT=true + DB_ENGINE=oracle + ORACLE_MONGO_URI
+//                  + SOURCE_MONGO_URI (or MONGO_URI = your OLD MongoDB).
+//                  Leave the flag on until the logs say "import complete", then
+//                  remove it.
+//   • Standalone:  DB_ENGINE=oracle ORACLE_MONGO_URI=... SOURCE_MONGO_URI=... \
+//                  node src/scripts/importFromMongo.js   (loops to completion)
+// ---------------------------------------------------------------------------
+
+import { MongoClient, ObjectId } from "mongodb";
+import mongoose from "../db/odm.js";
+
+const CHUNK = Number(process.env.MIGRATION_CHUNK) || 200; // docs per checkpoint
+const STATE_COLL = "_mongoImportState";
+const STATE_ID = "mongo-to-current";
+const DEBUG = process.env.MIGRATION_DEBUG === "true";
+
+// Rebuild an ObjectId from a 24-char hex checkpoint so the { _id: { $gt } }
+// resume query isn't broken by MongoDB's type-bracketing (comparison operators
+// only match values of the SAME BSON type — a string $gt would match zero
+// ObjectId _ids and stall the import). Non-ObjectId string ids pass through.
+function resumeId(v) {
+  if (v instanceof ObjectId) return v;
+  if (typeof v === "string" && /^[a-fA-F0-9]{24}$/.test(v)) return new ObjectId(v);
+  return v;
+}
+
+// insertMany on a resumed/overlapping batch may hit already-present _ids. Treat
+// a batch that failed ONLY on duplicate keys as success (the docs are there).
+function isAllDuplicateKey(err) {
+  if (!err) return false;
+  if (err.code === 11000) return true;
+  const we = err.writeErrors || err.result?.writeErrors || err.result?.result?.writeErrors;
+  return Array.isArray(we) && we.length > 0 && we.every((e) => (e.code ?? e.err?.code) === 11000);
+}
+
+// The TARGET is the app's current Mongoose connection (Oracle on
+// DB_ENGINE=oracle, or MongoDB on DB_ENGINE=mongo).
+function targetDb() {
+  const db = mongoose.connection?.db;
+  if (!db) throw new Error("No active Mongoose connection — the target database isn't connected yet.");
+  return db;
+}
+
+async function loadState() {
+  return targetDb().collection(STATE_COLL).findOne({ _id: STATE_ID });
+}
+async function saveState(state) {
+  await targetDb()
+    .collection(STATE_COLL)
+    .replaceOne({ _id: STATE_ID }, { _id: STATE_ID, ...state }, { upsert: true });
+}
+
+const doneOf = (v) => (typeof v === "number" ? v : (v && v.done) || 0);
+const summarize = (state) =>
+  Object.fromEntries(Object.entries(state.progress || {}).map(([k, v]) => [k, doneOf(v)]));
+
+// Import ONE collection using _id-range slices (cheap + resumable). Each slice
+// fetches the next CHUNK docs whose _id > the last imported one, writes them,
+// and checkpoints. Never treats a short batch as "done" — only an empty cursor
+// or reaching the expected count finishes the collection.
+async function importCollection(sourceDb, job, state, deadline) {
+  const src = sourceDb.collection(job.name);
+  const dst = targetDb().collection(job.name);
+  const p = state.progress[job.name] || { done: 0, afterId: null };
+  let done = doneOf(p);
+  let afterId = typeof p === "number" ? null : p.afterId || null;
+  const expected = job.count;
+
+  let slice = 0;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    slice += 1;
+    const query = afterId ? { _id: { $gt: resumeId(afterId) } } : {};
+    // eslint-disable-next-line no-await-in-loop
+    const rows = await src.find(query).sort({ _id: 1 }).limit(CHUNK).toArray();
+    if (!rows.length) return { done, finished: done >= expected };
+
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await dst.insertMany(rows, { ordered: false });
+    } catch (err) {
+      if (!isAllDuplicateKey(err)) throw err; // real error — surface it
+    }
+
+    done += rows.length;
+    afterId = rows[rows.length - 1]._id;
+    state.progress[job.name] = { done, afterId: String(afterId) };
+    // eslint-disable-next-line no-await-in-loop
+    await saveState(state);
+    if (DEBUG) console.log(`      [${job.name}] slice#${slice}: +${rows.length} -> ${done}/${expected}`);
+    if (global.gc) global.gc();
+
+    if (done >= expected) return { done, finished: true };
+    if (Date.now() > deadline) return { done, finished: false };
+  }
+}
+
+// Run ONE time-boxed pass. Returns { complete } — true when everything is done.
+// maxMs = 0 means run until complete (used by the standalone CLI).
+export async function importFromMongo({ maxMs = 0, reset = false } = {}) {
+  const sourceUri = process.env.SOURCE_MONGO_URI || process.env.MONGO_URI;
+  if (!sourceUri) throw new Error("SOURCE_MONGO_URI (or MONGO_URI) is not set — nothing to import from.");
+  targetDb(); // ensure the target engine is connected
+
+  const wantReset = reset || process.env.RESET_IMPORT === "true";
+  let state = await loadState();
+  if (wantReset && state) {
+    console.log("↺ RESET_IMPORT — discarding previous import progress and starting fresh.");
+    await targetDb().collection(STATE_COLL).deleteOne({ _id: STATE_ID });
+    state = null;
+  }
+  if (state?.phase === "done") {
+    console.log("✔ Import already completed earlier — nothing to do.");
+    return { complete: true, imported: summarize(state) };
+  }
+
+  const client = new MongoClient(sourceUri, {
+    serverSelectionTimeoutMS: 15000,
+    socketTimeoutMS: 120000,
+    connectTimeoutMS: 15000,
+    maxPoolSize: 3,
+  });
+  await client.connect();
+  console.log("✔ Connected to source MongoDB.");
+  const deadline = maxMs > 0 ? Date.now() + maxMs : Number.MAX_SAFE_INTEGER;
+
+  try {
+    const sourceDb = client.db();
+
+    // Build (or reuse) the plan: source collections + their counts.
+    if (!state || !state.plan) {
+      const names = (await sourceDb.listCollections().toArray())
+        .map((c) => c.name)
+        .filter((n) => !n.startsWith("system.") && n !== STATE_COLL);
+      const plan = [];
+      let total = 0;
+      for (const name of names) {
+        // eslint-disable-next-line no-await-in-loop
+        const count = await sourceDb.collection(name).countDocuments();
+        plan.push({ name, count });
+        total += count;
+        console.log(`  • Found ${count} in "${name}"`);
+      }
+      if (!plan.length || total === 0) {
+        throw new Error("No data found in the source MongoDB — aborting without changing anything. Check SOURCE_MONGO_URI (including the database name).");
+      }
+      state = { phase: "clearing", plan, progress: {}, startedAt: new Date().toISOString() };
+      await saveState(state);
+    }
+
+    // Clear the target collections ONCE (drop sample/seed data). Guarded by the
+    // "clearing" phase so a restart never re-clears imported data. The SOURCE is
+    // never touched.
+    if (state.phase === "clearing") {
+      for (const job of state.plan) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await targetDb().collection(job.name).deleteMany({});
+        } catch (e) {
+          if (DEBUG) console.log(`   (clear ${job.name} skipped: ${e.message})`);
+        }
+      }
+      console.log("✔ Cleared target collections once (removed any sample/seed data).");
+      state.phase = "importing";
+      await saveState(state);
+    }
+
+    // Import each collection, resuming from its checkpoint.
+    for (const job of state.plan) {
+      if (doneOf(state.progress[job.name]) >= job.count) continue; // finished
+      console.log(`  → Importing ${job.name} (${doneOf(state.progress[job.name])}/${job.count})…`);
+      // eslint-disable-next-line no-await-in-loop
+      const r = await importCollection(sourceDb, job, state, deadline);
+      console.log(`    ${job.name}: ${r.done}/${job.count}`);
+      if (!r.finished && Date.now() > deadline) {
+        console.log("⏸ Pass time limit reached — progress saved; will resume on next run.");
+        return { complete: false, imported: summarize(state) };
+      }
+    }
+
+    // Only finish when EVERY collection reached its expected count.
+    const shortfalls = state.plan.filter((j) => doneOf(state.progress[j.name]) < j.count);
+    if (shortfalls.length) {
+      console.log(
+        "↩ Not fully done yet — remaining:",
+        shortfalls.map((j) => `${j.name} ${doneOf(state.progress[j.name])}/${j.count}`).join(", ")
+      );
+      return { complete: false, imported: summarize(state) };
+    }
+
+    state.phase = "done";
+    state.finishedAt = new Date().toISOString();
+    await saveState(state);
+    console.log("✅ MongoDB → current database import complete.", JSON.stringify(summarize(state)));
+    return { complete: true, imported: summarize(state) };
+  } finally {
+    await client.close();
+  }
+}
+
+// Standalone CLI: connect the current engine, then loop passes until complete
+// (no time box). Handy to finish the import in one run from your own machine.
+const isDirect = process.argv[1] && process.argv[1].endsWith("importFromMongo.js");
+if (isDirect) {
+  (async () => {
+    try {
+      await import("dotenv/config");
+      const { default: connectDB } = await import("../config/db.js");
+      await connectDB();
+      let res = { complete: false };
+      while (!res.complete) {
+        // eslint-disable-next-line no-await-in-loop
+        res = await importFromMongo({});
+      }
+      console.log("\n✅ Done. Imported:", res.imported);
+      process.exit(0);
+    } catch (e) {
+      console.error("\n✖ Import failed:", e.message);
+      process.exit(1);
+    }
+  })();
+}

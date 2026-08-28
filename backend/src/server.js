@@ -229,6 +229,37 @@ async function start() {
     return; // skip the sample-data bootstrap while importing
   }
 
+  // One-time data import into a Mongoose-backed engine — used to load your data
+  // into Oracle Autonomous Database (DB_ENGINE=oracle, via the MongoDB API).
+  // When RUN_ORACLE_IMPORT is "true" and a source Mongo URI is set, copy every
+  // collection from the source MongoDB into the CURRENT (Oracle) database and
+  // SKIP the normal bootstrap. Resumable + time-boxed like the Dynamo importer:
+  // each boot runs one pass and the next boot resumes from the checkpoint. Keep
+  // the flag on until the logs say "import complete", then remove it.
+  if (
+    process.env.RUN_ORACLE_IMPORT === "true" &&
+    (process.env.SOURCE_MONGO_URI || process.env.MONGO_URI) &&
+    (process.env.DB_ENGINE || "").toLowerCase() === "oracle"
+  ) {
+    console.log("↻ RUN_ORACLE_IMPORT is on — importing your MongoDB data into Oracle (resumable)…");
+    import("./scripts/importFromMongo.js")
+      .then(({ importFromMongo }) => importFromMongo({
+        maxMs: 4 * 60 * 1000,
+        reset: process.env.RESET_IMPORT === "true",
+      }))
+      .then((s) => {
+        if (s.complete) {
+          console.log("✅ MongoDB → Oracle import complete.", JSON.stringify(s.imported));
+          console.log("👉 Now REMOVE the RUN_ORACLE_IMPORT variable in your host settings.");
+        } else {
+          console.log("⏸ Import pass done (not finished yet). It will RESUME automatically on the next restart.", JSON.stringify(s.imported));
+          console.log("   Leave RUN_ORACLE_IMPORT on; redeploy/restart to run another pass.");
+        }
+      })
+      .catch((err) => console.error("✖ Oracle import error (progress is saved; source untouched):", err.message));
+    return; // skip the sample-data bootstrap while importing
+  }
+
   const usingDynamo = (process.env.DB_ENGINE || "").toLowerCase() === "dynamo";
 
   // Settings index migration — real on MongoDB, a harmless no-op on DynamoDB
