@@ -206,14 +206,23 @@ async function start() {
     process.env.MONGO_URI &&
     (process.env.DB_ENGINE || "").toLowerCase() === "dynamo"
   ) {
-    console.log("↻ RUN_MONGO_MIGRATION is on — importing your existing MongoDB data into DynamoDB…");
+    console.log("↻ RUN_MONGO_MIGRATION is on — importing your MongoDB data into DynamoDB (resumable)…");
+    // Run ONE time-boxed pass per boot. If the dataset is large and the server
+    // restarts, the next boot RESUMES from the saved checkpoint (no re-clear,
+    // no restart-from-zero). Keep RUN_MONGO_MIGRATION on until you see
+    // "import complete"; then remove it.
     import("./scripts/migrateFromMongo.js")
-      .then(({ migrateFromMongo }) => migrateFromMongo(process.env.MONGO_URI))
+      .then(({ migrateFromMongo }) => migrateFromMongo(process.env.MONGO_URI, { maxMs: 4 * 60 * 1000 }))
       .then((s) => {
-        console.log("✅ MongoDB → DynamoDB import complete.", JSON.stringify(s.imported));
-        console.log("👉 Now REMOVE the RUN_MONGO_MIGRATION variable (and MONGO_URI) in your host settings.");
+        if (s.complete) {
+          console.log("✅ MongoDB → DynamoDB import complete.", JSON.stringify(s.imported));
+          console.log("👉 Now REMOVE the RUN_MONGO_MIGRATION variable in your host settings.");
+        } else {
+          console.log("⏸ Import pass done (not finished yet). It will RESUME automatically on the next restart.", JSON.stringify(s.imported));
+          console.log("   Leave RUN_MONGO_MIGRATION on. Tip: open /api/health or wait for the next deploy/ping to trigger another pass.");
+        }
       })
-      .catch((err) => console.error("✖ MongoDB import failed (nothing was cleared if it couldn't connect):", err.message));
+      .catch((err) => console.error("✖ MongoDB import error (progress is saved; nothing re-cleared):", err.message));
     return; // skip the sample-data bootstrap while importing
   }
 

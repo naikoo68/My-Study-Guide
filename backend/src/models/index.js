@@ -34,6 +34,7 @@ import SmClass from "./SmClass.js";
 import SmFile from "./SmFile.js";
 import SmSubject from "./SmSubject.js";
 import Stream from "./Stream.js";
+import MigrationState from "./MigrationState.js";
 import Subject from "./Subject.js";
 import Tenant from "./Tenant.js";
 import TestSeries from "./TestSeries.js";
@@ -48,7 +49,7 @@ export const models = {
   Feedback, Institution, Message, Notice, PracticeStream, PracticeSubject,
   PracticeTopic, PublicAttempt, Question, Quiz, Review, Session, Settings,
   SmClass, SmFile, SmSubject, Stream, Subject, Tenant, TestSeries, Topic,
-  TrialClaim, User, UserManual,
+  TrialClaim, User, UserManual, MigrationState,
 };
 
 export default models;
