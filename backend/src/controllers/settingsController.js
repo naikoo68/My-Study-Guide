@@ -30,9 +30,32 @@ export function cleanTenantSeed(instituteName) {
 // Fetch this scope's settings, creating the doc on first access. For a NON-default
 // institute the new doc is seeded empty (its own name only); the default/platform
 // tenant keeps the full demo defaults so nothing about the main site changes.
+// Resolve THIS site's settings document DETERMINISTICALLY. A multi-tenant setup
+// (and non-Mongo engines where query auto-scoping doesn't run) can hold several
+// {key:"site"} docs. A bare `findOne({key:"site"})` returns an ARBITRARY one —
+// which is exactly why on Oracle the public site picked up a different
+// institute's (near-empty) settings, so branding, social links, contacts,
+// platform statistics and the home layout all went missing. Here we pick the
+// right doc explicitly: current tenant → default tenant → tenant-less → any.
+async function findSite() {
+  const tenantId = getCurrentTenantId();
+  if (tenantId) {
+    const s = await Settings.findOne({ key: "site", tenantId });
+    if (s) return s;
+  }
+  const def = await Tenant.findOne({ isDefault: true }).select("_id").lean();
+  if (def) {
+    const s = await Settings.findOne({ key: "site", tenantId: def._id });
+    if (s) return s;
+  }
+  const legacy = await Settings.findOne({ key: "site", tenantId: null });
+  if (legacy) return legacy;
+  return Settings.findOne({ key: "site" });
+}
+
 async function getOrCreate() {
-  let s = await Settings.findOne({ key: "site" });
-  if (s) return s;
+  const existing = await findSite();
+  if (existing) return existing;
   const tenantId = getCurrentTenantId();
   if (tenantId) {
     const t = await Tenant.findById(tenantId).select("name isDefault").lean();
@@ -64,7 +87,9 @@ export async function updateSettings(req, res) {
   // Ensure the settings doc already exists (clean-seeded for institutes) BEFORE
   // the update below, so a first-save by an institute admin can't trigger the
   // upsert's setDefaultsOnInsert and re-introduce the platform demo content.
-  await getOrCreate();
+  // Capture it so the write below targets THIS site's exact doc (not an
+  // arbitrary {key:"site"} match, which could be another tenant on Oracle).
+  const site = await getOrCreate();
 
   const allowed = [
     "siteName", "tagline", "logoUrl", "primaryColor", "accentColor",
@@ -220,11 +245,7 @@ export async function updateSettings(req, res) {
       });
   }
 
-  const s = await Settings.findOneAndUpdate({ key: "site" }, update, {
-    new: true,
-    upsert: true,
-    setDefaultsOnInsert: true,
-  });
+  const s = await Settings.findByIdAndUpdate(site._id, update, { new: true });
   res.json(safeSettings(s));
 }
 
@@ -293,12 +314,9 @@ export async function uploadSelfieWatermark(req, res) {
     const { url } = await uploadToCloudinary(fileStr, "mystudyguide/watermarks");
     if (!url) return res.status(502).json({ ok: false, error: "Cloudinary upload failed." });
 
-    // Save the URL to settings.
-    const s = await Settings.findOneAndUpdate(
-      { key: "site" },
-      { fbSelfieWatermarkUrl: url },
-      { new: true, upsert: true, setDefaultsOnInsert: true }
-    );
+    // Save the URL to THIS site's settings doc.
+    const site = await getOrCreate();
+    const s = await Settings.findByIdAndUpdate(site._id, { fbSelfieWatermarkUrl: url }, { new: true });
     res.json({ ok: true, url, settings: safeSettings(s) });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message || "Upload failed." });
@@ -307,10 +325,7 @@ export async function uploadSelfieWatermark(req, res) {
 
 // DELETE /api/settings/selfie-watermark — admin: remove the selfie watermark.
 export async function deleteSelfieWatermark(req, res) {
-  const s = await Settings.findOneAndUpdate(
-    { key: "site" },
-    { fbSelfieWatermarkUrl: "" },
-    { new: true, upsert: true, setDefaultsOnInsert: true }
-  );
+  const site = await getOrCreate();
+  const s = await Settings.findByIdAndUpdate(site._id, { fbSelfieWatermarkUrl: "" }, { new: true });
   res.json({ ok: true, settings: safeSettings(s) });
 }
