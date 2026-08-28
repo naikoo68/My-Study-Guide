@@ -87,34 +87,37 @@ async function writeBatch(model, docs) {
   }
 }
 
-// Import ONE collection, resuming from `startAt` docs already done. Saves a
-// checkpoint after every chunk. Returns the total imported for this collection.
+// Import ONE collection using _id-RANGE slices (not skip/sort of the whole
+// collection). Each slice fetches only the next CHUNK docs whose _id > the last
+// one we imported, writes them, and saves a checkpoint (the last _id + count).
+// This is cheap even on a huge collection and a weak server: no growing skip, no
+// full sort scan — each pass reliably makes progress and resumes exactly.
 async function importCollection(db, job, state, deadline) {
   const coll = db.collection(job.name);
-  let done = state.progress[job.model.modelName] || 0;
+  const modelName = job.model.modelName;
+  const p = state.progress[modelName] || { done: 0, afterId: null };
+  let done = typeof p === "number" ? p : (p.done || 0);
+  let afterId = typeof p === "number" ? null : (p.afterId || null);
 
-  // Skip the docs already imported in a previous pass (stable sort by _id).
-  const cursor = coll.find({}, { sort: { _id: 1 }, skip: done, batchSize: CHUNK });
-  let buffer = [];
-  // eslint-disable-next-line no-restricted-syntax
-  for await (const doc of cursor) {
-    buffer.push(convert(doc));
-    if (buffer.length >= CHUNK) {
-      await writeBatch(job.model, buffer);
-      done += buffer.length;
-      buffer = [];
-      state.progress[job.model.modelName] = done;
-      // eslint-disable-next-line no-await-in-loop
-      await saveState(state);
-      if (global.gc) global.gc();
-      if (Date.now() > deadline) { await cursor.close?.(); return { done, finished: false }; }
-    }
-  }
-  if (buffer.length) {
-    await writeBatch(job.model, buffer);
-    done += buffer.length;
-    state.progress[job.model.modelName] = done;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const query = afterId ? { _id: { $gt: afterId } } : {};
+    // Small, bounded fetch: only CHUNK docs, ordered by _id.
+    // eslint-disable-next-line no-await-in-loop
+    const rows = await coll.find(query, { sort: { _id: 1 }, limit: CHUNK }).toArray();
+    if (!rows.length) break; // collection fully imported
+
+    // eslint-disable-next-line no-await-in-loop
+    await writeBatch(job.model, rows.map(convert));
+    done += rows.length;
+    afterId = rows[rows.length - 1]._id; // Mongo _id of the last written doc
+    state.progress[modelName] = { done, afterId: String(afterId) };
+    // eslint-disable-next-line no-await-in-loop
     await saveState(state);
+    if (global.gc) global.gc();
+
+    if (rows.length < CHUNK) break;            // last (partial) slice done
+    if (Date.now() > deadline) return { done, finished: false }; // pass time up — resume next boot
   }
   return { done, finished: true };
 }
@@ -180,8 +183,9 @@ export async function migrateFromMongo(uri, { maxMs = 0 } = {}) {
 
     // Import each collection, resuming from the saved checkpoint.
     const modelByName = Object.fromEntries(models.map((m) => [m.modelName, m]));
+    const doneCount = (v) => (typeof v === "number" ? v : (v && v.done) || 0);
     for (const job of state.plan) {
-      const already = state.progress[job.model] || 0;
+      const already = doneCount(state.progress[job.model]);
       if (already >= job.count) continue; // this collection is finished
       const model = modelByName[job.model];
       console.log(`  → Importing ${job.model} (${already}/${job.count} done)…`);
@@ -190,7 +194,8 @@ export async function migrateFromMongo(uri, { maxMs = 0 } = {}) {
       console.log(`    ${job.model}: ${r.done}/${job.count}`);
       if (!r.finished && Date.now() > deadline) {
         console.log("⏸ Pass time limit reached — progress saved; will resume on next run.");
-        return { complete: false, imported: state.progress };
+        const counts = Object.fromEntries(Object.entries(state.progress).map(([k, v]) => [k, doneCount(v)]));
+        return { complete: false, imported: counts };
       }
     }
 
@@ -198,8 +203,9 @@ export async function migrateFromMongo(uri, { maxMs = 0 } = {}) {
     state.phase = "done";
     state.finishedAt = new Date().toISOString();
     await saveState(state);
-    console.log("✅ MongoDB → DynamoDB import complete.", JSON.stringify(state.progress));
-    return { complete: true, imported: state.progress };
+    const counts = Object.fromEntries(Object.entries(state.progress).map(([k, v]) => [k, doneCount(v)]));
+    console.log("✅ MongoDB → DynamoDB import complete.", JSON.stringify(counts));
+    return { complete: true, imported: counts };
   } finally {
     await client.close();
   }
