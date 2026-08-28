@@ -125,12 +125,22 @@ async function importCollection(db, job, state, deadline) {
 // Run ONE time-boxed pass. Returns true when the whole migration is complete.
 // maxMs limits how long a single pass runs, so a boot never hangs forever
 // (0 = run until complete, used by the standalone CLI loop).
-export async function migrateFromMongo(uri, { maxMs = 0 } = {}) {
+export async function migrateFromMongo(uri, { maxMs = 0, reset = false } = {}) {
   if (!uri) throw new Error("MONGO_URI is not set — nothing to import from.");
   await ensureTables();
   const models = allModels();
 
+  // Optional clean start: forget any previous progress so the import re-plans,
+  // clears once, and re-imports from scratch. Triggered by RESET_MIGRATION=true
+  // (used after failed/partial earlier runs left a stale MigrationState).
+  const wantReset = reset || process.env.RESET_MIGRATION === "true";
   let state = await loadState();
+  if (wantReset && state) {
+    console.log("↺ RESET_MIGRATION — discarding previous import progress and starting fresh.");
+    await saveState({ phase: "", plan: null, progress: {}, resetAt: new Date().toISOString() });
+    state = null;
+  }
+
   if (state?.phase === "done") {
     console.log("✔ Import already completed earlier — nothing to do.");
     return { complete: true, imported: state.progress || {} };
