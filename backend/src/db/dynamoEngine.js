@@ -17,9 +17,11 @@ import {
   PutCommand,
   DeleteCommand,
   ScanCommand,
+  QueryCommand,
   BatchWriteCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { ddb, tableName } from "../config/dynamo.js";
+import { indexedFields, indexNameForField } from "./indexes.js";
 import {
   serialize,
   reviveDates,
@@ -392,16 +394,10 @@ class Query {
     const model = this._model;
     const filter = this._filter;
 
-    // Fast path: filter pins `_id` to a single string -> GetItem.
-    let items;
-    const idEq = typeof filter._id === "string" ? filter._id : null;
-    if (idEq !== null) {
-      const it = await model._get(idEq);
-      items = it && matchesFilter(it, filter) ? [it] : [];
-    } else {
-      const all = await model._scanAll();
-      items = all.filter((it) => matchesFilter(it, filter));
-    }
+    // Load the narrowest candidate set (GetItem / GSI Query / Scan), then apply
+    // the FULL filter in JS so results are identical regardless of access path.
+    const candidates = await model._loadForFilter(filter);
+    const items = candidates.filter((it) => matchesFilter(it, filter));
 
     // Revive Date fields on working copies.
     let out = items.map((it) => reviveDates({ ...it }, model.schema.datePaths));
@@ -526,6 +522,64 @@ class Model {
       ExclusiveStartKey = res.LastEvaluatedKey;
     } while (ExclusiveStartKey);
     return items;
+  }
+
+  // Query a GSI for all items where <field> === value (paginated).
+  async _queryByIndex(field, value) {
+    const items = [];
+    let ExclusiveStartKey;
+    do {
+      const res = await ddb.send(new QueryCommand({
+        TableName: this.tableName,
+        IndexName: indexNameForField(field),
+        KeyConditionExpression: "#f = :v",
+        ExpressionAttributeNames: { "#f": field },
+        ExpressionAttributeValues: { ":v": String(value) },
+        ExclusiveStartKey,
+      }));
+      if (res.Items) items.push(...res.Items);
+      ExclusiveStartKey = res.LastEvaluatedKey;
+    } while (ExclusiveStartKey);
+    return items;
+  }
+
+  // Pick the narrowest fetch for a filter:
+  //   1) `_id: "<string>"`            -> GetItem (one row)
+  //   2) `_id: { $in: [...] }`        -> BatchGet-style parallel GetItems
+  //   3) an indexed field == value    -> Query that GSI
+  //   4) otherwise                    -> Scan the whole table
+  // Always returns raw items; the caller still applies the FULL filter in JS,
+  // so results are identical to a scan (indexes are a speed optimization only).
+  async _loadForFilter(filter = {}) {
+    if (!filter || typeof filter !== "object") return this._scanAll();
+
+    // 1) direct id
+    if (typeof filter._id === "string") {
+      const it = await this._get(filter._id);
+      return it ? [it] : [];
+    }
+    // 2) id $in
+    if (filter._id && Array.isArray(filter._id.$in)) {
+      const ids = [...new Set(filter._id.$in.map(String))];
+      const rows = await Promise.all(ids.map((id) => this._get(id)));
+      return rows.filter(Boolean);
+    }
+    // 3) indexed equality (value must be a plain scalar, not an operator object)
+    for (const field of indexedFields(this.modelName)) {
+      const v = filter[field];
+      const scalar = v !== undefined && v !== null && (typeof v !== "object" || v instanceof Date);
+      if (scalar) {
+        try {
+          return await this._queryByIndex(field, v);
+        } catch (err) {
+          // Index not ready yet (still creating) -> fall back to scan safely.
+          if (err.name === "ValidationException" || err.name === "ResourceNotFoundException") break;
+          throw err;
+        }
+      }
+    }
+    // 4) full scan
+    return this._scanAll();
   }
 
   async _scanAllRevived() {
@@ -669,7 +723,7 @@ class Model {
   }
 
   async updateMany(filter, update, options = {}) {
-    const all = await this._scanAll();
+    const all = await this._loadForFilter(filter);
     const matched = all.filter((it) => matchesFilter(it, filter));
     for (const it of matched) {
       const updated = applyUpdate({ ...it }, update, { insert: false });
@@ -715,15 +769,15 @@ class Model {
   }
 
   async deleteMany(filter = {}) {
-    const all = await this._scanAll();
+    const all = Object.keys(filter).length ? await this._loadForFilter(filter) : await this._scanAll();
     const matched = Object.keys(filter).length ? all.filter((it) => matchesFilter(it, filter)) : all;
     await this._batchDelete(matched.map((it) => it._id));
     return { acknowledged: true, deletedCount: matched.length };
   }
 
   async countDocuments(filter = {}) {
-    const all = await this._scanAll();
-    if (!Object.keys(filter).length) return all.length;
+    if (!Object.keys(filter).length) return (await this._scanAll()).length;
+    const all = await this._loadForFilter(filter);
     return all.filter((it) => matchesFilter(it, filter)).length;
   }
 
@@ -732,7 +786,7 @@ class Model {
   }
 
   async distinct(field, filter = {}) {
-    const all = await this._scanAll();
+    const all = Object.keys(filter).length ? await this._loadForFilter(filter) : await this._scanAll();
     const matched = Object.keys(filter).length ? all.filter((it) => matchesFilter(it, filter)) : all;
     const set = new Set();
     for (const it of matched) {
