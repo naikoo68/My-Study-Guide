@@ -41,13 +41,81 @@ function resumeId(v) {
   return v;
 }
 
-// insertMany on a resumed/overlapping batch may hit already-present _ids. Treat
-// a batch that failed ONLY on duplicate keys as success (the docs are there).
-function isAllDuplicateKey(err) {
+// Is this a duplicate-key / unique-constraint error? (Oracle's MongoDB API may
+// phrase it differently from MongoDB, so we check code, writeErrors, AND text.)
+function isDupKey(err) {
   if (!err) return false;
   if (err.code === 11000) return true;
+  const msg = String(err.message || "");
+  if (/duplicate key|E11000|unique constraint|ORA-00001/i.test(msg)) return true;
   const we = err.writeErrors || err.result?.writeErrors || err.result?.result?.writeErrors;
   return Array.isArray(we) && we.length > 0 && we.every((e) => (e.code ?? e.err?.code) === 11000);
+}
+
+// The conflicting {field: value} from a duplicate-key error, if the driver
+// exposes it (used to remove the doc that's squatting on the unique value).
+function dupKeyValue(err) {
+  if (err?.keyValue && typeof err.keyValue === "object") return err.keyValue;
+  const we = err?.writeErrors || err?.result?.writeErrors;
+  if (Array.isArray(we)) {
+    for (const e of we) {
+      const kv = e.keyValue || e.err?.keyValue;
+      if (kv && typeof kv === "object") return kv;
+    }
+  }
+  return null;
+}
+
+const allNullish = (kv) => Object.values(kv || {}).every((v) => v === null || v === undefined || v === "");
+
+// Insert a batch so the SOURCE always wins. A plain insert silently DROPS any
+// document that collides with a target unique index (this is what lost your
+// real settings doc, plus a couple of users/tests). Here, on a unique conflict
+// we remove the doc squatting on that unique value and insert the source one.
+async function insertSourceWins(dst, rows, tally) {
+  try {
+    await dst.insertMany(rows, { ordered: false });
+    tally.inserted += rows.length;
+    return;
+  } catch (err) {
+    if (!isDupKey(err)) throw err; // a real (non-duplicate) error — surface it
+  }
+  // Some docs collided — retry each one idempotently (already-inserted ones are
+  // just replaced by _id; genuinely conflicting ones are recovered).
+  for (const doc of rows) {
+    // eslint-disable-next-line no-await-in-loop
+    await upsertSourceWins(dst, doc, tally);
+  }
+}
+
+async function upsertSourceWins(dst, doc, tally) {
+  let firstErr;
+  try {
+    await dst.insertOne(doc);
+    tally.inserted += 1;
+    return;
+  } catch (err) {
+    if (!isDupKey(err)) throw err;
+    firstErr = err;
+  }
+  // Duplicate. Make the SOURCE document win: delete whatever target doc holds
+  // the conflicting unique value (and any doc already using our _id), then insert.
+  const kv = dupKeyValue(firstErr);
+  try {
+    if (kv && !allNullish(kv)) await dst.deleteMany(kv);
+    await dst.deleteOne({ _id: doc._id });
+    await dst.insertOne(doc);
+    tally.recovered += 1;
+  } catch (err2) {
+    if (isDupKey(err2)) {
+      // Can't safely resolve (e.g. several source docs share a NULL unique
+      // field, or the driver didn't tell us which key clashed). Leave it out
+      // and count it so the summary is honest.
+      tally.skipped += 1;
+    } else {
+      throw err2;
+    }
+  }
 }
 
 // The TARGET is the app's current Mongoose connection (Oracle on
@@ -75,7 +143,7 @@ const summarize = (state) =>
 // fetches the next CHUNK docs whose _id > the last imported one, writes them,
 // and checkpoints. Never treats a short batch as "done" — only an empty cursor
 // or reaching the expected count finishes the collection.
-async function importCollection(sourceDb, job, state, deadline) {
+async function importCollection(sourceDb, job, state, deadline, tally) {
   const src = sourceDb.collection(job.name);
   const dst = targetDb().collection(job.name);
   const p = state.progress[job.name] || { done: 0, afterId: null };
@@ -92,12 +160,8 @@ async function importCollection(sourceDb, job, state, deadline) {
     const rows = await src.find(query).sort({ _id: 1 }).limit(CHUNK).toArray();
     if (!rows.length) return { done, finished: done >= expected };
 
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      await dst.insertMany(rows, { ordered: false });
-    } catch (err) {
-      if (!isAllDuplicateKey(err)) throw err; // real error — surface it
-    }
+    // eslint-disable-next-line no-await-in-loop
+    await insertSourceWins(dst, rows, tally);
 
     done += rows.length;
     afterId = rows[rows.length - 1]._id;
@@ -140,6 +204,7 @@ export async function importFromMongo({ maxMs = 0, reset = false } = {}) {
   await client.connect();
   console.log("✔ Connected to source MongoDB.");
   const deadline = maxMs > 0 ? Date.now() + maxMs : Number.MAX_SAFE_INTEGER;
+  const tally = { inserted: 0, recovered: 0, skipped: 0 };
 
   try {
     const sourceDb = client.db();
@@ -187,7 +252,7 @@ export async function importFromMongo({ maxMs = 0, reset = false } = {}) {
       if (doneOf(state.progress[job.name]) >= job.count) continue; // finished
       console.log(`  → Importing ${job.name} (${doneOf(state.progress[job.name])}/${job.count})…`);
       // eslint-disable-next-line no-await-in-loop
-      const r = await importCollection(sourceDb, job, state, deadline);
+      const r = await importCollection(sourceDb, job, state, deadline, tally);
       console.log(`    ${job.name}: ${r.done}/${job.count}`);
       if (!r.finished && Date.now() > deadline) {
         console.log("⏸ Pass time limit reached — progress saved; will resume on next run.");
@@ -209,7 +274,11 @@ export async function importFromMongo({ maxMs = 0, reset = false } = {}) {
     state.finishedAt = new Date().toISOString();
     await saveState(state);
     console.log("✅ MongoDB → current database import complete.", JSON.stringify(summarize(state)));
-    return { complete: true, imported: summarize(state) };
+    console.log(`   Writes: inserted ${tally.inserted}, recovered ${tally.recovered} (overwrote conflicts), skipped ${tally.skipped}.`);
+    if (tally.skipped > 0) {
+      console.log(`   ⚠ ${tally.skipped} document(s) couldn't be inserted (unique-index clash on a null/unknown field) — the only records not copied.`);
+    }
+    return { complete: true, imported: summarize(state), tally };
   } finally {
     await client.close();
   }
