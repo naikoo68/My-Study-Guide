@@ -3,16 +3,22 @@
 // database into the new DynamoDB tables, preserving every id and reference so
 // relationships stay intact.
 //
-// It is SAFE:
-//   • It reads the ENTIRE MongoDB dataset into memory FIRST. Only after every
-//     read succeeds does it touch DynamoDB — so if MongoDB is unreachable,
-//     nothing is cleared or changed.
-//   • It preserves each document's original _id (as a string), so re-running it
-//     simply overwrites the same rows (no duplicates).
+// LOW-MEMORY design (works on tiny free-tier servers, even with 50k+ rows):
+//   • Reads each collection with a CURSOR in small batches and writes each
+//     batch to DynamoDB immediately, so only a few hundred docs are ever in
+//     memory at once (never the whole collection).
+//   • Uses a small batchSize and nudges the garbage collector between batches.
 //
-// Usage (either way):
+// SAFE:
+//   • First it connects and confirms at least one matching collection is
+//     non-empty; only THEN does it clear the DynamoDB tables. If MongoDB is
+//     unreachable or nothing matches, it aborts and changes nothing.
+//   • Preserves each document's original _id (as a string), so re-running just
+//     overwrites the same rows (no duplicates).
+//
+// Usage:
 //   • Standalone:  MONGO_URI="<old-uri>" npm run migrate-from-mongo
-//   • On startup:  set env RUN_MONGO_MIGRATION=true and MONGO_URI, then deploy.
+//   • On startup:  set RUN_MONGO_MIGRATION=true, MONGO_URI, DB_ENGINE=dynamo.
 // ---------------------------------------------------------------------------
 
 import { MongoClient } from "mongodb";
@@ -25,6 +31,7 @@ import { serialize } from "../db/helpers.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const normalize = (s) => String(s).toLowerCase().replace(/[^a-z0-9]/g, "");
+const READ_BATCH = 200; // docs pulled from Mongo per round (keeps memory low)
 
 // Recursively convert Mongo values into plain JSON:
 //   • ObjectId  -> its hex string (so ids/refs become consistent strings)
@@ -48,32 +55,31 @@ function convert(value) {
 }
 
 // Match a MongoDB collection name to one of our models using longest-prefix
-// matching on the normalized names (so "examposts" -> ExamPost, not Exam, and
-// "quizzes" -> Quiz, "testseries" -> TestSeries, etc.).
+// matching (so "examposts" -> ExamPost not Exam, "testseries" -> TestSeries…).
 function matchModel(collectionName, models) {
   const c = normalize(collectionName);
   let best = null;
   let bestLen = -1;
   for (const m of models) {
     const n = normalize(m.modelName);
-    if (c.startsWith(n) && n.length > bestLen) {
-      best = m;
-      bestLen = n.length;
-    }
+    if (c.startsWith(n) && n.length > bestLen) { best = m; bestLen = n.length; }
   }
   return best;
 }
 
-async function putAll(model, docs) {
+// Write up to 25 items (one DynamoDB BatchWrite), retrying any unprocessed.
+async function writeBatch(model, docs) {
   for (let i = 0; i < docs.length; i += 25) {
     let items = docs.slice(i, i + 25).map((d) => ({ PutRequest: { Item: serialize(d) } }));
     let attempt = 0;
     while (items.length) {
+      // eslint-disable-next-line no-await-in-loop
       const res = await ddb.send(new BatchWriteCommand({ RequestItems: { [model.tableName]: items } }));
       const unprocessed = res.UnprocessedItems?.[model.tableName] || [];
       if (!unprocessed.length) break;
       attempt += 1;
-      if (attempt > 6) throw new Error(`Too many unprocessed writes for ${model.modelName}`);
+      if (attempt > 8) throw new Error(`Too many unprocessed writes for ${model.modelName}`);
+      // eslint-disable-next-line no-await-in-loop
       await sleep(200 * attempt);
       items = unprocessed;
     }
@@ -81,8 +87,28 @@ async function putAll(model, docs) {
 }
 
 async function clearTable(model) {
-  const all = await model._scanAll();
-  await model._batchDelete(all.map((i) => i._id));
+  // Low-memory clear: delete page-by-page instead of loading the whole table.
+  await model._clearAll();
+}
+
+// Stream one collection into its DynamoDB table in small batches. Returns count.
+async function streamCollection(db, name, model) {
+  const cursor = db.collection(name).find({}, { batchSize: READ_BATCH });
+  let buffer = [];
+  let total = 0;
+  // Iterate the cursor doc-by-doc; flush every READ_BATCH so memory stays flat.
+  // eslint-disable-next-line no-restricted-syntax
+  for await (const doc of cursor) {
+    buffer.push(convert(doc));
+    if (buffer.length >= READ_BATCH) {
+      await writeBatch(model, buffer);
+      total += buffer.length;
+      buffer = [];
+      if (global.gc) global.gc(); // release memory if node was started with --expose-gc
+    }
+  }
+  if (buffer.length) { await writeBatch(model, buffer); total += buffer.length; buffer = []; }
+  return total;
 }
 
 export async function migrateFromMongo(uri) {
@@ -95,7 +121,7 @@ export async function migrateFromMongo(uri) {
   await client.connect();
   console.log("✔ Connected to source MongoDB.");
 
-  const summary = { imported: {}, skippedCollections: [], clearedTables: 0 };
+  const summary = { imported: {}, skippedCollections: [] };
 
   try {
     const db = client.db(); // database name comes from the URI
@@ -103,54 +129,50 @@ export async function migrateFromMongo(uri) {
       .map((c) => c.name)
       .filter((n) => !n.startsWith("system."));
 
-    // 1) Map collections -> models, and READ EVERYTHING into memory first.
+    // 1) Map collections -> models (no data loaded yet — just plan + counts).
     const jobs = [];
+    const usedModels = new Set();
+    let totalDocs = 0;
     for (const name of collections) {
       const model = matchModel(name, models);
-      if (!model) {
-        summary.skippedCollections.push(name);
-        continue;
-      }
-      // Avoid mapping two collections to the same model (keep the first).
-      if (jobs.some((j) => j.model === model)) {
-        summary.skippedCollections.push(`${name} (already mapped to ${model.modelName})`);
-        continue;
-      }
+      if (!model) { summary.skippedCollections.push(name); continue; }
+      if (usedModels.has(model)) { summary.skippedCollections.push(`${name} (already mapped to ${model.modelName})`); continue; }
+      usedModels.add(model);
       // eslint-disable-next-line no-await-in-loop
-      const raw = await db.collection(name).find({}).toArray();
-      jobs.push({ name, model, docs: raw.map(convert) });
-      console.log(`  • Read ${raw.length} document(s) from "${name}" → ${model.modelName}`);
+      const count = await db.collection(name).countDocuments();
+      jobs.push({ name, model, count });
+      totalDocs += count;
+      console.log(`  • Found ${count} document(s) in "${name}" → ${model.modelName}`);
     }
 
-    // SAFETY: if nothing matched, abort WITHOUT clearing anything — this
-    // protects against a wrong/empty connection string wiping your data.
-    if (!jobs.length) {
+    // SAFETY: abort (change nothing) if nothing matched or everything is empty —
+    // protects against a wrong/empty connection string wiping DynamoDB data.
+    if (!jobs.length || totalDocs === 0) {
       throw new Error(
-        "No matching collections found in the source MongoDB — aborting without changing anything. " +
+        "No matching data found in the source MongoDB — aborting without changing anything. " +
         "Double-check your MONGO_URI (including the database name at the end)."
       );
     }
 
-    // 2) Every read succeeded. Now it is safe to replace the DynamoDB data.
-    //    Clear ALL tables (removes the placeholder sample data), then import.
+    // 2) Safe to replace: clear DynamoDB tables (removes sample/placeholder data).
     for (const model of models) {
       // eslint-disable-next-line no-await-in-loop
       await clearTable(model);
-      summary.clearedTables += 1;
     }
-    console.log(`✔ Cleared ${summary.clearedTables} DynamoDB table(s) (removed sample/placeholder data).`);
+    console.log(`✔ Cleared ${models.length} DynamoDB table(s) (removed sample/placeholder data).`);
 
+    // 3) Stream each collection across in small batches (low memory).
     for (const job of jobs) {
       // eslint-disable-next-line no-await-in-loop
-      await putAll(job.model, job.docs);
-      summary.imported[job.model.modelName] = job.docs.length;
-      console.log(`  ✔ Imported ${job.docs.length} → ${job.model.modelName}`);
+      const n = await streamCollection(db, job.name, job.model);
+      summary.imported[job.model.modelName] = n;
+      console.log(`  ✔ Imported ${n} → ${job.model.modelName}`);
     }
   } finally {
     await client.close();
   }
 
-  console.log("✔ Import complete:", JSON.stringify(summary.imported));
+  console.log("✅ MongoDB → DynamoDB import complete.", JSON.stringify(summary.imported));
   if (summary.skippedCollections.length) {
     console.log("ℹ Collections with no matching model (skipped):", summary.skippedCollections.join(", "));
   }

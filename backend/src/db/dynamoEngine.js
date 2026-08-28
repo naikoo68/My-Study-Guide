@@ -596,6 +596,26 @@ class Model {
     }
   }
 
+  // Low-memory table clear: scans one page at a time and deletes it, so a huge
+  // table never has to be fully loaded into memory to be emptied.
+  async _clearAll() {
+    let ExclusiveStartKey;
+    let removed = 0;
+    do {
+      // eslint-disable-next-line no-await-in-loop
+      const res = await ddb.send(new ScanCommand({
+        TableName: this.tableName,
+        ProjectionExpression: "#id",
+        ExpressionAttributeNames: { "#id": "_id" },
+        ExclusiveStartKey,
+      }));
+      const ids = (res.Items || []).map((it) => it._id);
+      if (ids.length) { await this._batchDelete(ids); removed += ids.length; }
+      ExclusiveStartKey = res.LastEvaluatedKey;
+    } while (ExclusiveStartKey);
+    return removed;
+  }
+
   async _batchPut(docs) {
     for (let i = 0; i < docs.length; i += 25) {
       const chunk = docs.slice(i, i + 25);
