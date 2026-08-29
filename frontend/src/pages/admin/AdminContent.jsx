@@ -10,6 +10,7 @@ import BulkUploadQuestions, { questionsToCsv } from "../../components/admin/Bulk
 import AiGenerate from "../../components/admin/AiGenerate";
 import QuestionFormModal from "../../components/admin/QuestionFormModal";
 import ContentMoveQuestionsModal from "../../components/admin/ContentMoveQuestionsModal";
+import ContentMoveQuizModal from "../../components/admin/ContentMoveQuizModal";
 import QuestionView from "../../components/admin/QuestionView";
 import QuestionTypeFilter from "../../components/admin/QuestionTypeFilter";
 import QuestionStatusFilter, { filterByStatus } from "../../components/admin/QuestionStatusFilter";
@@ -105,6 +106,7 @@ export default function AdminContent() {
   const [reopenAfterEdit, setReopenAfterEdit] = useState(null); // question _id to reopen in the preview after editing it there
   const [selected, setSelected] = useState([]); // bulk-selected question ids
   const [moveQ, setMoveQ] = useState(null); // { mode: "move" | "copy" } — move/copy selected questions to another quiz
+  const [migrateQuiz, setMigrateQuiz] = useState(null); // quiz being moved/copied to another session (Migrate)
   const [delProgress, setDelProgress] = useState(null); // real-time bulk-delete progress: { total, done, finished? }
   const [search, setSearch] = useState(""); // question search query
 
@@ -840,6 +842,15 @@ export default function AdminContent() {
                     <GitMerge className="h-4 w-4" />
                   </button>
                 )}
+                {view === "quizzes" && (
+                  <button
+                    onClick={() => setMigrateQuiz(item)}
+                    title="Migrate: move or copy this whole quiz to another session"
+                    className="rounded-lg p-2 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30"
+                  >
+                    <ArrowRightLeft className="h-4 w-4" />
+                  </button>
+                )}
                 <button onClick={() => openEdit(item)} title="Edit" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30">
                   <Pencil className="h-4 w-4" />
                 </button>
@@ -879,6 +890,13 @@ export default function AdminContent() {
         questionIds={selected}
         onClose={() => setMoveQ(null)}
         onMoved={() => { setSelected([]); load("questions"); }}
+      />
+
+      <ContentMoveQuizModal
+        open={!!migrateQuiz}
+        quiz={migrateQuiz}
+        onClose={() => setMigrateQuiz(null)}
+        onMoved={() => { load("quizzes"); }}
       />
 
       <BulkUploadQuestions
