@@ -98,6 +98,7 @@ export async function updateSettings(req, res) {
     "navHeight", "navBrandSize", "navFontSize", "navFontWeight", "navFontFamily", "navTextTransform", "defaultZoom",
     "watermarkEnabled", "watermarkText", "watermarkOpacity", "watermarkSize", "watermarkMode", "restrictCopy", "screenshotGuard", "guardHoldMs", "statsAuto", "notifyOnNewContent",
     "publicClientEnabled", "publicInstituteEnabled",
+    "featureFlags",
     "homeSections",
     "clientAnnouncement",
     "onboardingCompleted",
@@ -148,6 +149,21 @@ export async function updateSettings(req, res) {
   if ("fbSelfieWatermarkShape" in update) {
     const sh = String(update.fbSelfieWatermarkShape || "").trim();
     update.fbSelfieWatermarkShape = ["circle", "rectangle"].includes(sh) ? sh : "circle";
+  }
+
+  // Admin-panel feature switches. Accept a flat { key: boolean } map, coerce
+  // every value to a real boolean, and NEVER allow the core always-on features
+  // to be turned off (even if the client sends them as false).
+  if ("featureFlags" in update) {
+    const ALWAYS_ON = new Set(["users", "aiKeys", "storage", "customization"]);
+    const raw = update.featureFlags && typeof update.featureFlags === "object" ? update.featureFlags : {};
+    const clean = {};
+    for (const [k, v] of Object.entries(raw)) {
+      const key = String(k).trim();
+      if (!key || ALWAYS_ON.has(key)) continue;
+      clean[key] = !!v;
+    }
+    update.featureFlags = clean;
   }
 
   // Client welcome popup announcement: coerce enabled + trim/limit text.
