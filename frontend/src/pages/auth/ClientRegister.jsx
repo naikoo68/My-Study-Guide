@@ -73,6 +73,11 @@ export default function ClientRegister() {
     return () => { active = false; clearTimeout(t); };
   }, [planKey, coupon, referral, form.email]);
 
+  // When the owner has turned Creator plans OFF, creators use everything free
+  // and their accounts never expire — so a new creator must NOT pick or pay for
+  // a plan. We hide the whole plan/coupon/payment section and register for free.
+  const plansOff = settings?.creatorPlansEnabled === false;
+
   const selectedPlan = plans.find((p) => p.key === planKey) || plans[0];
   // The free trial has no price, so coupon/referral don't apply — hide them.
   const isFreePlan = !!selectedPlan?.trial || (selectedPlan?.price ?? 0) <= 0;
@@ -112,8 +117,9 @@ export default function ClientRegister() {
     setError("");
     setBusy(true);
     try {
-      // Take payment first when it's enabled and the plan costs money.
-      if (payEnabled && total > 0) {
+      // Take payment first when it's enabled and the plan costs money. When
+      // creator plans are OFF, skip straight to a free signup (no payment).
+      if (!plansOff && payEnabled && total > 0) {
         const order = await paymentService.createOrder({
           plan: planKey,
           couponCode: coupon.trim() || undefined,
@@ -245,7 +251,16 @@ export default function ClientRegister() {
           </div>
         </div>
 
+        {/* When creator plans are OFF, everything is free — no plan to pick. */}
+        {plansOff && (
+          <div className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-900/20 dark:text-emerald-200">
+            <Check className="mt-0.5 h-4 w-4 flex-shrink-0" />
+            Creator accounts are free right now — no plan or payment needed. Just create your account and start building.
+          </div>
+        )}
+
         {/* Plan selection */}
+        {!plansOff && (
         <div>
           <label className="mb-1.5 block text-sm font-medium">Choose your billing cycle &amp; plan</label>
           <PlanPicker plans={plans} value={planKey} onChange={handlePickPlan} />
@@ -262,9 +277,10 @@ export default function ClientRegister() {
             </div>
           ) : null}
         </div>
+        )}
 
         {/* Coupon + referral — hidden for the free trial (nothing to discount) */}
-        {!isFreePlan && (
+        {!plansOff && !isFreePlan && (
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <label className="mb-1.5 block text-sm font-medium">
@@ -305,7 +321,8 @@ export default function ClientRegister() {
         </div>
         )}
 
-        {/* Price summary */}
+        {/* Price summary — hidden when creator plans are off (free signup) */}
+        {!plansOff && (
         <div className="rounded-xl border border-slate-200 p-3 text-sm dark:border-slate-700">
           <div className="flex items-center justify-between">
             <span className="text-slate-600 dark:text-slate-300">{selectedPlan?.label} plan</span>
@@ -322,6 +339,7 @@ export default function ClientRegister() {
             <span>₹{total}</span>
           </div>
         </div>
+        )}
 
         <label className="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
           <input required type="checkbox" className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600" />
@@ -332,6 +350,8 @@ export default function ClientRegister() {
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
           {busy
             ? "Processing..."
+            : plansOff
+            ? "Create free account"
             : planKey === "trial"
             ? `Start ${trialLen}-day free trial`
             : payEnabled && total > 0
@@ -339,7 +359,9 @@ export default function ClientRegister() {
             : `Create account · ₹${total}`}
         </button>
         <p className="text-center text-xs text-slate-400">
-          {planKey === "trial"
+          {plansOff
+            ? "After verifying your email, your free creator account is ready."
+            : planKey === "trial"
             ? `Free ${trialLen}-day trial — no payment needed. You can upgrade to a paid plan anytime.`
             : payEnabled && total > 0
             ? "You'll pay securely via Razorpay, then your account activates instantly for the selected duration."

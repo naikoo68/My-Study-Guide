@@ -13,6 +13,12 @@ import { runUnscoped } from "../utils/tenantContext.js";
 import { notifyNewUser } from "../utils/notify.js";
 import { sendMail } from "../config/mailer.js";
 import { getSiteName } from "../utils/siteInfo.js";
+import { planFlagsSync } from "../utils/siteFlags.js";
+
+// True when the INSTITUTE plans toggle is OFF site-wide. In that state a new
+// institute must NOT be asked to pick/pay for a plan — its space is provisioned
+// free with no expiry, until the owner turns institute plans back on.
+const institutePlansOff = () => planFlagsSync().institutePlansEnabled === false;
 
 // PUBLIC institute self-signup (Phase 5): an institute registers, pays via
 // Razorpay (the PLATFORM's account), and its space is auto-provisioned — a
@@ -40,11 +46,15 @@ export const instituteSignupEnabled = () => process.env.TENANT_ENFORCEMENT === "
 
 // GET /api/institute-signup/config — plans + payment availability + enabled flag.
 export async function signupConfig(req, res) {
+  const plansEnabled = !institutePlansOff();
   res.json({
     enabled: instituteSignupEnabled(),
     payEnabled: razorpayConfigured(),
     keyId: razorpayKeyId(),
-    plans: await getTenantPlans(),
+    // When institute plans are OFF, sign-up is free — the client hides the plan
+    // picker and provisions without payment.
+    plansEnabled,
+    plans: plansEnabled ? await getTenantPlans() : [],
   });
 }
 
@@ -161,6 +171,9 @@ async function resolveSignup(body) {
 export async function createInstituteOrder(req, res) {
   if (!instituteSignupEnabled()) return res.status(400).json({ message: "Institute signup is not available yet." });
 
+  // Institute plans OFF → signup is free; no order/payment needed.
+  if (institutePlansOff()) return res.json({ free: true, finalPrice: 0 });
+
   const { name, slug, adminEmail, offer } = await resolveSignup(req.body);
   if (!name) return res.status(400).json({ message: "Institute name is required." });
   if (!validSlug(slug) || RESERVED_SLUGS.has(slug)) return res.status(400).json({ message: "Please choose a valid, available subdomain." });
@@ -209,16 +222,20 @@ export async function provisionInstitute(req, res) {
   if (!adminName || !adminEmail || !adminPassword) return res.status(400).json({ message: "Admin name, email and password are required." });
   if (adminPassword.length < 6) return res.status(400).json({ message: "Admin password must be at least 6 characters." });
   if (!(await isEmailVerified(adminEmail))) return res.status(400).json({ message: "Please verify your admin email with the code we sent, then continue." });
-  if (!offer) return res.status(400).json({ message: "Choose a valid plan." });
 
-  const isTrial = offer.plan.key === "trial";
+  // Institute plans OFF → provision a FREE space (no plan/payment/trial, never
+  // expires) until the owner turns institute plans back on.
+  const plansOff = institutePlansOff();
+  if (!plansOff && !offer) return res.status(400).json({ message: "Choose a valid plan." });
+
+  const isTrial = !plansOff && offer.plan.key === "trial";
   if (isTrial && (await trialClaimed(adminEmail, "institute"))) {
     return res.status(400).json({ message: "This email has already used the free institute trial. Please choose a paid plan." });
   }
   let paymentId;
 
   // Paid plan → require a verified Razorpay payment.
-  if (!isTrial && razorpayConfigured() && offer.finalPrice > 0) {
+  if (!plansOff && !isTrial && razorpayConfigured() && offer.finalPrice > 0) {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
     if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
       return res.status(400).json({ message: "No payment was received. Please try again." });
@@ -229,10 +246,15 @@ export async function provisionInstitute(req, res) {
     paymentId = razorpay_payment_id;
   }
 
-  // Compute validity.
-  const expiresAt = new Date();
-  if (isTrial) expiresAt.setDate(expiresAt.getDate() + trialDays(offer.plan, TRIAL_TENANT_DAYS));
-  else expiresAt.setMonth(expiresAt.getMonth() + (offer.plan.months || 0));
+  // Compute validity. When institute plans are OFF the space is free and never
+  // expires (expiresAt stays null), so the institute keeps working until the
+  // owner turns plans back on.
+  let expiresAt = null;
+  if (!plansOff) {
+    expiresAt = new Date();
+    if (isTrial) expiresAt.setDate(expiresAt.getDate() + trialDays(offer.plan, TRIAL_TENANT_DAYS));
+    else expiresAt.setMonth(expiresAt.getMonth() + (offer.plan.months || 0));
+  }
 
   // Provision atomically-ish (unscoped: creating a NEW tenant's data). If the
   // admin creation fails, roll back the tenant/settings we just made.
@@ -252,9 +274,9 @@ export async function provisionInstitute(req, res) {
         status: "active",
         ownerName: adminName,
         ownerEmail: adminEmail,
-        subscriptionPlan: offer.plan.key,
-        subscriptionMonths: isTrial ? 0 : offer.plan.months,
-        subscriptionPrice: offer.finalPrice,
+        subscriptionPlan: plansOff ? "free" : offer.plan.key,
+        subscriptionMonths: plansOff || isTrial ? 0 : offer.plan.months,
+        subscriptionPrice: plansOff ? 0 : offer.finalPrice,
         isTrial,
         paymentId,
         expiresAt,

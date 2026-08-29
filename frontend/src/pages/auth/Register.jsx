@@ -5,10 +5,16 @@ import AuthShell, { GoogleButton } from "../../components/auth/AuthShell";
 import OtpVerify from "../../components/auth/OtpVerify";
 import AccountTypeTabs from "../../components/auth/AccountTypeTabs";
 import { useAuth } from "../../context/AuthContext";
+import { useSettings } from "../../context/SettingsContext";
 
 export default function Register() {
   const { register } = useAuth();
+  const { settings } = useSettings();
   const navigate = useNavigate();
+  // Students register free, then choose a plan. When student plans are ON we
+  // send them to the subscribe page right after verifying (so plans are part of
+  // sign-up); when they're OFF everything is free, so go straight to the app.
+  const afterVerify = () => navigate(settings?.studentPlansEnabled !== false ? "/subscribe" : "/dashboard");
   // Switching tabs jumps to the matching registration flow.
   const onType = (k) => {
     if (k === "client") navigate("/creator/register");
@@ -41,7 +47,7 @@ export default function Register() {
           email={otpStep.email}
           devOtp={otpStep.devOtp}
           emailSent={otpStep.emailSent}
-          onVerified={() => navigate("/dashboard")}
+          onVerified={afterVerify}
           onLater={() => navigate("/login")}
         />
       </AuthShell>

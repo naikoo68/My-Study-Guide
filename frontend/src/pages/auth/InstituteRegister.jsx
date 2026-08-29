@@ -103,7 +103,7 @@ export default function InstituteRegister() {
 
   useEffect(() => {
     instituteSignupService.config().then((r) => {
-      setCfg({ enabled: !!r.enabled, payEnabled: !!r.payEnabled, plans: r.plans?.length ? r.plans : FALLBACK_PLANS });
+      setCfg({ enabled: !!r.enabled, payEnabled: !!r.payEnabled, plansEnabled: r.plansEnabled !== false, plans: r.plans?.length ? r.plans : FALLBACK_PLANS });
     }).catch(() => {});
   }, []);
 
@@ -132,6 +132,12 @@ export default function InstituteRegister() {
     }, 400);
     return () => { alive = false; clearTimeout(t); };
   }, [planKey, coupon, referral, form.adminEmail]);
+
+  // When the owner has turned Institute plans OFF, new institutes are free (no
+  // plan, no payment, never expires) — so hide the plan/coupon/payment UI and
+  // provision directly. `cfg.plansEnabled` comes from the signup config; fall
+  // back to the public site setting so the UI is right even before it loads.
+  const plansOff = cfg.plansEnabled === false || settings?.institutePlansEnabled === false;
 
   const selectedPlan = cfg.plans.find((p) => p.key === planKey) || cfg.plans[0];
   const isFreePlan = !!selectedPlan?.trial || (selectedPlan?.price ?? 0) <= 0;
@@ -178,7 +184,7 @@ export default function InstituteRegister() {
     }
     setBusy(true);
     try {
-      if (cfg.payEnabled && !isFreePlan && total > 0) {
+      if (!plansOff && cfg.payEnabled && !isFreePlan && total > 0) {
         const order = await instituteSignupService.order(payload());
         if (order.free) {
           await finish(await instituteSignupService.provision(payload()));
@@ -368,12 +374,19 @@ export default function InstituteRegister() {
           </div>
         </div>
 
-        <div>
-          <label className="mb-1.5 block text-sm font-medium">Choose a plan</label>
-          <PlanPicker plans={cfg.plans} value={planKey} onChange={handlePickPlan} />
-        </div>
+        {plansOff ? (
+          <div className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-900/20 dark:text-emerald-200">
+            <Check className="mt-0.5 h-4 w-4 flex-shrink-0" />
+            Institute sign-up is free right now — no plan or payment needed. Your space is set up instantly.
+          </div>
+        ) : (
+          <div>
+            <label className="mb-1.5 block text-sm font-medium">Choose a plan</label>
+            <PlanPicker plans={cfg.plans} value={planKey} onChange={handlePickPlan} />
+          </div>
+        )}
 
-        {!isFreePlan && (
+        {!plansOff && !isFreePlan && (
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="mb-1.5 block text-sm font-medium">Coupon <span className="font-normal text-slate-400">(optional)</span></label>
@@ -393,6 +406,7 @@ export default function InstituteRegister() {
           </div>
         )}
 
+        {!plansOff && (
         <div className="rounded-xl border border-slate-200 p-3 text-sm dark:border-slate-700">
           <div className="flex items-center justify-between">
             <span className="text-slate-600 dark:text-slate-300">{selectedPlan?.label} plan</span>
@@ -401,6 +415,7 @@ export default function InstituteRegister() {
           {discount > 0 && <div className="mt-1 flex items-center justify-between text-emerald-600"><span>Discount</span><span>−₹{discount}</span></div>}
           <div className="mt-2 flex items-center justify-between border-t border-slate-200 pt-2 text-base font-extrabold dark:border-slate-700"><span>Total</span><span>{isFreePlan ? "Free" : `₹${total}`}</span></div>
         </div>
+        )}
 
         <label className="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
           <input required type="checkbox" className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600" />
@@ -409,7 +424,7 @@ export default function InstituteRegister() {
 
         <button type="submit" disabled={busy || !emailVerified} className="btn-primary w-full">
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <School className="h-4 w-4" />}
-          {busy ? "Setting up…" : isFreePlan ? "Start free trial" : cfg.payEnabled ? `Pay ₹${total} & create institute` : `Create institute`}
+          {busy ? "Setting up…" : plansOff ? "Create institute" : isFreePlan ? "Start free trial" : cfg.payEnabled ? `Pay ₹${total} & create institute` : `Create institute`}
         </button>
         {!emailVerified ? (
           <p className="flex items-center justify-center gap-1 text-center text-xs text-amber-600 dark:text-amber-400">
@@ -417,7 +432,7 @@ export default function InstituteRegister() {
           </p>
         ) : (
           <p className="flex items-center justify-center gap-1 text-center text-xs text-slate-400">
-            <ShieldCheck className="h-3.5 w-3.5" /> {isFreePlan ? "Free trial — no payment needed." : "Secure payment via Razorpay · your institute activates instantly"}
+            <ShieldCheck className="h-3.5 w-3.5" /> {plansOff ? "Free sign-up — no payment needed." : isFreePlan ? "Free trial — no payment needed." : "Secure payment via Razorpay · your institute activates instantly"}
           </p>
         )}
       </form>
