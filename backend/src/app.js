@@ -2,6 +2,7 @@ import express from "express";
 import mongoose from "./db/odm.js";
 import cors from "cors";
 import helmet from "helmet";
+import compression from "compression";
 import morgan from "morgan";
 import rateLimit from "express-rate-limit";
 
@@ -94,6 +95,9 @@ app.set("trust proxy", 1);
 // In production, restrict CORS to the configured CLIENT_URL (and common Vercel
 // preview URLs). In development, allow any origin for convenience.
 app.use(helmet());
+// gzip every response. JSON (question lists, backups, etc.) compresses ~70–90%,
+// which is the biggest single cut to outbound bandwidth (free-tier egress cap).
+app.use(compression());
 // CORS. Authentication is a stateless JWT sent in the Authorization header
 // (never a cookie), so the browser's same-origin policy already stops another
 // site from reading a logged-in user's token or forging an authenticated

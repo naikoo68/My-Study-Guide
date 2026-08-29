@@ -330,14 +330,17 @@ export default function AdminContent() {
   // share the topic's implicit session) so "Generate with AI" can show the
   // Syllabus-coverage / Missing-areas report for the whole topic, not just one
   // quiz. Same engine My Practice uses (AiGenerate's coverageQuestions).
+  // Fetch the topic's stems LAZILY — only when the AI generator opens (not on
+  // every topic browse) so we don't ship a whole topic's questions on each
+  // navigation. Keeps bandwidth down.
   useEffect(() => {
-    if (!session?._id) { setTopicStems([]); return; }
+    if (!aiOpen || !session?._id) return;
     let cancelled = false;
     contentService.questions(session._id)
       .then((qs) => { if (!cancelled) setTopicStems((qs || []).map((q) => q?.text).filter(Boolean)); })
       .catch(() => { if (!cancelled) setTopicStems([]); });
     return () => { cancelled = true; };
-  }, [session?._id]);
+  }, [aiOpen, session?._id]);
 
   // After editing a question that was opened from the single-question preview,
   // reopen the preview on that (now-reloaded, updated) question so you land back
