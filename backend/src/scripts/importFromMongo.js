@@ -211,9 +211,20 @@ export async function importFromMongo({ maxMs = 0, reset = false } = {}) {
 
     // Build (or reuse) the plan: source collections + their counts.
     if (!state || !state.plan) {
+      // Optional: restrict the import to specific collections via IMPORT_ONLY
+      // (comma-separated names, e.g. "settings,users,testseries"). Handy to
+      // RECOVER just a few dropped collections without re-copying the huge ones
+      // (e.g. questions). Only these collections are cleared + imported; every
+      // other collection is left completely untouched.
+      const only = (process.env.IMPORT_ONLY || "")
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean);
       const names = (await sourceDb.listCollections().toArray())
         .map((c) => c.name)
-        .filter((n) => !n.startsWith("system.") && n !== STATE_COLL);
+        .filter((n) => !n.startsWith("system.") && n !== STATE_COLL)
+        .filter((n) => !only.length || only.includes(n.toLowerCase()));
+      if (only.length) console.log(`  • IMPORT_ONLY is set — importing just: ${names.join(", ") || "(no matching collections)"}`);
       const plan = [];
       let total = 0;
       for (const name of names) {
