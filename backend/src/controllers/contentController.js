@@ -157,8 +157,36 @@ export async function deleteSubject(req, res) {
 // GET /api/subjects/:subjectId/topics — includes session count per topic
 export async function listTopics(req, res) {
   const topics = await Topic.find({ subject: req.params.subjectId, ...NOT_DELETED }).sort("index createdAt").lean();
-  const sMap = await countMap(Session, topics.map((t) => t._id), "topic");
-  res.json(topics.map((t) => ({ ...t, sessions: sMap[String(t._id)] || 0 })));
+  const topicIds = topics.map((t) => t._id);
+  // The admin UI hides the "Session" level (Topic → Quiz directly), so a topic
+  // card shows its QUIZ count. Quizzes live under the topic's session(s), so we
+  // roll up quiz counts per session back onto the owning topic.
+  const sessions = await Session.find({ topic: { $in: topicIds }, ...NOT_DELETED }).select("_id topic").lean();
+  const sessionToTopic = new Map(sessions.map((s) => [String(s._id), String(s.topic)]));
+  const qAgg = sessions.length
+    ? await Quiz.aggregate([
+        { $match: { session: { $in: sessions.map((s) => s._id) }, deleted: { $ne: true } } },
+        { $group: { _id: "$session", count: { $sum: 1 } } },
+      ])
+    : [];
+  const perTopic = {};
+  for (const row of qAgg) {
+    const t = sessionToTopic.get(String(row._id));
+    if (t) perTopic[t] = (perTopic[t] || 0) + (row.count || 0);
+  }
+  res.json(topics.map((t) => ({ ...t, quizzes: perTopic[String(t._id)] || 0 })));
+}
+
+// POST /api/topics/:topicId/session — return the topic's single implicit
+// session, creating it if missing. The admin Content UI hides the Session level
+// (Topic → Quiz), so every quiz under a topic lives in this one auto session;
+// students / search / analytics / backup still work because the session exists.
+export async function topicSession(req, res) {
+  const topic = await Topic.findById(req.params.topicId);
+  if (!topic) return res.status(404).json({ message: "Topic not found" });
+  let session = await Session.findOne({ topic: topic._id, ...NOT_DELETED }).sort("index createdAt");
+  if (!session) session = await Session.create({ subject: topic.subject, topic: topic._id, title: "Quizzes", index: 0 });
+  res.json(session);
 }
 
 export async function createTopic(req, res) {

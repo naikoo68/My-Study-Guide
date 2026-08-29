@@ -58,7 +58,10 @@ export default function AdminContent() {
   const tid = searchParams.get("t") || "";
   const seid = searchParams.get("se") || "";
   const qid = searchParams.get("qz") || "";
-  const view = qid ? "questions" : seid ? "quizzes" : tid ? "sessions" : subId ? "topics" : sid ? "subjects" : "streams";
+  // The "Session" level is hidden: a topic drills straight to its Quizzes. `se`
+  // still lives in the URL (the topic's single implicit session) so quiz/question
+  // loading + student/search/analytics keep working, but the user never sees it.
+  const view = qid ? "questions" : (seid || tid) ? "quizzes" : subId ? "topics" : sid ? "subjects" : "streams";
 
   // Entity OBJECTS (for breadcrumb names + child loading). Seeded from the
   // per-tab cache so a refresh is instant; the URL-sync effect reconciles them
@@ -292,6 +295,16 @@ export default function AdminContent() {
         else if (subj && (!tpc || String(tpc._id) !== tid)) tpc = find(await contentService.topics(subId), tid);
         if (tid && !tpc) { if (!cancelled) setSearchParams({ s: sid, sub: subId }, { replace: true }); return; }
 
+        // Session level is HIDDEN: when a topic is open but the URL has no
+        // session id, resolve (or create) the topic's single implicit session
+        // and jump straight to its quizzes — so the user never sees a Session.
+        if (tid && !seid) {
+          const ds = await contentService.topicSession(tid).catch(() => null);
+          if (cancelled) return;
+          if (ds?._id) setSearchParams({ s: sid, sub: subId, t: tid, se: String(ds._id) }, { replace: true });
+          else setError("Couldn't open this topic's quizzes.");
+          return;
+        }
         if (!seid) sess = null;
         else if (tpc && (!sess || String(sess._id) !== seid)) sess = find(await contentService.sessions(tid), seid);
         if (seid && !sess) { if (!cancelled) setSearchParams({ s: sid, sub: subId, t: tid }, { replace: true }); return; }
@@ -374,8 +387,7 @@ export default function AdminContent() {
     if (level === "streams") setSearchParams({});
     else if (level === "subjects") setSearchParams({ s: sid });
     else if (level === "topics") setSearchParams({ s: sid, sub: subId });
-    else if (level === "sessions") setSearchParams({ s: sid, sub: subId, t: tid });
-    else if (level === "quizzes") setSearchParams({ s: sid, sub: subId, t: tid, se: seid });
+    else if (level === "quizzes") setSearchParams({ s: sid, sub: subId, t: tid, ...(seid ? { se: seid } : {}) });
     else setSearchParams({ s: sid, sub: subId, t: tid, se: seid, qz: qid });
   };
 
@@ -540,13 +552,9 @@ export default function AdminContent() {
         <ChevronRight className="h-4 w-4 text-slate-400" />
         <button onClick={() => goTo("topics")} className={`rounded px-2 py-1 font-medium ${view === "topics" ? "text-brand-600" : "text-slate-500 hover:text-brand-600"}`}>{subject.name}</button>
       </>)}
-      {topic && (view === "sessions" || view === "quizzes" || view === "questions") && (<>
+      {topic && (view === "quizzes" || view === "questions") && (<>
         <ChevronRight className="h-4 w-4 text-slate-400" />
-        <button onClick={() => goTo("sessions")} className={`rounded px-2 py-1 font-medium ${view === "sessions" ? "text-brand-600" : "text-slate-500 hover:text-brand-600"}`}>{topic.title}</button>
-      </>)}
-      {session && (view === "quizzes" || view === "questions") && (<>
-        <ChevronRight className="h-4 w-4 text-slate-400" />
-        <button onClick={() => goTo("quizzes")} className={`rounded px-2 py-1 font-medium ${view === "quizzes" ? "text-brand-600" : "text-slate-500 hover:text-brand-600"}`}>{session.title}</button>
+        <button onClick={() => goTo("quizzes")} className={`rounded px-2 py-1 font-medium ${view === "quizzes" ? "text-brand-600" : "text-slate-500 hover:text-brand-600"}`}>{topic.title}</button>
       </>)}
       {quiz && view === "questions" && (<>
         <ChevronRight className="h-4 w-4 text-slate-400" />
@@ -560,7 +568,7 @@ export default function AdminContent() {
     subjects: { title: `Subjects in ${stream?.name || ""}`, add: "Add Subject", icon: FolderOpen },
     topics: { title: `Topics in ${subject?.name || ""}`, add: "Add Topic", icon: Layers },
     sessions: { title: `Sessions in ${topic?.title || ""}`, add: "Add Session", icon: BookOpen },
-    quizzes: { title: `Quizzes in ${session?.title || ""}`, add: "Add Quiz", icon: ListChecks },
+    quizzes: { title: `Quizzes in ${topic?.title || ""}`, add: "Add Quiz", icon: ListChecks },
     questions: { title: `Questions in ${quiz?.title || ""}`, add: "Add Question", icon: HelpCircle },
   };
   const H = headings[view];
@@ -601,7 +609,7 @@ export default function AdminContent() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-extrabold">Content Management</h1>
-          <p className="text-slate-500 dark:text-slate-400">Stream → Subject → Topic → Session → Quiz → Questions. Add, edit or delete at any level.</p>
+          <p className="text-slate-500 dark:text-slate-400">Stream → Subject → Topic → Quiz → Questions. Add, edit or delete at any level.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
@@ -774,8 +782,7 @@ export default function AdminContent() {
                     <p className="mt-0.5 text-xs text-slate-400">
                       {view === "streams" && `${item.subjects ?? 0} subjects`}
                       {view === "subjects" && `${item.topics ?? 0} topics`}
-                      {view === "topics" && `${item.sessions ?? 0} sessions`}
-                      {view === "sessions" && `${item.quizzes ?? 0} quizzes · ${item.difficulty}`}
+                      {view === "topics" && `${item.quizzes ?? 0} quizzes`}
                       {view === "quizzes" && `${item.questions ?? 0} questions · ${item.difficulty}`}
                     </p>
                   </>
@@ -836,7 +843,7 @@ export default function AdminContent() {
                 {view === "quizzes" && (
                   <button
                     onClick={() => { setMergeIds([]); setMergeTarget(item); }}
-                    title="Merge other quizzes in this session into this one"
+                    title="Merge other quizzes in this topic into this one"
                     className="rounded-lg p-2 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30"
                   >
                     <GitMerge className="h-4 w-4" />
@@ -845,7 +852,7 @@ export default function AdminContent() {
                 {view === "quizzes" && (
                   <button
                     onClick={() => setMigrateQuiz(item)}
-                    title="Migrate: move or copy this whole quiz to another session"
+                    title="Migrate: move or copy this whole quiz to another topic"
                     className="rounded-lg p-2 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30"
                   >
                     <ArrowRightLeft className="h-4 w-4" />
@@ -970,7 +977,7 @@ export default function AdminContent() {
             )}
             {splitTarget.kind === "topic" && (
               <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
-                This reorganises the whole topic: all its questions move into fresh Quiz 1…N under one session, and the topic's old quizzes are replaced.
+                This reorganises the whole topic: all its questions move into fresh Quiz 1…N, and the topic's old quizzes are replaced.
               </p>
             )}
             <div className="mt-5 flex justify-end gap-2">
@@ -992,11 +999,11 @@ export default function AdminContent() {
               <button type="button" onClick={() => setMergeTarget(null)} disabled={merging}><X className="h-5 w-5" /></button>
             </div>
             <p className="mb-3 text-sm text-slate-500 dark:text-slate-400">
-              Pick other quizzes in this session to merge into <b>“{mergeTarget.title || mergeTarget.name}”</b>. Their questions move in and the emptied quizzes are deleted.
+              Pick other quizzes in this topic to merge into <b>“{mergeTarget.title || mergeTarget.name}”</b>. Their questions move in and the emptied quizzes are deleted.
             </p>
             {(() => {
               const others = items.filter((it) => it._id !== mergeTarget._id);
-              if (!others.length) return <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">There are no other quizzes in this session to merge.</p>;
+              if (!others.length) return <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">There are no other quizzes in this topic to merge.</p>;
               const otherIds = others.map((o) => o._id);
               const allSelected = otherIds.every((id) => mergeIds.includes(id));
               return (
