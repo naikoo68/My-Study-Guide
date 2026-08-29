@@ -4,6 +4,7 @@ import TestSeries from "../models/TestSeries.js";
 import CbtAttempt from "../models/CbtAttempt.js";
 import CbtRegistration from "../models/CbtRegistration.js";
 import { gradeSubmission } from "./testController.js";
+import { softDeletePatch } from "../utils/softDelete.js";
 import { sendMail, isMailConfigured } from "../config/mailer.js";
 
 /* ============================ helpers ============================ */
@@ -276,6 +277,9 @@ export async function registerPortal(req, res) {
       email: cleanEmail, name: cleanName, passwordHash,
       code, codeExpiresAt: new Date(now + 10 * 60 * 1000),
       verified: false, sessionToken: null,
+      // Revive a soft-deleted registration (an admin may have moved a prior
+      // sign-up to the Recycle Bin) so re-registering with the same email works.
+      deleted: false, deletedAt: null,
       expiresAt: new Date(now + 24 * 60 * 60 * 1000), // TTL cleanup after 24h
     },
     { upsert: true, new: true, setDefaultsOnInsert: true }
@@ -776,7 +780,8 @@ export async function listRegistrations(req, res) {
 // Their exam results (CbtAttempt) are kept; they'd need to register again.
 export async function deleteRegistration(req, res) {
   if (!isAdmin(req)) return res.status(403).json({ message: "Admins only." });
-  await CbtRegistration.findByIdAndDelete(req.params.id);
+  // Soft delete → Recycle Bin (cbtregistration is a flat type there).
+  await CbtRegistration.findByIdAndUpdate(req.params.id, softDeletePatch());
   res.json({ ok: true });
 }
 

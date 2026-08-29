@@ -69,6 +69,7 @@ import { shareTestPreview } from "./controllers/testController.js";
 import { sitemap } from "./controllers/sitemapController.js";
 import { releaseEndedCbtExams } from "./controllers/cbtController.js";
 import { runDueFbSchedules } from "./config/facebook.js";
+import { purgeExpiredRecycleBin } from "./controllers/recycleBinController.js";
 import { notFound, errorHandler } from "./middleware/error.js";
 import { isMailConfigured, verifyMail } from "./config/mailer.js";
 import { isCloudinaryConfigured } from "./config/cloudinary.js";
@@ -158,6 +159,7 @@ app.get("/api/health", async (req, res) => {
     lastCbtSweep = now;
     releaseEndedCbtExams().catch(() => {});
     runDueFbSchedules().catch(() => {}); // fire any due Facebook scheduled posts (safety net for sleepy hosts)
+    purgeExpiredRecycleBin().catch(() => {}); // auto-purge Recycle Bin items past RECYCLE_BIN_RETENTION_DAYS (off by default)
   }
 
   // Report the real database status so this endpoint is trustworthy for

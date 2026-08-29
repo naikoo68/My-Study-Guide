@@ -19,6 +19,7 @@ import { byNatural } from "../utils/naturalSort.js";
 import { runUnscoped, runWithTenant } from "../utils/tenantContext.js";
 import { clientBaseFromReq } from "../config/clientUrl.js";
 import { renderQuestionImage } from "../config/socialImage.js";
+import { softDeletePatch } from "../utils/softDelete.js";
 
 // A caller may manage a test/question only within their own space: clients only
 // their own owned items; admins only the shared (ownerless) platform items.
@@ -410,9 +411,10 @@ export async function deleteTest(req, res) {
   const test = await TestSeries.findById(req.params.id);
   if (!test) return res.status(404).json({ message: "Test not found" });
   if (!canManage(req, test)) return res.status(403).json({ message: "Not your content" });
-  // Also remove the item's questions so nothing is orphaned.
-  if (test.questions?.length) await Question.deleteMany({ _id: { $in: test.questions } });
-  await TestSeries.findByIdAndDelete(req.params.id);
+  // Soft delete → Recycle Bin. Only the test is flagged; its questions stay put
+  // (hidden with it) so a restore brings the whole thing back intact. Permanent
+  // deletion from the Recycle Bin is what finally removes the questions.
+  await TestSeries.findByIdAndUpdate(req.params.id, softDeletePatch());
   res.json({ message: "Test deleted" });
 }
 
@@ -1103,7 +1105,9 @@ export async function deleteTestQuestion(req, res) {
   const test = await TestSeries.findById(req.params.id).select("owner");
   if (!test) return res.status(404).json({ message: "Test not found" });
   if (!canManage(req, test)) return res.status(403).json({ message: "Not your content" });
+  // Soft delete → Recycle Bin. Detach from the test's list now (so it no longer
+  // shows in the test) but keep the doc flagged; restoring re-links it.
   await TestSeries.findByIdAndUpdate(req.params.id, { $pull: { questions: req.params.qid } });
-  await Question.findByIdAndDelete(req.params.qid);
+  await Question.findByIdAndUpdate(req.params.qid, softDeletePatch());
   res.json({ message: "Question removed from test" });
 }

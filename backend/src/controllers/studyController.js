@@ -2,6 +2,7 @@ import Institution from "../models/Institution.js";
 import SmSubject from "../models/SmSubject.js";
 import SmClass from "../models/SmClass.js";
 import SmFile from "../models/SmFile.js";
+import { softDeletePatch } from "../utils/softDelete.js";
 
 async function countBy(Model, ids, field) {
   if (!ids.length) return {};
@@ -29,13 +30,9 @@ export async function updateInstitution(req, res) {
   res.json(it);
 }
 export async function deleteInstitution(req, res) {
-  const id = req.params.id;
-  await Promise.all([
-    SmFile.deleteMany({ institution: id }),
-    SmClass.deleteMany({ institution: id }),
-    SmSubject.deleteMany({ institution: id }),
-    Institution.findByIdAndDelete(id),
-  ]);
+  // Soft delete → Recycle Bin. Only the institution node is flagged; its
+  // subjects/classes/files stay put (hidden with it, restored with it).
+  await Institution.findByIdAndUpdate(req.params.id, softDeletePatch());
   res.json({ message: "Institution and its contents deleted" });
 }
 
@@ -54,12 +51,8 @@ export async function updateSmSubject(req, res) {
   res.json(s);
 }
 export async function deleteSmSubject(req, res) {
-  const id = req.params.id;
-  await Promise.all([
-    SmFile.deleteMany({ subject: id }),
-    SmClass.deleteMany({ subject: id }),
-    SmSubject.findByIdAndDelete(id),
-  ]);
+  // Soft delete → Recycle Bin. Only the subject node is flagged.
+  await SmSubject.findByIdAndUpdate(req.params.id, softDeletePatch());
   res.json({ message: "Subject and its classes/files deleted" });
 }
 
@@ -78,8 +71,8 @@ export async function updateSmClass(req, res) {
   res.json(c);
 }
 export async function deleteSmClass(req, res) {
-  const id = req.params.id;
-  await Promise.all([SmFile.deleteMany({ smClass: id }), SmClass.findByIdAndDelete(id)]);
+  // Soft delete → Recycle Bin. Only the class node is flagged.
+  await SmClass.findByIdAndUpdate(req.params.id, softDeletePatch());
   res.json({ message: "Class and its files deleted" });
 }
 
@@ -108,6 +101,7 @@ export async function updateSmFile(req, res) {
   res.json(f);
 }
 export async function deleteSmFile(req, res) {
-  await SmFile.findByIdAndDelete(req.params.id);
+  // Soft delete → Recycle Bin (smfile is a flat type there).
+  await SmFile.findByIdAndUpdate(req.params.id, softDeletePatch());
   res.json({ message: "File deleted" });
 }

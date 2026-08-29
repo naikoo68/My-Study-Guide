@@ -4,6 +4,7 @@ import Question from "../models/Question.js";
 import Settings from "../models/Settings.js";
 import User from "../models/User.js";
 import { ownerFilter } from "../utils/ownership.js";
+import { softDeletePatch } from "../utils/softDelete.js";
 import { DEFAULT_CLIENT_PLANS } from "../utils/plans.js";
 import { webResearch } from "../utils/webResearch.js";
 import { splitIntoStems, contentOfBlock, questionLocation } from "./contentController.js";
@@ -4446,7 +4447,12 @@ export async function revealKey(req, res) {
 
 // DELETE /api/ai/keys/:id — scoped to the caller's own pool.
 export async function deleteKey(req, res) {
-  const doc = await AiKey.findOneAndDelete({ _id: req.params.id, owner: keyOwner(req) ?? null });
+  // Soft delete → Recycle Bin (aikey is a flat type there). A deleted key is
+  // hidden from every key lookup, so it stops being used for generation.
+  const doc = await AiKey.findOneAndUpdate(
+    { _id: req.params.id, owner: keyOwner(req) ?? null },
+    softDeletePatch()
+  );
   if (!doc) return res.status(404).json({ message: "Key not found" });
   res.json({ message: "Key deleted" });
 }

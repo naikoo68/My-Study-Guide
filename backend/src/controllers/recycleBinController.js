@@ -20,7 +20,21 @@ import Review from "../models/Review.js";
 import Coupon from "../models/Coupon.js";
 import Document from "../models/Document.js";
 import Feedback from "../models/Feedback.js";
+import Exam from "../models/Exam.js";
+import ExamPost from "../models/ExamPost.js";
+import CbtRegistration from "../models/CbtRegistration.js";
+import AiKey from "../models/AiKey.js";
+import Institution from "../models/Institution.js";
+import SmSubject from "../models/SmSubject.js";
+import SmClass from "../models/SmClass.js";
+import SmFile from "../models/SmFile.js";
+import PracticeStream from "../models/PracticeStream.js";
+import PracticeSubject from "../models/PracticeSubject.js";
+import PracticeTopic from "../models/PracticeTopic.js";
 import { ONLY_DELETED, restorePatch } from "../utils/softDelete.js";
+
+// Reads inside cascades must include soft-deleted docs, so bypass the auto-hide.
+const withDeleted = (q) => q.setOptions({ withDeleted: true });
 
 // Map a "type" key from the client to its model + friendly label. Content-tree
 // types cascade on permanent delete; `flat: true` types are standalone records
@@ -38,6 +52,111 @@ const TYPES = {
   coupon: { Model: Coupon, label: "Coupon", flat: true },
   document: { Model: Document, label: "Document", flat: true },
   feedback: { Model: Feedback, label: "Feedback", flat: true },
+
+  // Standalone / leaf records — permanent delete just removes the one record.
+  cbtregistration: { Model: CbtRegistration, label: "Exam registration", flat: true },
+  aikey: { Model: AiKey, label: "API key", flat: true },
+  smfile: { Model: SmFile, label: "Study file", flat: true },
+
+  // Test series — permanent delete also removes its questions.
+  testseries: {
+    Model: TestSeries, label: "Test Series",
+    cascade: async (id) => {
+      const t = await withDeleted(TestSeries.findById(id).select("questions"));
+      if (t?.questions?.length) await Question.deleteMany({ _id: { $in: t.questions } });
+      await TestSeries.findByIdAndDelete(id);
+    },
+  },
+
+  // Exams → remove posts and detach (keep) their tests.
+  exam: {
+    Model: Exam, label: "Exam",
+    cascade: async (id) => {
+      await Promise.all([
+        ExamPost.deleteMany({ exam: id }),
+        TestSeries.updateMany({ exam: id }, { $unset: { exam: "", post: "" } }),
+        Exam.findByIdAndDelete(id),
+      ]);
+    },
+  },
+  exampost: {
+    Model: ExamPost, label: "Exam section",
+    cascade: async (id) => {
+      await TestSeries.updateMany({ post: id }, { $unset: { post: "" } });
+      await ExamPost.findByIdAndDelete(id);
+    },
+  },
+
+  // Study Material tree.
+  institution: {
+    Model: Institution, label: "Study institution",
+    cascade: async (id) => {
+      await Promise.all([
+        SmFile.deleteMany({ institution: id }),
+        SmClass.deleteMany({ institution: id }),
+        SmSubject.deleteMany({ institution: id }),
+        Institution.findByIdAndDelete(id),
+      ]);
+    },
+  },
+  smsubject: {
+    Model: SmSubject, label: "Study subject",
+    cascade: async (id) => {
+      await Promise.all([
+        SmFile.deleteMany({ subject: id }),
+        SmClass.deleteMany({ subject: id }),
+        SmSubject.findByIdAndDelete(id),
+      ]);
+    },
+  },
+  smclass: {
+    Model: SmClass, label: "Study class",
+    cascade: async (id) => {
+      await Promise.all([SmFile.deleteMany({ smClass: id }), SmClass.findByIdAndDelete(id)]);
+    },
+  },
+
+  // Practice tree — permanent delete also removes practice items + questions.
+  practicestream: {
+    Model: PracticeStream, label: "Practice stream",
+    cascade: async (id) => {
+      const items = await withDeleted(TestSeries.find({ practice: true, practiceStream: id }).select("questions"));
+      const qIds = items.flatMap((i) => i.questions || []);
+      const subjectIds = (await withDeleted(PracticeSubject.find({ stream: id }).select("_id"))).map((s) => s._id);
+      await Promise.all([
+        Question.deleteMany({ _id: { $in: qIds } }),
+        TestSeries.deleteMany({ practice: true, practiceStream: id }),
+        PracticeTopic.deleteMany({ subject: { $in: subjectIds } }),
+        PracticeSubject.deleteMany({ stream: id }),
+        PracticeStream.findByIdAndDelete(id),
+      ]);
+    },
+  },
+  practicesubject: {
+    Model: PracticeSubject, label: "Practice subject",
+    cascade: async (id) => {
+      const items = await withDeleted(TestSeries.find({ practice: true, practiceSubject: id }).select("questions"));
+      const qIds = items.flatMap((i) => i.questions || []);
+      await Promise.all([
+        Question.deleteMany({ _id: { $in: qIds } }),
+        TestSeries.deleteMany({ practice: true, practiceSubject: id }),
+        PracticeTopic.deleteMany({ subject: id }),
+        PracticeSubject.findByIdAndDelete(id),
+      ]);
+    },
+  },
+  practicetopic: {
+    Model: PracticeTopic, label: "Practice topic",
+    cascade: async (id) => {
+      const items = await withDeleted(TestSeries.find({ practice: true, practiceTopic: id }).select("questions"));
+      const qIds = items.flatMap((i) => i.questions || []);
+      await Promise.all([
+        Question.deleteMany({ _id: { $in: qIds } }),
+        TestSeries.deleteMany({ practice: true, practiceTopic: id }),
+        PracticeTopic.findByIdAndDelete(id),
+      ]);
+    },
+  },
 };
 
 // A short human title for each item type (different models title differently).
@@ -50,6 +169,8 @@ const titleOf = (type, doc) => {
     case "coupon": return doc.code || "(coupon)";
     case "document": return doc.title || "(document)";
     case "feedback": return String(doc.message || "").slice(0, 120) || `${doc.context || ""} feedback`.trim() || "(feedback)";
+    case "cbtregistration": return doc.name || doc.email || "(candidate)";
+    case "aikey": return doc.label || "(API key)";
     default: return doc.title || doc.name || "(untitled)";
   }
 };
@@ -62,7 +183,7 @@ export async function listRecycleBin(req, res) {
       const docs = await Model.find(ONLY_DELETED)
         .sort("-deletedAt")
         .limit(1000)
-        .select("title name text code subject email message context deletedAt")
+        .select("title name text code subject email message context label deletedAt")
         .lean();
       return docs.map((d) => ({
         type,
@@ -104,6 +225,13 @@ export async function permanentDeleteItem(req, res) {
   // Flat (childless) types just remove the single record for good.
   if (entry.flat) {
     await entry.Model.findByIdAndDelete(id);
+    return res.json({ message: `${entry.label} permanently deleted.`, type, _id: id });
+  }
+
+  // Types with their own cascade routine (test series, exams, study & practice
+  // trees) run it to hard-delete the record and everything beneath it.
+  if (entry.cascade) {
+    await entry.cascade(id);
     return res.json({ message: `${entry.label} permanently deleted.`, type, _id: id });
   }
 
@@ -206,5 +334,34 @@ export async function emptyRecycleBin(req, res) {
       .filter((t) => t.flat)
       .map((t) => t.Model.deleteMany(ONLY_DELETED))
   );
+
+  // And run each cascade type's routine for every soft-deleted record it owns
+  // (test series, exams, study & practice trees) so descendants go too.
+  for (const [, entry] of Object.entries(TYPES)) {
+    if (!entry.cascade) continue;
+    const ids = (await withDeleted(entry.Model.find(ONLY_DELETED).select("_id")).lean()).map((d) => d._id);
+    for (const id of ids) await entry.cascade(id);
+  }
   res.json({ message: "Recycle Bin emptied." });
+}
+
+// Auto-purge: permanently delete Recycle Bin items older than the retention
+// window. Controlled by RECYCLE_BIN_RETENTION_DAYS — default 0 means KEEP
+// FOREVER (never auto-delete), so nothing disappears unless an admin opts in.
+// Called on a throttled schedule from the health check (see app.js).
+export async function purgeExpiredRecycleBin() {
+  const days = Number(process.env.RECYCLE_BIN_RETENTION_DAYS || 0);
+  if (!Number.isFinite(days) || days <= 0) return { purged: 0, skipped: true };
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const expired = { deleted: true, deletedAt: { $lt: cutoff } };
+  let purged = 0;
+  for (const [, entry] of Object.entries(TYPES)) {
+    const ids = (await withDeleted(entry.Model.find(expired).select("_id")).lean()).map((d) => d._id);
+    for (const id of ids) {
+      if (entry.cascade) await entry.cascade(id);
+      else await entry.Model.findByIdAndDelete(id);
+      purged += 1;
+    }
+  }
+  return { purged, skipped: false };
 }
