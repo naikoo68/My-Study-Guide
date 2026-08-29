@@ -8,10 +8,10 @@ import Brand from "./Brand";
 import InstallAppButton from "../client/InstallAppButton";
 import Avatar from "../ui/Avatar";
 import { useSettings } from "../../context/SettingsContext";
-import { featureEnabled } from "../../lib/features";
+import { publicFeatureEnabled } from "../../lib/features";
 
-// `feature` links to an Admin → Features toggle: when that feature is turned
-// off, the link is hidden from the public navbar too (no feature = always on).
+// `feature` links to an Admin → Features "Public" toggle: when that feature's
+// public switch is off, the link is hidden from the navbar (no feature = shown).
 const links = [
   { to: "/", label: "Home", end: true },
   { to: "/quiz", label: "Quiz", feature: "content" },
@@ -36,8 +36,8 @@ export default function Navbar() {
   // Clients only ever use their own My Practice workspace — replace the whole
   // nav with a single link back to it so "Home"/the logo never strands them on
   // a page with no way back to their created questions.
-  // Hide any link whose feature has been turned off in Admin → Features.
-  const featLinks = links.filter((l) => featureEnabled(settings, l.feature));
+  // Hide any link whose feature's PUBLIC switch is off in Admin → Features.
+  const featLinks = links.filter((l) => publicFeatureEnabled(settings, l.feature));
   const visibleLinks = isClient
     ? [{ to: "/creator", label: "My Practice", end: true }]
     : user && user.quizAccess === false

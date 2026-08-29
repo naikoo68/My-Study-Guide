@@ -184,6 +184,13 @@ const settingsSchema = new mongoose.Schema(
     // customization) are ALWAYS on and can never be disabled. Edited from the
     // admin Features page; read by AdminLayout to filter the sidebar.
     featureFlags: { type: mongoose.Schema.Types.Mixed, default: () => ({}) },
+    // PUBLIC-site feature switches — independent of featureFlags above. A flat
+    // map { navFeatureKey: false } listing features hidden from the PUBLIC site
+    // (navbar, home, footer, the "Start Practicing" chooser); missing/`true` =
+    // shown. This is separate from featureFlags so a feature can be ON in the
+    // admin panel but OFF on the public site (or vice-versa). Edited from the
+    // admin Features page ("Public" switch).
+    publicFeatureFlags: { type: mongoose.Schema.Types.Mixed, default: () => ({}) },
     // Welcome popup shown to clients each time they open their workspace.
     clientAnnouncement: {
       type: clientAnnouncementSchema,

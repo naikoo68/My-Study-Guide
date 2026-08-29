@@ -1,7 +1,7 @@
 import { Link, useParams, Navigate } from "react-router-dom";
 import { ChevronLeft, ArrowRight, ListChecks, FileStack, Trophy, FileText, BookOpen } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
-import { featureEnabled } from "../lib/features";
+import { publicFeatureEnabled } from "../lib/features";
 
 // A simple chooser PAGE. The home hero's "Start Practicing" / "Explore Test
 // Series" buttons open this so the user first lands here, then picks between
@@ -76,7 +76,7 @@ export default function ChooseMode() {
   if (!cfg) return <Navigate to="/" replace />;
   // Hide options whose feature was turned off in Admin → Features. If every
   // option is gone, there's nothing to choose — send the visitor home.
-  const options = cfg.options.filter((o) => featureEnabled(settings, o.feature));
+  const options = cfg.options.filter((o) => publicFeatureEnabled(settings, o.feature));
   if (options.length === 0) return <Navigate to="/" replace />;
   const many = options.length >= 3; // wider grid when there are 3+ options
 

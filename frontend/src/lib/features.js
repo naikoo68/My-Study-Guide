@@ -6,3 +6,11 @@ export function featureEnabled(settings, key) {
   if (!key) return true;
   return settings?.featureFlags?.[key] !== false;
 }
+
+// Same idea for the PUBLIC website. This is a SEPARATE flag set from the admin
+// featureFlags, so a feature can be shown on the public site while hidden in the
+// admin panel (or the reverse). Used by the navbar, home, footer and chooser.
+export function publicFeatureEnabled(settings, key) {
+  if (!key) return true;
+  return settings?.publicFeatureFlags?.[key] !== false;
+}
