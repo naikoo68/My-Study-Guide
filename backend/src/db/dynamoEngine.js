@@ -703,7 +703,13 @@ class Model {
       const value = data[path];
       if (value === undefined || value === null || value === "") continue;
       const all = await this._scanAll();
-      const clash = all.find((it) => String(it[path]) === String(value) && String(it._id) !== String(excludeId));
+      // Ignore SOFT-DELETED rows: an item sitting in the Recycle Bin must not
+      // block re-using its name/slug (mirrors what users expect — a "deleted"
+      // stream/subject shouldn't reserve the name forever). Real Mongo unique
+      // indexes can't express this; here we can and should.
+      const clash = all.find(
+        (it) => it.deleted !== true && String(it[path]) === String(value) && String(it._id) !== String(excludeId)
+      );
       if (clash) throw duplicateKeyError(path, value);
     }
   }
