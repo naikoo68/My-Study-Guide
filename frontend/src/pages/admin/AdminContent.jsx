@@ -110,6 +110,7 @@ export default function AdminContent() {
   const [selected, setSelected] = useState([]); // bulk-selected question ids
   const [moveQ, setMoveQ] = useState(null); // { mode: "move" | "copy" } — move/copy selected questions to another quiz
   const [migrateQuiz, setMigrateQuiz] = useState(null); // quiz being moved/copied to another session (Migrate)
+  const [topicStems, setTopicStems] = useState([]); // all question stems in the current topic → powers AI "Missing areas" coverage
   const [delProgress, setDelProgress] = useState(null); // real-time bulk-delete progress: { total, done, finished? }
   const [search, setSearch] = useState(""); // question search query
 
@@ -323,6 +324,19 @@ export default function AdminContent() {
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sid, subId, tid, seid, qid]);
+
+  // Load ALL question stems in the current topic (across its quizzes — they
+  // share the topic's implicit session) so "Generate with AI" can show the
+  // Syllabus-coverage / Missing-areas report for the whole topic, not just one
+  // quiz. Same engine My Practice uses (AiGenerate's coverageQuestions).
+  useEffect(() => {
+    if (!session?._id) { setTopicStems([]); return; }
+    let cancelled = false;
+    contentService.questions(session._id)
+      .then((qs) => { if (!cancelled) setTopicStems((qs || []).map((q) => q?.text).filter(Boolean)); })
+      .catch(() => { if (!cancelled) setTopicStems([]); });
+    return () => { cancelled = true; };
+  }, [session?._id]);
 
   // After editing a question that was opened from the single-question preview,
   // reopen the preview on that (now-reloaded, updated) question so you land back
@@ -932,8 +946,10 @@ export default function AdminContent() {
         newLeafLabel="quiz"
         currentTargetName={aiTarget?.title || quiz?.title || ""}
         existingQuestions={view === "questions" ? items : []}
-        defaultTopic={quiz?.aiTopic || ""}
+        defaultTopic={quiz?.aiTopic || topic?.title || ""}
         defaultSubtopics={quiz?.aiSubtopics || ""}
+        coverageQuestions={topicStems}
+        subjectName={subject?.name || ""}
         onUpload={(questions, opts = {}) => saveAiBatch(questions, opts)}
       />
 
