@@ -34,6 +34,8 @@ import {
   splitQuiz,
   splitTopic,
   mergeQuiz,
+  moveQuestions,
+  copyQuestions,
 } from "../controllers/contentController.js";
 import { protect, authorize, optionalAuth } from "../middleware/auth.js";
 
@@ -75,6 +77,8 @@ router.put("/quizzes/:id", ...admin, updateQuiz);
 router.patch("/quizzes/:id/move", ...admin, moveQuiz);
 router.post("/quizzes/:id/split", ...admin, splitQuiz); // split a quiz's questions into quizzes of N
 router.post("/quizzes/:id/merge", ...admin, mergeQuiz); // merge other quizzes (same session) into this one
+router.post("/quizzes/:id/move-questions", ...admin, moveQuestions); // MOVE selected questions into another quiz
+router.post("/quizzes/:id/copy-questions", ...admin, copyQuestions); // COPY selected questions into another quiz
 router.delete("/quizzes/:id", ...admin, deleteQuiz);
 router.get("/quizzes/:quizId/questions", optionalAuth, listQuizQuestions);
 

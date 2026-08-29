@@ -344,6 +344,73 @@ export async function mergeQuiz(req, res) {
   });
 }
 
+// POST /api/quizzes/:id/move-questions  { questionIds, targetQuiz }
+// MOVE the selected questions from this quiz into ANOTHER quiz (any
+// session/subject). A true move: each question's quiz/session/subject refs are
+// repointed to the target, so it leaves this quiz and appears in the target.
+// Association-only (timestamps:false) so the "Updated" stamp keeps its meaning.
+export async function moveQuestions(req, res) {
+  const source = await Quiz.findById(req.params.id);
+  if (!source) return res.status(404).json({ message: "Source quiz not found" });
+  const targetId = String(req.body?.targetQuiz || "");
+  if (!targetId || targetId === String(source._id)) return res.status(400).json({ message: "Pick a different destination quiz." });
+  const target = await Quiz.findById(targetId);
+  if (!target) return res.status(404).json({ message: "Destination quiz not found." });
+
+  // Only questions that ACTUALLY live in this quiz (and aren't in the bin).
+  const wanted = (Array.isArray(req.body?.questionIds) ? req.body.questionIds : []).map(String);
+  if (!wanted.length) return res.status(400).json({ message: "Select at least one question to move." });
+  const owned = await Question.find({ _id: { $in: wanted }, quiz: source._id, ...NOT_DELETED }).select("_id").lean();
+  const ids = owned.map((q) => q._id);
+  if (!ids.length) return res.status(400).json({ message: "None of the selected questions belong to this quiz." });
+
+  const r = await Question.updateMany(
+    { _id: { $in: ids } },
+    { $set: { quiz: target._id, session: target.session, subject: target.subject } },
+    { timestamps: false }
+  );
+  const sourceTotal = await Question.countDocuments({ quiz: source._id, ...NOT_DELETED });
+  const targetTotal = await Question.countDocuments({ quiz: target._id, ...NOT_DELETED });
+  res.json({
+    message: `Moved ${r.modifiedCount || ids.length} question(s) to "${target.title}". This quiz now has ${sourceTotal}; "${target.title}" has ${targetTotal}.`,
+    moved: r.modifiedCount || ids.length,
+    sourceTotal,
+    targetTotal,
+  });
+}
+
+// POST /api/quizzes/:id/copy-questions  { questionIds, targetQuiz }
+// Like moveQuestions, but DUPLICATES the selected questions into the target quiz
+// (fresh Question docs via the shared duplicateQuestions util — the same path
+// moveQuiz's copy uses) and LEAVES the originals in place.
+export async function copyQuestions(req, res) {
+  const source = await Quiz.findById(req.params.id);
+  if (!source) return res.status(404).json({ message: "Source quiz not found" });
+  const targetId = String(req.body?.targetQuiz || "");
+  if (!targetId) return res.status(400).json({ message: "Pick a destination quiz." });
+  const target = await Quiz.findById(targetId);
+  if (!target) return res.status(404).json({ message: "Destination quiz not found." });
+
+  const wanted = (Array.isArray(req.body?.questionIds) ? req.body.questionIds : []).map(String);
+  if (!wanted.length) return res.status(400).json({ message: "Select at least one question to copy." });
+  const owned = await Question.find({ _id: { $in: wanted }, quiz: source._id, ...NOT_DELETED }).select("_id").lean();
+  const ids = owned.map((q) => q._id);
+  if (!ids.length) return res.status(400).json({ message: "None of the selected questions belong to this quiz." });
+
+  const created = await duplicateQuestions(
+    { _id: { $in: ids } },
+    { quiz: target._id, session: target.session, subject: target.subject }
+  );
+  const sourceTotal = await Question.countDocuments({ quiz: source._id, ...NOT_DELETED });
+  const targetTotal = await Question.countDocuments({ quiz: target._id, ...NOT_DELETED });
+  res.json({
+    message: `Copied ${created.length} question(s) to "${target.title}". This quiz still has ${sourceTotal}; "${target.title}" now has ${targetTotal}.`,
+    copied: created.length,
+    sourceTotal,
+    targetTotal,
+  });
+}
+
 // POST /api/topics/:id/split  { perQuiz }
 // Split ALL questions in a topic (across its sessions/quizzes) into quizzes of
 // `perQuiz` each, named "Quiz 1".."Quiz N", under a single session in the topic.
