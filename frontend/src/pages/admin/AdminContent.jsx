@@ -275,13 +275,38 @@ export default function AdminContent() {
     saveNav(NAV_KEY, { view, stream, subject, topic, session, quiz });
   }, [view, stream, subject, topic, session, quiz]);
 
-  // Navigation
-  const openStream = (s) => { setStream(s); setSubject(null); setTopic(null); setSession(null); setQuiz(null); setView("subjects"); };
-  const openSubject = (s) => { setSubject(s); setTopic(null); setSession(null); setQuiz(null); setView("topics"); };
-  const openTopic = (t) => { setTopic(t); setSession(null); setQuiz(null); setView("sessions"); };
-  const openSession = (s) => { setSession(s); setQuiz(null); setView("quizzes"); };
-  const openQuiz = (q) => { setQuiz(q); setView("questions"); };
-  const goTo = (level) => setView(level);
+  // Make the browser / device BACK button walk UP the drill-down (question →
+  // quiz → session → topic → subject → stream) instead of leaving the whole page
+  // (which jumped straight to the Dashboard). The drill-down lives in component
+  // state — not in routes — so on each drill-in we push a SAME-URL history entry
+  // recording the view, and restore that view on `popstate`. Same-URL pushes
+  // don't change the matched route, so react-router stays on this page; only
+  // stepping back past the first level leaves to wherever you came from.
+  const pushNav = (nextView) => {
+    try { window.history.pushState({ ...(window.history.state || {}), mpmContentView: nextView }, ""); } catch { /* history unavailable — ignore */ }
+  };
+  useEffect(() => {
+    // Tag the entry we arrived on so Back from the shallowest level has a target.
+    try {
+      const st = window.history.state || {};
+      if (!st.mpmContentView) window.history.replaceState({ ...st, mpmContentView: view }, "");
+    } catch { /* ignore */ }
+    const onPop = (e) => {
+      const v = e.state && e.state.mpmContentView;
+      if (v && VIEW_TYPE[v]) setView(v); // step to the recorded level; entities stay in state
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Navigation — each drill-in also pushes a history entry (see pushNav above).
+  const openStream = (s) => { setStream(s); setSubject(null); setTopic(null); setSession(null); setQuiz(null); setView("subjects"); pushNav("subjects"); };
+  const openSubject = (s) => { setSubject(s); setTopic(null); setSession(null); setQuiz(null); setView("topics"); pushNav("topics"); };
+  const openTopic = (t) => { setTopic(t); setSession(null); setQuiz(null); setView("sessions"); pushNav("sessions"); };
+  const openSession = (s) => { setSession(s); setQuiz(null); setView("quizzes"); pushNav("quizzes"); };
+  const openQuiz = (q) => { setQuiz(q); setView("questions"); pushNav("questions"); };
+  const goTo = (level) => { setView(level); pushNav(level); };
 
   // Open the right level for the current view (used for whole-card tapping).
   const openItem = (item) =>
