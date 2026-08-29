@@ -104,15 +104,26 @@ export default function Pricing() {
     return { to: "/creator/register" };
   };
 
-  // Client / Institute audiences are hidden platform-wide when the super-admin
-  // turns off publicClientEnabled / publicInstituteEnabled.
-  const showClient = settings?.publicClientEnabled !== false;
-  const showInstitute = settings?.publicInstituteEnabled !== false;
+  // An audience is hidden from public pricing when its sign-up is turned off OR
+  // its plans have been disabled. Disabling an audience's plans makes it FREE,
+  // so there's nothing to price — we hide the tab (and, if every audience is
+  // free, show a friendly "everything is free" note instead of empty cards).
+  const showStudent = settings?.studentPlansEnabled !== false;
+  const showClient = settings?.publicClientEnabled !== false && settings?.creatorPlansEnabled !== false;
+  const showInstitute = settings?.publicInstituteEnabled !== false && settings?.institutePlansEnabled !== false;
   const tabs = [
-    { key: "student", label: "For Students", Icon: GraduationCap },
+    ...(showStudent ? [{ key: "student", label: "For Students", Icon: GraduationCap }] : []),
     ...(showClient ? [{ key: "client", label: "For Creators", Icon: Store }] : []),
     ...(showInstitute ? [{ key: "institute", label: "For Institutes", Icon: School }] : []),
   ];
+  const allFree = tabs.length === 0;
+
+  // Keep the selected audience valid as toggles change (e.g. if the current tab
+  // gets hidden, fall back to the first still-visible one).
+  useEffect(() => {
+    if (tabs.length && !tabs.some((t) => t.key === audience)) setAudience(tabs[0].key);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showStudent, showClient, showInstitute]);
 
   const heroText = {
     student: `Practice free, subscribe to unlock full test-series, quizzes and your ${site} performance dashboard.`,
@@ -131,6 +142,7 @@ export default function Pricing() {
       </div>
 
       {/* Audience toggle */}
+      {!allFree && (
       <div className="mx-auto mt-6 flex max-w-md items-center rounded-xl border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-800/60">
         {tabs.map((t) => (
           <button
@@ -144,12 +156,22 @@ export default function Pricing() {
           </button>
         ))}
       </div>
+      )}
 
-      {loading && (
+      {allFree && (
+        <div className="mx-auto mt-8 max-w-xl rounded-2xl border border-emerald-200 bg-emerald-50 p-6 text-center dark:border-emerald-900/40 dark:bg-emerald-900/20">
+          <h2 className="text-lg font-bold text-emerald-800 dark:text-emerald-200">Everything is free right now 🎉</h2>
+          <p className="mt-2 text-sm text-emerald-700 dark:text-emerald-300">No subscription needed — just create your account and start learning.</p>
+          <Link to={user ? "/" : "/register"} className="btn-primary mt-4 inline-flex">{user ? "Go to app" : "Create free account"}</Link>
+        </div>
+      )}
+
+      {!allFree && loading && (
         <div className="mt-8 flex justify-center text-slate-400"><Loader2 className="h-6 w-6 animate-spin" /></div>
       )}
 
       {/* Plan cards */}
+      {!allFree && (
       <div className="mx-auto mt-10 grid max-w-6xl gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {sorted.map((p) => {
           const isFree = p.trial || (p.price ?? 0) <= 0;
@@ -197,6 +219,7 @@ export default function Pricing() {
           );
         })}
       </div>
+      )}
 
       <div className="mx-auto mt-10 max-w-2xl text-center text-sm text-slate-500 dark:text-slate-400">
         {payEnabled ? (

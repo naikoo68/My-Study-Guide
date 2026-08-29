@@ -50,6 +50,9 @@ const DEFAULTS = {
   notifyOnNewContent: false,
   publicClientEnabled: true,
   publicInstituteEnabled: true,
+  studentPlansEnabled: true,
+  creatorPlansEnabled: true,
+  institutePlansEnabled: true,
   featureFlags: {},
   googleClientId: "",
   homeSections: [

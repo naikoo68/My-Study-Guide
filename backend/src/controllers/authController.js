@@ -11,6 +11,7 @@ import { clientBaseFromReq } from "../config/clientUrl.js";
 import { notifyNewUser } from "../utils/notify.js";
 import { getClientPlans, getPlansFor, getStudentPlans as loadStudentPlans, trialDays } from "../utils/plans.js";
 import { runUnscoped } from "../utils/tenantContext.js";
+import { planFlagsSync } from "../utils/siteFlags.js";
 import { getSiteName } from "../utils/siteInfo.js";
 import { tenantSuspended, SUSPENDED_INSTITUTE_MESSAGE } from "../middleware/auth.js";
 
@@ -65,7 +66,11 @@ const sanitize = (u) => ({
   studentPlanExpiresAt: u.studentPlanExpiresAt,
   studentTrial: u.studentTrial === true,
   studentTrialUsed: u.studentTrialUsed === true,
-  studentSubscribed: !!(u.studentPlanExpiresAt && new Date(u.studentPlanExpiresAt).getTime() > Date.now()),
+  // True when the student has a live plan OR the student paywall is disabled
+  // site-wide (studentPlansEnabled=false → everything is free for students).
+  studentSubscribed:
+    (u.role === "student" && planFlagsSync(u.tenantId).studentPlansEnabled === false) ||
+    !!(u.studentPlanExpiresAt && new Date(u.studentPlanExpiresAt).getTime() > Date.now()),
   // AI access (client accounts) — drives the client workspace's AI tab.
   aiAccess: u.aiAccess === true,
   aiAllowInbuilt: u.aiAllowInbuilt !== false,
