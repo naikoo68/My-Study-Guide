@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { Plus, Pencil, Trash2, X, ChevronRight, FolderOpen, Layers, BookOpen, HelpCircle, ListChecks, Upload, Eye, Copy, Download, GraduationCap, Search, Clock } from "lucide-react";
 import { contentService, aiService } from "../../services";
+import { suggestSubjects } from "../../data/streamSubjects";
 import { loadNav, saveNav } from "../../lib/navState";
 import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
@@ -730,6 +731,7 @@ export default function AdminContent() {
       ) : (
         <FormModal
           modal={modal}
+          streamName={stream?.name}
           saving={saving}
           onClose={() => setModal(null)}
           onSave={save}
@@ -1018,8 +1020,13 @@ export default function AdminContent() {
 }
 
 /* ---------------- Form modal (adapts to subject/topic/session/question) ---------------- */
-function FormModal({ modal, saving, onClose, onSave }) {
+function FormModal({ modal, streamName, saving, onClose, onSave }) {
   const { type, mode, data } = modal;
+  // Subject suggestions: search subjects that belong to the current stream and
+  // one-click auto-fill the form (name / icon / colour / description).
+  const [subjQuery, setSubjQuery] = useState("");
+  const [showSuggest, setShowSuggest] = useState(false);
+  const suggest = suggestSubjects(streamName, subjQuery);
   const [form, setForm] = useState(() => {
     if (type === "stream") return { name: data.name || "", description: data.description || "", icon: data.icon || "GraduationCap", color: data.color || COLORS[0] };
     if (type === "subject") return { name: data.name || "", description: data.description || "", icon: data.icon || "BookOpen", color: data.color || COLORS[0], image: data.image || "" };
@@ -1067,6 +1074,49 @@ function FormModal({ modal, saving, onClose, onSave }) {
         <div className="space-y-4">
           {(type === "stream" || type === "subject") && (
             <>
+              {type === "subject" && mode === "add" && (
+                <Field label={`Search subjects${suggest.streamLabel ? ` for ${suggest.streamLabel}` : ""}`}>
+                  <div className="relative">
+                    <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                      <Search className="h-4 w-4" />
+                    </div>
+                    <input
+                      className="input pl-9"
+                      value={subjQuery}
+                      onChange={(e) => { setSubjQuery(e.target.value); setShowSuggest(true); }}
+                      onFocus={() => setShowSuggest(true)}
+                      placeholder={suggest.matched ? "Type to filter, or pick a suggested subject below" : "Type to search common subjects"}
+                    />
+                    {showSuggest && suggest.subjects.length > 0 && (
+                      <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
+                        {suggest.subjects.map((s) => (
+                          <button
+                            type="button"
+                            key={s.name}
+                            onClick={() => {
+                              setForm((f) => ({ ...f, name: s.name, description: s.description || "", icon: s.icon || f.icon, color: s.color || f.color }));
+                              setSubjQuery("");
+                              setShowSuggest(false);
+                            }}
+                            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
+                          >
+                            <span className={`h-6 w-6 flex-shrink-0 rounded-md bg-gradient-to-br ${s.color}`} />
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm font-medium">{s.name}</span>
+                              {s.description && <span className="block truncate text-xs text-slate-400">{s.description}</span>}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <p className="mt-1 text-xs text-slate-400">
+                    {suggest.matched
+                      ? `Suggestions matched to the "${suggest.streamLabel}" stream. Pick one to auto-fill, or just type your own below.`
+                      : "No preset subject list for this stream — showing common subjects. You can still type any subject below."}
+                  </p>
+                </Field>
+              )}
               <Field label="Name"><input required className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={type === "stream" ? "e.g. JKSSB" : "e.g. Physics"} /></Field>
               <Field label="Description"><textarea rows={2} className="input resize-none" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></Field>
               <Field label="Icon name (lucide)"><input className="input" value={form.icon} onChange={(e) => setForm({ ...form, icon: e.target.value })} placeholder="e.g. Atom, FlaskConical, BookOpen" /></Field>
