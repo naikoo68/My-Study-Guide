@@ -2506,6 +2506,78 @@ export async function outlineUnits(req, res) {
   res.json({ units });
 }
 
+// POST /api/ai/suggest-subjects — given a STREAM / course / category NAME,
+// return the academic subjects that typically belong to it, so the admin can
+// tick and bulk-add them. Works for ANY stream (e.g. "Electrical Engineering",
+// "JKSSB"), unlike the static front-end catalog. Returns
+//   { subjects: [ { name, description } ] }.
+export async function suggestSubjects(req, res) {
+  const scope = resolveScope(req.user, req.body?.mode);
+  if (scope.denied) return res.status(403).json({ message: "AI access is not enabled for your account." });
+  const chosen = await resolveModel(String(req.body?.model || "").trim(), scope);
+  if (!chosen || !chosen.endpoints.length) {
+    return res.status(400).json({ message: scope.mode === "self" ? "No API keys added yet." : "AI is not configured. Add an API key in Admin → AI Keys." });
+  }
+  const stream = String(req.body?.stream || "").trim().slice(0, 160);
+  if (!stream) return res.status(400).json({ message: "Provide the stream name to find subjects for." });
+
+  const userPrompt = [
+    `List the academic SUBJECTS that typically belong to the stream / course / category named "${stream}".`,
+    "Rules:",
+    "- Return the core subjects a student in this stream studies (e.g. for Electrical Engineering: Circuit Theory, Power Systems, Control Systems …).",
+    "- Each subject has a short name (2-5 words) and a one-line description (max ~14 words).",
+    "- Between 5 and 30 subjects, most important first. No duplicates, no numbering.",
+    "- If the stream is an exam (e.g. JKSSB, UPSC), list its main papers / subjects instead.",
+    "",
+    'Return ONLY a JSON array like: [{"name":"Circuit Theory","description":"Network analysis, theorems and AC/DC circuits."}]',
+    "No markdown, no commentary.",
+  ].join("\n");
+
+  const r = await callWithFallback({
+    endpoints: chosen.endpoints,
+    model: chosen.model,
+    userPrompt,
+    maxTokens: 1500,
+    owner: scope.owner,
+    systemPrompt: "You output ONLY a JSON array of {name, description} objects — no markdown, no commentary.",
+    failOnEmpty: true,
+  });
+  if (!r.ok) {
+    return res.status(502).json({ message: r.status === 429 ? quota429Message(r.detail) : `AI provider error (${r.status}). ${(r.detail || "").slice(0, 160)}` });
+  }
+
+  // Parse a JSON array of {name, description} objects; tolerate a bare string
+  // array (some models return just names) too. De-dupe case-insensitively.
+  const subjects = [];
+  const seen = new Set();
+  const push = (name, description) => {
+    const n = String(name || "").replace(/\s+/g, " ").trim();
+    if (n.length < 2) return;
+    const k = n.toLowerCase();
+    if (seen.has(k)) return;
+    seen.add(k);
+    subjects.push({ name: n, description: String(description || "").replace(/\s+/g, " ").trim().slice(0, 160) });
+  };
+  let parsed = null;
+  try {
+    const t = String(r.content || "").trim();
+    const s = t.indexOf("[");
+    const e = t.lastIndexOf("]");
+    if (s !== -1 && e !== -1 && e > s) parsed = JSON.parse(t.slice(s, e + 1));
+  } catch { /* fall through to string parsing */ }
+  if (Array.isArray(parsed)) {
+    for (const item of parsed) {
+      if (typeof item === "string") push(item, "");
+      else if (item && typeof item === "object") push(item.name || item.subject || item.title, item.description || item.desc);
+      if (subjects.length >= 30) break;
+    }
+  } else {
+    for (const n of parseStringArray(r.content)) { push(n, ""); if (subjects.length >= 30) break; }
+  }
+  if (!subjects.length) return res.status(502).json({ message: "The AI didn't return any subjects. Try again." });
+  res.json({ subjects });
+}
+
 // POST /api/ai/parse-syllabus — read a FULL syllabus (pasted text / extracted
 // PDF / OCR) and return the structure to save in one go:
 //   { subject, topics: [ { title, subtopics: [ ... ] } ] }
