@@ -8,8 +8,8 @@
     }
   ],
   "rewrites": [
-    { "source": "/s/:token", "destination": "https://my-prep-mart-api-39nk.onrender.com/s/:token" },
-    { "source": "/sitemap.xml", "destination": "https://my-prep-mart-api-39nk.onrender.com/sitemap.xml" },
+    { "source": "/s/:token", "destination": "https://api.mystudyguide.in/s/:token" },
+    { "source": "/sitemap.xml", "destination": "https://api.mystudyguide.in/sitemap.xml" },
     { "source": "/((?!.*\\.).*)", "destination": "/index.html" }
   ]
 }
