@@ -24,7 +24,7 @@ import RegenerateAllModal from "../../components/admin/RegenerateAllModal";
 import RegenerateOneModal from "../../components/admin/RegenerateOneModal";
 import ScheduleQuestionModal from "../../components/admin/ScheduleQuestionModal";
 import RecycleBinModal from "../../components/admin/RecycleBinModal";
-import { Sparkles, Files, Globe, Wand2, Loader2, ClipboardList, RefreshCw, Scissors, GitMerge, CheckCircle2, Maximize2, Minimize2, Archive, ArrowRightLeft } from "lucide-react";
+import { Sparkles, Files, Globe, Wand2, Loader2, ClipboardList, RefreshCw, Scissors, GitMerge, CheckCircle2, Maximize2, Minimize2, Archive, ArrowRightLeft, ScanSearch } from "lucide-react";
 
 const COLORS = [
   "from-blue-500 to-indigo-600",
@@ -78,6 +78,7 @@ export default function AdminContent() {
   const [modal, setModal] = useState(null); // { type, mode, data }
   const [bulkOpen, setBulkOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
+  const [aiTopicLevel, setAiTopicLevel] = useState(false); // AI opened from the quiz LIST (topic) → generate into a NEW quiz + scan the whole topic
   const [importOpen, setImportOpen] = useState(false);
   const [aiTarget, setAiTarget] = useState(null); // {id,title} — after AI creates a new quiz, later batches target it
   const [extendOpen, setExtendOpen] = useState(false); // AI extend-explanations (whole quiz)
@@ -668,6 +669,16 @@ export default function AdminContent() {
               </button>
             </>
           )}
+          {view === "quizzes" && (
+            <>
+              <button onClick={() => { setAiTarget(null); setAiTopicLevel(true); setAiOpen(true); }} className="btn-outline text-brand-600" title="Scan this topic's questions for uncovered syllabus areas, then generate the missing ones">
+                <ScanSearch className="h-4 w-4" /> Scan Missing Areas
+              </button>
+              <button onClick={() => { setAiTarget(null); setAiTopicLevel(true); setAiOpen(true); }} className="btn-outline text-brand-600" title="Generate other question types for this topic (pick the types in the generator)">
+                <Sparkles className="h-4 w-4" /> Other question types
+              </button>
+            </>
+          )}
           <button onClick={openAdd} className="btn-primary">
             <Plus className="h-4 w-4" /> {H.add}
           </button>
@@ -940,14 +951,15 @@ export default function AdminContent() {
 
       <AiGenerate
         open={aiOpen}
-        title={`Generate with AI${quiz ? ` — ${quiz.title}` : ""}`}
-        onClose={() => setAiOpen(false)}
+        title={aiTopicLevel ? `Generate with AI — ${topic?.title || ""} (missing areas)` : `Generate with AI${quiz ? ` — ${quiz.title}` : ""}`}
+        onClose={() => { setAiOpen(false); setAiTopicLevel(false); }}
         allowNewTarget
         newLeafLabel="quiz"
         currentTargetName={aiTarget?.title || quiz?.title || ""}
         existingQuestions={view === "questions" ? items : []}
         defaultTopic={quiz?.aiTopic || topic?.title || ""}
         defaultSubtopics={quiz?.aiSubtopics || ""}
+        defaultDest={aiTopicLevel ? "new" : "current"}
         coverageQuestions={topicStems}
         subjectName={subject?.name || ""}
         onUpload={(questions, opts = {}) => saveAiBatch(questions, opts)}
