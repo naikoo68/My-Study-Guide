@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Plus, Pencil, Trash2, X, ChevronRight, FolderOpen, Layers, BookOpen, HelpCircle, ListChecks, Upload, Eye, EyeOff, Copy, Download, GraduationCap, Search, Clock } from "lucide-react";
+import { Plus, Pencil, Trash2, X, ChevronRight, FolderOpen, Layers, BookOpen, HelpCircle, ListChecks, Upload, Eye, EyeOff, Copy, Download, GraduationCap, Search, Clock, Share2 } from "lucide-react";
 import { contentService, aiService } from "../../services";
 import { suggestSubjects } from "../../data/streamSubjects";
 import { loadNav, saveNav } from "../../lib/navState";
@@ -555,6 +555,25 @@ export default function AdminContent() {
     }
   };
 
+  // Public share link for a node — the page a student/visitor would open.
+  //   stream  → /streams/<slug>      subject → /subjects/<slug>
+  //   topic   → /quiz/<subjectId>/<topicId>
+  //   quiz    → /quiz/<subjectId>/<topicId>/<sessionId>/<quizId>
+  const sharePath = (item) => {
+    if (view === "streams") return item.slug ? `/streams/${item.slug}` : null;
+    if (view === "subjects") return item.slug ? `/subjects/${item.slug}` : null;
+    if (view === "topics") return subject ? `/quiz/${subject._id}/${item._id}` : null;
+    if (view === "quizzes") return subject && topic && session ? `/quiz/${subject._id}/${topic._id}/${session._id}/${item._id}` : null;
+    return null;
+  };
+  const shareLink = async (item) => {
+    const path = sharePath(item);
+    if (!path) { setError("No public link is available for this item."); return; }
+    const url = `${window.location.origin}${path}`;
+    try { await navigator.clipboard.writeText(url); window.alert(`Public link copied:\n${url}`); }
+    catch { window.prompt("Copy this public link:", url); }
+  };
+
   // Toggle a node's "disabled" flag (hide from students / public) via its
   // existing update endpoint. Admins still see disabled items (with a badge).
   const toggleDisabled = async (item) => {
@@ -896,6 +915,15 @@ export default function AdminContent() {
                     className="rounded-lg p-2 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30"
                   >
                     <ArrowRightLeft className="h-4 w-4" />
+                  </button>
+                )}
+                {view !== "questions" && (
+                  <button
+                    onClick={() => shareLink(item)}
+                    title="Copy the public share link (the page students/visitors open)"
+                    className="rounded-lg p-2 text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-900/30"
+                  >
+                    <Share2 className="h-4 w-4" />
                   </button>
                 )}
                 {view !== "questions" && (
