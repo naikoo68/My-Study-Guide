@@ -1,5 +1,5 @@
 import { Link, useParams, Navigate } from "react-router-dom";
-import { ChevronLeft, ArrowRight, ListChecks, Globe, FileStack, Trophy } from "lucide-react";
+import { ChevronLeft, ArrowRight, ListChecks, Globe, FileStack, Trophy, FileText, BookOpen } from "lucide-react";
 
 // A simple chooser PAGE. The home hero's "Start Practicing" / "Explore Test
 // Series" buttons open this so the user first lands here, then picks between
@@ -22,6 +22,27 @@ const MODES = {
         color: "from-emerald-500 to-teal-600",
         title: "Public Quizzes",
         desc: "Everyone's subject-wise quizzes with instant, detailed solutions.",
+      },
+      {
+        to: "/choose/tests",
+        Icon: FileStack,
+        color: "from-amber-500 to-orange-600",
+        title: "Explore Test Series",
+        desc: "Full-length & sectional mock tests with real exam timing.",
+      },
+      {
+        to: "/practice/paper",
+        Icon: FileText,
+        color: "from-violet-600 to-purple-600",
+        title: "Previous Papers",
+        desc: "Practise from previous years' question papers.",
+      },
+      {
+        to: "/study",
+        Icon: BookOpen,
+        color: "from-rose-500 to-pink-600",
+        title: "Study Material",
+        desc: "Curated notes, PDFs and resources to revise faster.",
       },
     ],
   },
@@ -51,6 +72,7 @@ export default function ChooseMode() {
   const { mode } = useParams();
   const cfg = MODES[mode];
   if (!cfg) return <Navigate to="/" replace />;
+  const many = cfg.options.length >= 3; // wider grid when there are 3+ options
 
   return (
     <div className="container-page py-12">
@@ -63,7 +85,7 @@ export default function ChooseMode() {
         <p className="mt-2 text-slate-500 dark:text-slate-400">{cfg.subtitle}</p>
       </div>
 
-      <div className="mx-auto mt-8 grid max-w-3xl gap-5 sm:grid-cols-2">
+      <div className={`mx-auto mt-8 grid gap-5 sm:grid-cols-2 ${many ? "max-w-5xl lg:grid-cols-3" : "max-w-3xl"}`}>
         {cfg.options.map(({ to, Icon, color, title, desc }) => (
           <Link key={to} to={to} className="card-hover group flex flex-col p-6">
             <div className={`flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br ${color} text-white shadow-soft`}>
