@@ -1,4 +1,5 @@
 import Document from "../models/Document.js";
+import { NOT_DELETED, softDeletePatch } from "../utils/softDelete.js";
 
 // The documents a request may see/manage: admin → platform docs (owner null);
 // a client → only their own. Every query is scoped by this so a client can
@@ -9,7 +10,7 @@ function docOwner(req) {
 
 // GET /api/documents — list (lightweight; omits the full text body), scoped.
 export async function listDocuments(req, res) {
-  const docs = await Document.find({ owner: docOwner(req) })
+  const docs = await Document.find({ owner: docOwner(req), ...NOT_DELETED })
     .select("title sourceName pages createdAt updatedAt")
     .sort({ createdAt: -1 })
     .lean();
@@ -18,7 +19,7 @@ export async function listDocuments(req, res) {
 
 // GET /api/documents/:id — a single document (with full text), scoped.
 export async function getDocument(req, res) {
-  const doc = await Document.findOne({ _id: req.params.id, owner: docOwner(req) }).lean();
+  const doc = await Document.findOne({ _id: req.params.id, owner: docOwner(req), ...NOT_DELETED }).lean();
   if (!doc) return res.status(404).json({ message: "Document not found" });
   res.json(doc);
 }
@@ -49,9 +50,12 @@ export async function updateDocument(req, res) {
   res.json(doc);
 }
 
-// DELETE /api/documents/:id — own documents only.
+// DELETE /api/documents/:id — own documents only (soft delete → Recycle Bin).
 export async function deleteDocument(req, res) {
-  const doc = await Document.findOneAndDelete({ _id: req.params.id, owner: docOwner(req) });
+  const doc = await Document.findOneAndUpdate(
+    { _id: req.params.id, owner: docOwner(req), ...NOT_DELETED },
+    softDeletePatch()
+  );
   if (!doc) return res.status(404).json({ message: "Document not found" });
-  res.json({ message: "Document deleted" });
+  res.json({ message: "Document moved to Recycle Bin" });
 }

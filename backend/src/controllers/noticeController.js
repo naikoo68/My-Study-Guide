@@ -1,8 +1,9 @@
 import Notice from "../models/Notice.js";
+import { NOT_DELETED, softDeletePatch } from "../utils/softDelete.js";
 
 // GET /api/notices — public: only active notices for the ticker
 export async function listActiveNotices(req, res) {
-  const notices = await Notice.find({ active: true })
+  const notices = await Notice.find({ active: true, ...NOT_DELETED })
     .sort({ order: 1, createdAt: -1 })
     .limit(50)
     .lean();
@@ -11,7 +12,7 @@ export async function listActiveNotices(req, res) {
 
 // GET /api/notices/all — admin: every notice
 export async function listNotices(req, res) {
-  const notices = await Notice.find().sort({ order: 1, createdAt: -1 }).lean();
+  const notices = await Notice.find(NOT_DELETED).sort({ order: 1, createdAt: -1 }).lean();
   res.json(notices);
 }
 
@@ -32,8 +33,8 @@ export async function updateNotice(req, res) {
   res.json(notice);
 }
 
-// DELETE /api/notices/:id — admin
+// DELETE /api/notices/:id — admin (soft delete → Recycle Bin)
 export async function deleteNotice(req, res) {
-  await Notice.findByIdAndDelete(req.params.id);
-  res.json({ message: "Notice deleted" });
+  await Notice.findByIdAndUpdate(req.params.id, softDeletePatch());
+  res.json({ message: "Notice moved to Recycle Bin" });
 }

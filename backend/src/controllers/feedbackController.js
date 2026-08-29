@@ -1,5 +1,6 @@
 import Feedback from "../models/Feedback.js";
 import { sendMail } from "../config/mailer.js";
+import { NOT_DELETED, softDeletePatch } from "../utils/softDelete.js";
 
 // POST /api/feedback — submit feedback (works for logged-in or guest users)
 export async function createFeedback(req, res) {
@@ -50,8 +51,8 @@ export async function createFeedback(req, res) {
 
 // GET /api/feedback  (admin) — list all feedback
 export async function listFeedback(req, res) {
-  const items = await Feedback.find().sort("-createdAt").limit(500).lean();
-  const unread = await Feedback.countDocuments({ read: false });
+  const items = await Feedback.find(NOT_DELETED).sort("-createdAt").limit(500).lean();
+  const unread = await Feedback.countDocuments({ read: false, ...NOT_DELETED });
   res.json({ items, unread });
 }
 
@@ -64,8 +65,8 @@ export async function toggleFeedbackRead(req, res) {
   res.json({ id: fb._id, read: fb.read });
 }
 
-// DELETE /api/feedback/:id  (admin)
+// DELETE /api/feedback/:id  (admin) — soft delete → Recycle Bin
 export async function deleteFeedback(req, res) {
-  await Feedback.findByIdAndDelete(req.params.id);
-  res.json({ message: "Deleted" });
+  await Feedback.findByIdAndUpdate(req.params.id, softDeletePatch());
+  res.json({ message: "Feedback moved to Recycle Bin" });
 }

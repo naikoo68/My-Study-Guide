@@ -14,9 +14,17 @@ import Session from "../models/Session.js";
 import Quiz from "../models/Quiz.js";
 import Question from "../models/Question.js";
 import TestSeries from "../models/TestSeries.js";
+import Notice from "../models/Notice.js";
+import Message from "../models/Message.js";
+import Review from "../models/Review.js";
+import Coupon from "../models/Coupon.js";
+import Document from "../models/Document.js";
+import Feedback from "../models/Feedback.js";
 import { ONLY_DELETED, restorePatch } from "../utils/softDelete.js";
 
-// Map a "type" key from the client to its model + friendly label.
+// Map a "type" key from the client to its model + friendly label. Content-tree
+// types cascade on permanent delete; `flat: true` types are standalone records
+// (no children) that simply remove themselves.
 const TYPES = {
   stream: { Model: Stream, label: "Stream" },
   subject: { Model: Subject, label: "Subject" },
@@ -24,13 +32,27 @@ const TYPES = {
   session: { Model: Session, label: "Session" },
   quiz: { Model: Quiz, label: "Quiz" },
   question: { Model: Question, label: "Question" },
+  notice: { Model: Notice, label: "Notice", flat: true },
+  message: { Model: Message, label: "Message", flat: true },
+  review: { Model: Review, label: "Review", flat: true },
+  coupon: { Model: Coupon, label: "Coupon", flat: true },
+  document: { Model: Document, label: "Document", flat: true },
+  feedback: { Model: Feedback, label: "Feedback", flat: true },
 };
 
-// A short human title for each item type (Questions have no title field).
-const titleOf = (type, doc) =>
-  type === "question"
-    ? String(doc.text || "").slice(0, 120) || "(question)"
-    : doc.title || doc.name || "(untitled)";
+// A short human title for each item type (different models title differently).
+const titleOf = (type, doc) => {
+  switch (type) {
+    case "question": return String(doc.text || "").slice(0, 120) || "(question)";
+    case "notice": return String(doc.text || "").slice(0, 120) || "(notice)";
+    case "message": return doc.subject || doc.name || doc.email || "(message)";
+    case "review": return doc.name || "(review)";
+    case "coupon": return doc.code || "(coupon)";
+    case "document": return doc.title || "(document)";
+    case "feedback": return String(doc.message || "").slice(0, 120) || `${doc.context || ""} feedback`.trim() || "(feedback)";
+    default: return doc.title || doc.name || "(untitled)";
+  }
+};
 
 // GET /api/recycle-bin  (admin) — every soft-deleted content item, newest first,
 // grouped-friendly with type, id, title and when it was deleted.
@@ -40,7 +62,7 @@ export async function listRecycleBin(req, res) {
       const docs = await Model.find(ONLY_DELETED)
         .sort("-deletedAt")
         .limit(1000)
-        .select("title name text deletedAt")
+        .select("title name text code subject email message context deletedAt")
         .lean();
       return docs.map((d) => ({
         type,
@@ -78,6 +100,12 @@ export async function permanentDeleteItem(req, res) {
   const { type, id } = req.params;
   const entry = TYPES[type];
   if (!entry) return res.status(400).json({ message: "Unknown item type." });
+
+  // Flat (childless) types just remove the single record for good.
+  if (entry.flat) {
+    await entry.Model.findByIdAndDelete(id);
+    return res.json({ message: `${entry.label} permanently deleted.`, type, _id: id });
+  }
 
   switch (type) {
     case "stream": {
@@ -171,5 +199,12 @@ export async function emptyRecycleBin(req, res) {
     Subject.deleteMany({ _id: { $in: allSubjectIds } }),
     Stream.deleteMany({ _id: { $in: streamIds } }),
   ]);
+
+  // Also purge every soft-deleted flat (childless) record.
+  await Promise.all(
+    Object.values(TYPES)
+      .filter((t) => t.flat)
+      .map((t) => t.Model.deleteMany(ONLY_DELETED))
+  );
   res.json({ message: "Recycle Bin emptied." });
 }

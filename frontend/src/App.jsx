@@ -110,6 +110,7 @@ const AdminPdfBuilder = lazy(() => import("./pages/admin/AdminPdfBuilder"));
 const AdminCbt = lazy(() => import("./pages/admin/AdminCbt"));
 const AdminVisualize = lazy(() => import("./pages/admin/AdminVisualize"));
 const AdminChecker = lazy(() => import("./pages/admin/AdminChecker"));
+const AdminRecycleBin = lazy(() => import("./pages/admin/AdminRecycleBin"));
 const CbtResult = lazy(() => import("./pages/cbt/CbtResult"));
 const CbtPortal = lazy(() => import("./pages/cbt/CbtPortal"));
 
@@ -330,6 +331,7 @@ const router = createBrowserRouter([
       { path: "ai-keys", element: S(AdminAiKeys) },
       { path: "customization", element: S(AdminCustomization) },
       { path: "manual", element: S(AdminUserManual) },
+      { path: "recycle-bin", element: S(AdminRecycleBin) },
     ],
   },
 
