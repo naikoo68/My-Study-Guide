@@ -765,6 +765,7 @@ export default function AdminContent() {
               No questions match “{search}” at 40% or higher. Try fewer or different words.
             </p>
           )}
+          <div className={view === "questions" ? "space-y-3" : "grid items-start gap-3 sm:grid-cols-2"}>
           {shown.map((item, i) => (
             <div
               key={item._id}
@@ -813,7 +814,7 @@ export default function AdminContent() {
                   </>
                 )}
               </div>
-              <div className="flex flex-shrink-0 items-center gap-1" onClick={(e) => e.stopPropagation()}>
+              <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                 {view === "subjects" && (
                   <button
                     onClick={() => { setDupScope({ id: item._id, name: item.name }); setDupOpen(true); }}
@@ -892,6 +893,7 @@ export default function AdminContent() {
               </div>
             </div>
           ))}
+          </div>
         </div>
       )}
 
