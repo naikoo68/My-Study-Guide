@@ -4,6 +4,9 @@
   "description": "REST API for My Study Guide — quizzes & test series platform (MongoDB or DynamoDB via DB_ENGINE)",
   "type": "module",
   "main": "src/server.js",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
