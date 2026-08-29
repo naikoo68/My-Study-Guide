@@ -54,6 +54,7 @@ const DEFAULTS = {
   creatorPlansEnabled: true,
   institutePlansEnabled: true,
   featureFlags: {},
+  publicFeatureFlags: {},
   googleClientId: "",
   homeSections: [
     { key: "hero", visible: true },

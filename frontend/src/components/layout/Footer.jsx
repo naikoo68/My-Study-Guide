@@ -1,12 +1,12 @@
 import { Link } from "react-router-dom";
 import { Mail } from "lucide-react";
 import { useSettings } from "../../context/SettingsContext";
-import { featureEnabled } from "../../lib/features";
+import { publicFeatureEnabled } from "../../lib/features";
 import Brand from "./Brand";
 import { SOCIAL_ICONS, SOCIAL_COLORS, Website } from "../ui/SocialIcons";
 
-// Each Product link maps to an Admin → Features toggle so turning a feature off
-// also removes it from the public footer (no `feature` = always shown).
+// Each Product link maps to an Admin → Features "Public" toggle, so turning a
+// feature's public switch off removes it from the footer (no `feature` = shown).
 const columns = [
   {
     title: "Product",
@@ -50,7 +50,7 @@ export default function Footer({ hideProduct = false }) {
   // aren't relevant, so allow hiding that column. Also drop any link whose
   // feature was turned off in Admin → Features, and any column left empty.
   const visibleColumns = (hideProduct ? columns.filter((c) => c.title !== "Product") : columns)
-    .map((c) => ({ ...c, links: c.links.filter((l) => featureEnabled(settings, l.feature)) }))
+    .map((c) => ({ ...c, links: c.links.filter((l) => publicFeatureEnabled(settings, l.feature)) }))
     .filter((c) => c.links.length > 0);
 
   // Brand block (logo, tagline, social icons) — shared by both layouts.

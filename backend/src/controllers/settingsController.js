@@ -99,7 +99,7 @@ export async function updateSettings(req, res) {
     "watermarkEnabled", "watermarkText", "watermarkOpacity", "watermarkSize", "watermarkMode", "restrictCopy", "screenshotGuard", "guardHoldMs", "statsAuto", "notifyOnNewContent",
     "publicClientEnabled", "publicInstituteEnabled",
     "studentPlansEnabled", "creatorPlansEnabled", "institutePlansEnabled",
-    "featureFlags",
+    "featureFlags", "publicFeatureFlags",
     "homeSections",
     "clientAnnouncement",
     "onboardingCompleted",
@@ -165,6 +165,19 @@ export async function updateSettings(req, res) {
       clean[key] = !!v;
     }
     update.featureFlags = clean;
+  }
+
+  // Public-site feature switches — same shape, coerced to booleans. (No always-on
+  // exclusions: these only affect what's shown on the public website.)
+  if ("publicFeatureFlags" in update) {
+    const raw = update.publicFeatureFlags && typeof update.publicFeatureFlags === "object" ? update.publicFeatureFlags : {};
+    const clean = {};
+    for (const [k, v] of Object.entries(raw)) {
+      const key = String(k).trim();
+      if (!key) continue;
+      clean[key] = !!v;
+    }
+    update.publicFeatureFlags = clean;
   }
 
   // Client welcome popup announcement: coerce enabled + trim/limit text.

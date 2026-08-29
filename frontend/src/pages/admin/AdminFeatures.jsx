@@ -84,33 +84,64 @@ const ALWAYS_ON = [
   { label: "Customization", desc: "Branding, theme and site settings." },
 ];
 
+// Features that actually appear on the PUBLIC website (navbar, home, footer,
+// the "Start Practicing" chooser). Only these get a "Public" switch — the rest
+// are admin-only, so a public switch would do nothing.
+const PUBLIC_FEATURES = new Set(["content", "tests", "practice", "study", "previousPapers", "performance"]);
+
+// A small on/off switch (used for both the Admin and Public columns).
+function Switch({ on, busy, onClick, label }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      disabled={busy}
+      onClick={onClick}
+      className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition disabled:opacity-50 ${on ? "bg-brand-600" : "bg-slate-300 dark:bg-slate-700"}`}
+    >
+      {busy ? (
+        <Loader2 className="absolute left-1/2 top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 animate-spin text-white" />
+      ) : (
+        <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${on ? "translate-x-5" : "translate-x-0.5"}`} />
+      )}
+    </button>
+  );
+}
+
 export default function AdminFeatures() {
   const { settings, save } = useSettings();
-  const flags = useMemo(() => settings?.featureFlags || {}, [settings]);
-  const [saving, setSaving] = useState("");
+  const adminFlags = useMemo(() => settings?.featureFlags || {}, [settings]);
+  const publicFlags = useMemo(() => settings?.publicFeatureFlags || {}, [settings]);
+  const [saving, setSaving] = useState(""); // `${kind}:${key}` of the switch mid-save
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
 
-  // A feature is ON unless explicitly stored as false.
-  const isOn = (key) => flags[key] !== false;
+  // A feature is ON unless explicitly stored as false — tracked separately for
+  // the admin panel and the public website.
+  const isAdminOn = (key) => adminFlags[key] !== false;
+  const isPublicOn = (key) => publicFlags[key] !== false;
 
-  const toggle = async (key) => {
-    setSaving(key);
+  // kind = "admin" (featureFlags → sidebar/page) or "public" (publicFeatureFlags
+  // → navbar/home/footer/chooser). The two are independent.
+  const toggle = async (kind, key) => {
+    const flags = kind === "admin" ? adminFlags : publicFlags;
+    const curOn = flags[key] !== false;
+    const field = kind === "admin" ? "featureFlags" : "publicFeatureFlags";
+    const where = kind === "admin" ? "admin panel" : "public website";
+    setSaving(`${kind}:${key}`);
     setMsg("");
     setErr("");
-    const next = { ...flags, [key]: !isOn(key) };
     try {
-      await save({ featureFlags: next });
-      setMsg(`${next[key] ? "Enabled" : "Disabled"} — sidebar updated.`);
+      await save({ [field]: { ...flags, [key]: !curOn } });
+      setMsg(`${curOn ? "Hidden from" : "Shown on"} the ${where}.`);
     } catch (e) {
       setErr(e.message || "Could not save. Please try again.");
     } finally {
       setSaving("");
     }
   };
-
-  const enabledCount = GROUPS.reduce((n, g) => n + g.items.filter((it) => isOn(it.key)).length, 0);
-  const totalCount = GROUPS.reduce((n, g) => n + g.items.length, 0);
 
   return (
     <div className="space-y-5">
@@ -119,7 +150,7 @@ export default function AdminFeatures() {
           <SlidersHorizontal className="h-6 w-6 text-brand-600" /> Features
         </h1>
         <p className="mt-0.5 text-slate-500 dark:text-slate-400">
-          Turn admin-panel sections on or off. A section that's off is hidden from the sidebar and its page is blocked — your data is kept, nothing is deleted. {enabledCount}/{totalCount} enabled.
+          Show or hide each section — independently — in the <b>Admin</b> panel and on the <b>Public</b> website. Off just hides it; your data is always kept. The Public switch only applies to sections that appear on the public site.
         </p>
       </div>
 
@@ -130,33 +161,46 @@ export default function AdminFeatures() {
         <section key={group.title} className="space-y-2">
           <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400">{group.title}</h2>
           <div className="card divide-y divide-slate-100 p-0 dark:divide-slate-800">
+            {/* Column headers — aligned over the two switch columns. */}
+            <div className="flex items-center gap-3 px-4 pt-3 pb-2 text-[11px] font-bold uppercase tracking-wide text-slate-400">
+              <span className="w-10 flex-shrink-0" />
+              <span className="min-w-0 flex-1" />
+              <span className="flex items-center gap-6 pr-1">
+                <span className="w-11 text-center">Admin</span>
+                <span className="w-11 text-center">Public</span>
+              </span>
+            </div>
             {group.items.map((it) => {
-              const on = isOn(it.key);
-              const busy = saving === it.key;
+              const adminOn = isAdminOn(it.key);
+              const publicApplies = PUBLIC_FEATURES.has(it.key);
+              const publicOn = isPublicOn(it.key);
               return (
                 <div key={it.key} className="flex items-center gap-3 p-4">
-                  <span className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl ${on ? "bg-brand-50 text-brand-600 dark:bg-brand-900/20" : "bg-slate-100 text-slate-400 dark:bg-slate-800"}`}>
+                  <span className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl ${adminOn ? "bg-brand-50 text-brand-600 dark:bg-brand-900/20" : "bg-slate-100 text-slate-400 dark:bg-slate-800"}`}>
                     <it.icon className="h-5 w-5" />
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="font-semibold text-slate-800 dark:text-slate-100">{it.label}</p>
                     <p className="truncate text-xs text-slate-500 dark:text-slate-400">{it.desc}</p>
                   </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={on}
-                    aria-label={`${on ? "Disable" : "Enable"} ${it.label}`}
-                    disabled={busy}
-                    onClick={() => toggle(it.key)}
-                    className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition disabled:opacity-50 ${on ? "bg-brand-600" : "bg-slate-300 dark:bg-slate-700"}`}
-                  >
-                    {busy ? (
-                      <Loader2 className="absolute left-1/2 top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 animate-spin text-white" />
+                  <div className="flex items-center gap-6 pr-1">
+                    <Switch
+                      on={adminOn}
+                      busy={saving === `admin:${it.key}`}
+                      onClick={() => toggle("admin", it.key)}
+                      label={`${adminOn ? "Hide" : "Show"} ${it.label} in the admin panel`}
+                    />
+                    {publicApplies ? (
+                      <Switch
+                        on={publicOn}
+                        busy={saving === `public:${it.key}`}
+                        onClick={() => toggle("public", it.key)}
+                        label={`${publicOn ? "Hide" : "Show"} ${it.label} on the public website`}
+                      />
                     ) : (
-                      <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${on ? "translate-x-5" : "translate-x-0.5"}`} />
+                      <span className="inline-flex h-6 w-11 items-center justify-center text-slate-300 dark:text-slate-600" title="Not shown on the public site">—</span>
                     )}
-                  </button>
+                  </div>
                 </div>
               );
             })}
