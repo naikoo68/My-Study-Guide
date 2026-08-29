@@ -1,3 +1,5 @@
+import { planFlagsSync } from "./siteFlags.js";
+
 // Shared logic for resolving whether a user may access a test series.
 // A test may be visible to everyone (visibleToAll) unless an explicit per-user
 // entry overrides it. An entry can hide the test (visible:false) or grant
@@ -31,5 +33,7 @@ export function isSharedWithUser(doc, userId) {
 // this is the core perk of the student plans, so it unlocks the same content
 // the per-account myQuizAccess/myTestAccess master grants do.
 export function hasActiveSubscription(user) {
+  // Student paywall disabled site-wide → every student gets free full access.
+  if (user?.role === "student" && planFlagsSync(user?.tenantId).studentPlansEnabled === false) return true;
   return !!(user?.studentPlanExpiresAt && new Date(user.studentPlanExpiresAt).getTime() > Date.now());
 }

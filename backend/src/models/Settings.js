@@ -169,6 +169,14 @@ const settingsSchema = new mongoose.Schema(
     // visitors can't discover or join that feature. Default ON.
     publicClientEnabled: { type: Boolean, default: true },
     publicInstituteEnabled: { type: Boolean, default: true },
+    // Per-audience subscription/plan switches. When a flag is OFF the audience's
+    // plans/pricing are hidden from the public site AND that audience gets FREE
+    // access — the paywall is bypassed, so they use the content without needing
+    // a subscription: students skip the subscription gate, creator (client)
+    // accounts don't expire, and the institute plans are hidden. Default ON.
+    studentPlansEnabled: { type: Boolean, default: true },
+    creatorPlansEnabled: { type: Boolean, default: true },
+    institutePlansEnabled: { type: Boolean, default: true },
     // Admin-panel feature switches. A flat map { navFeatureKey: false } listing
     // the admin-panel features the owner has turned OFF; a missing (or `true`)
     // value means the feature is ON. Turning a feature off hides its sidebar

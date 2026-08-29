@@ -1,4 +1,5 @@
 import { useAuth } from "../../context/AuthContext";
+import { useSettings } from "../../context/SettingsContext";
 import StudentUpgrade from "../../pages/student/StudentUpgrade";
 
 // True when a student account has an active subscription (studentPlanExpiresAt
@@ -19,8 +20,11 @@ function studentActive(user) {
 // route guard can handle the redirect.
 export default function StudentGate({ children }) {
   const { user } = useAuth();
+  const { settings } = useSettings();
   if (!user) return children;
   if (user.role !== "student") return children; // admins & clients are unaffected
+  // Student paywall turned off site-wide → everything is free for students.
+  if (settings?.studentPlansEnabled === false) return children;
   if (studentActive(user)) return children;
 
   return (

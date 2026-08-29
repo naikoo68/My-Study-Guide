@@ -2,6 +2,13 @@ import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 import Tenant from "../models/Tenant.js";
 import { runUnscoped, setCurrentTenantId, setUnscoped } from "../utils/tenantContext.js";
+import { planFlagsSync } from "../utils/siteFlags.js";
+
+// True when a client (creator) account's plans have been disabled site-wide —
+// their account then never expires (free access) and the expiry gate is skipped.
+function creatorPlansDisabled(user) {
+  return user?.role === "client" && planFlagsSync(user?.tenantId).creatorPlansEnabled === false;
+}
 
 // Message shown to any user whose institute the super-admin has suspended.
 export const SUSPENDED_INSTITUTE_MESSAGE =
@@ -52,7 +59,7 @@ export async function protect(req, res, next) {
     if (user.deleted) {
       return res.status(403).json({ message: "This account has been deleted" });
     }
-    if (user.expiresAt && user.expiresAt.getTime() < Date.now()) {
+    if (user.expiresAt && user.expiresAt.getTime() < Date.now() && !creatorPlansDisabled(user)) {
       return res.status(403).json({ message: "This temporary account has expired" });
     }
     if (await tenantSuspended(user)) {
@@ -135,6 +142,8 @@ export function superAdminOnly(req, res, next) {
 export function studentSubscriptionActive(user) {
   if (!user) return false;
   if (user.role !== "student") return true;
+  // Student paywall disabled site-wide → treat every student as subscribed.
+  if (planFlagsSync(user.tenantId).studentPlansEnabled === false) return true;
   return !!(user.studentPlanExpiresAt && new Date(user.studentPlanExpiresAt).getTime() > Date.now());
 }
 
@@ -160,7 +169,7 @@ export async function optionalAuth(req, res, next) {
     try {
       const decoded = jwt.verify(header.split(" ")[1], process.env.JWT_SECRET);
       const user = await runUnscoped(() => User.findById(decoded.id));
-      const expired = user?.expiresAt && user.expiresAt.getTime() < Date.now();
+      const expired = user?.expiresAt && user.expiresAt.getTime() < Date.now() && !creatorPlansDisabled(user);
       const suspended = await tenantSuspended(user);
       if (user && user.status !== "blocked" && !user.deleted && !expired && !suspended) {
         req.user = user;
