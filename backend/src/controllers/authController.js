@@ -239,10 +239,16 @@ export async function register(req, res) {
     if (claimed) doc.studentTrialUsed = true;
   }
 
+  // When the CREATOR plans toggle is OFF, creators use everything free and their
+  // accounts never expire (see creatorPlansDisabled in middleware/auth.js). In
+  // that state a new creator must NOT be asked to pick/pay for a plan — we skip
+  // the whole plan/offer/payment step and just create a free account.
+  const creatorPlansOff = role === "client" && planFlagsSync().creatorPlansEnabled === false;
+
   // Clients pick a subscription plan and may use a coupon / friend's referral
   // code. Store the selection; validity (expiresAt) starts when they verify.
   let paidActive = false;
-  if (role === "client") {
+  if (role === "client" && !creatorPlansOff) {
     // Default to the free 1-day trial when no (valid) plan is chosen.
     const offer =
       (await computeOffer({ planKey: req.body.plan, couponCode: req.body.couponCode, referralCode: req.body.referralCode, selfEmail: email })) ||
