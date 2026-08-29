@@ -306,7 +306,20 @@ export default function AdminContent() {
   const openTopic = (t) => { setTopic(t); setSession(null); setQuiz(null); setView("sessions"); pushNav("sessions"); };
   const openSession = (s) => { setSession(s); setQuiz(null); setView("quizzes"); pushNav("quizzes"); };
   const openQuiz = (q) => { setQuiz(q); setView("questions"); pushNav("questions"); };
-  const goTo = (level) => { setView(level); pushNav(level); };
+  // Breadcrumb / upward navigation. Jumping to a level MUST clear every
+  // selected entity BELOW it, so no stale stream/subject/topic/session/quiz
+  // survives (which previously left the breadcrumb showing deeper levels and
+  // kept stale ids in state + sessionStorage). Each higher level resets all
+  // its descendants.
+  const goTo = (level) => {
+    if (level === "streams") { setStream(null); setSubject(null); setTopic(null); setSession(null); setQuiz(null); }
+    else if (level === "subjects") { setSubject(null); setTopic(null); setSession(null); setQuiz(null); }
+    else if (level === "topics") { setTopic(null); setSession(null); setQuiz(null); }
+    else if (level === "sessions") { setSession(null); setQuiz(null); }
+    else if (level === "quizzes") { setQuiz(null); }
+    setView(level);
+    pushNav(level);
+  };
 
   // Open the right level for the current view (used for whole-card tapping).
   const openItem = (item) =>

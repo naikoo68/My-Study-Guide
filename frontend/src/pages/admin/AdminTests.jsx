@@ -291,7 +291,13 @@ export default function AdminTests() {
   // Navigation
   const openExam = (e) => { setExam(e); setPost(null); setView("posts"); };
   const openPost = (p) => { setPost(p); setView("tests"); };
-  const goTo = (level) => setView(level);
+  // Breadcrumb / upward navigation clears every entity below the destination so
+  // no stale exam/post survives after jumping up a level.
+  const goTo = (level) => {
+    if (level === "exams") { setExam(null); setPost(null); }
+    else if (level === "posts") { setPost(null); }
+    setView(level);
+  };
 
   // Exam / Post add-edit
   const openEpAdd = () => {
