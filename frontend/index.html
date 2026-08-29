@@ -99,8 +99,8 @@
     </script>
 
     <!-- Connect to the API backend early to cut request latency -->
-    <link rel="preconnect" href="https://my-prep-mart-api-39nk.onrender.com" crossorigin />
-    <link rel="dns-prefetch" href="https://my-prep-mart-api-39nk.onrender.com" />
+    <link rel="preconnect" href="https://api.mystudyguide.in" crossorigin />
+    <link rel="dns-prefetch" href="https://api.mystudyguide.in" />
 
     <!-- Google Analytics (GA4). Loads ONLY when a real Measurement ID is set via
          the VITE_GA_MEASUREMENT_ID env var (e.g. on Vercel). Vite substitutes
@@ -156,29 +156,49 @@
     <meta name="twitter:description" content="Quizzes, test series and analytics for exam aspirants." />
     <meta name="twitter:image" content="https://www.mystudyguide.in/og-image.png" />
 
-    <!-- Site-wide structured data (Schema.org). Organization + WebSite only —
-         real facts (name, URL, logo, description). No SearchAction (there is no
-         public search results URL) and no fake ratings/reviews. Page-level
-         JSON-LD (BreadcrumbList etc.) is injected separately by useSeo under a
-         different <script id="seo-jsonld">, so these never collide. -->
+    <!-- Site-wide structured data (Schema.org). Organization (also
+         EducationalOrganization) + WebSite — real, verifiable facts only
+         (name, URL, logo, description, what we offer, where we serve, topics
+         covered). No SearchAction (there is no public search results URL) and
+         NO fake ratings/reviews. `sameAs` is intentionally omitted until real
+         social profile URLs are added. Page-level JSON-LD (BreadcrumbList,
+         FAQPage etc.) is injected separately by useSeo under a different
+         <script id="seo-jsonld">, so these never collide. -->
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
         "@graph": [
           {
-            "@type": "Organization",
+            "@type": ["Organization", "EducationalOrganization"],
             "@id": "https://www.mystudyguide.in/#organization",
             "name": "My Study Guide",
+            "alternateName": "MyStudyGuide",
             "url": "https://www.mystudyguide.in/",
             "logo": "https://www.mystudyguide.in/apple-touch-icon.png",
-            "description": "My Study Guide offers subject-wise quizzes, mock tests, test series, instant results, performance analytics and study resources for competitive exam preparation."
+            "image": "https://www.mystudyguide.in/og-image.png",
+            "slogan": "Prepare Smart, Achieve More",
+            "description": "My Study Guide is an online exam-preparation platform offering subject-wise quizzes, full-length mock tests, test series, practice questions and study materials — organised by stream, subject and topic — with instant results and detailed performance analytics. Free previews and shared public links are available without login, with full access via subscription plans, plus computer-based (CBT) online exams and all-India leaderboards, serving students, content creators and institutes.",
+            "areaServed": { "@type": "Country", "name": "India" },
+            "knowsAbout": [
+              "Competitive exam preparation",
+              "Subject-wise quizzes",
+              "Full-length mock tests",
+              "Test series",
+              "Practice questions",
+              "Performance analytics",
+              "Computer-based tests (CBT)",
+              "JEE",
+              "NEET"
+            ]
           },
           {
             "@type": "WebSite",
             "@id": "https://www.mystudyguide.in/#website",
             "name": "My Study Guide",
+            "alternateName": "MyStudyGuide",
             "url": "https://www.mystudyguide.in/",
             "inLanguage": "en",
+            "description": "Subject-wise quizzes, full-length test series, instant results and performance analytics for competitive exam preparation.",
             "publisher": { "@id": "https://www.mystudyguide.in/#organization" }
           }
         ]
