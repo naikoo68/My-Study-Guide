@@ -9,6 +9,7 @@ import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState"
 import BulkUploadQuestions, { questionsToCsv } from "../../components/admin/BulkUploadQuestions";
 import AiGenerate from "../../components/admin/AiGenerate";
 import QuestionFormModal from "../../components/admin/QuestionFormModal";
+import ContentMoveQuestionsModal from "../../components/admin/ContentMoveQuestionsModal";
 import QuestionView from "../../components/admin/QuestionView";
 import QuestionTypeFilter from "../../components/admin/QuestionTypeFilter";
 import QuestionStatusFilter, { filterByStatus } from "../../components/admin/QuestionStatusFilter";
@@ -22,7 +23,7 @@ import RegenerateAllModal from "../../components/admin/RegenerateAllModal";
 import RegenerateOneModal from "../../components/admin/RegenerateOneModal";
 import ScheduleQuestionModal from "../../components/admin/ScheduleQuestionModal";
 import RecycleBinModal from "../../components/admin/RecycleBinModal";
-import { Sparkles, Files, Globe, Wand2, Loader2, ClipboardList, RefreshCw, Scissors, GitMerge, CheckCircle2, Maximize2, Minimize2, Archive } from "lucide-react";
+import { Sparkles, Files, Globe, Wand2, Loader2, ClipboardList, RefreshCw, Scissors, GitMerge, CheckCircle2, Maximize2, Minimize2, Archive, ArrowRightLeft } from "lucide-react";
 
 const COLORS = [
   "from-blue-500 to-indigo-600",
@@ -103,6 +104,7 @@ export default function AdminContent() {
   const [statusFilter, setStatusFilter] = useState("all"); // View All: updated/not_updated/all
   const [reopenAfterEdit, setReopenAfterEdit] = useState(null); // question _id to reopen in the preview after editing it there
   const [selected, setSelected] = useState([]); // bulk-selected question ids
+  const [moveQ, setMoveQ] = useState(null); // { mode: "move" | "copy" } — move/copy selected questions to another quiz
   const [delProgress, setDelProgress] = useState(null); // real-time bulk-delete progress: { total, done, finished? }
   const [search, setSearch] = useState(""); // question search query
 
@@ -692,6 +694,8 @@ export default function AdminContent() {
                   ) : (
                     <>
                       <span className="text-sm text-slate-500">{selected.length} selected</span>
+                      <button onClick={() => setMoveQ({ mode: "move" })} className="btn-outline py-1.5"><ArrowRightLeft className="h-4 w-4" /> Move</button>
+                      <button onClick={() => setMoveQ({ mode: "copy" })} className="btn-outline py-1.5"><Copy className="h-4 w-4" /> Copy</button>
                       <button onClick={deleteSelected} className="btn-outline py-1.5 text-rose-600"><Trash2 className="h-4 w-4" /> Delete selected</button>
                       <button onClick={() => setSelected([])} className="text-sm text-slate-500 hover:underline">Clear</button>
                     </>
@@ -867,6 +871,15 @@ export default function AdminContent() {
           onAiSuggest={(name) => aiService.suggestSubjects({ stream: name }).then((r) => r.subjects || [])}
         />
       ))}
+
+      <ContentMoveQuestionsModal
+        open={!!moveQ}
+        mode={moveQ?.mode}
+        sourceQuizId={quiz?._id}
+        questionIds={selected}
+        onClose={() => setMoveQ(null)}
+        onMoved={() => { setSelected([]); load("questions"); }}
+      />
 
       <BulkUploadQuestions
         open={bulkOpen}
