@@ -45,21 +45,22 @@ const admin = [protect, authorize("admin")];
 // Question endpoints shared by admins and clients (owner-scoped in controllers).
 const manage = [protect, authorize("admin", "client")];
 
-// Streams (top level)
-router.get("/streams", listStreams);
+// Streams (top level). optionalAuth on the public LIST routes so an admin is
+// recognised (and sees DISABLED items); students/anonymous see only enabled.
+router.get("/streams", optionalAuth, listStreams);
 router.post("/streams", ...admin, createStream);
 router.put("/streams/:id", ...admin, updateStream);
 router.delete("/streams/:id", ...admin, deleteStream);
-router.get("/streams/:streamId/subjects", listStreamSubjects);
+router.get("/streams/:streamId/subjects", optionalAuth, listStreamSubjects);
 
 // Subjects
-router.get("/subjects", listSubjects);
+router.get("/subjects", optionalAuth, listSubjects);
 router.post("/subjects", ...admin, createSubject);
 router.put("/subjects/:id", ...admin, updateSubject);
 router.delete("/subjects/:id", ...admin, deleteSubject);
 
 // Topics (within a subject)
-router.get("/subjects/:subjectId/topics", listTopics);
+router.get("/subjects/:subjectId/topics", optionalAuth, listTopics);
 router.post("/topics", ...admin, createTopic);
 router.put("/topics/:id", ...admin, updateTopic);
 router.post("/topics/:id/split", ...admin, splitTopic); // split all a topic's questions into quizzes of N
@@ -75,7 +76,7 @@ router.put("/sessions/:id", ...admin, updateSession);
 router.delete("/sessions/:id", ...admin, deleteSession);
 
 // Quizzes (within a session)
-router.get("/sessions/:sessionId/quizzes", listQuizzes);
+router.get("/sessions/:sessionId/quizzes", optionalAuth, listQuizzes);
 router.post("/quizzes", ...admin, createQuiz);
 router.put("/quizzes/:id", ...admin, updateQuiz);
 router.patch("/quizzes/:id/move", ...admin, moveQuiz);

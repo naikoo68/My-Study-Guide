@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Plus, Pencil, Trash2, X, ChevronRight, FolderOpen, Layers, BookOpen, HelpCircle, ListChecks, Upload, Eye, Copy, Download, GraduationCap, Search, Clock } from "lucide-react";
+import { Plus, Pencil, Trash2, X, ChevronRight, FolderOpen, Layers, BookOpen, HelpCircle, ListChecks, Upload, Eye, EyeOff, Copy, Download, GraduationCap, Search, Clock } from "lucide-react";
 import { contentService, aiService } from "../../services";
 import { suggestSubjects } from "../../data/streamSubjects";
 import { loadNav, saveNav } from "../../lib/navState";
@@ -555,6 +555,19 @@ export default function AdminContent() {
     }
   };
 
+  // Toggle a node's "disabled" flag (hide from students / public) via its
+  // existing update endpoint. Admins still see disabled items (with a badge).
+  const toggleDisabled = async (item) => {
+    const svc = view === "streams" ? contentService.updateStream
+      : view === "subjects" ? contentService.updateSubject
+      : view === "topics" ? contentService.updateTopic
+      : view === "quizzes" ? contentService.updateQuiz
+      : null;
+    if (!svc) return;
+    try { await svc(item._id, { disabled: !item.disabled }); load(view); }
+    catch (e) { setError(e.message); }
+  };
+
   // ---- Breadcrumb ----
   const Crumb = () => (
     <nav className="flex flex-wrap items-center gap-1 text-sm">
@@ -801,9 +814,10 @@ export default function AdminContent() {
                   </>
                 ) : (
                   <>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <H.icon className="h-5 w-5 text-brand-500" />
                       <p className="font-semibold">{item.name || item.title}</p>
+                      {item.disabled && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">Disabled</span>}
                     </div>
                     <p className="mt-0.5 text-xs text-slate-400">
                       {view === "streams" && `${item.subjects ?? 0} subjects`}
@@ -882,6 +896,15 @@ export default function AdminContent() {
                     className="rounded-lg p-2 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30"
                   >
                     <ArrowRightLeft className="h-4 w-4" />
+                  </button>
+                )}
+                {view !== "questions" && (
+                  <button
+                    onClick={() => toggleDisabled(item)}
+                    title={item.disabled ? "Enable — show to students" : "Disable — hide from students (stays here for you)"}
+                    className={`rounded-lg p-2 ${item.disabled ? "text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30" : "text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700"}`}
+                  >
+                    {item.disabled ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 )}
                 <button onClick={() => openEdit(item)} title="Edit" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30">

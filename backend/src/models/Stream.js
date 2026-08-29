@@ -12,6 +12,10 @@ const streamSchema = new mongoose.Schema(
     description: { type: String },
     order: { type: Number, default: 0 },
     isActive: { type: Boolean, default: true },
+    // Admin "disable" switch: when true the stream (and everything under it) is
+    // hidden from students / public browse & play, but stays visible in the
+    // admin manager so it can be re-enabled. Distinct from isActive and delete.
+    disabled: { type: Boolean, default: false },
     // Recycle Bin (soft delete). When true, the stream is hidden from all normal
     // lists but kept in the DB so it can be restored. deletedAt records when.
     deleted: { type: Boolean, default: false },
