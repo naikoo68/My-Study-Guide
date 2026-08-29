@@ -857,24 +857,6 @@ export default function AdminContent() {
                     <Files className="h-4 w-4" />
                   </button>
                 )}
-                {view !== "questions" && (
-                  <button
-                    onClick={() =>
-                      view === "streams"
-                        ? openStream(item)
-                        : view === "subjects"
-                        ? openSubject(item)
-                        : view === "topics"
-                        ? openTopic(item)
-                        : view === "sessions"
-                        ? openSession(item)
-                        : openQuiz(item)
-                    }
-                    className="btn-outline py-2"
-                  >
-                    Manage <ChevronRight className="h-4 w-4" />
-                  </button>
-                )}
                 {view === "questions" && (
                   <button onClick={() => setViewQ(item)} title="View" className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700">
                     <Eye className="h-4 w-4" />
