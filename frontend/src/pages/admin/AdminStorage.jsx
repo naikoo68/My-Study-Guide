@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { HardDrive, Trash2, RefreshCw, AlertTriangle, Loader2, CheckCircle2 } from "lucide-react";
+import { HardDrive, Trash2, RefreshCw, AlertTriangle, Loader2, CheckCircle2, Database } from "lucide-react";
 import { storageService } from "../../services";
 import { Loading, ErrorState } from "../../components/ui/AsyncState";
 
@@ -61,6 +61,8 @@ export default function AdminStorage() {
   };
 
   const barColor = (pct) => (pct >= 90 ? "bg-rose-500" : pct >= 75 ? "bg-amber-500" : "bg-emerald-500");
+  // Show the cap in GB once it's large (e.g. 20480 MB → "20 GB").
+  const fmtCap = (mb) => (mb >= 1024 ? `${Math.round((mb / 1024) * 10) / 10} GB` : `${mb} MB`);
 
   return (
     <div className="space-y-5">
@@ -82,10 +84,20 @@ export default function AdminStorage() {
         <>
           {/* Usage */}
           <div className="card p-5">
+            {/* Which database is connected + whether live size is available. */}
+            <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-2.5 py-1 font-semibold text-brand-700 dark:bg-brand-900/30 dark:text-brand-300">
+                <Database className="h-3.5 w-3.5" /> {data.engineLabel || "Database"}
+              </span>
+              <span className="inline-flex items-center gap-1.5 text-slate-400">
+                <span className={`h-1.5 w-1.5 rounded-full ${data.liveSize ? "bg-emerald-500" : "bg-slate-400"}`} />
+                {data.liveSize ? "Live usage — real time" : "Live size not available for this database"}
+              </span>
+            </div>
             <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
               <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">Used</p>
               <p className="text-sm text-slate-500 dark:text-slate-400">
-                <b className={data.usedPct >= 90 ? "text-rose-600 dark:text-rose-400" : "text-slate-700 dark:text-slate-200"}>{data.totalMB} MB</b> of {data.limitMB} MB ({data.usedPct}%)
+                <b className={data.usedPct >= 90 ? "text-rose-600 dark:text-rose-400" : "text-slate-700 dark:text-slate-200"}>{data.totalMB} MB</b> of {fmtCap(data.limitMB)} ({data.usedPct}%)
               </p>
             </div>
             <div className="h-3 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
