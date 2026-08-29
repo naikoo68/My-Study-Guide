@@ -56,6 +56,30 @@
     <meta name="apple-mobile-web-app-title" content="My Practice" />
     <meta name="mobile-web-app-capable" content="yes" />
 
+    <!-- Legacy hash-URL restore: the app moved from hash routing ("/#/path") to
+         clean URLs, but old bookmarks, shared links and PWA shortcuts may still
+         point at "/#/admin/users" etc. A hash fragment is never sent to the
+         server and is ignored by the path-based router, so those URLs silently
+         drop to the home page (and refreshing stays there). Rewrite a leading
+         "#/…" back into a real path BEFORE React boots so the route resolves.
+         No-op for normal in-page anchors, which don't start with "#/". -->
+    <script>
+      (function () {
+        try {
+          var l = window.location;
+          var h = l.hash;
+          if (h && h.charAt(1) === "/") {
+            var target = h.slice(1); // "/admin/users" (may carry its own ?query)
+            // Keep any query already on the base URL when the hash has none.
+            if (l.search && target.indexOf("?") === -1) target += l.search;
+            window.history.replaceState(null, "", target);
+          }
+        } catch (e) {
+          /* never let this block the app from loading */
+        }
+      })();
+    </script>
+
     <!-- SPA deep-link restore: if 404.html bounced here with the original path
          encoded as "?/...", rewrite the URL back to that path BEFORE the app
          boots, so refreshing a client-side route keeps you on that route
