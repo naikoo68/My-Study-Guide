@@ -12,6 +12,9 @@ const subjectSchema = new mongoose.Schema(
     image: { type: String, default: "" },
     description: { type: String },
     isActive: { type: Boolean, default: true },
+    // Admin "disable" switch — hides this subject (and its children) from
+    // students/public but keeps it in the admin manager. See Stream.js.
+    disabled: { type: Boolean, default: false },
     // Recycle Bin (soft delete) — see utils/softDelete.js.
     deleted: { type: Boolean, default: false },
     deletedAt: { type: Date, default: null },

@@ -15,6 +15,13 @@ import { sanitizeBody } from "../utils/sanitizeBody.js";
 const slugify = (s) =>
   String(s || "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
+// Admins / institute-admins see EVERYTHING (including items they've disabled);
+// students & the public never see DISABLED items. Applied to the shared list
+// endpoints (which are the same for admin and public). Requires the route to
+// use optionalAuth so req.user is populated when a token is present.
+const isAdminReq = (req) => !!req.user && (req.user.role === "admin" || req.user.role === "institute_admin");
+const visFilter = (req) => (isAdminReq(req) ? {} : { disabled: { $ne: true } });
+
 // Build a URL-safe slug that is GUARANTEED non-empty and NOT already taken by
 // another live (non-deleted) record of the same Model.
 //
@@ -58,7 +65,7 @@ async function nameTaken(Model, name, label, excludeId = null) {
 
 // GET /api/streams — includes subject count per stream
 export async function listStreams(req, res) {
-  const streams = await Stream.find({ isActive: true, ...NOT_DELETED }).sort("order name").lean();
+  const streams = await Stream.find({ isActive: true, ...NOT_DELETED, ...visFilter(req) }).sort("order name").lean();
   const subs = await Subject.aggregate([
     { $match: { stream: { $ne: null }, deleted: { $ne: true } } },
     { $group: { _id: "$stream", count: { $sum: 1 } } },
@@ -100,7 +107,7 @@ export async function deleteStream(req, res) {
 
 // GET /api/streams/:streamId/subjects — subjects in a stream, with topic counts
 export async function listStreamSubjects(req, res) {
-  const subjects = await Subject.find({ stream: req.params.streamId, isActive: true, ...NOT_DELETED }).sort("name").lean();
+  const subjects = await Subject.find({ stream: req.params.streamId, isActive: true, ...NOT_DELETED, ...visFilter(req) }).sort("name").lean();
   const topics = await Topic.aggregate([{ $match: { deleted: { $ne: true } } }, { $group: { _id: "$subject", count: { $sum: 1 } } }]);
   const tMap = Object.fromEntries(topics.map((t) => [String(t._id), t.count]));
   res.json(subjects.map((s) => ({ ...s, topics: tMap[String(s._id)] || 0 })));
@@ -118,7 +125,7 @@ async function countMap(Model, matchIds, field) {
 
 // GET /api/subjects — includes topic count per subject
 export async function listSubjects(req, res) {
-  const subjects = await Subject.find({ isActive: true, ...NOT_DELETED }).sort("name").lean();
+  const subjects = await Subject.find({ isActive: true, ...NOT_DELETED, ...visFilter(req) }).sort("name").lean();
   const topics = await Topic.aggregate([{ $match: { deleted: { $ne: true } } }, { $group: { _id: "$subject", count: { $sum: 1 } } }]);
   const tMap = Object.fromEntries(topics.map((t) => [String(t._id), t.count]));
   res.json(subjects.map((s) => ({ ...s, topics: tMap[String(s._id)] || 0 })));
@@ -156,7 +163,7 @@ export async function deleteSubject(req, res) {
 
 // GET /api/subjects/:subjectId/topics — includes session count per topic
 export async function listTopics(req, res) {
-  const topics = await Topic.find({ subject: req.params.subjectId, ...NOT_DELETED }).sort("index createdAt").lean();
+  const topics = await Topic.find({ subject: req.params.subjectId, ...NOT_DELETED, ...visFilter(req) }).sort("index createdAt").lean();
   const topicIds = topics.map((t) => t._id);
   // The admin UI hides the "Session" level (Topic → Quiz directly), so a topic
   // card shows its QUIZ count. Quizzes live under the topic's session(s), so we
@@ -244,7 +251,7 @@ export async function deleteSession(req, res) {
 // Ordered by title in NATURAL order (Quiz 1, Quiz 2, … Quiz 9, Quiz 10) instead
 // of creation order, so numbered quizzes read in the expected sequence.
 export async function listQuizzes(req, res) {
-  const quizzes = (await Quiz.find({ session: req.params.sessionId, ...NOT_DELETED }).lean()).sort(byNatural("title"));
+  const quizzes = (await Quiz.find({ session: req.params.sessionId, ...NOT_DELETED, ...visFilter(req) }).lean()).sort(byNatural("title"));
   const qMap = await countMap(Question, quizzes.map((q) => q._id), "quiz");
   res.json(quizzes.map((q) => ({ ...q, questions: qMap[String(q._id)] || 0 })));
 }

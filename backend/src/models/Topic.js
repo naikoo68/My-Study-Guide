@@ -9,6 +9,9 @@ const topicSchema = new mongoose.Schema(
     index: { type: Number, default: 1 },
     description: { type: String },
     isActive: { type: Boolean, default: true },
+    // Admin "disable" switch — hides this topic (and its children) from
+    // students/public but keeps it in the admin manager. See Stream.js.
+    disabled: { type: Boolean, default: false },
     // Recycle Bin (soft delete) — see utils/softDelete.js.
     deleted: { type: Boolean, default: false },
     deletedAt: { type: Date, default: null },
