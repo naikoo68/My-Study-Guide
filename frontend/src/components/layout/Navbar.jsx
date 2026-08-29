@@ -7,13 +7,17 @@ import { useZoom } from "../../context/ZoomContext";
 import Brand from "./Brand";
 import InstallAppButton from "../client/InstallAppButton";
 import Avatar from "../ui/Avatar";
+import { useSettings } from "../../context/SettingsContext";
+import { featureEnabled } from "../../lib/features";
 
+// `feature` links to an Admin → Features toggle: when that feature is turned
+// off, the link is hidden from the public navbar too (no feature = always on).
 const links = [
   { to: "/", label: "Home", end: true },
-  { to: "/quiz", label: "Quiz" },
-  { to: "/test-series", label: "Test Series" },
-  { to: "/practice", label: "My Practice" },
-  { to: "/study", label: "Study Material" },
+  { to: "/quiz", label: "Quiz", feature: "content" },
+  { to: "/test-series", label: "Test Series", feature: "tests" },
+  { to: "/practice", label: "My Practice", feature: "practice" },
+  { to: "/study", label: "Study Material", feature: "study" },
   { to: "/pricing", label: "Pricing" },
   { to: "/about", label: "About Us" },
   { to: "/contact", label: "Contact" },
@@ -24,6 +28,7 @@ export default function Navbar() {
   const { theme, toggleTheme } = useTheme();
   const { user, logout } = useAuth();
   const { zoom, zoomIn, zoomOut } = useZoom();
+  const { settings } = useSettings();
   const navigate = useNavigate();
   // Platform super-admin AND institute admins both use the admin panel.
   const isAdmin = user?.role === "admin" || user?.role === "institute_admin";
@@ -31,11 +36,13 @@ export default function Navbar() {
   // Clients only ever use their own My Practice workspace — replace the whole
   // nav with a single link back to it so "Home"/the logo never strands them on
   // a page with no way back to their created questions.
+  // Hide any link whose feature has been turned off in Admin → Features.
+  const featLinks = links.filter((l) => featureEnabled(settings, l.feature));
   const visibleLinks = isClient
     ? [{ to: "/creator", label: "My Practice", end: true }]
     : user && user.quizAccess === false
-    ? links.filter((l) => l.to !== "/quiz")
-    : links;
+    ? featLinks.filter((l) => l.to !== "/quiz")
+    : featLinks;
   const homeTo = isClient ? "/creator" : "/";
 
   const handleLogout = () => {
