@@ -1,5 +1,5 @@
 import { Link, useParams, Navigate } from "react-router-dom";
-import { ChevronLeft, ArrowRight, ListChecks, Globe, FileStack, Trophy, FileText, BookOpen } from "lucide-react";
+import { ChevronLeft, ArrowRight, ListChecks, FileStack, Trophy, FileText, BookOpen } from "lucide-react";
 
 // A simple chooser PAGE. The home hero's "Start Practicing" / "Explore Test
 // Series" buttons open this so the user first lands here, then picks between
@@ -15,13 +15,6 @@ const MODES = {
         color: "from-brand-600 to-blue-600",
         title: "My Practice",
         desc: "Your own quizzes & tests — the ones you built or that were shared with you.",
-      },
-      {
-        to: "/quiz",
-        Icon: Globe,
-        color: "from-emerald-500 to-teal-600",
-        title: "Public Quizzes",
-        desc: "Everyone's subject-wise quizzes with instant, detailed solutions.",
       },
       {
         to: "/choose/tests",
