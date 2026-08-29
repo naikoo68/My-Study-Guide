@@ -1,18 +1,17 @@
-# Render Blueprint — deploys the backend from backend/Dockerfile automatically.
-# Import once: Render dashboard → New → Blueprint → pick this repo. After that,
-# pushes to the default branch auto-deploy.
+# Render Blueprint — deploys the My Study Guide backend API from the Dockerfile.
+# In Render: New → Blueprint → connect this repo. Render reads this file.
 #
-# Secrets & per-deploy values use `sync: false` — Render will PROMPT for them on
-# import and store them encrypted (never committed here). Non-secret defaults
-# are inline; change DB_ENGINE to mongo/dynamo if you switch databases.
+# This UPDATES the existing service (the name below is immutable — keep it so the
+# live URL doesn't change) to build from backend/Dockerfile instead of a plain
+# `npm start`. Secrets use `sync: false` — set/kept in the dashboard, never
+# committed. Change DB_ENGINE to mongo/dynamo if you switch databases.
 services:
   - type: web
-    name: my-study-guide-api
+    name: my-prep-mart-api        # MUST stay the same — the service name/URL is immutable
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
-    plan: free            # change to "starter" to add a card / remove the free bandwidth cap
-    region: oregon
+    plan: free                    # change to "starter" to add a card / lift the free bandwidth cap
     healthCheckPath: /api/health
     autoDeploy: true
     envVars:
@@ -20,9 +19,8 @@ services:
         value: production
       - key: JWT_EXPIRES_IN
         value: "7d"
-      # Generated once by Render and kept stable across deploys.
       - key: JWT_SECRET
-        generateValue: true
+        generateValue: true       # Render generates a strong secret automatically
 
       # ---- Database engine (mongo | oracle | dynamo) ----
       - key: DB_ENGINE
@@ -35,23 +33,30 @@ services:
       # MongoDB — used when DB_ENGINE=mongo:
       - key: MONGO_URI
         sync: false
-      # DynamoDB — used when DB_ENGINE=dynamo (uncomment/add in the dashboard):
-      # - key: AWS_REGION
-      # - key: AWS_ACCESS_KEY_ID
-      # - key: AWS_SECRET_ACCESS_KEY
-      # - key: DYNAMODB_TABLE_PREFIX
 
-      # ---- App config / integrations (set in the dashboard) ----
+      # ---- App config ----
       - key: CLIENT_URL
-        sync: false
+        sync: false               # your Vercel/frontend URL (CORS)
       - key: ADMIN_EMAIL
         sync: false
+
+      # ---- AI Question Generator ----
+      - key: AI_API_KEY
+        sync: false               # TokenLab (or other) API key — enables "Generate with AI"
+      - key: AI_BASE_URL
+        value: https://api.tokenlab.sh/v1
+      - key: AI_MODEL
+        sync: false               # one OR many model ids, comma-separated (first = default)
+
+      # ---- Uploads (Cloudinary) ----
       - key: CLOUDINARY_CLOUD_NAME
         sync: false
       - key: CLOUDINARY_API_KEY
         sync: false
       - key: CLOUDINARY_API_SECRET
         sync: false
+
+      # ---- Email (SMTP) ----
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT
