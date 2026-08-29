@@ -213,8 +213,8 @@ export default function Home() {
               <Link to="/practice/paper" className="btn-outline text-base">
                 <FileText className="h-5 w-5" /> Previous Papers
               </Link>
-              <Link to="/practice" className="btn-outline text-base">
-                <ListChecks className="h-5 w-5" /> My Practice
+              <Link to="/study" className="btn-outline text-base">
+                <BookMarked className="h-5 w-5" /> Study Material
               </Link>
             </div>
             {/* Search all content — streams, subjects, topics, quizzes & tests */}
