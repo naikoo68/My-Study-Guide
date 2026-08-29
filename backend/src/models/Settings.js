@@ -169,6 +169,13 @@ const settingsSchema = new mongoose.Schema(
     // visitors can't discover or join that feature. Default ON.
     publicClientEnabled: { type: Boolean, default: true },
     publicInstituteEnabled: { type: Boolean, default: true },
+    // Admin-panel feature switches. A flat map { navFeatureKey: false } listing
+    // the admin-panel features the owner has turned OFF; a missing (or `true`)
+    // value means the feature is ON. Turning a feature off hides its sidebar
+    // entry and blocks its /admin/* page. Core features (users, aiKeys, storage,
+    // customization) are ALWAYS on and can never be disabled. Edited from the
+    // admin Features page; read by AdminLayout to filter the sidebar.
+    featureFlags: { type: mongoose.Schema.Types.Mixed, default: () => ({}) },
     // Welcome popup shown to clients each time they open their workspace.
     clientAnnouncement: {
       type: clientAnnouncementSchema,

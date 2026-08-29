@@ -34,6 +34,7 @@ import {
   DatabaseBackup,
   Star,
   Trash2,
+  SlidersHorizontal,
 } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
@@ -76,6 +77,7 @@ const nav = [
   { to: "/admin/ai-keys", label: "AI Keys (APIs)", icon: KeyRound, feature: "aiKeys" }, // institute admins manage their OWN keys (tenant-scoped); super-admin manages platform keys
   { to: "/connections", label: "Companion", icon: Sparkles },
   { to: "/admin/customization", label: "Customization", icon: Palette },
+  { to: "/admin/features", label: "Features", icon: SlidersHorizontal, superOnly: true },
   { to: "/admin/recycle-bin", label: "Recycle Bin", icon: Trash2, superOnly: true },
   { to: "/admin/manual", label: "User Manual", icon: BookOpen },
 ];
@@ -107,20 +109,31 @@ export default function AdminLayout() {
   // super-admin turned OFF are hidden from the sidebar; the platform super-admin
   // (role "admin") always sees everything. A feature is ON unless set to false.
   const instituteFeatures = user?.role === "institute_admin" ? (user?.tenant?.features || {}) : null;
+
+  // Global feature switches from Admin → Features (stored in site settings).
+  // These hide a section for EVERYONE (super-admin included). The four core
+  // features are always on and never consulted here. A feature is ON unless the
+  // owner explicitly stored it as false.
+  const globalFeatures = settings?.featureFlags || {};
+  const ALWAYS_ON = new Set(["users", "aiKeys", "storage", "customization"]);
+  const isGloballyOff = (feature) => !!feature && !ALWAYS_ON.has(feature) && globalFeatures[feature] === false;
+
   const visibleNav = nav.filter((n) => {
     if (n.superOnly && user?.role !== "admin") return false;
+    if (isGloballyOff(n.feature)) return false;
     if (instituteFeatures && n.feature && instituteFeatures[n.feature] === false) return false;
     return true;
   });
 
-  // Guard direct-URL access: if an institute admin opens a page for a feature
-  // they don't have, send them back to the dashboard.
+  // Guard direct-URL access: if an admin opens a page for a feature that's been
+  // turned off (globally, or per-institute), send them back to the dashboard.
   useEffect(() => {
-    if (!instituteFeatures) return;
     const hit = nav.find((n) => n.feature && (location.pathname === n.to || location.pathname.startsWith(n.to + "/")));
-    if (hit && instituteFeatures[hit.feature] === false) navigate("/admin", { replace: true });
+    if (!hit) return;
+    if (isGloballyOff(hit.feature)) return void navigate("/admin", { replace: true });
+    if (instituteFeatures && instituteFeatures[hit.feature] === false) navigate("/admin", { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.pathname]);
+  }, [location.pathname, globalFeatures]);
 
   // Keep the unread-messages badge fresh
   useEffect(() => {

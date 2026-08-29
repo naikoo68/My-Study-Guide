@@ -50,6 +50,7 @@ const DEFAULTS = {
   notifyOnNewContent: false,
   publicClientEnabled: true,
   publicInstituteEnabled: true,
+  featureFlags: {},
   googleClientId: "",
   homeSections: [
     { key: "hero", visible: true },
