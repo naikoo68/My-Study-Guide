@@ -24,9 +24,11 @@ import { getCurrentTenantId, isUnscoped } from "../../utils/tenantContext.js";
 
 const ENFORCE = process.env.TENANT_ENFORCEMENT === "on";
 
-// Query middleware operations that should be tenant-scoped.
-const QUERY_OPS = [
-  "count", "countDocuments", "find", "findOne",
+// Query middleware operations that should be tenant-scoped, split by intent:
+//   READ  — may ALSO see shared/platform (null-tenant) content.
+//   WRITE — strictly the current institute (never touch shared/other data).
+const READ_OPS = ["count", "countDocuments", "find", "findOne"];
+const WRITE_OPS = [
   "findOneAndUpdate", "findOneAndDelete", "findOneAndReplace",
   "updateOne", "updateMany", "deleteOne", "deleteMany", "replaceOne",
 ];
@@ -52,12 +54,31 @@ export default function tenantIdPlugin(schema) {
     catch { return undefined; }
   };
 
-  // Auto-scope reads/updates/deletes.
-  schema.pre(QUERY_OPS, function scopeQuery() {
+  // Auto-scope READS to the current institute PLUS shared/platform content
+  // (tenantId null or absent). Platform content is created by the super-admin,
+  // who operates cross-tenant (unscoped), so it's stamped with a null tenant —
+  // it must stay visible to every institute (and on PUBLIC, unauthenticated
+  // reads like GET /streams, which resolve to the default institute). Using an
+  // exact `tenantId = tid` match hid ALL admin-created content; `$in` with null
+  // keeps per-institute isolation while sharing platform content.
+  schema.pre(READ_OPS, function scopeRead() {
     if (isUnscoped()) return;
     if (modelNameOfQuery(this) === "Tenant") return;
     const tid = getCurrentTenantId();
     if (!tid) return; // no request context → don't scope (internal jobs)
+    const q = this.getQuery();
+    if (q.tenantId === undefined) q.tenantId = { $in: [tid, null] };
+  });
+
+  // Auto-scope WRITES/DELETES strictly to the current institute. Shared/platform
+  // (null-tenant) content is managed ONLY by the super-admin (who runs
+  // unscoped), so an institute admin can never modify or delete shared content
+  // or another institute's data.
+  schema.pre(WRITE_OPS, function scopeWrite() {
+    if (isUnscoped()) return;
+    if (modelNameOfQuery(this) === "Tenant") return;
+    const tid = getCurrentTenantId();
+    if (!tid) return;
     const q = this.getQuery();
     if (q.tenantId === undefined) q.tenantId = tid;
   });
@@ -72,7 +93,8 @@ export default function tenantIdPlugin(schema) {
     // Don't double-add if the caller already matches tenantId first.
     const first = pipeline[0];
     if (first && first.$match && "tenantId" in first.$match) return;
-    pipeline.unshift({ $match: { tenantId: tid } });
+    // Include shared/platform (null-tenant) content — see scopeQuery above.
+    pipeline.unshift({ $match: { tenantId: { $in: [tid, null] } } });
   });
 
   // Stamp new documents with the current tenant on save().
