@@ -1,21 +1,24 @@
 import { Link } from "react-router-dom";
 import { Mail } from "lucide-react";
 import { useSettings } from "../../context/SettingsContext";
+import { featureEnabled } from "../../lib/features";
 import Brand from "./Brand";
 import { SOCIAL_ICONS, SOCIAL_COLORS, Website } from "../ui/SocialIcons";
 
+// Each Product link maps to an Admin → Features toggle so turning a feature off
+// also removes it from the public footer (no `feature` = always shown).
 const columns = [
   {
     title: "Product",
     links: [
-      { label: "Quizzes", to: "/choose/practice" },
-      { label: "Test Series", to: "/choose/tests" },
-      { label: "Exams", to: "/exams" },
-      { label: "Streams", to: "/streams" },
-      { label: "Subjects", to: "/subjects" },
-      { label: "Study Material", to: "/study" },
-      { label: "Dashboard", to: "/dashboard" },
-      { label: "Leaderboard", to: "/dashboard" },
+      { label: "Quizzes", to: "/choose/practice", feature: "content" },
+      { label: "Test Series", to: "/choose/tests", feature: "tests" },
+      { label: "Exams", to: "/exams", feature: "tests" },
+      { label: "Streams", to: "/streams", feature: "content" },
+      { label: "Subjects", to: "/subjects", feature: "content" },
+      { label: "Study Material", to: "/study", feature: "study" },
+      { label: "Dashboard", to: "/dashboard", feature: "performance" },
+      { label: "Leaderboard", to: "/dashboard", feature: "performance" },
     ],
   },
   {
@@ -44,8 +47,11 @@ export default function Footer({ hideProduct = false }) {
   const socialLinks = (settings.socialLinks || []).filter((s) => s.url && s.url !== "#");
   const email = (settings.contacts || []).find((c) => c.type === "email")?.value;
   // Inside the client workspace the "Product" links (public quiz/test pages)
-  // aren't relevant, so allow hiding that column.
-  const visibleColumns = hideProduct ? columns.filter((c) => c.title !== "Product") : columns;
+  // aren't relevant, so allow hiding that column. Also drop any link whose
+  // feature was turned off in Admin → Features, and any column left empty.
+  const visibleColumns = (hideProduct ? columns.filter((c) => c.title !== "Product") : columns)
+    .map((c) => ({ ...c, links: c.links.filter((l) => featureEnabled(settings, l.feature)) }))
+    .filter((c) => c.links.length > 0);
 
   // Brand block (logo, tagline, social icons) — shared by both layouts.
   const brandBlock = (

@@ -18,6 +18,7 @@ import {
   HelpCircle,
 } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
+import { featureEnabled } from "../lib/features";
 import { useAuth } from "../context/AuthContext";
 import { analyticsService, reviewService } from "../services";
 import GlobalSearch from "../components/ui/GlobalSearch";
@@ -266,10 +267,10 @@ export default function Home() {
           {/* Hero boxes for the three products */}
           <div className="mt-14 grid gap-5 sm:grid-cols-3">
             {[
-              { to: "/choose/practice", label: "Quizzes", desc: "Subject-wise adaptive quizzes with instant solutions.", Icon: ListChecks, cls: "from-brand-600 to-indigo-600" },
-              { to: "/choose/tests", label: "Test Series", desc: "Full-length & sectional mocks with real exam timing.", Icon: FileText, cls: "from-accent-500 to-orange-600" },
-              { to: "/study", label: "Study Material", desc: "Curated notes, PDFs and resources to revise faster.", Icon: BookMarked, cls: "from-emerald-500 to-teal-600" },
-            ].map((p) => (
+              { to: "/choose/practice", feature: "content", label: "Quizzes", desc: "Subject-wise adaptive quizzes with instant solutions.", Icon: ListChecks, cls: "from-brand-600 to-indigo-600" },
+              { to: "/choose/tests", feature: "tests", label: "Test Series", desc: "Full-length & sectional mocks with real exam timing.", Icon: FileText, cls: "from-accent-500 to-orange-600" },
+              { to: "/study", feature: "study", label: "Study Material", desc: "Curated notes, PDFs and resources to revise faster.", Icon: BookMarked, cls: "from-emerald-500 to-teal-600" },
+            ].filter((p) => featureEnabled(settings, p.feature)).map((p) => (
               <Link key={p.to} to={p.to} className="card-hover group relative overflow-hidden p-6">
                 <span className={`flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br ${p.cls} text-white`}>
                   <p.Icon className="h-7 w-7" />
