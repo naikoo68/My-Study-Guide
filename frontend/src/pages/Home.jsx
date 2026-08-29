@@ -349,15 +349,16 @@ export default function Home() {
     features: (
       <section className="container-page py-20">
         <div className="mx-auto max-w-2xl text-center">
-          <h2 className="text-3xl font-extrabold sm:text-4xl">Everything you need to crack it</h2>
+          <p className="text-xs font-bold uppercase tracking-widest text-brand-600 dark:text-brand-400">Features</p>
+          <h2 className="mt-2 text-3xl font-extrabold tracking-tight sm:text-4xl">Everything you need to crack it</h2>
           <p className="mt-3 text-slate-600 dark:text-slate-300">
             A complete preparation toolkit designed around how toppers actually study.
           </p>
         </div>
         <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {features.map((f) => (
-            <div key={f.title} className="card-hover p-6">
-              <span className={`flex h-12 w-12 items-center justify-center rounded-xl ${f.color}`}>
+            <div key={f.title} className="card-hover group border border-slate-100 p-6 dark:border-slate-800">
+              <span className={`flex h-12 w-12 items-center justify-center rounded-2xl ${f.color} transition group-hover:scale-105`}>
                 <f.icon className="h-6 w-6" />
               </span>
               <h3 className="mt-4 text-lg font-bold">{f.title}</h3>
@@ -381,18 +382,22 @@ export default function Home() {
       <section className="bg-slate-50 py-20 dark:bg-slate-900/40">
         <div className="container-page">
           <div className="mx-auto max-w-2xl text-center">
-            <h2 className="text-3xl font-extrabold sm:text-4xl">How it works</h2>
+            <p className="text-xs font-bold uppercase tracking-widest text-brand-600 dark:text-brand-400">How it works</p>
+            <h2 className="mt-2 text-3xl font-extrabold tracking-tight sm:text-4xl">Three steps to smarter prep</h2>
             <p className="mt-3 text-slate-600 dark:text-slate-300">
-              Three simple steps to smarter preparation.
+              Simple, focused, and built around real results.
             </p>
           </div>
           <div className="mt-12 grid gap-6 md:grid-cols-3">
             {steps.map((s) => (
               <div key={s.n} className="card relative overflow-hidden p-6">
-                <span className="absolute -right-2 -top-4 text-7xl font-black text-slate-100 dark:text-slate-800">
+                <span className="pointer-events-none absolute -right-2 -top-4 select-none text-7xl font-black text-slate-100 dark:text-slate-800">
                   {s.n}
                 </span>
-                <h3 className="relative text-lg font-bold">{s.t}</h3>
+                <span className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-brand-600 to-indigo-600 text-sm font-bold text-white shadow-sm">
+                  {s.n}
+                </span>
+                <h3 className="relative mt-4 text-lg font-bold">{s.t}</h3>
                 <p className="relative mt-2 text-sm text-slate-600 dark:text-slate-400">{s.d}</p>
               </div>
             ))}
@@ -431,8 +436,10 @@ export default function Home() {
       <section className="container-page py-20">
         <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-brand-700 via-brand-600 to-accent-500 px-8 py-14 text-center text-white">
           <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
-          <h2 className="text-3xl font-extrabold sm:text-4xl">Start your journey to the top rank</h2>
-          <p className="mx-auto mt-3 max-w-xl text-white/90">
+          <div className="absolute -bottom-12 -left-12 h-48 w-48 rounded-full bg-white/10 blur-2xl" />
+          <p className="relative text-xs font-bold uppercase tracking-widest text-white/70">Get started</p>
+          <h2 className="relative mt-2 text-3xl font-extrabold tracking-tight sm:text-4xl">Start your journey to the top rank</h2>
+          <p className="relative mx-auto mt-3 max-w-xl text-white/90">
             Join thousands of students preparing the smart way with {settings.siteName}.
           </p>
           <div className="mt-7 flex flex-wrap justify-center gap-3">
