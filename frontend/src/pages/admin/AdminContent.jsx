@@ -797,6 +797,7 @@ export default function AdminContent() {
           onClose={() => setModal(null)}
           onSave={save}
           onBulkSave={bulkSaveSubjects}
+          onAiSuggest={(name) => aiService.suggestSubjects({ stream: name }).then((r) => r.subjects || [])}
         />
       ))}
 
@@ -1082,23 +1083,50 @@ export default function AdminContent() {
 }
 
 /* ---------------- Form modal (adapts to subject/topic/session/question) ---------------- */
-function FormModal({ modal, streamName, saving, onClose, onSave, onBulkSave }) {
+function FormModal({ modal, streamName, saving, onClose, onSave, onBulkSave, onAiSuggest }) {
   const { type, mode, data } = modal;
   // Subject suggestions: search subjects that belong to the current stream and
   // tick several to add them all at once (bulk), or type a single custom one.
   const [subjQuery, setSubjQuery] = useState("");
   const [picked, setPicked] = useState([]); // selected suggested subjects (bulk add)
+  const [aiSubjects, setAiSubjects] = useState(null); // AI-fetched list (null = not run yet) — overrides the static catalog
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiErr, setAiErr] = useState("");
   const suggest = suggestSubjects(streamName, subjQuery);
   const isSubjectAdd = type === "subject" && mode === "add";
   const bulkMode = isSubjectAdd && picked.length > 0;
   const pickedHas = (name) => picked.some((p) => p.name === name);
   const togglePick = (s) =>
     setPicked((prev) => (prev.some((p) => p.name === s.name) ? prev.filter((p) => p.name !== s.name) : [...prev, s]));
-  const shownAllPicked = suggest.subjects.length > 0 && suggest.subjects.every((s) => pickedHas(s.name));
+
+  // The list shown in the picker: the AI results (once fetched) take over from
+  // the built-in catalog. Filtered by the search box either way.
+  const q = subjQuery.trim().toLowerCase();
+  const shownList = aiSubjects
+    ? aiSubjects.filter((s) => !q || s.name.toLowerCase().includes(q))
+    : suggest.subjects;
+
+  const shownAllPicked = shownList.length > 0 && shownList.every((s) => pickedHas(s.name));
   const toggleAllShown = () => {
-    const shown = new Set(suggest.subjects.map((s) => s.name));
-    if (shownAllPicked) setPicked((prev) => prev.filter((p) => !shown.has(p.name)));
-    else setPicked((prev) => { const have = new Set(prev.map((p) => p.name)); return [...prev, ...suggest.subjects.filter((s) => !have.has(s.name))]; });
+    const names = new Set(shownList.map((s) => s.name));
+    if (shownAllPicked) setPicked((prev) => prev.filter((p) => !names.has(p.name)));
+    else setPicked((prev) => { const have = new Set(prev.map((p) => p.name)); return [...prev, ...shownList.filter((s) => !have.has(s.name))]; });
+  };
+
+  // "Auto-search subjects": ask the AI for the subjects that belong to THIS
+  // stream (works for any stream, e.g. Electrical Engineering). Results replace
+  // the static suggestions and get their own colours so they render nicely.
+  const runAiSearch = () => {
+    if (!onAiSuggest || aiBusy) return;
+    setAiBusy(true); setAiErr("");
+    Promise.resolve(onAiSuggest(streamName))
+      .then((list) => {
+        const mapped = (list || []).map((s, i) => ({ name: s.name, description: s.description || "", icon: "BookOpen", color: COLORS[i % COLORS.length] }));
+        if (!mapped.length) setAiErr("The AI didn't return any subjects. Try again.");
+        setAiSubjects(mapped);
+      })
+      .catch((e) => setAiErr(e?.message || "Couldn't auto-search subjects."))
+      .finally(() => setAiBusy(false));
   };
   const [form, setForm] = useState(() => {
     if (type === "stream") return { name: data.name || "", description: data.description || "", icon: data.icon || "GraduationCap", color: data.color || COLORS[0] };
@@ -1155,18 +1183,25 @@ function FormModal({ modal, streamName, saving, onClose, onSave, onBulkSave }) {
                       <span className="rounded-full bg-brand-100 px-2 py-0.5 text-xs font-semibold text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">{picked.length} selected</span>
                     )}
                   </div>
-                  <div className="relative mb-2">
-                    <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"><Search className="h-4 w-4" /></div>
-                    <input className="input pl-9" value={subjQuery} onChange={(e) => setSubjQuery(e.target.value)} placeholder="Search subjects…" />
+                  <div className="mb-2 flex gap-2">
+                    <div className="relative flex-1">
+                      <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"><Search className="h-4 w-4" /></div>
+                      <input className="input pl-9" value={subjQuery} onChange={(e) => setSubjQuery(e.target.value)} placeholder="Search subjects…" />
+                    </div>
+                    <button type="button" onClick={runAiSearch} disabled={aiBusy} className="btn-outline flex-shrink-0 whitespace-nowrap" title="Ask AI to find the subjects for this stream">
+                      {aiBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                      {aiBusy ? "Searching…" : "Auto-search"}
+                    </button>
                   </div>
-                  {suggest.subjects.length > 0 ? (
+                  {aiErr && <p className="mb-2 text-xs font-medium text-rose-600">{aiErr}</p>}
+                  {shownList.length > 0 ? (
                     <>
                       <label className="mb-1 flex cursor-pointer items-center gap-2 border-b border-slate-100 pb-2 text-sm font-medium dark:border-slate-700">
                         <input type="checkbox" className="h-4 w-4 rounded border-slate-300" checked={shownAllPicked} onChange={toggleAllShown} />
-                        Select all{subjQuery ? " matching" : ""} ({suggest.subjects.length})
+                        Select all{subjQuery ? " matching" : ""} ({shownList.length})
                       </label>
                       <div className="max-h-64 space-y-0.5 overflow-y-auto py-1">
-                        {suggest.subjects.map((s) => (
+                        {shownList.map((s) => (
                           <label key={s.name} className="flex cursor-pointer items-start gap-3 rounded-lg px-2 py-2 hover:bg-slate-100 dark:hover:bg-slate-700">
                             <input type="checkbox" className="mt-1 h-4 w-4 flex-shrink-0 rounded border-slate-300" checked={pickedHas(s.name)} onChange={() => togglePick(s)} />
                             <span className={`mt-0.5 h-5 w-5 flex-shrink-0 rounded-md bg-gradient-to-br ${s.color}`} />
@@ -1179,12 +1214,14 @@ function FormModal({ modal, streamName, saving, onClose, onSave, onBulkSave }) {
                       </div>
                     </>
                   ) : (
-                    <p className="py-2 text-sm text-slate-400">No matching subjects. Add a custom one below.</p>
+                    <p className="py-2 text-sm text-slate-400">{aiBusy ? "Searching…" : "No matching subjects. Use Auto-search, or add a custom one below."}</p>
                   )}
                   <p className="mt-1 text-xs text-slate-400">
-                    {suggest.matched
-                      ? `Suggested subjects for the “${suggest.streamLabel}” stream. Tick the ones you want and add them all at once.`
-                      : "No preset list for this stream — showing common subjects. Tick any to add, or type a custom subject below."}
+                    {aiSubjects
+                      ? `AI-found subjects for “${streamName || "this stream"}”. Tick the ones you want and add them all at once.`
+                      : suggest.matched
+                        ? `Suggested subjects for the “${suggest.streamLabel}” stream. Tick the ones you want, or use Auto-search for a full AI list.`
+                        : "No preset list for this stream — tap Auto-search to let AI find its subjects, or tick a common one / type a custom subject below."}
                   </p>
                 </div>
               )}
