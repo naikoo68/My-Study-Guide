@@ -1,5 +1,8 @@
 import { useEffect, useState, useCallback } from "react";
-import { HardDrive, Trash2, RefreshCw, AlertTriangle, Loader2, CheckCircle2, Database } from "lucide-react";
+import {
+  HardDrive, Trash2, RefreshCw, AlertTriangle, Loader2, CheckCircle2,
+  Database, FileStack, Layers, Hash,
+} from "lucide-react";
 import { storageService } from "../../services";
 import { Loading, ErrorState } from "../../components/ui/AsyncState";
 
@@ -34,7 +37,6 @@ export default function AdminStorage() {
   const toggle = (k) => setSel((s) => ({ ...s, [k]: !s[k] }));
 
   const runCleanup = async () => {
-    // If deleting CBT attempts entirely, the "strip review" option is redundant.
     const payload = { days, ...sel, stripCbtReview: sel.cbtAttempts ? false : sel.stripCbtReview };
     if (!payload.userAttempts && !payload.publicAttempts && !payload.cbtAttempts && !payload.stripCbtReview) {
       setMsg("Pick at least one thing to clean up below.");
@@ -60,16 +62,20 @@ export default function AdminStorage() {
     }
   };
 
-  const barColor = (pct) => (pct >= 90 ? "bg-rose-500" : pct >= 75 ? "bg-amber-500" : "bg-emerald-500");
-  // Show the cap in GB once it's large (e.g. 20480 MB → "20 GB").
+  // ---- formatting helpers ----
   const fmtCap = (mb) => (mb >= 1024 ? `${Math.round((mb / 1024) * 10) / 10} GB` : `${mb} MB`);
+  const fmtMB = (mb) => `${Math.round((mb || 0) * 10) / 10} MB`;
+  const pctColor = (pct) => (pct >= 90 ? "text-rose-600 dark:text-rose-400" : pct >= 75 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400");
 
   return (
     <div className="space-y-5">
+      {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="flex items-center gap-2 text-2xl font-extrabold"><HardDrive className="h-6 w-6 text-brand-600" /> Storage</h1>
-          <p className="text-slate-500 dark:text-slate-400">See how full your database is and free up space by removing old records.</p>
+          <h1 className="flex items-center gap-2 text-2xl font-extrabold tracking-tight">
+            <HardDrive className="h-6 w-6 text-brand-600" /> Storage
+          </h1>
+          <p className="mt-0.5 text-slate-500 dark:text-slate-400">Monitor your database usage and free up space by removing old records.</p>
         </div>
         <button onClick={() => load(days)} className="btn-outline" disabled={loading}>
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
@@ -82,59 +88,105 @@ export default function AdminStorage() {
         <ErrorState message={error} onRetry={() => load(days)} />
       ) : data ? (
         <>
-          {/* Usage */}
-          <div className="card p-5">
-            {/* Which database is connected + whether live size is available. */}
-            <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-2.5 py-1 font-semibold text-brand-700 dark:bg-brand-900/30 dark:text-brand-300">
-                <Database className="h-3.5 w-3.5" /> {data.engineLabel || "Database"}
-              </span>
-              <span className="inline-flex items-center gap-1.5 text-slate-400">
-                <span className={`h-1.5 w-1.5 rounded-full ${data.liveSize ? "bg-emerald-500" : "bg-slate-400"}`} />
-                {data.liveSize ? "Live usage — real time" : "Live size not available for this database"}
-              </span>
-            </div>
-            <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
-              <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">Used</p>
-              <p className="text-sm text-slate-500 dark:text-slate-400">
-                <b className={data.usedPct >= 90 ? "text-rose-600 dark:text-rose-400" : "text-slate-700 dark:text-slate-200"}>{data.totalMB} MB</b> of {fmtCap(data.limitMB)} ({data.usedPct}%)
-              </p>
-            </div>
-            <div className="h-3 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
-              <div className={`h-full rounded-full transition-all ${barColor(data.usedPct)}`} style={{ width: `${data.usedPct}%` }} />
-            </div>
-            {data.usedPct >= 90 && (
-              <p className="mt-3 flex items-start gap-2 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-900/20 dark:text-rose-300">
-                <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" /> Storage is almost full. Clean up old records below to avoid problems saving new content.
-              </p>
-            )}
-            <div className="mt-4 grid grid-cols-3 gap-3 text-center text-xs">
-              <div className="rounded-lg bg-slate-50 p-2 dark:bg-slate-800/60"><p className="text-slate-400">Questions & content</p><p className="mt-0.5 text-base font-bold">{data.dataMB} MB</p></div>
-              <div className="rounded-lg bg-slate-50 p-2 dark:bg-slate-800/60"><p className="text-slate-400">Indexes</p><p className="mt-0.5 text-base font-bold">{data.indexMB} MB</p></div>
-              <div className="rounded-lg bg-slate-50 p-2 dark:bg-slate-800/60"><p className="text-slate-400">Total records</p><p className="mt-0.5 text-base font-bold">{data.objects.toLocaleString()}</p></div>
-            </div>
-          </div>
+          {/* ---- Usage overview ---- */}
+          {(() => {
+            const dataPct = data.limitMB ? Math.min(100, (data.dataMB / data.limitMB) * 100) : 0;
+            const idxPct = data.limitMB ? Math.min(100 - dataPct, (data.indexMB / data.limitMB) * 100) : 0;
+            const freeMB = Math.max(0, Math.round((data.limitMB - data.totalMB) * 10) / 10);
+            return (
+              <div className="card overflow-hidden p-0">
+                {/* top strip: which DB + live status */}
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-5 py-3 dark:border-slate-800">
+                  <span className="inline-flex items-center gap-2 rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700 dark:bg-brand-900/30 dark:text-brand-300">
+                    <Database className="h-3.5 w-3.5" /> {data.engineLabel || "Database"}
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+                    <span className={`h-2 w-2 rounded-full ${data.liveSize ? "animate-pulse bg-emerald-500" : "bg-slate-400"}`} />
+                    {data.liveSize ? "Live · updates in real time" : "Live size unavailable for this database"}
+                  </span>
+                </div>
 
-          {/* Biggest collections */}
-          {data.collections?.length > 0 && (
-            <div className="card p-5">
-              <p className="mb-3 text-sm font-semibold text-slate-600 dark:text-slate-300">What's using the space</p>
-              <div className="space-y-1.5">
-                {data.collections.slice(0, 8).map((c) => (
-                  <div key={c.name} className="flex items-center justify-between gap-3 text-sm">
-                    <span className="truncate font-medium text-slate-700 dark:text-slate-200">{c.name}</span>
-                    <span className="flex-shrink-0 text-slate-500 dark:text-slate-400">{Math.round((c.dataMB + c.indexMB) * 10) / 10} MB · {c.docs.toLocaleString()} records</span>
+                <div className="p-5">
+                  <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Used</p>
+                      <p className="mt-0.5 text-3xl font-extrabold tracking-tight">
+                        {data.totalMB} <span className="text-lg font-semibold text-slate-400">MB</span>
+                        <span className="ml-2 text-base font-medium text-slate-400">of {fmtCap(data.limitMB)}</span>
+                      </p>
+                    </div>
+                    <p className={`text-3xl font-extrabold tabular-nums ${pctColor(data.usedPct)}`}>{data.usedPct}%</p>
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
 
-          {/* Cleanup */}
+                  {/* segmented bar: data + indexes vs free */}
+                  <div className="flex h-3 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                    <div className="h-full bg-emerald-500 transition-all" style={{ width: `${dataPct}%` }} />
+                    <div className="h-full bg-indigo-500 transition-all" style={{ width: `${idxPct}%` }} />
+                  </div>
+
+                  {/* legend */}
+                  <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+                    <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-emerald-500" /> Content {fmtMB(data.dataMB)}</span>
+                    <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-indigo-500" /> Indexes {fmtMB(data.indexMB)}</span>
+                    <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-slate-300 dark:bg-slate-600" /> Free {fmtMB(freeMB)}</span>
+                  </div>
+
+                  {data.usedPct >= 90 && (
+                    <p className="mt-3 flex items-start gap-2 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-900/20 dark:text-rose-300">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" /> Storage is almost full. Free up space below (or increase your plan) to avoid problems saving new content.
+                    </p>
+                  )}
+
+                  {/* stat tiles */}
+                  <div className="mt-4 grid grid-cols-3 gap-3">
+                    {[
+                      { icon: FileStack, label: "Content", value: fmtMB(data.dataMB), tint: "text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20" },
+                      { icon: Layers, label: "Indexes", value: fmtMB(data.indexMB), tint: "text-indigo-600 bg-indigo-50 dark:bg-indigo-900/20" },
+                      { icon: Hash, label: "Total records", value: (data.objects || 0).toLocaleString(), tint: "text-slate-600 bg-slate-100 dark:bg-slate-800" },
+                    ].map((t) => (
+                      <div key={t.label} className="rounded-xl border border-slate-100 p-3 text-center dark:border-slate-800">
+                        <span className={`mx-auto mb-1.5 inline-flex h-8 w-8 items-center justify-center rounded-lg ${t.tint}`}>
+                          <t.icon className="h-4 w-4" />
+                        </span>
+                        <p className="text-[11px] uppercase tracking-wide text-slate-400">{t.label}</p>
+                        <p className="mt-0.5 text-base font-bold tabular-nums">{t.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* ---- Biggest collections ---- */}
+          {data.collections?.length > 0 && (() => {
+            const rows = data.collections.slice(0, 8).map((c) => ({ ...c, tot: Math.round((c.dataMB + c.indexMB) * 10) / 10 }));
+            const max = Math.max(...rows.map((r) => r.tot), 0.1);
+            return (
+              <div className="card p-5">
+                <p className="mb-4 text-sm font-semibold text-slate-600 dark:text-slate-300">What's using the space</p>
+                <div className="space-y-3">
+                  {rows.map((c) => (
+                    <div key={c.name}>
+                      <div className="mb-1 flex items-center justify-between gap-3 text-sm">
+                        <span className="truncate font-medium text-slate-700 dark:text-slate-200">{c.name}</span>
+                        <span className="flex-shrink-0 tabular-nums text-slate-500 dark:text-slate-400">{c.tot} MB · {c.docs.toLocaleString()} records</span>
+                      </div>
+                      <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                        <div className="h-full rounded-full bg-gradient-to-r from-brand-500 to-indigo-500" style={{ width: `${Math.max(2, Math.round((c.tot / max) * 100))}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* ---- Cleanup ---- */}
           <div className="card p-5">
             <p className="flex items-center gap-2 text-lg font-bold"><Trash2 className="h-5 w-5 text-rose-600" /> Free up space</p>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              Old records of tests/quizzes people took pile up over time. Remove ones older than:
+              Old records from tests and quizzes people took pile up over time. Remove ones older than:
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <span className="text-sm font-semibold">Older than</span>
@@ -144,28 +196,28 @@ export default function AdminStorage() {
             </div>
 
             <div className="mt-4 space-y-2">
-              <label className="flex items-start gap-2 rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-700">
+              <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 p-3 text-sm transition hover:border-brand-300 hover:bg-brand-50/40 dark:border-slate-700 dark:hover:border-brand-700 dark:hover:bg-brand-900/10">
                 <input type="checkbox" checked={sel.stripCbtReview} disabled={sel.cbtAttempts} onChange={() => toggle("stripCbtReview")} className="mt-0.5 h-4 w-4 accent-brand-600" />
                 <span>
-                  <b>Trim old exam (CBT) details</b> — keeps each candidate's score & rank but removes the heavy full‑paper snapshot. Safest, usually the biggest saving.
+                  <b>Trim old exam (CBT) details</b> — keeps each candidate's score &amp; rank but removes the heavy full-paper snapshot. Safest, usually the biggest saving.
                   <span className="mt-0.5 block font-semibold text-brand-600 dark:text-brand-300">{data.cleanup.cbtWithReview.toLocaleString()} exam attempts can be trimmed</span>
                 </span>
               </label>
-              <label className="flex items-start gap-2 rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-700">
+              <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 p-3 text-sm transition hover:border-brand-300 hover:bg-brand-50/40 dark:border-slate-700 dark:hover:border-brand-700 dark:hover:bg-brand-900/10">
                 <input type="checkbox" checked={sel.publicAttempts} onChange={() => toggle("publicAttempts")} className="mt-0.5 h-4 w-4 accent-brand-600" />
                 <span>
-                  <b>Delete old shared‑link results</b> — anonymous results from public share links.
+                  <b>Delete old shared-link results</b> — anonymous results from public share links.
                   <span className="mt-0.5 block font-semibold text-brand-600 dark:text-brand-300">{data.cleanup.publicAttempts.toLocaleString()} records</span>
                 </span>
               </label>
-              <label className="flex items-start gap-2 rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-700">
+              <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 p-3 text-sm transition hover:border-brand-300 hover:bg-brand-50/40 dark:border-slate-700 dark:hover:border-brand-700 dark:hover:bg-brand-900/10">
                 <input type="checkbox" checked={sel.userAttempts} onChange={() => toggle("userAttempts")} className="mt-0.5 h-4 w-4 accent-brand-600" />
                 <span>
                   <b>Delete old quiz/test attempts</b> — students' past attempt history (their performance charts use this).
                   <span className="mt-0.5 block font-semibold text-brand-600 dark:text-brand-300">{data.cleanup.userAttempts.toLocaleString()} records</span>
                 </span>
               </label>
-              <label className="flex items-start gap-2 rounded-lg border border-rose-200 p-3 text-sm dark:border-rose-900/50">
+              <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-rose-200 p-3 text-sm transition hover:bg-rose-50/50 dark:border-rose-900/50 dark:hover:bg-rose-900/10">
                 <input type="checkbox" checked={sel.cbtAttempts} onChange={() => toggle("cbtAttempts")} className="mt-0.5 h-4 w-4 accent-rose-600" />
                 <span>
                   <b className="text-rose-700 dark:text-rose-300">Delete old exam (CBT) attempts entirely</b> — removes candidates' scores AND details for old exams. Use only if you don't need those rankings.
