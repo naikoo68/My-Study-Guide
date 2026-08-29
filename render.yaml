@@ -33,12 +33,23 @@ services:
       # MongoDB — used when DB_ENGINE=mongo:
       - key: MONGO_URI
         sync: false
+      # DynamoDB — used when DB_ENGINE=dynamo (leave blank on Oracle):
+      - key: AWS_REGION
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: DYNAMODB_TABLE_PREFIX
+        value: msg_
 
       # ---- App config ----
       - key: CLIENT_URL
         sync: false               # your Vercel/frontend URL (CORS)
       - key: ADMIN_EMAIL
         sync: false
+      - key: TENANT_ENFORCEMENT
+        value: "on"               # multi-tenant scoping — keep "on" to match live setup
 
       # ---- AI Question Generator ----
       - key: AI_API_KEY
@@ -64,4 +75,10 @@ services:
       - key: SMTP_USER
         sync: false
       - key: SMTP_PASS
+        sync: false
+
+      # ---- Payments (Razorpay) ----
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
         sync: false
