@@ -17,6 +17,7 @@ import {
   createSession,
   updateSession,
   deleteSession,
+  topicSession,
   listQuizzes,
   createQuiz,
   updateQuiz,
@@ -64,7 +65,10 @@ router.put("/topics/:id", ...admin, updateTopic);
 router.post("/topics/:id/split", ...admin, splitTopic); // split all a topic's questions into quizzes of N
 router.delete("/topics/:id", ...admin, deleteTopic);
 
-// Sessions (within a topic)
+// The topic's single implicit session (Session level is hidden in the admin UI).
+router.post("/topics/:topicId/session", ...admin, topicSession);
+
+// Sessions (within a topic) — legacy/public; the admin UI no longer surfaces them.
 router.get("/topics/:topicId/sessions", listSessions);
 router.post("/sessions", ...admin, createSession);
 router.put("/sessions/:id", ...admin, updateSession);

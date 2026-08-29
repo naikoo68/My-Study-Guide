@@ -29,6 +29,8 @@ export const contentService = {
   subjects: () => api.get("/subjects"),
   topics: (subjectId) => api.get(`/subjects/${subjectId}/topics`),
   sessions: (topicId) => api.get(`/topics/${topicId}/sessions`),
+  // The topic's single implicit session (the admin UI hides the Session level).
+  topicSession: (topicId) => api.post(`/topics/${topicId}/session`, {}),
   quizzes: (sessionId) => api.get(`/sessions/${sessionId}/quizzes`),
   quizQuestions: (quizId) => api.get(`/quizzes/${quizId}/questions`),
   questions: (sessionId) => api.get(`/sessions/${sessionId}/questions`),
