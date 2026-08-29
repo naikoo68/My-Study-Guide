@@ -202,19 +202,12 @@ export default function Home() {
 
           <div className="mt-10 grid grid-cols-2 items-center gap-4 sm:gap-8 md:gap-12">
             <div className="animate-fade-in-up text-center">
-            <div className="relative mt-8 flex flex-wrap justify-center gap-3">
-              {/* Each opens a chooser PAGE where the user picks My vs Public. */}
+            {/* Single primary CTA — the other options (Test Series, Previous
+                Papers, Study Material, My Practice) live inside the practice
+                flow and the product cards below, so the hero stays focused. */}
+            <div className="relative mt-8 flex justify-center">
               <Link to="/choose/practice" className="btn-primary text-base">
                 <Play className="h-5 w-5" /> Start Practicing
-              </Link>
-              <Link to="/choose/tests" className="btn-outline text-base">
-                Explore Test Series <ArrowRight className="h-4 w-4" />
-              </Link>
-              <Link to="/practice/paper" className="btn-outline text-base">
-                <FileText className="h-5 w-5" /> Previous Papers
-              </Link>
-              <Link to="/study" className="btn-outline text-base">
-                <BookMarked className="h-5 w-5" /> Study Material
               </Link>
             </div>
             {/* Search all content — streams, subjects, topics, quizzes & tests */}
