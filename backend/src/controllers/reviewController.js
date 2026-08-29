@@ -1,5 +1,6 @@
 import Review from "../models/Review.js";
 import { sendMail } from "../config/mailer.js";
+import { NOT_DELETED, softDeletePatch } from "../utils/softDelete.js";
 
 const clampRating = (r) => {
   const n = Number(r);
@@ -62,7 +63,7 @@ export async function createReview(req, res) {
 // seeded demo data.
 export async function listApprovedReviews(req, res) {
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 24));
-  const items = await Review.find({ status: "approved" })
+  const items = await Review.find({ status: "approved", ...NOT_DELETED })
     .sort("-updatedAt")
     .limit(limit)
     .select("name exam rating text photo")
@@ -72,8 +73,8 @@ export async function listApprovedReviews(req, res) {
 
 // GET /api/reviews  (admin) — list submissions
 export async function listReviews(req, res) {
-  const items = await Review.find().sort("-createdAt").limit(500).lean();
-  const pending = await Review.countDocuments({ status: "pending" });
+  const items = await Review.find(NOT_DELETED).sort("-createdAt").limit(500).lean();
+  const pending = await Review.countDocuments({ status: "pending", ...NOT_DELETED });
   res.json({ items, pending });
 }
 
@@ -99,8 +100,8 @@ export async function rejectReview(req, res) {
   res.json({ id: review._id, status: review.status });
 }
 
-// DELETE /api/reviews/:id  (admin)
+// DELETE /api/reviews/:id  (admin) — soft delete → Recycle Bin
 export async function deleteReview(req, res) {
-  await Review.findByIdAndDelete(req.params.id);
-  res.json({ message: "Deleted" });
+  await Review.findByIdAndUpdate(req.params.id, softDeletePatch());
+  res.json({ message: "Review moved to Recycle Bin" });
 }

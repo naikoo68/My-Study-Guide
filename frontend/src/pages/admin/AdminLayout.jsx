@@ -33,6 +33,7 @@ import {
   HardDrive,
   DatabaseBackup,
   Star,
+  Trash2,
 } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
@@ -75,6 +76,7 @@ const nav = [
   { to: "/admin/ai-keys", label: "AI Keys (APIs)", icon: KeyRound, feature: "aiKeys" }, // institute admins manage their OWN keys (tenant-scoped); super-admin manages platform keys
   { to: "/connections", label: "Companion", icon: Sparkles },
   { to: "/admin/customization", label: "Customization", icon: Palette },
+  { to: "/admin/recycle-bin", label: "Recycle Bin", icon: Trash2, superOnly: true },
   { to: "/admin/manual", label: "User Manual", icon: BookOpen },
 ];
 

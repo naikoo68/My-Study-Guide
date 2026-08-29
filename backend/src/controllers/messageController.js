@@ -1,5 +1,6 @@
 import Message from "../models/Message.js";
 import { sendMail } from "../config/mailer.js";
+import { NOT_DELETED, softDeletePatch } from "../utils/softDelete.js";
 
 // POST /api/messages  (auth required) — a logged-in user submits the contact form.
 // The sender's identity comes from their account; a notification email is sent
@@ -41,14 +42,14 @@ export async function createMessage(req, res) {
 
 // GET /api/messages  (admin) — inbox, newest first
 export async function listMessages(req, res) {
-  const messages = await Message.find().sort("-createdAt").limit(500).lean();
-  const unread = await Message.countDocuments({ read: false });
+  const messages = await Message.find(NOT_DELETED).sort("-createdAt").limit(500).lean();
+  const unread = await Message.countDocuments({ read: false, ...NOT_DELETED });
   res.json({ messages, unread });
 }
 
 // GET /api/messages/unread-count  (admin) — for the sidebar badge
 export async function unreadCount(req, res) {
-  const unread = await Message.countDocuments({ read: false });
+  const unread = await Message.countDocuments({ read: false, ...NOT_DELETED });
   res.json({ unread });
 }
 
@@ -61,8 +62,8 @@ export async function toggleRead(req, res) {
   res.json({ id: msg._id, read: msg.read });
 }
 
-// DELETE /api/messages/:id  (admin)
+// DELETE /api/messages/:id  (admin) — soft delete → Recycle Bin
 export async function deleteMessage(req, res) {
-  await Message.findByIdAndDelete(req.params.id);
-  res.json({ message: "Message deleted" });
+  await Message.findByIdAndUpdate(req.params.id, softDeletePatch());
+  res.json({ message: "Message moved to Recycle Bin" });
 }

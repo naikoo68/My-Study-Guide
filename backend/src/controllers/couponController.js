@@ -1,8 +1,9 @@
 import Coupon from "../models/Coupon.js";
+import { NOT_DELETED, softDeletePatch } from "../utils/softDelete.js";
 
 // GET /api/coupons (admin) — all coupons.
 export async function listCoupons(req, res) {
-  const coupons = await Coupon.find().sort("-createdAt").lean();
+  const coupons = await Coupon.find(NOT_DELETED).sort("-createdAt").lean();
   res.json({ coupons });
 }
 
@@ -45,8 +46,8 @@ export async function updateCoupon(req, res) {
   }
 }
 
-// DELETE /api/coupons/:id (admin)
+// DELETE /api/coupons/:id (admin) — soft delete → Recycle Bin
 export async function deleteCoupon(req, res) {
-  await Coupon.findByIdAndDelete(req.params.id);
-  res.json({ message: "Coupon deleted" });
+  await Coupon.findByIdAndUpdate(req.params.id, softDeletePatch());
+  res.json({ message: "Coupon moved to Recycle Bin" });
 }
