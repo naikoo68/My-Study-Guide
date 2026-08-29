@@ -200,7 +200,7 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="mt-10 grid grid-cols-2 items-center gap-4 sm:gap-8 md:gap-12">
+          <div className="mt-10 grid grid-cols-1 items-center gap-8 md:grid-cols-2 md:gap-12">
             <div className="animate-fade-in-up text-center">
             <div className="relative mt-8 flex flex-wrap justify-center gap-3">
               {/* Each opens a chooser PAGE where the user picks My vs Public. */}
@@ -231,13 +231,15 @@ export default function Home() {
           </div>
 
           <div className="relative animate-scale-in">
-            <div className="card p-4 shadow-soft sm:p-6">
+            {/* soft gradient glow behind the card for a premium, floating feel */}
+            <div className="absolute -inset-3 -z-10 rounded-[2.25rem] bg-gradient-to-br from-brand-500/25 via-transparent to-accent-500/25 blur-2xl" />
+            <div className="rounded-3xl border border-white/60 bg-white/80 p-5 shadow-xl ring-1 ring-slate-900/5 backdrop-blur-sm dark:border-white/10 dark:bg-slate-900/80 dark:ring-white/10 sm:p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-slate-500 dark:text-slate-400">{progressSubtitle}</p>
+                  <p className="text-xs font-medium uppercase tracking-wide text-slate-400">{progressSubtitle}</p>
                   <p className="text-2xl font-bold">{progressTitle}</p>
                 </div>
-                <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-brand-600 to-accent-500 text-white">
+                <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-600 to-accent-500 text-white shadow-lg shadow-brand-600/30">
                   <Zap className="h-6 w-6" />
                 </span>
               </div>
@@ -246,17 +248,17 @@ export default function Home() {
                   <div key={b.l}>
                     <div className="mb-1 flex justify-between text-sm">
                       <span className="text-slate-600 dark:text-slate-300">{b.l}</span>
-                      <span className="font-semibold">{b.v}%</span>
+                      <span className="font-semibold tabular-nums">{b.v}%</span>
                     </div>
                     <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
-                      <div className={`h-full rounded-full ${b.c}`} style={{ width: `${b.v}%` }} />
+                      <div className={`h-full rounded-full ${b.c} transition-all duration-700`} style={{ width: `${b.v}%` }} />
                     </div>
                   </div>
                 ))}
               </div>
               <div className="mt-5 grid grid-cols-3 gap-2 text-center sm:gap-3">
                 {miniStats.map((s) => (
-                  <div key={s.l} className="rounded-xl bg-slate-50 p-2 dark:bg-slate-800/60 sm:p-3">
+                  <div key={s.l} className="rounded-2xl bg-slate-50 p-2 ring-1 ring-slate-100 dark:bg-slate-800/60 dark:ring-slate-700/50 sm:p-3">
                     <p className="text-lg font-bold text-brand-600 dark:text-brand-400">{s.v}</p>
                     <p className="text-xs text-slate-500 dark:text-slate-400">{s.l}</p>
                   </div>
