@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Plus, Pencil, Trash2, X, ChevronRight, FolderOpen, Layers, BookOpen, HelpCircle, ListChecks, Upload, Eye, Copy, Download, GraduationCap, Search, Clock } from "lucide-react";
 import { contentService, aiService } from "../../services";
 import { suggestSubjects } from "../../data/streamSubjects";
@@ -42,7 +43,24 @@ const NAV_KEY = "mpm-admin-content-nav"; // remembers drill-down position across
 export default function AdminContent() {
   // Drill-down context — restored from sessionStorage so a refresh keeps you
   // exactly where you were (e.g. inside a topic), instead of jumping to Streams.
-  const [view, setView] = useState(() => loadNav(NAV_KEY).view || "streams"); // streams | subjects | topics | sessions | quizzes | questions
+  // ── URL is the source of truth for the drill-down position ──────────────
+  // The selected entity IDs live in the query string, so the address bar always
+  // matches what's shown and refresh / direct links / new tabs / browser
+  // Back-Forward all work. The current `view` is DERIVED from which IDs are
+  // present, so navigating up (dropping deeper IDs) can NEVER leave stale child
+  // state behind — this is what makes breadcrumbs reset correctly.
+  //   ?s=<streamId>&sub=<subjectId>&t=<topicId>&se=<sessionId>&qz=<quizId>
+  const [searchParams, setSearchParams] = useSearchParams();
+  const sid = searchParams.get("s") || "";
+  const subId = searchParams.get("sub") || "";
+  const tid = searchParams.get("t") || "";
+  const seid = searchParams.get("se") || "";
+  const qid = searchParams.get("qz") || "";
+  const view = qid ? "questions" : seid ? "quizzes" : tid ? "sessions" : subId ? "topics" : sid ? "subjects" : "streams";
+
+  // Entity OBJECTS (for breadcrumb names + child loading). Seeded from the
+  // per-tab cache so a refresh is instant; the URL-sync effect reconciles them
+  // against the URL IDs and fetches any that are missing (cold load / deep link).
   const [stream, setStream] = useState(() => loadNav(NAV_KEY).stream || null);
   const [subject, setSubject] = useState(() => loadNav(NAV_KEY).subject || null);
   const [topic, setTopic] = useState(() => loadNav(NAV_KEY).topic || null);
@@ -217,6 +235,8 @@ export default function AdminContent() {
     questions: () => contentService.quizQuestions(quiz._id),
   };
 
+  // Refresh the CURRENT level from component state (used after add/edit/delete,
+  // when the parent objects are already settled in state).
   const load = useCallback((which) => {
     setLoading(true);
     setError("");
@@ -227,7 +247,65 @@ export default function AdminContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stream, subject, topic, session, quiz]);
 
-  useEffect(() => { setSelected([]); setSelNodes([]); setSearch(""); load(view); /* eslint-disable-next-line */ }, [view]);
+  // Load a level's list from EXPLICIT parent objects — used by the URL-sync
+  // effect below, where React state may not have committed the new objects yet.
+  const loadWith = (which, o) => {
+    setLoading(true);
+    setError("");
+    const p =
+      which === "subjects" ? contentService.subjectsByStream(o.stream._id)
+      : which === "topics" ? contentService.topics(o.subject._id)
+      : which === "sessions" ? contentService.sessions(o.topic._id)
+      : which === "quizzes" ? contentService.quizzes(o.session._id)
+      : which === "questions" ? contentService.quizQuestions(o.quiz._id)
+      : contentService.streams();
+    p.then(setItems).catch((e) => setError(e.message)).finally(() => setLoading(false));
+  };
+
+  // ── URL-sync ────────────────────────────────────────────────────────────
+  // Whenever the URL drill-path changes (click, breadcrumb, Back/Forward,
+  // refresh, direct deep link) reconcile the entity OBJECTS with the URL IDs —
+  // fetching any we don't already hold — then load the current level. If an ID
+  // no longer resolves (deleted content / stale link) we drop to the deepest
+  // valid ancestor by rewriting the URL, so the view is never broken.
+  useEffect(() => {
+    let cancelled = false;
+    setSelected([]); setSelNodes([]); setSearch("");
+    (async () => {
+      try {
+        const find = (arr, id) => (arr || []).find((x) => String(x._id) === String(id)) || null;
+        let strm = stream, subj = subject, tpc = topic, sess = session, qz = quiz;
+
+        if (!sid) strm = null;
+        else if (!strm || String(strm._id) !== sid) strm = find(await contentService.streams(), sid);
+        if (sid && !strm) { if (!cancelled) setSearchParams({}, { replace: true }); return; }
+
+        if (!subId) subj = null;
+        else if (strm && (!subj || String(subj._id) !== subId)) subj = find(await contentService.subjectsByStream(sid), subId);
+        if (subId && !subj) { if (!cancelled) setSearchParams({ s: sid }, { replace: true }); return; }
+
+        if (!tid) tpc = null;
+        else if (subj && (!tpc || String(tpc._id) !== tid)) tpc = find(await contentService.topics(subId), tid);
+        if (tid && !tpc) { if (!cancelled) setSearchParams({ s: sid, sub: subId }, { replace: true }); return; }
+
+        if (!seid) sess = null;
+        else if (tpc && (!sess || String(sess._id) !== seid)) sess = find(await contentService.sessions(tid), seid);
+        if (seid && !sess) { if (!cancelled) setSearchParams({ s: sid, sub: subId, t: tid }, { replace: true }); return; }
+
+        if (!qid) qz = null;
+        else if (sess && (!qz || String(qz._id) !== qid)) qz = find(await contentService.quizzes(seid), qid);
+        if (qid && !qz) { if (!cancelled) setSearchParams({ s: sid, sub: subId, t: tid, se: seid }, { replace: true }); return; }
+
+        if (cancelled) return;
+        setStream(strm); setSubject(subj); setTopic(tpc); setSession(sess); setQuiz(qz);
+        loadWith(view, { stream: strm, subject: subj, topic: tpc, session: sess, quiz: qz });
+      } catch (e) {
+        if (!cancelled) setError(e.message);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sid, subId, tid, seid, qid]);
 
   // After editing a question that was opened from the single-question preview,
   // reopen the preview on that (now-reloaded, updated) question so you land back
@@ -275,50 +353,26 @@ export default function AdminContent() {
     saveNav(NAV_KEY, { view, stream, subject, topic, session, quiz });
   }, [view, stream, subject, topic, session, quiz]);
 
-  // Make the browser / device BACK button walk UP the drill-down (question →
-  // quiz → session → topic → subject → stream) instead of leaving the whole page
-  // (which jumped straight to the Dashboard). The drill-down lives in component
-  // state — not in routes — so on each drill-in we push a SAME-URL history entry
-  // recording the view, and restore that view on `popstate`. Same-URL pushes
-  // don't change the matched route, so react-router stays on this page; only
-  // stepping back past the first level leaves to wherever you came from.
-  const pushNav = (nextView) => {
-    try { window.history.pushState({ ...(window.history.state || {}), mpmContentView: nextView }, ""); } catch { /* history unavailable — ignore */ }
-  };
-  useEffect(() => {
-    // Tag the entry we arrived on so Back from the shallowest level has a target.
-    try {
-      const st = window.history.state || {};
-      if (!st.mpmContentView) window.history.replaceState({ ...st, mpmContentView: view }, "");
-    } catch { /* ignore */ }
-    const onPop = (e) => {
-      const v = e.state && e.state.mpmContentView;
-      if (v && VIEW_TYPE[v]) setView(v); // step to the recorded level; entities stay in state
-    };
-    window.addEventListener("popstate", onPop);
-    return () => window.removeEventListener("popstate", onPop);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Navigation WRITES THE URL (the single source of truth). react-router then
+  // manages history natively, so Back/Forward, refresh, deep links and new tabs
+  // all work with no manual history juggling. We also set the object we already
+  // hold so the breadcrumb name shows instantly without waiting for a refetch.
+  const openStream = (s) => { setStream(s); setSearchParams({ s: s._id }); };
+  const openSubject = (s) => { setSubject(s); setSearchParams({ s: sid, sub: s._id }); };
+  const openTopic = (t) => { setTopic(t); setSearchParams({ s: sid, sub: subId, t: t._id }); };
+  const openSession = (s) => { setSession(s); setSearchParams({ s: sid, sub: subId, t: tid, se: s._id }); };
+  const openQuiz = (q) => { setQuiz(q); setSearchParams({ s: sid, sub: subId, t: tid, se: seid, qz: q._id }); };
 
-  // Navigation — each drill-in also pushes a history entry (see pushNav above).
-  const openStream = (s) => { setStream(s); setSubject(null); setTopic(null); setSession(null); setQuiz(null); setView("subjects"); pushNav("subjects"); };
-  const openSubject = (s) => { setSubject(s); setTopic(null); setSession(null); setQuiz(null); setView("topics"); pushNav("topics"); };
-  const openTopic = (t) => { setTopic(t); setSession(null); setQuiz(null); setView("sessions"); pushNav("sessions"); };
-  const openSession = (s) => { setSession(s); setQuiz(null); setView("quizzes"); pushNav("quizzes"); };
-  const openQuiz = (q) => { setQuiz(q); setView("questions"); pushNav("questions"); };
-  // Breadcrumb / upward navigation. Jumping to a level MUST clear every
-  // selected entity BELOW it, so no stale stream/subject/topic/session/quiz
-  // survives (which previously left the breadcrumb showing deeper levels and
-  // kept stale ids in state + sessionStorage). Each higher level resets all
-  // its descendants.
+  // Breadcrumb / upward navigation: drop every DEEPER ID from the URL. Because
+  // `view` derives from which IDs are present, this can never leave stale child
+  // state behind — the URL, breadcrumb and selection always match.
   const goTo = (level) => {
-    if (level === "streams") { setStream(null); setSubject(null); setTopic(null); setSession(null); setQuiz(null); }
-    else if (level === "subjects") { setSubject(null); setTopic(null); setSession(null); setQuiz(null); }
-    else if (level === "topics") { setTopic(null); setSession(null); setQuiz(null); }
-    else if (level === "sessions") { setSession(null); setQuiz(null); }
-    else if (level === "quizzes") { setQuiz(null); }
-    setView(level);
-    pushNav(level);
+    if (level === "streams") setSearchParams({});
+    else if (level === "subjects") setSearchParams({ s: sid });
+    else if (level === "topics") setSearchParams({ s: sid, sub: subId });
+    else if (level === "sessions") setSearchParams({ s: sid, sub: subId, t: tid });
+    else if (level === "quizzes") setSearchParams({ s: sid, sub: subId, t: tid, se: seid });
+    else setSearchParams({ s: sid, sub: subId, t: tid, se: seid, qz: qid });
   };
 
   // Open the right level for the current view (used for whole-card tapping).
