@@ -8,6 +8,7 @@ import AdminInstitutes from "./AdminInstitutes";
 import StudentPlansManager from "../../components/admin/StudentPlansManager";
 import AiPlansManager from "../../components/admin/AiPlansManager";
 import TenantPlansManager from "../../components/admin/TenantPlansManager";
+import PlanEnableToggle from "../../components/admin/PlanEnableToggle";
 
 // One "Users" hub with a tab per account type. Each tab shows the ACCOUNTS list
 // and (via a sub-toggle) the PLANS for that type:
@@ -40,9 +41,11 @@ export default function AdminPeople() {
   const plansView = view === "plans" && canPlans;
 
   const body = () => {
-    if (activeTab === "institutes") return plansView ? <TenantPlansManager /> : <AdminInstitutes />;
-    if (activeTab === "clients") return plansView ? <AiPlansManager /> : <AdminClients />;
-    return plansView ? <StudentPlansManager /> : <AdminUsers role="student" />;
+    if (activeTab === "institutes")
+      return plansView ? <><PlanEnableToggle audience="institute" /><TenantPlansManager /></> : <AdminInstitutes />;
+    if (activeTab === "clients")
+      return plansView ? <><PlanEnableToggle audience="client" /><AiPlansManager /></> : <AdminClients />;
+    return plansView ? <><PlanEnableToggle audience="student" /><StudentPlansManager /></> : <AdminUsers role="student" />;
   };
 
   return (
