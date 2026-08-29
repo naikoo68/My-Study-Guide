@@ -42,7 +42,14 @@ export default function AdminStudyMaterial() {
   const openInstitution = (i) => { setInstitution(i); setSubject(null); setSmClass(null); setView("subjects"); };
   const openSubject = (s) => { setSubject(s); setSmClass(null); setView("classes"); };
   const openClass = (c) => { setSmClass(c); setView("files"); };
-  const goTo = (level) => setView(level);
+  // Breadcrumb / upward navigation clears every entity below the destination so
+  // no stale institution/subject/class survives after jumping up a level.
+  const goTo = (level) => {
+    if (level === "institutions") { setInstitution(null); setSubject(null); setSmClass(null); }
+    else if (level === "subjects") { setSubject(null); setSmClass(null); }
+    else if (level === "classes") { setSmClass(null); }
+    setView(level);
+  };
 
   const emptyForm = (type) => {
     if (type === "institution") return { name: "", kind: "University", description: "", order: 1 };

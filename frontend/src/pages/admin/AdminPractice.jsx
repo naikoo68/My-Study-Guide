@@ -258,7 +258,15 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
   // My Quiz drills into Topics; My Test Series goes straight to items.
   const openSubject = (s) => { setSubject(s); setTopic(null); setView(hasTopics ? "topics" : "items"); };
   const openTopic = (t) => { setTopic(t); setView("items"); };
-  const goTo = (v) => setView(v);
+  // Breadcrumb / upward navigation clears every entity below the destination so
+  // no stale stream/subject/topic survives (the level lives in the ?v= URL param
+  // while the entities live in state/sessionStorage — both must move together).
+  const goTo = (v) => {
+    if (v === "streams") { setStream(null); setSubject(null); setTopic(null); }
+    else if (v === "subjects") { setSubject(null); setTopic(null); }
+    else if (v === "topics") { setTopic(null); }
+    setView(v);
+  };
 
   // NOTE: device/browser "Back" navigation is handled by the URL-based `view`
   // above (each drill level is a `?v=` history entry via setView), so a Back
