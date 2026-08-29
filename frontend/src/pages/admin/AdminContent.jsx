@@ -323,6 +323,42 @@ export default function AdminContent() {
     }
   };
 
+  // Bulk-add several suggested subjects to the current stream in one go. Each is
+  // created with its own name/icon/colour/description; failures (e.g. a name
+  // that already exists) are skipped and summarised rather than aborting the batch.
+  const bulkSaveSubjects = async (list) => {
+    if (!list?.length || !stream?._id) return;
+    setSaving(true);
+    setError("");
+    try {
+      let added = 0;
+      const failed = [];
+      for (const s of list) {
+        try {
+          await contentService.createSubject({
+            name: s.name,
+            description: s.description || "",
+            icon: s.icon || "BookOpen",
+            color: s.color || COLORS[0],
+            stream: stream._id,
+          });
+          added += 1;
+        } catch (e) {
+          failed.push(`${s.name} — ${e.message}`);
+        }
+      }
+      setModal(null);
+      load(view);
+      if (failed.length) {
+        window.alert(`Added ${added} subject${added === 1 ? "" : "s"}.\nSkipped ${failed.length}:\n\n${failed.join("\n")}`);
+      }
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   // Question add/edit uses the shared QuestionFormModal, which passes a clean payload.
   const saveQuestion = async (payload) => {
     setSaving(true);
@@ -735,6 +771,7 @@ export default function AdminContent() {
           saving={saving}
           onClose={() => setModal(null)}
           onSave={save}
+          onBulkSave={bulkSaveSubjects}
         />
       ))}
 
@@ -1020,13 +1057,24 @@ export default function AdminContent() {
 }
 
 /* ---------------- Form modal (adapts to subject/topic/session/question) ---------------- */
-function FormModal({ modal, streamName, saving, onClose, onSave }) {
+function FormModal({ modal, streamName, saving, onClose, onSave, onBulkSave }) {
   const { type, mode, data } = modal;
   // Subject suggestions: search subjects that belong to the current stream and
-  // one-click auto-fill the form (name / icon / colour / description).
+  // tick several to add them all at once (bulk), or type a single custom one.
   const [subjQuery, setSubjQuery] = useState("");
-  const [showSuggest, setShowSuggest] = useState(false);
+  const [picked, setPicked] = useState([]); // selected suggested subjects (bulk add)
   const suggest = suggestSubjects(streamName, subjQuery);
+  const isSubjectAdd = type === "subject" && mode === "add";
+  const bulkMode = isSubjectAdd && picked.length > 0;
+  const pickedHas = (name) => picked.some((p) => p.name === name);
+  const togglePick = (s) =>
+    setPicked((prev) => (prev.some((p) => p.name === s.name) ? prev.filter((p) => p.name !== s.name) : [...prev, s]));
+  const shownAllPicked = suggest.subjects.length > 0 && suggest.subjects.every((s) => pickedHas(s.name));
+  const toggleAllShown = () => {
+    const shown = new Set(suggest.subjects.map((s) => s.name));
+    if (shownAllPicked) setPicked((prev) => prev.filter((p) => !shown.has(p.name)));
+    else setPicked((prev) => { const have = new Set(prev.map((p) => p.name)); return [...prev, ...suggest.subjects.filter((s) => !have.has(s.name))]; });
+  };
   const [form, setForm] = useState(() => {
     if (type === "stream") return { name: data.name || "", description: data.description || "", icon: data.icon || "GraduationCap", color: data.color || COLORS[0] };
     if (type === "subject") return { name: data.name || "", description: data.description || "", icon: data.icon || "BookOpen", color: data.color || COLORS[0], image: data.image || "" };
@@ -1037,7 +1085,7 @@ function FormModal({ modal, streamName, saving, onClose, onSave }) {
   });
 
   const titleMap = { stream: "Stream", subject: "Subject", topic: "Topic", session: "Session", quiz: "Quiz" };
-  const submit = (e) => { e.preventDefault(); onSave(form); };
+  const submit = (e) => { e.preventDefault(); if (bulkMode) { onBulkSave(picked); return; } onSave(form); };
 
   // Upload a custom subject logo, downscaled to a 128×128 PNG data URI.
   const onPickImage = (e) => {
@@ -1074,70 +1122,73 @@ function FormModal({ modal, streamName, saving, onClose, onSave }) {
         <div className="space-y-4">
           {(type === "stream" || type === "subject") && (
             <>
-              {type === "subject" && mode === "add" && (
-                <Field label={`Search subjects${suggest.streamLabel ? ` for ${suggest.streamLabel}` : ""}`}>
-                  <div className="relative">
-                    <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
-                      <Search className="h-4 w-4" />
-                    </div>
-                    <input
-                      className="input pl-9"
-                      value={subjQuery}
-                      onChange={(e) => { setSubjQuery(e.target.value); setShowSuggest(true); }}
-                      onFocus={() => setShowSuggest(true)}
-                      placeholder={suggest.matched ? "Type to filter, or pick a suggested subject below" : "Type to search common subjects"}
-                    />
-                    {showSuggest && suggest.subjects.length > 0 && (
-                      <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
-                        {suggest.subjects.map((s) => (
-                          <button
-                            type="button"
-                            key={s.name}
-                            onClick={() => {
-                              setForm((f) => ({ ...f, name: s.name, description: s.description || "", icon: s.icon || f.icon, color: s.color || f.color }));
-                              setSubjQuery("");
-                              setShowSuggest(false);
-                            }}
-                            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
-                          >
-                            <span className={`h-6 w-6 flex-shrink-0 rounded-md bg-gradient-to-br ${s.color}`} />
-                            <span className="min-w-0">
-                              <span className="block truncate text-sm font-medium">{s.name}</span>
-                              {s.description && <span className="block truncate text-xs text-slate-400">{s.description}</span>}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
+              {isSubjectAdd && (
+                <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="text-sm font-semibold">Add subjects for {suggest.streamLabel || streamName || "this stream"}</span>
+                    {picked.length > 0 && (
+                      <span className="rounded-full bg-brand-100 px-2 py-0.5 text-xs font-semibold text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">{picked.length} selected</span>
                     )}
                   </div>
+                  <div className="relative mb-2">
+                    <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"><Search className="h-4 w-4" /></div>
+                    <input className="input pl-9" value={subjQuery} onChange={(e) => setSubjQuery(e.target.value)} placeholder="Search subjects…" />
+                  </div>
+                  {suggest.subjects.length > 0 ? (
+                    <>
+                      <label className="mb-1 flex cursor-pointer items-center gap-2 border-b border-slate-100 pb-2 text-sm font-medium dark:border-slate-700">
+                        <input type="checkbox" className="h-4 w-4 rounded border-slate-300" checked={shownAllPicked} onChange={toggleAllShown} />
+                        Select all{subjQuery ? " matching" : ""} ({suggest.subjects.length})
+                      </label>
+                      <div className="max-h-64 space-y-0.5 overflow-y-auto py-1">
+                        {suggest.subjects.map((s) => (
+                          <label key={s.name} className="flex cursor-pointer items-start gap-3 rounded-lg px-2 py-2 hover:bg-slate-100 dark:hover:bg-slate-700">
+                            <input type="checkbox" className="mt-1 h-4 w-4 flex-shrink-0 rounded border-slate-300" checked={pickedHas(s.name)} onChange={() => togglePick(s)} />
+                            <span className={`mt-0.5 h-5 w-5 flex-shrink-0 rounded-md bg-gradient-to-br ${s.color}`} />
+                            <span className="min-w-0">
+                              <span className="block text-sm font-medium">{s.name}</span>
+                              {s.description && <span className="block text-xs text-slate-400">{s.description}</span>}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <p className="py-2 text-sm text-slate-400">No matching subjects. Add a custom one below.</p>
+                  )}
                   <p className="mt-1 text-xs text-slate-400">
                     {suggest.matched
-                      ? `Suggestions matched to the "${suggest.streamLabel}" stream. Pick one to auto-fill, or just type your own below.`
-                      : "No preset subject list for this stream — showing common subjects. You can still type any subject below."}
+                      ? `Suggested subjects for the “${suggest.streamLabel}” stream. Tick the ones you want and add them all at once.`
+                      : "No preset list for this stream — showing common subjects. Tick any to add, or type a custom subject below."}
                   </p>
-                </Field>
-              )}
-              <Field label="Name"><input required className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={type === "stream" ? "e.g. JKSSB" : "e.g. Physics"} /></Field>
-              <Field label="Description"><textarea rows={2} className="input resize-none" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></Field>
-              <Field label="Icon name (lucide)"><input className="input" value={form.icon} onChange={(e) => setForm({ ...form, icon: e.target.value })} placeholder="e.g. Atom, FlaskConical, BookOpen" /></Field>
-              <Field label="Colour">
-                <div className="flex flex-wrap gap-2">
-                  {COLORS.map((c) => (
-                    <button type="button" key={c} onClick={() => setForm({ ...form, color: c })} className={`h-9 w-14 rounded-lg bg-gradient-to-br ${c} ${form.color === c ? "ring-2 ring-offset-2 ring-slate-800 dark:ring-white dark:ring-offset-slate-900" : ""}`} />
-                  ))}
                 </div>
-              </Field>
-              {type === "subject" && (
-                <Field label="Custom logo (optional)">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
-                      {form.image ? <img src={form.image} alt="" className="h-full w-full object-cover" /> : <BookOpen className="h-6 w-6 text-slate-400" />}
+              )}
+              {!bulkMode && (
+                <>
+                  {isSubjectAdd && <p className="-mb-1 text-xs font-medium text-slate-500">Or add a single custom subject:</p>}
+                  <Field label="Name"><input required className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={type === "stream" ? "e.g. JKSSB" : "e.g. Physics"} /></Field>
+                  <Field label="Description"><textarea rows={2} className="input resize-none" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></Field>
+                  <Field label="Icon name (lucide)"><input className="input" value={form.icon} onChange={(e) => setForm({ ...form, icon: e.target.value })} placeholder="e.g. Atom, FlaskConical, BookOpen" /></Field>
+                  <Field label="Colour">
+                    <div className="flex flex-wrap gap-2">
+                      {COLORS.map((c) => (
+                        <button type="button" key={c} onClick={() => setForm({ ...form, color: c })} className={`h-9 w-14 rounded-lg bg-gradient-to-br ${c} ${form.color === c ? "ring-2 ring-offset-2 ring-slate-800 dark:ring-white dark:ring-offset-slate-900" : ""}`} />
+                      ))}
                     </div>
-                    <label className="btn-outline cursor-pointer"><Upload className="h-4 w-4" /> Upload<input type="file" accept="image/*" className="hidden" onChange={onPickImage} /></label>
-                    {form.image && <button type="button" onClick={() => setForm({ ...form, image: "" })} className="text-sm font-medium text-rose-600 hover:underline">Remove</button>}
-                  </div>
-                  <p className="mt-1 text-xs text-slate-400">Overrides the icon. Leave empty to auto-pick an emoji from the subject name.</p>
-                </Field>
+                  </Field>
+                  {type === "subject" && (
+                    <Field label="Custom logo (optional)">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+                          {form.image ? <img src={form.image} alt="" className="h-full w-full object-cover" /> : <BookOpen className="h-6 w-6 text-slate-400" />}
+                        </div>
+                        <label className="btn-outline cursor-pointer"><Upload className="h-4 w-4" /> Upload<input type="file" accept="image/*" className="hidden" onChange={onPickImage} /></label>
+                        {form.image && <button type="button" onClick={() => setForm({ ...form, image: "" })} className="text-sm font-medium text-rose-600 hover:underline">Remove</button>}
+                      </div>
+                      <p className="mt-1 text-xs text-slate-400">Overrides the icon. Leave empty to auto-pick an emoji from the subject name.</p>
+                    </Field>
+                  )}
+                </>
               )}
             </>
           )}
@@ -1182,7 +1233,13 @@ function FormModal({ modal, streamName, saving, onClose, onSave }) {
 
         <div className="mt-6 flex justify-end gap-3">
           <button type="button" onClick={onClose} className="btn-outline">Cancel</button>
-          <button type="submit" disabled={saving} className="btn-primary">{saving ? "Saving..." : "Save"}</button>
+          {bulkMode ? (
+            <button type="button" disabled={saving} className="btn-primary" onClick={() => onBulkSave(picked)}>
+              {saving ? "Adding…" : `Add ${picked.length} subject${picked.length === 1 ? "" : "s"}`}
+            </button>
+          ) : (
+            <button type="submit" disabled={saving} className="btn-primary">{saving ? "Saving..." : "Save"}</button>
+          )}
         </div>
       </form>
     </div>
