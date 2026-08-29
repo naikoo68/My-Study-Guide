@@ -1,0 +1,60 @@
+name: Deploy backend to Oracle VM
+
+# Auto-deploys the backend to the self-hosted Oracle Cloud VM whenever backend
+# code lands on main. Frontend deploys are handled by Vercel separately, so this
+# only fires for backend changes (or a manual run). It SSHes into the VM, pulls
+# the latest code, rebuilds the Docker image, restarts the container, and health-
+# checks it.
+#
+# Requires three repo secrets (Settings → Secrets and variables → Actions):
+#   SSH_HOST         → the VM's public IP (e.g. 129.154.254.80)
+#   SSH_USER         → ubuntu
+#   SSH_PRIVATE_KEY  → a deploy private key whose PUBLIC half is in the VM's
+#                      ~/.ssh/authorized_keys
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/deploy-backend.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 20m
+          script_stop: true
+          script: |
+            set -e
+            cd ~/My-Study-Guide
+            git fetch origin main
+            # Hard reset to the remote main. This updates only tracked files;
+            # the untracked backend/msg.env (your secrets) is left untouched.
+            git reset --hard origin/main
+            cd backend
+            sudo docker build -t msg-backend .
+            sudo docker rm -f msg-backend || true
+            sudo docker run -d --name msg-backend --restart always \
+              --env-file msg.env -p 127.0.0.1:5000:5000 msg-backend
+            sudo docker image prune -f
+            # Give it a moment to boot, then verify it's healthy.
+            sleep 6
+            if curl -fsS http://127.0.0.1:5000/api/health >/dev/null; then
+              echo "✅ Health check passed — deploy succeeded."
+            else
+              echo "❌ Health check FAILED after deploy."
+              sudo docker logs --tail 40 msg-backend || true
+              exit 1
+            fi
