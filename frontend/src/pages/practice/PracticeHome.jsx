@@ -1,13 +1,13 @@
 import { Link } from "react-router-dom";
-import { ListChecks, FileStack, ArrowRight } from "lucide-react";
+import { ListChecks, ArrowRight } from "lucide-react";
 import { useSeo } from "../../lib/useSeo";
 
-// "Practice Quizzes" landing — two entry points: My Quiz and My Test Series.
+// "Practice Quizzes" landing — My Quiz only. (My Test lives under
+// Explore Test Series → My Tests, so it's not duplicated here.)
 export default function PracticeHome() {
   useSeo("Practice Questions & Tests", "Practise questions, quizzes, tests and previous papers with instant solutions and progress tracking on My Study Guide.");
   const cards = [
     { to: "/practice/quiz", label: "My Quiz", desc: "Curated practice quizzes shared with you.", Icon: ListChecks, cls: "from-violet-500 to-fuchsia-600" },
-    { to: "/practice/test", label: "My Test", desc: "Personal tests shared with you.", Icon: FileStack, cls: "from-brand-600 to-indigo-600" },
   ];
   return (
     <div className="container-page py-12">
@@ -15,7 +15,7 @@ export default function PracticeHome() {
         <h1 className="text-3xl font-extrabold sm:text-4xl">My Practice</h1>
         <p className="mt-2 text-slate-600 dark:text-slate-300">Your assigned practice content. Pick a category to begin.</p>
       </div>
-      <div className="mx-auto mt-10 grid max-w-3xl gap-5 sm:grid-cols-2">
+      <div className="mx-auto mt-10 grid max-w-md gap-5">
         {cards.map((c) => (
           <Link key={c.to} to={c.to} className="card-hover group p-8">
             <span className={`flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br ${c.cls} text-white shadow-soft`}>
