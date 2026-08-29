@@ -13,6 +13,7 @@ import { sendMail, isMailConfigured } from "../config/mailer.js";
 import { clientBaseFromReq } from "../config/clientUrl.js";
 import { duplicateQuestions } from "../utils/duplicateQuestions.js";
 import { byNatural } from "../utils/naturalSort.js";
+import { softDeletePatch } from "../utils/softDelete.js";
 
 // True when the caller owns this document (or is an admin working in the shared
 // space). Used to guard edits/plays of a specific record.
@@ -56,16 +57,9 @@ export async function deleteStream(req, res) {
   const id = req.params.id;
   const stream = await PracticeStream.findOne({ _id: id, ...ownerFilter(req) });
   if (!stream) return res.status(404).json({ message: "Stream not found" });
-  const items = await TestSeries.find({ practice: true, practiceStream: id }).select("questions");
-  const qIds = items.flatMap((i) => i.questions || []);
-  const subjectIds = (await PracticeSubject.find({ stream: id }).select("_id")).map((s) => s._id);
-  await Promise.all([
-    Question.deleteMany({ _id: { $in: qIds } }),
-    TestSeries.deleteMany({ practice: true, practiceStream: id }),
-    PracticeTopic.deleteMany({ subject: { $in: subjectIds } }),
-    PracticeSubject.deleteMany({ stream: id }),
-    PracticeStream.findByIdAndDelete(id),
-  ]);
+  // Soft delete → Recycle Bin. Only the stream node is flagged; its subjects,
+  // topics, items and questions stay put (hidden with it, restored with it).
+  await PracticeStream.findByIdAndUpdate(id, softDeletePatch());
   res.json({ message: "Practice stream and all its content deleted" });
 }
 
@@ -111,14 +105,8 @@ export async function deleteSubject(req, res) {
   const id = req.params.id;
   const subject = await PracticeSubject.findOne({ _id: id, ...ownerFilter(req) });
   if (!subject) return res.status(404).json({ message: "Subject not found" });
-  const items = await TestSeries.find({ practice: true, practiceSubject: id }).select("questions");
-  const qIds = items.flatMap((i) => i.questions || []);
-  await Promise.all([
-    Question.deleteMany({ _id: { $in: qIds } }),
-    TestSeries.deleteMany({ practice: true, practiceSubject: id }),
-    PracticeTopic.deleteMany({ subject: id }),
-    PracticeSubject.findByIdAndDelete(id),
-  ]);
+  // Soft delete → Recycle Bin. Only the subject node is flagged.
+  await PracticeSubject.findByIdAndUpdate(id, softDeletePatch());
   res.json({ message: "Practice subject and all its items deleted" });
 }
 
@@ -166,13 +154,8 @@ export async function deleteTopic(req, res) {
   const id = req.params.id;
   const topic = await PracticeTopic.findOne({ _id: id, ...ownerFilter(req) });
   if (!topic) return res.status(404).json({ message: "Topic not found" });
-  const items = await TestSeries.find({ practice: true, practiceTopic: id }).select("questions");
-  const qIds = items.flatMap((i) => i.questions || []);
-  await Promise.all([
-    Question.deleteMany({ _id: { $in: qIds } }),
-    TestSeries.deleteMany({ practice: true, practiceTopic: id }),
-    PracticeTopic.findByIdAndDelete(id),
-  ]);
+  // Soft delete → Recycle Bin. Only the topic node is flagged.
+  await PracticeTopic.findByIdAndUpdate(id, softDeletePatch());
   res.json({ message: "Practice topic and all its quizzes deleted" });
 }
 

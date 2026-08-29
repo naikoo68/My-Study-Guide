@@ -1,6 +1,7 @@
 import Exam from "../models/Exam.js";
 import ExamPost from "../models/ExamPost.js";
 import TestSeries from "../models/TestSeries.js";
+import { softDeletePatch } from "../utils/softDelete.js";
 
 // Count documents grouped by a reference field, returned as { id: count }.
 async function countBy(Model, ids, field) {
@@ -33,13 +34,11 @@ export async function updateExam(req, res) {
   res.json(exam);
 }
 
-// Delete an exam → remove its posts and detach its tests (tests are kept).
+// Delete an exam → soft delete to the Recycle Bin. Only the exam itself is
+// flagged; its posts and tests are left untouched (hidden with it, restored
+// with it). Permanent deletion from the Recycle Bin runs the real cascade.
 export async function deleteExam(req, res) {
-  await Promise.all([
-    ExamPost.deleteMany({ exam: req.params.id }),
-    TestSeries.updateMany({ exam: req.params.id }, { $unset: { exam: "", post: "" } }),
-    Exam.findByIdAndDelete(req.params.id),
-  ]);
+  await Exam.findByIdAndUpdate(req.params.id, softDeletePatch());
   res.json({ message: "Exam and its posts deleted" });
 }
 
@@ -62,9 +61,9 @@ export async function updatePost(req, res) {
   res.json(post);
 }
 
-// Delete a post → detach its tests (tests are kept, just unlinked).
+// Delete a post → soft delete to the Recycle Bin. The post is flagged; its
+// tests are left linked and untouched so a restore brings it back intact.
 export async function deletePost(req, res) {
-  await TestSeries.updateMany({ post: req.params.id }, { $unset: { post: "" } });
-  await ExamPost.findByIdAndDelete(req.params.id);
+  await ExamPost.findByIdAndUpdate(req.params.id, softDeletePatch());
   res.json({ message: "Post deleted" });
 }
