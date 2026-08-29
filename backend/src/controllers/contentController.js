@@ -13,7 +13,46 @@ import { NOT_DELETED, softDeletePatch } from "../utils/softDelete.js";
 import { sanitizeBody } from "../utils/sanitizeBody.js";
 
 const slugify = (s) =>
-  s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  String(s || "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+// Build a URL-safe slug that is GUARANTEED non-empty and NOT already taken by
+// another live (non-deleted) record of the same Model.
+//
+// Why this exists: Stream/Subject both declare `slug` as required + unique. Two
+// real-world inputs used to break creation on the DynamoDB engine:
+//   1) a name with no [a-z0-9] characters (e.g. a non-Latin script) → slugify()
+//      returns "" → the required-slug validation rejects the create.
+//   2) two different names that slugify to the same value (or a name whose slug
+//      already exists) → the unique-slug check throws a raw E11000.
+// This helper falls back to a stable token when empty, and appends -2, -3, …
+// until the slug is free — so a legitimate new record is never rejected.
+async function uniqueSlug(Model, name, excludeId = null) {
+  let base = slugify(name);
+  if (!base) base = `item-${Date.now().toString(36)}`;
+  let candidate = base;
+  let n = 1;
+  // Small tables (streams/subjects) — a findOne per attempt is cheap.
+  for (;;) {
+    const existing = await Model.findOne({ slug: candidate, deleted: { $ne: true } }).lean();
+    if (!existing || String(existing._id) === String(excludeId)) return candidate;
+    n += 1;
+    candidate = `${base}-${n}`;
+  }
+}
+
+// Reject a duplicate NAME up-front with a CLEAR message (instead of a cryptic
+// E11000). Only live (non-deleted) records count — a name sitting in the
+// Recycle Bin can be re-used. Returns null when the name is free, or a
+// ready-to-send { status, message } when it's taken.
+async function nameTaken(Model, name, label, excludeId = null) {
+  const trimmed = String(name || "").trim();
+  if (!trimmed) return null;
+  const existing = await Model.findOne({ name: trimmed, deleted: { $ne: true } }).lean();
+  if (existing && String(existing._id) !== String(excludeId)) {
+    return { status: 409, message: `A ${label} named “${trimmed}” already exists. Pick a different name or edit the existing one.` };
+  }
+  return null;
+}
 
 /* ---------------- Streams (top level) ---------------- */
 
@@ -30,13 +69,19 @@ export async function listStreams(req, res) {
 
 export async function createStream(req, res) {
   const { name } = req.body;
-  const stream = await Stream.create({ ...sanitizeBody(req.body), slug: slugify(name) });
+  const taken = await nameTaken(Stream, name, "stream");
+  if (taken) return res.status(taken.status).json({ message: taken.message });
+  const stream = await Stream.create({ ...sanitizeBody(req.body), slug: await uniqueSlug(Stream, name) });
   res.status(201).json(stream);
 }
 
 export async function updateStream(req, res) {
   const data = sanitizeBody(req.body);
-  if (data.name) data.slug = slugify(data.name);
+  if (data.name) {
+    const taken = await nameTaken(Stream, data.name, "stream", req.params.id);
+    if (taken) return res.status(taken.status).json({ message: taken.message });
+    data.slug = await uniqueSlug(Stream, data.name, req.params.id);
+  }
   const stream = await Stream.findByIdAndUpdate(req.params.id, data, { new: true });
   if (!stream) return res.status(404).json({ message: "Stream not found" });
   res.json(stream);
@@ -81,13 +126,19 @@ export async function listSubjects(req, res) {
 
 export async function createSubject(req, res) {
   const { name } = req.body;
-  const subject = await Subject.create({ ...sanitizeBody(req.body), slug: slugify(name) });
+  const taken = await nameTaken(Subject, name, "subject");
+  if (taken) return res.status(taken.status).json({ message: taken.message });
+  const subject = await Subject.create({ ...sanitizeBody(req.body), slug: await uniqueSlug(Subject, name) });
   res.status(201).json(subject);
 }
 
 export async function updateSubject(req, res) {
   const data = sanitizeBody(req.body);
-  if (data.name) data.slug = slugify(data.name);
+  if (data.name) {
+    const taken = await nameTaken(Subject, data.name, "subject", req.params.id);
+    if (taken) return res.status(taken.status).json({ message: taken.message });
+    data.slug = await uniqueSlug(Subject, data.name, req.params.id);
+  }
   const subject = await Subject.findByIdAndUpdate(req.params.id, data, { new: true });
   if (!subject) return res.status(404).json({ message: "Subject not found" });
   res.json(subject);
