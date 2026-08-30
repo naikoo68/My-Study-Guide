@@ -124,6 +124,7 @@ export default function ClientDashboard({ onBuild, onUpgrade }) {
     return KINDS.some((k) => k.key === saved) ? saved : "quiz";
   });
   const [stream, setStream] = useState(() => loadNav(DASH_NAV_KEY).stream || null);
+  const [exam, setExam] = useState(() => loadNav(DASH_NAV_KEY).exam || null); // My Quiz: Stream → Exam → Subject
   const [subject, setSubject] = useState(() => loadNav(DASH_NAV_KEY).subject || null);
   const [topic, setTopic] = useState(() => loadNav(DASH_NAV_KEY).topic || null);
   const [copied, setCopied] = useState(false);
@@ -174,8 +175,8 @@ export default function ClientDashboard({ onBuild, onUpgrade }) {
   // Remember the current drill-down position so a refresh or a return trip from
   // a quiz/test restores it instead of dropping back to the top.
   useEffect(() => {
-    saveNav(DASH_NAV_KEY, { kind, stream, subject, topic });
-  }, [kind, stream, subject, topic]);
+    saveNav(DASH_NAV_KEY, { kind, stream, exam, subject, topic });
+  }, [kind, stream, exam, subject, topic]);
 
   // Search the client's QUESTIONS by content (their own + published) via the
   // backend search, so questions are findable here just like everywhere else.
@@ -206,7 +207,7 @@ export default function ClientDashboard({ onBuild, onUpgrade }) {
     };
   }, [q]);
 
-  const resetPath = () => { setStream(null); setSubject(null); setTopic(null); };
+  const resetPath = () => { setStream(null); setExam(null); setSubject(null); setTopic(null); };
   const switchKind = (k) => { setKind(k); resetPath(); };
 
   const play = (item) => {
@@ -255,7 +256,7 @@ export default function ClientDashboard({ onBuild, onUpgrade }) {
   const searching = query.length >= 1;
   const searchMatches = searching
     ? items.filter((it) =>
-        [it.name, it.stream?.name, it.subject?.name, it.topic?.name]
+        [it.name, it.stream?.name, it.exam?.name, it.subject?.name, it.topic?.name]
           .filter(Boolean)
           .join(" ")
           .toLowerCase()
@@ -266,15 +267,17 @@ export default function ClientDashboard({ onBuild, onUpgrade }) {
   // Which level are we viewing for the active kind?
   //   My Quiz : streams → subjects → topics → items(quizzes)
   //   My Test : streams → items(tests)
+  //   My Quiz : streams → exams → subjects → topics → items(quizzes)
   const level = kind === "quiz"
-    ? (topic ? "items" : subject ? "topics" : stream ? "subjects" : "streams")
+    ? (topic ? "items" : subject ? "topics" : exam ? "subjects" : stream ? "exams" : "streams")
     : (stream ? "items" : "streams");
 
   // Rows for the current level, derived from the flat item list.
   let rows = [];
   if (kind === "quiz") {
     if (level === "streams") rows = uniqueNodes(quizzes, "stream");
-    else if (level === "subjects") rows = uniqueNodes(quizzes.filter((q) => eq(q.stream?._id, stream._id)), "subject");
+    else if (level === "exams") rows = uniqueNodes(quizzes.filter((q) => eq(q.stream?._id, stream._id)), "exam");
+    else if (level === "subjects") rows = uniqueNodes(quizzes.filter((q) => eq(q.exam?._id, exam._id)), "subject");
     else if (level === "topics") rows = uniqueNodes(quizzes.filter((q) => eq(q.subject?._id, subject._id)), "topic");
     else rows = quizzes.filter((q) => eq(q.topic?._id, topic._id));
   } else {
@@ -295,24 +298,27 @@ export default function ClientDashboard({ onBuild, onUpgrade }) {
 
   // Breadcrumb trail for the active kind.
   const crumbs = [{ label: (KINDS.find((k) => k.key === kind) || KINDS[0]).label, onClick: resetPath }];
-  if (stream) crumbs.push({ label: stream.name, onClick: () => { setSubject(null); setTopic(null); } });
+  if (stream) crumbs.push({ label: stream.name, onClick: () => { setExam(null); setSubject(null); setTopic(null); } });
+  if (exam) crumbs.push({ label: exam.name, onClick: () => { setSubject(null); setTopic(null); } });
   if (subject) crumbs.push({ label: subject.name, onClick: () => setTopic(null) });
   if (topic) crumbs.push({ label: topic.name, onClick: null });
 
   const openNode = (node) => {
     if (kind === "test") { setStream(node); return; } // stream → tests
     if (level === "streams") setStream(node);
+    else if (level === "exams") setExam(node);
     else if (level === "subjects") setSubject(node);
     else if (level === "topics") setTopic(node);
   };
 
   const levelHint =
     level === "streams" ? "Choose a stream"
+    : level === "exams" ? "Choose an exam"
     : level === "subjects" ? "Choose a subject"
     : level === "topics" ? "Choose a topic"
     : kind === "quiz" ? "Select a quiz to start" : "Select a test to start";
 
-  const fallbackIcon = level === "streams" ? GraduationCap : level === "topics" ? Layers : FolderOpen;
+  const fallbackIcon = level === "streams" ? GraduationCap : level === "exams" ? Icons.ClipboardList : level === "topics" ? Layers : FolderOpen;
 
   return (
     <div className="space-y-6">
@@ -503,7 +509,7 @@ export default function ClientDashboard({ onBuild, onUpgrade }) {
                   {searchMatches.map((item) => {
                     const empty = (item.questionCount ?? 0) === 0;
                     const cta = item.kind === "quiz" ? "Practice" : "Take Test";
-                    const trail = [item.stream?.name, item.subject?.name, item.topic?.name].filter(Boolean).join(" › ");
+                    const trail = [item.stream?.name, item.exam?.name, item.subject?.name, item.topic?.name].filter(Boolean).join(" › ");
                     return (
                       <div key={item._id} className="card p-4">
                         <Badge variant={item.kind === "quiz" ? "accent" : "brand"}>
@@ -630,7 +636,7 @@ export default function ClientDashboard({ onBuild, onUpgrade }) {
             {rows.map((node) => {
               const Icon = Icons[node.icon] || fallbackIcon;
               // Map the current drill-down level to a share level.
-              const shareLevel = level === "streams" ? "stream" : level === "subjects" ? "subject" : "topic";
+              const shareLevel = level === "streams" ? "stream" : level === "exams" ? "exam" : level === "subjects" ? "subject" : "topic";
               return (
                 <div key={node._id} className="relative">
                   <button
