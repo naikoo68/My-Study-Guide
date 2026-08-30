@@ -49,8 +49,8 @@ import Avatar from "../../components/ui/Avatar";
 // "admin"); an institute_admin sees the rest, scoped to their own institute.
 const nav = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard, end: true },
-  { to: "/admin/content", label: "Content", icon: BookCopy, feature: "content" },
-  { to: "/admin/tests", label: "Test Series", icon: FileStack, feature: "tests" },
+  { to: "/admin/content", label: "Public Quizzes", icon: BookCopy, feature: "content" },
+  { to: "/admin/tests", label: "Public Test Series", icon: FileStack, feature: "tests" },
   { to: "/admin/practice", label: "My Practice", icon: GraduationCap, feature: "practice" },
   { to: "/admin/previous-papers", label: "Previous Papers", icon: Files, feature: "previousPapers" },
   { to: "/admin/checker", label: "Question Checker", icon: SearchCheck, feature: "checker" },

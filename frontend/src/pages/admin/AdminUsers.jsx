@@ -98,11 +98,11 @@ export default function AdminUsers({ role = "" }) {
 
   // Permanently delete a test series (from the access panel) for everyone.
   const deleteTestSeries = async (t, i) => {
-    if (!window.confirm(`Permanently delete the test series "${t.name}" for ALL users? This cannot be undone.`)) return;
+    if (!window.confirm(`Permanently delete the public test series "${t.name}" for ALL users? This cannot be undone.`)) return;
     try {
       await testService.remove(t._id);
       setAccess((a) => ({ ...a, tests: a.tests.filter((_, xi) => xi !== i) }));
-      flash("Test series deleted.");
+      flash("Public test series deleted.");
     } catch (e) {
       flash(e.message);
     }
@@ -622,7 +622,7 @@ export default function AdminUsers({ role = "" }) {
                 {/* Test series access */}
                 <div>
                   <div className="mb-2 flex items-center justify-between gap-3">
-                    <p className="text-sm font-semibold">Test Series ({access.tests.length})</p>
+                    <p className="text-sm font-semibold">Public Test Series ({access.tests.length})</p>
                     {access.tests.length > 0 && (
                       <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-medium">
                         <input

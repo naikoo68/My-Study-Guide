@@ -90,19 +90,19 @@ function getFlow(key) {
 const VARIANTS = {
   "quiz.internal": [
     { key: "myquiz", label: "Within My Quiz (topic → topic)" },
-    { key: "content", label: "Within Content (topic → topic)" },
+    { key: "content", label: "Within Public Quizzes (topic → topic)" },
   ],
   "quiz.external": [
-    { key: "toContent", label: "My Quiz → Content" },
-    { key: "toMyQuiz", label: "Content → My Quiz" },
+    { key: "toContent", label: "My Quiz → Public Quizzes" },
+    { key: "toMyQuiz", label: "Public Quizzes → My Quiz" },
   ],
   "test.internal": [
     { key: "mytest", label: "Within My Test (subject → subject)" },
     { key: "testseries", label: "Within Test Series (post → post)" },
   ],
   "test.external": [
-    { key: "toSeries", label: "My Test → Test Series" },
-    { key: "toMyTest", label: "Test Series → My Test" },
+    { key: "toSeries", label: "My Test → Public Test Series" },
+    { key: "toMyTest", label: "Public Test Series → My Test" },
   ],
 };
 

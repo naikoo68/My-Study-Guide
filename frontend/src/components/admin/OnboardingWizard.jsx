@@ -177,7 +177,7 @@ export default function OnboardingWizard({ onDone, onClose }) {
   // Quick-launch tiles for the final "Product" step — jump straight to building.
   const BUILD_LINKS = [
     { to: "/admin/content", label: "Quizzes & Questions", Icon: BookCopy },
-    { to: "/admin/tests", label: "Test Series", Icon: FileStack },
+    { to: "/admin/tests", label: "Public Test Series", Icon: FileStack },
     { to: "/admin/study", label: "Study Material", Icon: BookMarked },
     { to: "/admin/cbt", label: "Online Exams", Icon: MonitorCheck },
   ];
