@@ -123,7 +123,7 @@ export const leaderboard = [
 ];
 
 export const notifications = [
-  { id: "n1", title: "New Test Series Added", body: "JEE Advanced 2026 mock series is now live.", time: "2h ago", unread: true },
+  { id: "n1", title: "New Public Test Series Added", body: "JEE Advanced 2026 mock series is now live.", time: "2h ago", unread: true },
   { id: "n2", title: "Result Published", body: "Your Chemistry Grand Test result is ready.", time: "1d ago", unread: true },
   { id: "n3", title: "Streak Milestone", body: "You're on a 7-day practice streak! Keep going.", time: "2d ago", unread: false },
 ];
