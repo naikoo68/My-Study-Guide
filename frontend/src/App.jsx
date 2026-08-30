@@ -102,6 +102,7 @@ const AdminPreviousPapers = () => <AdminPractice fixedKind="paper" />;
 // "My Quizzes" / "My Tests" = the practice manager locked to a single kind.
 const AdminMyQuizzes = () => <AdminPractice fixedKind="quiz" />;
 const AdminMyTests = () => <AdminPractice fixedKind="test" />;
+const AdminMyPractice = lazy(() => import("./pages/admin/AdminMyPractice"));
 const AdminMigration = lazy(() => import("./pages/admin/AdminMigration"));
 const AdminClients = lazy(() => import("./pages/admin/AdminClients"));
 const AdminCoupons = lazy(() => import("./pages/admin/AdminCoupons"));
@@ -312,6 +313,7 @@ const router = createBrowserRouter([
       { path: "public-practice", element: S(AdminPublicPractice) },
       { path: "content", element: S(AdminContent) },
       { path: "tests", element: S(AdminTests) },
+      { path: "my-practice", element: S(AdminMyPractice) },
       { path: "practice", element: S(AdminPractice) },
       { path: "practice/quiz", element: S(AdminMyQuizzes) },
       { path: "practice/test", element: S(AdminMyTests) },
