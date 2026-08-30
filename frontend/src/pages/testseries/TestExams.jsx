@@ -6,7 +6,7 @@ import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState"
 import { useSeo } from "../../lib/useSeo";
 
 export default function TestExams() {
-  useSeo("Online Test Series & Mock Exams", "Attempt full-length and sectional online mock exams with real exam timing, instant scoring and performance analytics on My Study Guide.");
+  useSeo("Online Public Test Series & Mock Exams", "Attempt full-length and sectional online mock exams with real exam timing, instant scoring and performance analytics on My Study Guide.");
   const [exams, setExams] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -23,7 +23,7 @@ export default function TestExams() {
 
   return (
     <div className="container-page py-12">
-      <h1 className="text-3xl font-extrabold sm:text-4xl">Test Series</h1>
+      <h1 className="text-3xl font-extrabold sm:text-4xl">Public Test Series</h1>
       <p className="mt-2 text-slate-600 dark:text-slate-300">Choose an exam to see its posts and mock tests.</p>
 
       {loading ? (

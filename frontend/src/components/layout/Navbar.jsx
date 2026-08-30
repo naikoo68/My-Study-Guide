@@ -14,7 +14,7 @@ import { publicFeatureEnabled } from "../../lib/features";
 // public switch is off, the link is hidden from the navbar (no feature = shown).
 const links = [
   { to: "/", label: "Home", end: true },
-  { to: "/quiz", label: "Quiz", feature: "content" },
+  { to: "/quiz", label: "Public Quizzes", feature: "content" },
   { to: "/test-series", label: "Public Test Series", feature: "tests" },
   { to: "/practice", label: "My Practice", feature: "practice" },
   { to: "/study", label: "Study Material", feature: "study" },

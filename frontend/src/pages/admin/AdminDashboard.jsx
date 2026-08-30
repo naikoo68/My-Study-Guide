@@ -76,7 +76,7 @@ export default function AdminDashboard() {
             title="Public Quizzes & Public Test Series"
             subtitle="Live counts of the platform Public Quizzes and Public Test Series."
             items={[
-              { value: overview.content.quizzes, label: "Quizzes", Icon: ListChecks },
+              { value: overview.content.quizzes, label: "Public Quizzes", Icon: ListChecks },
               { value: overview.content.tests, label: "Public Test Series", Icon: FileStack },
               { value: overview.content.questions, label: "Questions", Icon: HelpCircle },
               { value: overview.content.streams, label: "Streams", Icon: GraduationCap },

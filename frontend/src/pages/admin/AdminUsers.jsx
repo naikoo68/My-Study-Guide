@@ -579,7 +579,7 @@ export default function AdminUsers({ role = "" }) {
                   <div className="flex items-center gap-3">
                     <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300"><BookOpen className="h-5 w-5" /></span>
                     <div>
-                      <p className="font-medium">Quizzes</p>
+                      <p className="font-medium">Public Quizzes</p>
                       <p className="text-xs text-slate-500 dark:text-slate-400">On by default for every user.</p>
                     </div>
                   </div>

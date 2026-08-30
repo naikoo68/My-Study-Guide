@@ -695,7 +695,7 @@ export default function AdminTests() {
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4">
           <div className="my-8 w-full max-w-lg animate-scale-in card p-6">
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-bold">{editing ? "Edit Test Series" : "Create Test Series"}</h3>
+              <h3 className="text-lg font-bold">{editing ? "Edit Public Test Series" : "Create Public Test Series"}</h3>
               <button onClick={() => setModal(false)}><X className="h-5 w-5" /></button>
             </div>
             <form onSubmit={save} className="space-y-4">

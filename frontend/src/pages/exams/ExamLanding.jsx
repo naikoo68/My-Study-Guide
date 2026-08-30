@@ -72,10 +72,10 @@ export default function ExamLanding() {
           || `Prepare for ${exam.name} with full-length mock tests and test series. Choose a test series below and attempt it online with instant results and detailed solutions.`}
       </p>
 
-      <h2 className="mt-8 text-xl font-bold">Test series for {exam.name}</h2>
+      <h2 className="mt-8 text-xl font-bold">Public test series for {exam.name}</h2>
       {posts.length === 0 ? (
         <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
-          Test series are being added. Meanwhile, <Link to="/test-series" className="text-brand-600 hover:underline dark:text-brand-400">browse all test series</Link>.
+          Public test series are being added. Meanwhile, <Link to="/test-series" className="text-brand-600 hover:underline dark:text-brand-400">browse all public test series</Link>.
         </p>
       ) : (
         <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

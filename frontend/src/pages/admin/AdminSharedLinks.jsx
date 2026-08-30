@@ -16,7 +16,7 @@ const fmtTime = (s) => {
 const isExpired = (d) => d && new Date(d).getTime() < Date.now();
 
 const KIND_STYLE = {
-  "Test Series": "bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300",
+  "Public Test Series": "bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300",
   "My Test": "bg-accent-100 text-accent-700 dark:bg-accent-900/40 dark:text-accent-300",
   "My Quiz": "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
 };

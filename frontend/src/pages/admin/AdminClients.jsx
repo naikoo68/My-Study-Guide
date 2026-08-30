@@ -370,7 +370,7 @@ export default function AdminClients() {
                 <thead className="bg-slate-50 text-left text-slate-500 dark:bg-slate-800/60">
                   <tr>
                     <th className="px-5 py-3 font-semibold">Creator</th>
-                    <th className="px-5 py-3 font-semibold">Content</th>
+                    <th className="px-5 py-3 font-semibold">Public Quizzes</th>
                     <th className="px-5 py-3 font-semibold">Plan</th>
                     <th className="px-5 py-3 font-semibold">Access</th>
                     <th className="px-5 py-3 font-semibold">Validity</th>

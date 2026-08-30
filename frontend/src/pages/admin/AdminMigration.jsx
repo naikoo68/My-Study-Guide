@@ -98,7 +98,7 @@ const VARIANTS = {
   ],
   "test.internal": [
     { key: "mytest", label: "Within My Test (subject → subject)" },
-    { key: "testseries", label: "Within Test Series (post → post)" },
+    { key: "testseries", label: "Within Public Test Series (post → post)" },
   ],
   "test.external": [
     { key: "toSeries", label: "My Test → Public Test Series" },

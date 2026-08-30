@@ -879,7 +879,7 @@ export async function listSharedTests(req, res) {
       return {
         _id: t._id,
         name: t.name,
-        kind: t.practice ? (t.practiceKind === "quiz" ? "My Quiz" : "My Test") : "Test Series",
+        kind: t.practice ? (t.practiceKind === "quiz" ? "My Quiz" : "My Test") : "Public Test Series",
         publicToken: t.publicToken,
         publicShare: t.publicShare,
         publicExpiresAt: t.publicExpiresAt || null,
@@ -933,7 +933,7 @@ export async function toTestSeries(req, res) {
     });
     const created = await duplicateQuestions({ testSeries: item._id }, { testSeries: newTest._id, owner: null });
     if (created.length) await TestSeries.findByIdAndUpdate(newTest._id, { $push: { questions: { $each: created.map((c) => c._id) } } });
-    return res.json({ message: "Copied to Test Series", _id: newTest._id });
+    return res.json({ message: "Copied to Public Test Series", _id: newTest._id });
   }
 
   item.practice = false;
@@ -945,13 +945,13 @@ export async function toTestSeries(req, res) {
   item.post = post;
   if (category) item.category = category;
   await item.save();
-  res.json({ message: "Migrated to Test Series", _id: item._id });
+  res.json({ message: "Migrated to Public Test Series", _id: item._id });
 }
 
 // PATCH /api/tests/:id/to-my-test — platform Test Series → My Test (practice).
 export async function toMyTest(req, res) {
   const test = await TestSeries.findOne({ _id: req.params.id, owner: null });
-  if (!test || test.practice) return res.status(404).json({ message: "Test Series not found" });
+  if (!test || test.practice) return res.status(404).json({ message: "Public Test Series not found" });
   const stream = await PracticeStream.findOne({ _id: req.body.practiceStream, owner: null });
   const subject = await PracticeSubject.findOne({ _id: req.body.practiceSubject, owner: null });
   if (!stream || !subject) return res.status(400).json({ message: "Choose a My Test stream and subject." });
@@ -983,7 +983,7 @@ export async function toMyTest(req, res) {
 // PATCH /api/tests/:id/move-series — move a platform Test Series to another Exam/Post.
 export async function moveTestSeries(req, res) {
   const test = await TestSeries.findOne({ _id: req.params.id, owner: null, practice: { $ne: true } });
-  if (!test) return res.status(404).json({ message: "Test Series not found" });
+  if (!test) return res.status(404).json({ message: "Public Test Series not found" });
   const { exam, post, copy } = req.body;
   if (!exam || !post) return res.status(400).json({ message: "Choose an exam and post." });
 

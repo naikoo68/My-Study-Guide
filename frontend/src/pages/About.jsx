@@ -23,7 +23,7 @@ export default function About() {
   const DEFAULT_ROWS = [
     { label: "Total Students", metric: "students" },
     { label: "Total Quizzes", metric: "quizzes" },
-    { label: "Total Test Series", metric: "tests" },
+    { label: "Total Public Test Series", metric: "tests" },
   ];
   const manualStats = settings.aboutStats?.length ? settings.aboutStats : [];
   let stats = [];

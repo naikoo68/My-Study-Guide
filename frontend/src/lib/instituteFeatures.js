@@ -5,7 +5,7 @@
 // those (their home, their branding, and the help docs).
 export const INSTITUTE_FEATURES = [
   { key: "content", label: "Content (Quizzes & Questions)" },
-  { key: "tests", label: "Test Series" },
+  { key: "tests", label: "Public Test Series" },
   { key: "practice", label: "My Practice" },
   { key: "previousPapers", label: "Previous Papers" },
   { key: "checker", label: "Question Checker" },

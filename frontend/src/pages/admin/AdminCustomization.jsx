@@ -96,7 +96,7 @@ const STAT_METRICS = [
   { key: "students", label: "Students (live)" },
   { key: "users", label: "All Users (live)" },
   { key: "quizzes", label: "Quizzes (live)" },
-  { key: "tests", label: "Test Series (live)" },
+  { key: "tests", label: "Public Test Series (live)" },
   { key: "questions", label: "Questions (live)" },
   { key: "subjects", label: "Subjects (live)" },
   { key: "topics", label: "Topics (live)" },
@@ -165,7 +165,7 @@ const DEFAULTS = {
   aboutStats: [
     { value: "1,20,000+", label: "Total Students" },
     { value: "8,500+", label: "Total Quizzes" },
-    { value: "640+", label: "Total Test Series" },
+    { value: "640+", label: "Total Public Test Series" },
   ],
 };
 
@@ -518,7 +518,7 @@ export default function AdminCustomization() {
                 <span className="font-extrabold tracking-tight" style={{ fontSize: `${form.navBrandSize}px` }}>{form.siteName || "My Study Guide"}</span>
               </div>
               <div className="hidden items-center gap-4 sm:flex">
-                {["Home", "Quiz", "Test Series", "About"].map((t, i) => (
+                {["Home", "Public Quizzes", "Public Test Series", "About"].map((t, i) => (
                   <span key={t} style={{ fontSize: `${form.navFontSize}px`, fontWeight: Number(form.navFontWeight), textTransform: form.navTextTransform, color: i === 0 ? form.primaryColor : undefined }} className={i === 0 ? "" : "text-slate-600 dark:text-slate-300"}>
                     {t}
                   </span>

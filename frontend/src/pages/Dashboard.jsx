@@ -140,7 +140,7 @@ export default function Dashboard() {
           <div className="card p-6">
             <div className="mb-4 flex items-center justify-between">
               <h3 className="flex items-center gap-2 font-bold">
-                <BookOpen className="h-5 w-5 text-accent-500" /> Enrolled Test Series
+                <BookOpen className="h-5 w-5 text-accent-500" /> Enrolled Public Test Series
               </h3>
               <Link to="/test-series" className="text-sm font-semibold text-brand-600 hover:underline dark:text-brand-400">
                 Browse all

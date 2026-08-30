@@ -14,10 +14,10 @@ export default function ExamPosts() {
   const [error, setError] = useState("");
 
   const crumbs = exam
-    ? [{ label: "Home", to: "/" }, { label: "Test Series", to: "/test-series" }, { label: exam.name }]
+    ? [{ label: "Home", to: "/" }, { label: "Public Test Series", to: "/test-series" }, { label: exam.name }]
     : [];
   useSeo(
-    exam ? `${exam.name} — Test Series & Mock Tests` : "Test Series",
+    exam ? `${exam.name} — Public Test Series & Mock Tests` : "Public Test Series",
     exam
       ? (exam.description
           ? `${exam.description} Attempt ${exam.name} mock tests and test series on My Study Guide with instant results and detailed solutions.`
