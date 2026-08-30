@@ -9,6 +9,7 @@ import User from "../models/User.js";
 import ContentShare from "../models/ContentShare.js";
 import { isTestVisibleToUser, isSharedWithUser, hasActiveSubscription } from "../utils/accessControl.js";
 import { ownerFilter, ownerValue } from "../utils/ownership.js";
+import { runUnscoped } from "../utils/tenantContext.js";
 import { sanitizeBody } from "../utils/sanitizeBody.js";
 import { sendMail, isMailConfigured } from "../config/mailer.js";
 import { clientBaseFromReq } from "../config/clientUrl.js";
@@ -75,9 +76,20 @@ export async function deleteStream(req, res) {
 // from the exam-based browse. Returns the exam's _id.
 async function ensureDefaultExam(streamId, owner) {
   if (!streamId) return null;
+  // The exam must carry the SAME tenant as its parent stream, or a tenant-scoped
+  // creator won't be able to edit/delete it (reads allow null-tenant, writes
+  // require an exact match).
+  const stream = await PracticeStream.findById(streamId).select("tenantId").lean();
+  const tenantId = stream?.tenantId ?? null;
   const q = { stream: streamId, name: "General", owner: owner ?? null };
   let exam = await PracticeExam.findOne(q).lean();
-  if (!exam) exam = (await PracticeExam.create({ ...q, slug: "general" })).toObject();
+  if (!exam) {
+    exam = (await PracticeExam.create({ ...q, slug: "general", tenantId })).toObject();
+  } else if (String(exam.tenantId || "") !== String(tenantId || "")) {
+    // Repair an exam saved (e.g. by the boot backfill) without the stream's
+    // tenant. runUnscoped so this write can match a null-tenant document.
+    await runUnscoped(() => PracticeExam.updateOne({ _id: exam._id }, { $set: { tenantId } }));
+  }
   return exam._id;
 }
 

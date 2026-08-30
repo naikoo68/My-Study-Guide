@@ -8,7 +8,7 @@ import connectDB from "./config/db.js";
 import { seedIfEmpty } from "./utils/seedData.js";
 import { ensureAdminFromEnv } from "./utils/ensureAdmin.js";
 import { backfillTenants } from "./utils/backfillTenants.js";
-import { backfillPracticeExams } from "./utils/backfillPracticeExams.js";
+import { backfillPracticeExams, repairPracticeExamTenants } from "./utils/backfillPracticeExams.js";
 import { ensureDefaultStream } from "./utils/ensureDefaultStream.js";
 import { runDueFbSchedules } from "./config/facebook.js";
 import Settings from "./models/Settings.js";
@@ -314,6 +314,13 @@ async function start() {
 
   // Place existing My-Quiz subjects under a default "General" exam (one-time).
   backfillPracticeExamsOnce();
+
+  // Align practice-exam tenantId with their parent stream so tenant-scoped
+  // creators can edit/delete the migration-created "General" exam. Runs
+  // unscoped here (startup = no request context), so it can fix null-tenant
+  // rows. Cheap + idempotent, so it's safe to run every boot.
+  repairPracticeExamTenants({ log: (m) => console.log(`🎓 ${m}`) })
+    .catch((e) => console.error("Practice-exam tenant repair skipped:", e.message));
 
   // Seed in the background (never blocks startup, never crashes the server).
   // Runs only when the database has no users — handy on hosts without shell
