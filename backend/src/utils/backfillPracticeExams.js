@@ -35,8 +35,14 @@ export async function backfillPracticeExams({ log = () => {} } = {}) {
 
     let exam = await PracticeExam.findOne({ stream: stream._id, name: "General", owner }).lean();
     if (!exam) {
-      exam = (await PracticeExam.create({ stream: stream._id, name: "General", slug: "general", owner })).toObject();
+      // Stamp the exam with the SAME tenant as its parent stream. At boot there
+      // is no request context, so without this the exam would be saved with a
+      // null tenantId and a tenant-scoped creator couldn't edit/delete it.
+      exam = (await PracticeExam.create({ stream: stream._id, name: "General", slug: "general", owner, tenantId: stream.tenantId ?? null })).toObject();
       examsCreated += 1;
+    } else if (String(exam.tenantId || "") !== String(stream.tenantId || "")) {
+      // Repair an exam a previous run created without the stream's tenant.
+      await PracticeExam.updateOne({ _id: exam._id }, { $set: { tenantId: stream.tenantId ?? null } });
     }
 
     for (const s of orphanSubjects) {
@@ -56,4 +62,32 @@ export async function backfillPracticeExams({ log = () => {} } = {}) {
 
   log(`Practice-exam backfill: ${examsCreated} exam(s) created, ${subjectsMoved} subject(s) moved, ${itemsUpdated} item(s) updated.`);
   return { examsCreated, subjectsMoved, itemsUpdated };
+}
+
+// Align every PracticeExam's `tenantId` with its parent stream's tenant.
+//
+// The one-time backfill (and any exam created outside a request context) can
+// save a "General" exam with a null tenantId. Under multi-tenant enforcement a
+// scoped creator can then SEE that exam (reads include null-tenant content) but
+// NOT edit/delete it (writes require an exact tenant match) — e.g. renaming
+// "General" fails. This repair copies the stream's tenant onto its exams so the
+// owning creator can manage them. Idempotent; MUST run unscoped (at boot) so it
+// can match null-tenant rows.
+export async function repairPracticeExamTenants({ log = () => {} } = {}) {
+  const [exams, streams] = await Promise.all([
+    PracticeExam.find({}).select("_id stream tenantId").lean(),
+    PracticeStream.find({}).select("_id tenantId").lean(),
+  ]);
+  const streamTenant = new Map(streams.map((s) => [String(s._id), s.tenantId ?? null]));
+  let fixed = 0;
+  for (const e of exams) {
+    if (!e.stream || !streamTenant.has(String(e.stream))) continue;
+    const want = streamTenant.get(String(e.stream));
+    if (String(e.tenantId || "") !== String(want || "")) {
+      await PracticeExam.updateOne({ _id: e._id }, { $set: { tenantId: want } });
+      fixed += 1;
+    }
+  }
+  if (fixed) log(`Repaired tenantId on ${fixed} practice exam(s) to match their stream.`);
+  return { fixed };
 }
