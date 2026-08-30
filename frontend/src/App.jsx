@@ -185,10 +185,15 @@ const router = createBrowserRouter([
       { path: "/test-series/:examId/:postId", element: S(PostTests) },
 
       { path: "/practice", element: S(PracticeHome) },
+      // Positional segments — meaning depends on kind (see PracticeBrowse):
+      //   My Quiz : /practice/quiz/:stream/:exam/:subject/:topic
+      //   My Test : /practice/test/:stream/:subject
+      //   Papers  : /practice/paper/:stream
       { path: "/practice/:kind", element: S(PracticeBrowse) },
       { path: "/practice/:kind/:streamId", element: S(PracticeBrowse) },
-      { path: "/practice/:kind/:streamId/:subjectId", element: S(PracticeBrowse) },
-      { path: "/practice/:kind/:streamId/:subjectId/:topicId", element: S(PracticeBrowse) },
+      { path: "/practice/:kind/:streamId/:seg2", element: S(PracticeBrowse) },
+      { path: "/practice/:kind/:streamId/:seg2/:seg3", element: S(PracticeBrowse) },
+      { path: "/practice/:kind/:streamId/:seg2/:seg3/:seg4", element: S(PracticeBrowse) },
       { path: "/practice/quiz/play/:itemId", element: <ProtectedRoute><StudentGate>{S(PracticeQuizPlay)}</StudentGate></ProtectedRoute> },
       // Slideshow / presentation mode for a "My Practice" quiz — for screen-
       // recording a video tutorial. Restricted to content owners (admin/client).

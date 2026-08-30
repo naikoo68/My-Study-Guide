@@ -12,7 +12,8 @@
     "dev": "node --watch src/server.js",
     "seed": "node src/utils/seed.js",
     "create-tables": "node src/scripts/createTablesCli.js",
-    "migrate-from-mongo": "node src/scripts/migrateFromMongo.js"
+    "migrate-from-mongo": "node src/scripts/migrateFromMongo.js",
+    "backfill-practice-exams": "node src/scripts/backfillPracticeExamsCli.js"
   },
   "keywords": [
     "education",

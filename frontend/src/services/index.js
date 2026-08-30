@@ -150,6 +150,8 @@ export const practiceService = {
   // student browse (kind = "quiz" | "test") — token sent if logged in (optionalAuth),
   // so students see items granted to them; guests see only public ones.
   streams: (kind) => api.get(`/practice/browse/${kind}/streams`),
+  exams: (kind, streamId) => api.get(`/practice/browse/${kind}/streams/${streamId}/exams`), // My Quiz: Stream → Exam
+  examSubjects: (kind, examId) => api.get(`/practice/browse/${kind}/exams/${examId}/subjects`), // My Quiz: Exam → Subject
   subjects: (kind, streamId) => api.get(`/practice/browse/${kind}/streams/${streamId}/subjects`),
   topics: (kind, subjectId) => api.get(`/practice/browse/${kind}/subjects/${subjectId}/topics`), // My Quiz
   items: (kind, subjectId) => api.get(`/practice/browse/${kind}/subjects/${subjectId}/items`), // My Test Series
@@ -183,8 +185,14 @@ export const practiceService = {
   createStream: (data) => api.post("/practice/streams", data),
   updateStream: (id, data) => api.put(`/practice/streams/${id}`, data),
   deleteStream: (id) => api.del(`/practice/streams/${id}`),
-  // admin — subjects
+  // admin — exams (My Quiz only: Stream → Exam → Subject → Topic → Quiz)
+  adminExams: (streamId) => api.get(`/practice/streams/${streamId}/exams`),
+  createExam: (data) => api.post("/practice/exams", data),
+  updateExam: (id, data) => api.put(`/practice/exams/${id}`, data),
+  deleteExam: (id) => api.del(`/practice/exams/${id}`),
+  // admin — subjects (adminSubjects lists by stream; adminExamSubjects by exam)
   adminSubjects: (streamId) => api.get(`/practice/streams/${streamId}/subjects`),
+  adminExamSubjects: (examId) => api.get(`/practice/exams/${examId}/subjects`),
   createSubject: (data) => api.post("/practice/subjects", data),
   updateSubject: (id, data) => api.put(`/practice/subjects/${id}`, data),
   deleteSubject: (id) => api.del(`/practice/subjects/${id}`),

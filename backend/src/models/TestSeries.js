@@ -38,6 +38,7 @@ const testSeriesSchema = new mongoose.Schema(
     ],
     additionalInfo: { type: String, default: "" },
     practiceStream: { type: mongoose.Schema.Types.ObjectId, ref: "PracticeStream" },
+    practiceExam: { type: mongoose.Schema.Types.ObjectId, ref: "PracticeExam" }, // My Quiz only (Stream → Exam → Subject → Topic → Quiz)
     practiceSubject: { type: mongoose.Schema.Types.ObjectId, ref: "PracticeSubject" },
     practiceTopic: { type: mongoose.Schema.Types.ObjectId, ref: "PracticeTopic" }, // My Quiz only
     // Remembered AI generator inputs for this item, so reopening the generator

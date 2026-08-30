@@ -83,7 +83,7 @@ export default function ShareNodeModal({ node, level = "stream", onClose, onUpda
   };
 
   const isLive = publicShare && token;
-  const nodeWord = level === "stream" ? "stream" : level === "subject" ? "subject" : "topic";
+  const nodeWord = level === "stream" ? "stream" : level === "exam" ? "exam" : level === "subject" ? "subject" : "topic";
   const childWord = level === "topic" ? "quizzes" : "quizzes & tests";
 
   return (

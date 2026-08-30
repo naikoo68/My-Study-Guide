@@ -123,6 +123,9 @@ const settingsSchema = new mongoose.Schema(
     // One-time flag: existing data was assigned to the default tenant (Phase 2
     // multi-tenancy backfill). Prevents the startup backfill from repeating.
     tenantsBackfilled: { type: Boolean, default: false },
+    // One-time flag: existing My-Quiz subjects were placed under a default
+    // "General" exam when the Stream → Exam → Subject level was introduced.
+    practiceExamsBackfilled: { type: Boolean, default: false },
     // First-run setup wizard: an institute admin is walked through branding,
     // company/contact and policy setup right after signup. Set true once they
     // finish (or skip the optional final step) so it won't auto-open again.

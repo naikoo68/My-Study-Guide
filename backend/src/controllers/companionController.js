@@ -13,6 +13,7 @@ import {
 } from "./aiController.js";
 import Message from "../models/Message.js";
 import PracticeStream from "../models/PracticeStream.js";
+import PracticeExam from "../models/PracticeExam.js";
 import PracticeSubject from "../models/PracticeSubject.js";
 import PracticeTopic from "../models/PracticeTopic.js";
 import TestSeries from "../models/TestSeries.js";
@@ -242,10 +243,17 @@ async function ensureContainer(req, platform) {
     { $setOnInsert: { name: "My Study Guide Companion", kind: "quiz", owner, slug: "my-study-guide-companion", icon: "Sparkles" } },
     { new: true, upsert: true, setDefaultsOnInsert: true }
   );
+  // My Quiz uses an Exam level between Stream and Subject. Companion quizzes go
+  // under a default "General" exam so they show up in the exam-based browse.
+  const exam = await PracticeExam.findOneAndUpdate(
+    { stream: stream._id, name: "General", ...of },
+    { $setOnInsert: { stream: stream._id, name: "General", owner, slug: "general" } },
+    { new: true, upsert: true, setDefaultsOnInsert: true }
+  );
   const subjName = (platform && String(platform).trim()) || "Companion";
   const subject = await PracticeSubject.findOneAndUpdate(
-    { stream: stream._id, name: subjName, ...of },
-    { $setOnInsert: { stream: stream._id, name: subjName, owner, slug: slugify(subjName) } },
+    { stream: stream._id, exam: exam._id, name: subjName, ...of },
+    { $setOnInsert: { stream: stream._id, exam: exam._id, name: subjName, owner, slug: slugify(subjName) } },
     { new: true, upsert: true, setDefaultsOnInsert: true }
   );
   const topic = await PracticeTopic.findOneAndUpdate(
@@ -253,7 +261,7 @@ async function ensureContainer(req, platform) {
     { $setOnInsert: { subject: subject._id, name: "Saved from Companion", owner } },
     { new: true, upsert: true, setDefaultsOnInsert: true }
   );
-  return { stream, subject, topic };
+  return { stream, exam, subject, topic };
 }
 
 // POST /api/companion/save-quiz — save generated questions as a playable
@@ -266,13 +274,14 @@ export async function companionSaveQuiz(req, res) {
   const title = (String(req.body?.title || "").trim() || meta.lecture || meta.course || "Companion quiz").slice(0, 120);
   const owner = ownerValue(req);
 
-  const { stream, subject, topic } = await ensureContainer(req, meta.platform);
+  const { stream, exam, subject, topic } = await ensureContainer(req, meta.platform);
   const item = await TestSeries.create({
     name: title,
     owner,
     practice: true,
     practiceKind: "quiz",
     practiceStream: stream._id,
+    practiceExam: exam._id,
     practiceSubject: subject._id,
     practiceTopic: topic._id,
     category: "Full-Length",

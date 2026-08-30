@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import PracticeStream from "../models/PracticeStream.js";
+import PracticeExam from "../models/PracticeExam.js";
 import PracticeSubject from "../models/PracticeSubject.js";
 import PracticeTopic from "../models/PracticeTopic.js";
 import TestSeries from "../models/TestSeries.js";
@@ -63,6 +64,67 @@ export async function deleteStream(req, res) {
   res.json({ message: "Practice stream and all its content deleted" });
 }
 
+/* ---------------- Exams (admin) — My Quiz only ----------------
+   Optional grouping level between Stream and Subject, used ONLY by "My Quiz"
+   (Stream → Exam → Subject → Topic → Quiz). My Test Series / Previous Papers do
+   not use exams (their subjects hang directly off the stream, exam=null). */
+
+// Find-or-create a default "General" exam under a stream, for the given owner.
+// Used to guarantee every My-Quiz subject has a parent exam even when content
+// arrives without one (legacy data, shares, restores) so nothing is orphaned
+// from the exam-based browse. Returns the exam's _id.
+async function ensureDefaultExam(streamId, owner) {
+  if (!streamId) return null;
+  const q = { stream: streamId, name: "General", owner: owner ?? null };
+  let exam = await PracticeExam.findOne(q).lean();
+  if (!exam) exam = (await PracticeExam.create({ ...q, slug: "general" })).toObject();
+  return exam._id;
+}
+
+export async function listExams(req, res) {
+  const exams = await PracticeExam.find({ stream: req.params.streamId, isActive: true, ...ownerFilter(req) }).sort("order name").lean();
+  const examIds = exams.map((e) => e._id);
+  const subs = await PracticeSubject.aggregate([
+    { $match: { exam: { $in: examIds } } },
+    { $group: { _id: "$exam", count: { $sum: 1 } } },
+  ]);
+  const map = Object.fromEntries(subs.map((s) => [String(s._id), s.count]));
+  res.json(exams.map((e) => ({ ...e, subjects: map[String(e._id)] || 0 })));
+}
+export async function createExam(req, res) {
+  const stream = await PracticeStream.findOne({ _id: req.body?.stream, ...ownerFilter(req) }).lean();
+  if (!stream) return res.status(400).json({ message: "Choose a valid stream." });
+  const e = await PracticeExam.create({ ...sanitizeBody(req.body), stream: stream._id, slug: slugify(req.body.name), owner: ownerValue(req) });
+  res.status(201).json(e);
+}
+export async function updateExam(req, res) {
+  const d = sanitizeBody(req.body, ["stream"]); // never re-parent an exam via update
+  if (d.name) d.slug = slugify(d.name);
+  const e = await PracticeExam.findOneAndUpdate({ _id: req.params.id, ...ownerFilter(req) }, d, { new: true });
+  if (!e) return res.status(404).json({ message: "Exam not found" });
+  res.json(e);
+}
+export async function deleteExam(req, res) {
+  const id = req.params.id;
+  const exam = await PracticeExam.findOne({ _id: id, ...ownerFilter(req) });
+  if (!exam) return res.status(404).json({ message: "Exam not found" });
+  // Soft delete → Recycle Bin. Only the exam node is flagged; its subjects,
+  // topics, items and questions stay put (hidden with it, restored with it).
+  await PracticeExam.findByIdAndUpdate(id, softDeletePatch());
+  res.json({ message: "Practice exam and all its content deleted" });
+}
+// GET /api/practice/exams/:examId/subjects — subjects under an exam (My Quiz).
+export async function listExamSubjects(req, res) {
+  const subjects = await PracticeSubject.find({ exam: req.params.examId, isActive: true, ...ownerFilter(req) }).sort("order name").lean();
+  const subjectIds = subjects.map((s) => s._id);
+  const items = await TestSeries.aggregate([
+    { $match: { practice: true, practiceSubject: { $in: subjectIds } } },
+    { $group: { _id: "$practiceSubject", count: { $sum: 1 } } },
+  ]);
+  const map = Object.fromEntries(items.map((i) => [String(i._id), i.count]));
+  res.json(subjects.map((s) => ({ ...s, items: map[String(s._id)] || 0 })));
+}
+
 /* ---------------- Subjects (admin) ---------------- */
 export async function listSubjects(req, res) {
   const subjects = await PracticeSubject.find({ stream: req.params.streamId, isActive: true, ...ownerFilter(req) }).sort("order name").lean();
@@ -75,7 +137,16 @@ export async function listSubjects(req, res) {
   res.json(subjects.map((s) => ({ ...s, items: map[String(s._id)] || 0 })));
 }
 export async function createSubject(req, res) {
-  const s = await PracticeSubject.create({ ...sanitizeBody(req.body), slug: slugify(req.body.name), owner: ownerValue(req) });
+  const body = sanitizeBody(req.body);
+  // My Quiz: a subject is created under an EXAM. Keep `stream` in sync with the
+  // exam's stream so existing stream-scoped queries (pickers, share, browse of
+  // other kinds) keep working. My Test/Previous Papers pass `stream` directly.
+  if (body.exam) {
+    const exam = await PracticeExam.findOne({ _id: body.exam, ...ownerFilter(req) }).lean();
+    if (!exam) return res.status(400).json({ message: "Choose a valid exam." });
+    body.stream = exam.stream;
+  }
+  const s = await PracticeSubject.create({ ...body, slug: slugify(req.body.name), owner: ownerValue(req) });
   res.status(201).json(s);
 }
 // GET /api/practice/all-subjects — flat list of every practice subject (for the
@@ -142,10 +213,10 @@ export async function moveTopic(req, res) {
   if (!destSubject) return res.status(400).json({ message: "Choose a destination subject." });
   topic.subject = destSubject._id;
   await topic.save();
-  // Relocate the topic's quizzes to the destination stream/subject.
+  // Relocate the topic's quizzes to the destination stream/exam/subject.
   await TestSeries.updateMany(
     { practice: true, practiceTopic: topic._id, ...ownerFilter(req) },
-    { $set: { practiceSubject: destSubject._id, practiceStream: destSubject.stream } }
+    { $set: { practiceSubject: destSubject._id, practiceStream: destSubject.stream, practiceExam: destSubject.exam || null } }
   );
   res.json({ message: "Topic moved", _id: topic._id });
 }
@@ -176,12 +247,23 @@ export async function listTopicItems(req, res) {
 }
 export async function createItem(req, res) {
   const { name, practiceStream, practiceSubject, practiceTopic, practiceKind = "quiz", duration = 15, marks = 0, difficulty = "Medium", subjectPlan } = req.body;
+  // Exam level only exists for My Quiz. Prefer the value sent by the client;
+  // otherwise derive it from the subject so items always carry their exam.
+  let practiceExam;
+  if (practiceKind === "quiz") {
+    practiceExam = req.body.practiceExam;
+    if (!practiceExam && practiceSubject) {
+      const subj = await PracticeSubject.findOne({ _id: practiceSubject, ...ownerFilter(req) }).select("exam").lean();
+      practiceExam = subj?.exam || undefined;
+    }
+  }
   const item = await TestSeries.create({
     name,
     owner: ownerValue(req),
     practice: true,
     practiceKind,
     practiceStream,
+    practiceExam: practiceKind === "quiz" ? (practiceExam || undefined) : undefined,
     practiceSubject,
     // Quiz uses Topics; Previous Papers uses a Year level (also a PracticeTopic).
     practiceTopic: (practiceKind === "quiz" || practiceKind === "paper") ? practiceTopic : undefined,
@@ -242,6 +324,8 @@ export async function moveItem(req, res) {
   }
   const subject = await PracticeSubject.findOne({ _id: practiceSubject, stream: stream._id, ...ownerFilter(req) });
   if (!subject) return res.status(400).json({ message: "Choose a subject in that stream." });
+  // My Quiz: the exam is the subject's parent (Stream → Exam → Subject → Topic).
+  const examId = item.practiceKind === "quiz" ? (subject.exam || null) : undefined;
   let topicId;
   if (item.practiceKind === "quiz") {
     const topic = await PracticeTopic.findOne({ _id: practiceTopic, subject: subject._id, ...ownerFilter(req) });
@@ -256,6 +340,7 @@ export async function moveItem(req, res) {
       practice: true,
       practiceKind: item.practiceKind,
       practiceStream: stream._id,
+      practiceExam: examId,
       practiceSubject: subject._id,
       practiceTopic: topicId,
       category: item.category || "Full-Length",
@@ -271,6 +356,7 @@ export async function moveItem(req, res) {
   }
 
   item.practiceStream = stream._id;
+  if (item.practiceKind === "quiz") item.practiceExam = examId;
   item.practiceSubject = subject._id;
   item.practiceTopic = topicId;
   await item.save();
@@ -322,6 +408,7 @@ export async function splitItem(req, res) {
       practice: true,
       practiceKind: "quiz",
       practiceStream: item.practiceStream,
+      practiceExam: item.practiceExam,
       practiceSubject: item.practiceSubject,
       practiceTopic: item.practiceTopic,
       category: item.category || "Full-Length",
@@ -477,6 +564,7 @@ export async function splitTopic(req, res) {
 
   const ctx = {
     practiceStream: items[0].practiceStream,
+    practiceExam: items[0].practiceExam,
     practiceSubject: items[0].practiceSubject,
     practiceTopic: topic._id,
   };
@@ -540,12 +628,13 @@ export async function playQuiz(req, res) {
   if (!isManager) {
     let blocked = item.disabled === true;
     if (!blocked) {
-      const [strm, subj, top] = await Promise.all([
+      const [strm, exm, subj, top] = await Promise.all([
         item.practiceStream ? PracticeStream.findById(item.practiceStream).select("disabled").lean() : null,
+        item.practiceExam ? PracticeExam.findById(item.practiceExam).select("disabled").lean() : null,
         item.practiceSubject ? PracticeSubject.findById(item.practiceSubject).select("disabled").lean() : null,
         item.practiceTopic ? PracticeTopic.findById(item.practiceTopic).select("disabled").lean() : null,
       ]);
-      blocked = !!(strm?.disabled || subj?.disabled || top?.disabled);
+      blocked = !!(strm?.disabled || exm?.disabled || subj?.disabled || top?.disabled);
     }
     if (blocked) return res.status(404).json({ message: "Practice quiz not found" });
   }
@@ -599,12 +688,13 @@ export async function myItems(req, res) {
     : { practice: true, disabled: { $ne: true }, ...ownerFilter(req) };
   const populated = await TestSeries.find(filter)
     .populate("practiceStream", "name icon color disabled")
+    .populate("practiceExam", "name icon color disabled")
     .populate("practiceSubject", "name icon color disabled")
     .populate("practiceTopic", "name icon color disabled")
     .sort("createdAt")
     .lean();
-  // Also drop items whose parent stream/subject/topic is disabled.
-  const items = populated.filter((t) => !(t.practiceStream?.disabled || t.practiceSubject?.disabled || t.practiceTopic?.disabled));
+  // Also drop items whose parent stream/exam/subject/topic is disabled.
+  const items = populated.filter((t) => !(t.practiceStream?.disabled || t.practiceExam?.disabled || t.practiceSubject?.disabled || t.practiceTopic?.disabled));
   res.json(
     items.map((t) => ({
       _id: t._id,
@@ -618,6 +708,7 @@ export async function myItems(req, res) {
       // picker can offer the test's sub-subjects/sections.
       subjectPlan: Array.isArray(t.subjectPlan) ? t.subjectPlan : [],
       stream: nodeInfo(t.practiceStream),
+      exam: nodeInfo(t.practiceExam),
       subject: nodeInfo(t.practiceSubject),
       topic: nodeInfo(t.practiceTopic),
       // Flag items someone else shared with this user (vs their own).
@@ -639,6 +730,7 @@ function nodeItemFilter(level, id, owner) {
   if (level === "item") f._id = id;
   else if (level === "topic") f.practiceTopic = id;
   else if (level === "subject") f.practiceSubject = id;
+  else if (level === "exam") f.practiceExam = id;
   else if (level === "stream") f.practiceStream = id;
   return f;
 }
@@ -648,10 +740,13 @@ function nodeItemFilter(level, id, owner) {
 // A subject/topic/quiz/test needs the recipient to say, for each parent
 // container (and for a shared subject/topic, that node itself), whether to use
 // an EXISTING container of theirs or CREATE a NEW one. Tests have no topic level.
+// My Quiz has an extra "exam" level between stream and subject; My Test has none.
 function placementChain(level, kind) {
-  if (level === "subject") return ["stream", "subject"];
-  if (level === "topic") return ["stream", "subject", "topic"];
-  if (level === "item") return kind === "test" ? ["stream", "subject"] : ["stream", "subject", "topic"];
+  const quiz = kind !== "test"; // quiz (and paper, treated as quiz) use the exam+topic levels
+  if (level === "exam") return quiz ? ["stream", "exam"] : ["stream"];
+  if (level === "subject") return quiz ? ["stream", "exam", "subject"] : ["stream", "subject"];
+  if (level === "topic") return quiz ? ["stream", "exam", "subject", "topic"] : ["stream", "subject"];
+  if (level === "item") return quiz ? ["stream", "exam", "subject", "topic"] : ["stream", "subject"];
   return []; // stream (or unknown) → no placement prompt
 }
 
@@ -659,12 +754,20 @@ function placementChain(level, kind) {
 // own space). For each level: "existing" → validate & reuse their container;
 // "new" → find-or-create by the given name under the resolved parent.
 async function resolvePlacementChain(chainLevels, placement, kind, copyOwner, cache) {
-  const models = { stream: PracticeStream, subject: PracticeSubject, topic: PracticeTopic };
+  const models = { stream: PracticeStream, exam: PracticeExam, subject: PracticeSubject, topic: PracticeTopic };
+  const quiz = kind !== "test"; // My Quiz uses the exam level; My Test doesn't
   const resolved = {};
   for (const level of chainLevels) {
     const choice = (placement && placement[level]) || {};
-    const parentId = level === "stream" ? null : level === "subject" ? resolved.stream : resolved.subject;
-    const parentKey = level === "subject" ? "stream" : level === "topic" ? "subject" : undefined;
+    // Immediate parent of each level. A My-Quiz subject hangs off an EXAM; a
+    // My-Test subject hangs off the STREAM directly.
+    let parentId, parentKey, extra;
+    if (level === "stream") { parentId = null; parentKey = undefined; }
+    else if (level === "exam") { parentId = resolved.stream; parentKey = "stream"; }
+    else if (level === "subject") {
+      if (quiz) { parentId = resolved.exam; parentKey = "exam"; extra = { stream: resolved.stream }; }
+      else { parentId = resolved.stream; parentKey = "stream"; }
+    } else if (level === "topic") { parentId = resolved.subject; parentKey = "subject"; }
     if (choice.mode === "existing" && choice.id) {
       const q = { _id: choice.id, owner: copyOwner ?? null };
       if (parentKey) q[parentKey] = parentId;
@@ -686,7 +789,7 @@ async function resolvePlacementChain(chainLevels, placement, kind, copyOwner, ca
       // recipient already has, so suffix it on a clash rather than merge.
       resolved[level] = await createUniqueContainer(
         models[level],
-        { name, kind: level === "stream" ? kind : undefined, parentKey, parentId },
+        { name, kind: level === "stream" ? kind : undefined, parentKey, parentId, extra },
         copyOwner,
         cache
       );
@@ -702,7 +805,7 @@ export async function shareContent(req, res) {
   const level = String(req.body?.level || "").trim();
   const id = String(req.body?.id || "").trim();
   const email = String(req.body?.email || "").toLowerCase().trim();
-  if (!["stream", "subject", "topic", "item"].includes(level)) return res.status(400).json({ message: "Invalid share level." });
+  if (!["stream", "exam", "subject", "topic", "item"].includes(level)) return res.status(400).json({ message: "Invalid share level." });
   if (!id) return res.status(400).json({ message: "Nothing selected to share." });
   if (!email) return res.status(400).json({ message: "Enter the recipient's email." });
 
@@ -719,7 +822,7 @@ export async function shareContent(req, res) {
   // Title = the node's own name (stream/subject/topic) or the single item's name.
   let title = matches[0].name;
   if (level !== "item") {
-    const Model = level === "stream" ? PracticeStream : level === "subject" ? PracticeSubject : PracticeTopic;
+    const Model = level === "stream" ? PracticeStream : level === "exam" ? PracticeExam : level === "subject" ? PracticeSubject : PracticeTopic;
     const node = await Model.findOne({ _id: id, owner: ownerValue(req) }).select("name").lean();
     if (node?.name) title = node.name;
   }
@@ -790,9 +893,9 @@ export async function declineShare(req, res) {
 export async function removeSharedWithMe(req, res) {
   const level = String(req.body?.level || "").trim();
   const id = String(req.body?.id || "").trim();
-  if (!["stream", "subject", "topic", "item"].includes(level)) return res.status(400).json({ message: "Invalid level." });
+  if (!["stream", "exam", "subject", "topic", "item"].includes(level)) return res.status(400).json({ message: "Invalid level." });
   if (!id) return res.status(400).json({ message: "Nothing selected to remove." });
-  const key = level === "item" ? "_id" : level === "topic" ? "practiceTopic" : level === "subject" ? "practiceSubject" : "practiceStream";
+  const key = level === "item" ? "_id" : level === "topic" ? "practiceTopic" : level === "subject" ? "practiceSubject" : level === "exam" ? "practiceExam" : "practiceStream";
   const result = await TestSeries.updateMany(
     { practice: true, sharedWith: req.user._id, [key]: id },
     { $pull: { sharedWith: req.user._id } }
@@ -803,7 +906,7 @@ export async function removeSharedWithMe(req, res) {
 // Find-or-create an owner-scoped practice container (stream/subject/topic) that
 // mirrors a source node by name, so a copied item lands in the same hierarchy
 // under the recipient. `cache` dedupes within one accept.
-async function ensureContainer(Model, { name, kind, parentKey, parentId, icon, color }, owner, cache) {
+async function ensureContainer(Model, { name, kind, parentKey, parentId, icon, color, extra }, owner, cache) {
   const cacheKey = `${Model.modelName}:${parentId || "-"}:${name}`;
   if (cache.has(cacheKey)) return cache.get(cacheKey);
   const query = { owner, name };
@@ -814,6 +917,7 @@ async function ensureContainer(Model, { name, kind, parentKey, parentId, icon, c
     const doc = { name, owner, slug: slugify(name), status: undefined };
     if (kind) doc.kind = kind;
     if (parentKey) doc[parentKey] = parentId;
+    if (extra) Object.assign(doc, extra); // e.g. a quiz subject also stores its stream
     if (icon) doc.icon = icon;
     if (color) doc.color = color;
     node = (await Model.create(doc)).toObject();
@@ -828,7 +932,7 @@ async function ensureContainer(Model, { name, kind, parentKey, parentId, icon, c
 // incoming "JKSSB" stream becomes "JKSSB (shared)" when the recipient already
 // has a "JKSSB", keeping the two separate. Used for every "create new" choice
 // (and the automatic whole-stream accept); "use existing" still reuses/merges.
-async function createUniqueContainer(Model, { name, kind, parentKey, parentId, icon, color }, owner, cache) {
+async function createUniqueContainer(Model, { name, kind, parentKey, parentId, icon, color, extra }, owner, cache) {
   const cacheKey = `${Model.modelName}:${parentId || "-"}:new:${name}`;
   if (cache.has(cacheKey)) return cache.get(cacheKey);
   const baseQuery = { owner: owner ?? null };
@@ -843,6 +947,7 @@ async function createUniqueContainer(Model, { name, kind, parentKey, parentId, i
   const doc = { name: finalName, owner, slug: slugify(finalName), status: undefined };
   if (kind) doc.kind = kind;
   if (parentKey) doc[parentKey] = parentId;
+  if (extra) Object.assign(doc, extra); // e.g. a quiz subject also stores its stream
   if (icon) doc.icon = icon;
   if (color) doc.color = color;
   const created = (await Model.create(doc)).toObject();
@@ -906,6 +1011,7 @@ export async function acceptShare(req, res) {
   const fromOwner = await senderContentOwner(share.from);
   const items = await TestSeries.find(nodeItemFilter(share.level, String(share.sourceId), fromOwner))
     .populate("practiceStream", "name kind icon color")
+    .populate("practiceExam", "name icon color")
     .populate("practiceSubject", "name icon color")
     .populate("practiceTopic", "name icon color")
     .lean();
@@ -973,9 +1079,21 @@ async function runAcceptJob(jobId, { share, items, placed, copyOwner, cache }) {
       { name: src.practiceStream?.name || "Shared", kind, icon: src.practiceStream?.icon, color: src.practiceStream?.color },
       copyOwner, cache
     );
+    // My Quiz: recreate the exam level between stream and subject; the subject
+    // hangs off the exam (and still records its stream). My Test has no exam.
+    let examId;
+    if (kind === "quiz") {
+      examId = placed.exam || await ensureContainer(
+        PracticeExam,
+        { name: src.practiceExam?.name || "General", parentKey: "stream", parentId: streamId, icon: src.practiceExam?.icon, color: src.practiceExam?.color },
+        copyOwner, cache
+      );
+    }
     const subjectId = placed.subject || await ensureContainer(
       PracticeSubject,
-      { name: src.practiceSubject?.name || "Shared", parentKey: "stream", parentId: streamId, icon: src.practiceSubject?.icon, color: src.practiceSubject?.color },
+      kind === "quiz"
+        ? { name: src.practiceSubject?.name || "Shared", parentKey: "exam", parentId: examId, extra: { stream: streamId }, icon: src.practiceSubject?.icon, color: src.practiceSubject?.color }
+        : { name: src.practiceSubject?.name || "Shared", parentKey: "stream", parentId: streamId, icon: src.practiceSubject?.icon, color: src.practiceSubject?.color },
       copyOwner, cache
     );
     let topicId;
@@ -1001,6 +1119,7 @@ async function runAcceptJob(jobId, { share, items, placed, copyOwner, cache }) {
       practice: true,
       practiceKind: kind,
       practiceStream: streamId,
+      practiceExam: examId,
       practiceSubject: subjectId,
       practiceTopic: topicId,
       category: src.category || "Full-Length",
@@ -1054,11 +1173,13 @@ export async function sharePlacement(req, res) {
   if (levels.length) {
     const src = await TestSeries.findOne(nodeItemFilter(share.level, String(share.sourceId), await senderContentOwner(share.from)))
       .populate("practiceStream", "name")
+      .populate("practiceExam", "name")
       .populate("practiceSubject", "name")
       .populate("practiceTopic", "name")
       .lean();
     names = {
       stream: src?.practiceStream?.name || "",
+      exam: src?.practiceExam?.name || "",
       subject: src?.practiceSubject?.name || "",
       topic: src?.practiceTopic?.name || "",
     };
@@ -1108,6 +1229,29 @@ export async function browseSubjects(req, res) {
   const ok = new Set(items.filter((t) => freemium || grantAll || isTestVisibleToUser(t, req.user?._id)).map((t) => String(t.practiceSubject)));
   const subjects = await PracticeSubject.find({ stream: streamId, isActive: true, disabled: { $ne: true }, owner: null }).sort("order name").lean();
   res.json(subjects.filter((s) => ok.has(String(s._id))));
+}
+// My Quiz: exams under a stream that contain ANY published quiz (public — the
+// first quiz in each topic is free, so every non-empty exam is discoverable).
+export async function browseExams(req, res) {
+  const { streamId } = req.params;
+  const items = await TestSeries.find({ practice: true, practiceKind: "quiz", status: "published", disabled: { $ne: true }, practiceStream: streamId, owner: null })
+    .select("practiceExam")
+    .lean();
+  const has = new Set(items.map((t) => String(t.practiceExam)));
+  const exams = await PracticeExam.find({ stream: streamId, isActive: true, disabled: { $ne: true }, owner: null }).sort("order name").lean();
+  res.json(exams.filter((e) => has.has(String(e._id))));
+}
+// My Quiz: subjects under an exam that contain ANY published quiz.
+export async function browseExamSubjects(req, res) {
+  const { examId } = req.params;
+  const exam = await PracticeExam.findOne({ _id: examId, disabled: { $ne: true }, owner: null }).select("_id").lean();
+  if (!exam) return res.json([]); // disabled/unknown exam → nothing to browse
+  const items = await TestSeries.find({ practice: true, practiceKind: "quiz", status: "published", disabled: { $ne: true }, practiceExam: examId, owner: null })
+    .select("practiceSubject")
+    .lean();
+  const has = new Set(items.map((t) => String(t.practiceSubject)));
+  const subjects = await PracticeSubject.find({ exam: examId, isActive: true, disabled: { $ne: true }, owner: null }).sort("order name").lean();
+  res.json(subjects.filter((s) => has.has(String(s._id))));
 }
 // My Test Series: items under a subject. PUBLIC list in natural order (Test 1,
 // Test 2, …). The FIRST test is a FREE preview anyone can attempt; the rest are
@@ -1240,6 +1384,7 @@ async function toggleNodeLink(Model, childField, req, res) {
 }
 
 export async function toggleStreamPublicLink(req, res) { return toggleNodeLink(PracticeStream, "practiceStream", req, res); }
+export async function toggleExamPublicLink(req, res) { return toggleNodeLink(PracticeExam, "practiceExam", req, res); }
 export async function toggleSubjectPublicLink(req, res) { return toggleNodeLink(PracticeSubject, "practiceSubject", req, res); }
 export async function toggleTopicPublicLink(req, res) { return toggleNodeLink(PracticeTopic, "practiceTopic", req, res); }
 
@@ -1252,12 +1397,13 @@ export async function getPublicNode(req, res) {
   let level = null;
   let node = await PracticeStream.findOne({ publicToken: token, publicShare: true, disabled: { $ne: true } });
   if (node) level = "stream";
+  if (!node) { node = await PracticeExam.findOne({ publicToken: token, publicShare: true, disabled: { $ne: true } }); if (node) level = "exam"; }
   if (!node) { node = await PracticeSubject.findOne({ publicToken: token, publicShare: true, disabled: { $ne: true } }); if (node) level = "subject"; }
   if (!node) { node = await PracticeTopic.findOne({ publicToken: token, publicShare: true, disabled: { $ne: true } }); if (node) level = "topic"; }
   if (!node) return res.status(404).json({ message: "This link is invalid or public sharing was turned off." });
   if (nodePublicExpired(node)) return res.status(403).json({ message: "This public link has expired." });
 
-  const field = level === "stream" ? "practiceStream" : level === "subject" ? "practiceSubject" : "practiceTopic";
+  const field = level === "stream" ? "practiceStream" : level === "exam" ? "practiceExam" : level === "subject" ? "practiceSubject" : "practiceTopic";
   const items = (await TestSeries.find({
     practice: true,
     [field]: node._id,
@@ -1313,15 +1459,16 @@ const touchPb = (j, extra = {}) => { Object.assign(j, extra); j.updatedAt = Date
 // backup in the background; returns { jobId, total } to poll for live progress.
 export async function startBackup(req, res) {
   const of = ownerFilter(req);
-  const [nStreams, nSubjects, nTopics, itemIdDocs] = await Promise.all([
+  const [nStreams, nExams, nSubjects, nTopics, itemIdDocs] = await Promise.all([
     PracticeStream.countDocuments(of),
+    PracticeExam.countDocuments(of),
     PracticeSubject.countDocuments(of),
     PracticeTopic.countDocuments(of),
     TestSeries.find({ ...of, practice: true }, { _id: 1 }).lean(),
   ]);
   const itemIds = itemIdDocs.map((i) => i._id);
   const nQuestions = itemIds.length ? await Question.countDocuments({ ...of, testSeries: { $in: itemIds } }) : 0;
-  const total = nStreams + nSubjects + nTopics + itemIds.length + nQuestions;
+  const total = nStreams + nExams + nSubjects + nTopics + itemIds.length + nQuestions;
   const jobId = newPbId();
   pbJobs.set(jobId, { user: String(req.user._id), kind: "backup", status: "running", phase: "Starting…", total, done: 0, payload: null, error: null, updatedAt: Date.now() });
   guardPb(jobId, runBackupJob(jobId, of));
@@ -1336,15 +1483,17 @@ async function runBackupJob(jobId, of) {
 
   touchPb(job, { phase: "Streams" });
   const streams = (await PracticeStream.find(of).lean()).map((s) => { bump(); return { ...pick(s), kind: s.kind }; });
+  touchPb(job, { phase: "Exams" });
+  const exams = (await PracticeExam.find(of).lean()).map((e) => { bump(); return { ...pick(e), stream: e.stream }; });
   touchPb(job, { phase: "Subjects" });
-  const subjects = (await PracticeSubject.find(of).lean()).map((s) => { bump(); return { ...pick(s), stream: s.stream }; });
+  const subjects = (await PracticeSubject.find(of).lean()).map((s) => { bump(); return { ...pick(s), stream: s.stream, exam: s.exam }; });
   touchPb(job, { phase: "Topics" });
   const topics = (await PracticeTopic.find(of).lean()).map((t) => { bump(); return { ...pick(t), subject: t.subject }; });
   touchPb(job, { phase: "Items" });
   const itemsRaw = await TestSeries.find({ ...of, practice: true }).lean();
   const items = itemsRaw.map((it) => { bump(); return {
     _id: it._id, name: it.name, practiceKind: it.practiceKind,
-    practiceStream: it.practiceStream, practiceSubject: it.practiceSubject, practiceTopic: it.practiceTopic,
+    practiceStream: it.practiceStream, practiceExam: it.practiceExam, practiceSubject: it.practiceSubject, practiceTopic: it.practiceTopic,
     category: it.category, duration: it.duration, marks: it.marks, difficulty: it.difficulty,
     subjectPlan: it.subjectPlan, negativeMarking: it.negativeMarking, status: it.status,
     aiTopic: it.aiTopic, aiSubtopics: it.aiSubtopics,
@@ -1357,8 +1506,8 @@ async function runBackupJob(jobId, of) {
 
   job.payload = {
     format: "mystudyguide-practice-backup", version: 1, exportedAt: new Date().toISOString(),
-    counts: { streams: streams.length, subjects: subjects.length, topics: topics.length, items: items.length, questions: questions.length },
-    streams, subjects, topics, items, questions,
+    counts: { streams: streams.length, exams: exams.length, subjects: subjects.length, topics: topics.length, items: items.length, questions: questions.length },
+    streams, exams, subjects, topics, items, questions,
   };
   touchPb(job, { status: "done", phase: "Done", done: job.total });
 }
@@ -1387,39 +1536,47 @@ export async function startRestore(req, res) {
   let src = b;
   if (b.format === "mystudyguide-admin-backup") {
     const p = b.practice || {};
-    src = { streams: p.streams, subjects: p.subjects, topics: p.topics, items: p.items, questions: p.questions };
+    src = { streams: p.streams, exams: p.exams, subjects: p.subjects, topics: p.topics, items: p.items, questions: p.questions };
   } else if (b.format && b.format !== "mystudyguide-practice-backup") {
     return res.status(400).json({ message: "This file is not a My Practice backup." });
   }
   const streams = Array.isArray(src.streams) ? src.streams : [];
+  const exams = Array.isArray(src.exams) ? src.exams : [];
   const subjects = Array.isArray(src.subjects) ? src.subjects : [];
   const topics = Array.isArray(src.topics) ? src.topics : [];
   const items = Array.isArray(src.items) ? src.items : [];
   const questions = Array.isArray(src.questions) ? src.questions : [];
   if (!streams.length && !items.length) return res.status(400).json({ message: "This backup file has no My Practice content to restore." });
-  const total = streams.length + subjects.length + topics.length + items.length + questions.length;
+  const total = streams.length + exams.length + subjects.length + topics.length + items.length + questions.length;
   const jobId = newPbId();
   pbJobs.set(jobId, { user: String(req.user._id), kind: "restore", status: "running", phase: "Starting…", total, done: 0, result: null, error: null, updatedAt: Date.now() });
-  guardPb(jobId, runRestoreJob(jobId, owner, { streams, subjects, topics, items, questions }));
+  guardPb(jobId, runRestoreJob(jobId, owner, { streams, exams, subjects, topics, items, questions }));
   res.status(202).json({ jobId, total });
 }
 
 async function runRestoreJob(jobId, owner, data) {
   const job = pbJobs.get(jobId);
   if (!job) return;
-  const { streams, subjects, topics, items, questions } = data;
+  const { streams, exams, subjects, topics, items, questions } = data;
   const bump = (n = 1) => { job.done += n; job.updatedAt = Date.now(); };
-  const map = { stream: {}, subject: {}, topic: {} };
+  const map = { stream: {}, exam: {}, subject: {}, topic: {} };
 
   touchPb(job, { phase: "Streams" });
   for (const s of streams) {
     const doc = await PracticeStream.create({ owner, kind: s.kind || "quiz", name: s.name, slug: slugify(s.name), icon: s.icon, color: s.color, description: s.description, order: s.order || 0, isActive: s.isActive !== false });
     map.stream[String(s._id)] = doc._id; bump();
   }
+  touchPb(job, { phase: "Exams" });
+  for (const e of exams) {
+    const stream = map.stream[String(e.stream)]; if (!stream) { bump(); continue; }
+    const doc = await PracticeExam.create({ owner, stream, name: e.name, slug: slugify(e.name), icon: e.icon, color: e.color, description: e.description, order: e.order || 0, isActive: e.isActive !== false });
+    map.exam[String(e._id)] = doc._id; bump();
+  }
   touchPb(job, { phase: "Subjects" });
   for (const s of subjects) {
     const stream = map.stream[String(s.stream)]; if (!stream) { bump(); continue; }
-    const doc = await PracticeSubject.create({ owner, stream, name: s.name, slug: slugify(s.name), icon: s.icon, color: s.color, description: s.description, order: s.order || 0, isActive: s.isActive !== false });
+    const exam = s.exam ? (map.exam[String(s.exam)] || null) : null;
+    const doc = await PracticeSubject.create({ owner, stream, exam, name: s.name, slug: slugify(s.name), icon: s.icon, color: s.color, description: s.description, order: s.order || 0, isActive: s.isActive !== false });
     map.subject[String(s._id)] = doc._id; bump();
   }
   touchPb(job, { phase: "Topics" });
@@ -1433,7 +1590,7 @@ async function runRestoreJob(jobId, owner, data) {
   for (const it of items) {
     const doc = await TestSeries.create({
       owner, practice: true, practiceKind: it.practiceKind || "quiz",
-      practiceStream: map.stream[String(it.practiceStream)], practiceSubject: map.subject[String(it.practiceSubject)], practiceTopic: map.topic[String(it.practiceTopic)],
+      practiceStream: map.stream[String(it.practiceStream)], practiceExam: it.practiceExam ? (map.exam[String(it.practiceExam)] || null) : null, practiceSubject: map.subject[String(it.practiceSubject)], practiceTopic: map.topic[String(it.practiceTopic)],
       name: it.name, category: it.category || "Full-Length", duration: it.duration, marks: it.marks, difficulty: it.difficulty,
       subjectPlan: it.subjectPlan, negativeMarking: it.negativeMarking, status: it.status || "published", visibleToAll: false,
       aiTopic: it.aiTopic, aiSubtopics: it.aiSubtopics, paperPdfUrl: it.paperPdfUrl, answerKeyPdfUrl: it.answerKeyPdfUrl, answerKeys: it.answerKeys, additionalInfo: it.additionalInfo, questions: [],
@@ -1451,7 +1608,7 @@ async function runRestoreJob(jobId, owner, data) {
       bump(mine.length);
     }
   }
-  touchPb(job, { status: "done", phase: "Done", done: job.total, result: { streams: streams.length, subjects: subjects.length, topics: topics.length, items: items.length, questions: restoredQuestions } });
+  touchPb(job, { status: "done", phase: "Done", done: job.total, result: { streams: streams.length, exams: exams.length, subjects: subjects.length, topics: topics.length, items: items.length, questions: restoredQuestions } });
 }
 
 // GET /api/practice/restore/job/:id — restore progress.

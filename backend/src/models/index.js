@@ -21,6 +21,7 @@ import Feedback from "./Feedback.js";
 import Institution from "./Institution.js";
 import Message from "./Message.js";
 import Notice from "./Notice.js";
+import PracticeExam from "./PracticeExam.js";
 import PracticeStream from "./PracticeStream.js";
 import PracticeSubject from "./PracticeSubject.js";
 import PracticeTopic from "./PracticeTopic.js";
@@ -46,8 +47,9 @@ import UserManual from "./UserManual.js";
 export const models = {
   AiKey, Attempt, CbtAttempt, CbtRegistration, CompanionItem, ContentShare,
   Coupon, Document: DocumentModel, EmailOtp, Exam, ExamPost, FbSchedule,
-  Feedback, Institution, Message, Notice, PracticeStream, PracticeSubject,
-  PracticeTopic, PublicAttempt, Question, Quiz, Review, Session, Settings,
+  Feedback, Institution, Message, Notice, PracticeExam, PracticeStream,
+  PracticeSubject, PracticeTopic, PublicAttempt, Question, Quiz, Review,
+  Session, Settings,
   SmClass, SmFile, SmSubject, Stream, Subject, Tenant, TestSeries, Topic,
   TrialClaim, User, UserManual, MigrationState,
 };

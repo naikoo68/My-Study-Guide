@@ -25,7 +25,7 @@ import { authService, practiceService } from "../../services";
 const STEPS = [
   { k: "build",   targets: ["nav-build", "nav-menu"], hint: "Open the menu, then tap Build to start building." },
   { k: "stream",  targets: ["add-streams"],           hint: 'Tap "Add Stream" to create your first stream.' },
-  { k: "subject", targets: ["add-subjects"],          hint: 'Open your stream, then tap "Add Subject".' },
+  { k: "subject", targets: ["add-subjects"],          hint: 'Open your stream (then an exam for My Quiz), and tap "Add Subject".' },
   { k: "topic",   targets: ["add-topics"],            hint: 'Open your subject, then tap "Add Topic".' },
   { k: "quiz",    targets: ["add-items"],             hint: 'Open your topic, then tap "Add Quiz".' },
   { k: "generate",targets: ["nav-aigen", "nav-menu"], hint: "Open the menu → AI Generator, then generate a question with AI." },
