@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, Eye, EyeOff, X, CalendarClock, Users, Search, Upload, HelpCircle, ChevronRight, GraduationCap, Briefcase, Copy, Download, Sparkles, Globe, Library, Scale, Share2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Eye, EyeOff, Ban, X, CalendarClock, Users, Search, Upload, HelpCircle, ChevronRight, GraduationCap, Briefcase, Copy, Download, Sparkles, Globe, Library, Scale, Share2 } from "lucide-react";
 import { testService, contentService, examService, aiService } from "../../services";
 import { loadNav, saveNav } from "../../lib/navState";
 import Badge from "../../components/ui/Badge";
@@ -401,6 +401,18 @@ export default function AdminTests() {
     }
   };
 
+  // Enable/Disable — hide a published test series from students (stays here in
+  // the manager). Mirrors the per-item Enable/Disable in Public Quizzes.
+  const toggleDisabled = async (t) => {
+    try {
+      const res = await testService.update(t._id, { disabled: !t.disabled });
+      const next = res?.disabled ?? !t.disabled;
+      setTests((list) => list.map((x) => (x._id === t._id ? { ...x, disabled: next } : x)));
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
   const remove = async (id) => {
     if (!window.confirm("Delete this test series?")) return;
     try {
@@ -603,6 +615,9 @@ export default function AdminTests() {
                       <span className={`text-[10px] font-semibold ${t.visibleToAll ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>
                         {t.visibleToAll ? "Visible to all" : "Restricted"}
                       </span>
+                      {t.disabled && (
+                        <span className="text-[10px] font-semibold text-rose-600 dark:text-rose-400">Disabled</span>
+                      )}
                     </div>
                   </td>
                   <td className="px-5 py-3" onClick={(e) => e.stopPropagation()}>
@@ -613,6 +628,13 @@ export default function AdminTests() {
                         className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700"
                       >
                         {t.status === "published" ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                      <button
+                        onClick={() => toggleDisabled(t)}
+                        title={t.disabled ? "Enable — show to students again" : "Disable — hide from students (stays here in the manager)"}
+                        className={`rounded-lg p-2 ${t.disabled ? "text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30" : "text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700"}`}
+                      >
+                        <Ban className="h-4 w-4" />
                       </button>
                       <button onClick={() => openQuestions(t)} title="Manage questions" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30">
                         <HelpCircle className="h-4 w-4" />

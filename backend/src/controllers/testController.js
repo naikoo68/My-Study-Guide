@@ -217,7 +217,9 @@ export async function autoBuildTest(req, res) {
 // GET /api/tests  — list published tests visible to the requesting user
 export async function listTests(req, res) {
   const { category, post, exam } = req.query;
-  const filter = { status: "published", practice: { $ne: true } };
+  // `disabled` test series are hidden from students/public browse (they stay in
+  // the admin manager). Admins use listAllTests, which is unfiltered.
+  const filter = { status: "published", disabled: { $ne: true }, practice: { $ne: true } };
   if (category && category !== "All") filter.category = category;
   if (post) filter.post = post;
   if (exam) filter.exam = exam;
