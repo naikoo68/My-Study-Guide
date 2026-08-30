@@ -9,6 +9,7 @@ import { ThemeProvider } from "./context/ThemeContext";
 import { SettingsProvider } from "./context/SettingsContext";
 import { AuthProvider } from "./context/AuthContext";
 import { ZoomProvider } from "./context/ZoomContext";
+import { AiModalProvider } from "./context/AiModalContext";
 import ProtectedRoute from "./components/auth/ProtectedRoute";
 import StudentGate from "./components/auth/StudentGate";
 import ContentProtection from "./components/ui/ContentProtection";
@@ -348,7 +349,13 @@ export default function App() {
           <ZoomProvider>
             <ContentProtection />
             <ErrorBoundary>
-              <RouterProvider router={router} />
+              {/* AiModalProvider sits ABOVE the router so a minimized AI
+                  generation keeps running and its pill stays visible across
+                  route navigation. It's inside AuthProvider (the modals use
+                  useAuth) and uses no router hooks. */}
+              <AiModalProvider>
+                <RouterProvider router={router} />
+              </AiModalProvider>
             </ErrorBoundary>
           </ZoomProvider>
         </AuthProvider>
