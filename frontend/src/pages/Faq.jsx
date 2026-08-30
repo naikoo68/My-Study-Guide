@@ -64,9 +64,9 @@ const EXPLORE = [
 export default function Faq() {
   const { settings } = useSettings();
   const { user } = useAuth();
-  // A logged-in creator only sees non-content links (Pricing/Contact); the
-  // public content chips are hidden for them.
-  const exploreLinks = user?.role === "client" ? EXPLORE.filter((l) => !l.content) : EXPLORE;
+  // Any logged-in user only sees the non-content chips (Pricing/Contact); the
+  // public content chips are hidden once you're signed in. (Role-independent.)
+  const exploreLinks = user ? EXPLORE.filter((l) => !l.content) : EXPLORE;
   // Creator / Institute audiences are hidden platform-wide when the super-admin
   // turns off publicClientEnabled / publicInstituteEnabled (same rule as the
   // Pricing page), so we never advertise an audience that isn't open.
