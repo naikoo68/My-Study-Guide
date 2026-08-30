@@ -1,11 +1,12 @@
 import { Link } from "react-router-dom";
-import { FolderOpen, GraduationCap, ChevronRight } from "lucide-react";
+import { FolderOpen, ListChecks, FileStack, ChevronRight } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { useSettings } from "../../context/SettingsContext";
 
 // Landing page for the "Manage Content" sidebar item. Tapping the sidebar entry
 // opens this page. "Public Practice" is a folder that drills down to the public
-// quizzes / public test series sections; "My Practice" is a direct link.
+// quizzes / public test series sections; "My Quizzes" and "My Tests" open the
+// personal practice manager locked to that kind.
 const CARDS = [
   {
     to: "/admin/public-practice",
@@ -17,12 +18,20 @@ const CARDS = [
     tint: "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300",
   },
   {
-    to: "/admin/practice",
-    label: "My Practice",
-    desc: "Practice quizzes and test series.",
-    icon: GraduationCap,
+    to: "/admin/practice/quiz",
+    label: "My Quizzes",
+    desc: "Your own practice quizzes.",
+    icon: ListChecks,
     feature: "practice",
     tint: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
+  },
+  {
+    to: "/admin/practice/test",
+    label: "My Tests",
+    desc: "Your own practice tests.",
+    icon: FileStack,
+    feature: "practice",
+    tint: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
   },
 ];
 

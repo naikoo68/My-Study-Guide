@@ -935,7 +935,7 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-extrabold">My Practice</h1>
+          <h1 className="text-2xl font-extrabold">{fixedKind === "quiz" ? "My Quizzes" : fixedKind === "test" ? "My Tests" : "My Practice"}</h1>
           <p className="text-slate-500 dark:text-slate-400">
             {clientMode
               ? "Build your own quizzes and tests, then practice them. This content is private to you."
