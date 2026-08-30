@@ -1,32 +1,30 @@
 import { Link } from "react-router-dom";
-import { FolderOpen, GraduationCap, ChevronRight } from "lucide-react";
+import { FolderOpen, BookCopy, FileStack, ChevronRight } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { useSettings } from "../../context/SettingsContext";
 
-// Landing page for the "Manage Content" sidebar item. Tapping the sidebar entry
-// opens this page. "Public Practice" is a folder that drills down to the public
-// quizzes / public test series sections; "My Practice" is a direct link.
+// "Public Practice" folder — drilled into from the Manage Content page. Groups
+// the two public content-building sections.
 const CARDS = [
   {
-    to: "/admin/public-practice",
-    label: "Public Practice",
-    desc: "Public quizzes and public test series.",
-    icon: FolderOpen,
-    // A folder over two features — shown when EITHER is enabled.
-    features: ["content", "tests"],
-    tint: "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300",
+    to: "/admin/content",
+    label: "Public Quizzes",
+    desc: "Streams, subjects, topics, sessions & quizzes.",
+    icon: BookCopy,
+    feature: "content",
+    tint: "bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300",
   },
   {
-    to: "/admin/practice",
-    label: "My Practice",
-    desc: "Practice quizzes and test series.",
-    icon: GraduationCap,
-    feature: "practice",
-    tint: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
+    to: "/admin/tests",
+    label: "Public Test Series",
+    desc: "Build and manage full test series.",
+    icon: FileStack,
+    feature: "tests",
+    tint: "bg-accent-100 text-accent-700 dark:bg-accent-900/40 dark:text-accent-300",
   },
 ];
 
-export default function AdminManageContent() {
+export default function AdminPublicPractice() {
   const { user } = useAuth();
   const { settings } = useSettings();
 
@@ -39,17 +37,19 @@ export default function AdminManageContent() {
     if (instituteFeatures && instituteFeatures[f] === false) return false;
     return true;
   };
-  const visible = (c) => (c.features ? c.features.some(isOn) : isOn(c.feature));
-  const cards = CARDS.filter(visible);
+  const cards = CARDS.filter((c) => isOn(c.feature));
 
   return (
     <div className="space-y-6">
       <div>
+        <Link to="/admin/manage-content" className="mb-2 inline-flex items-center gap-1 text-sm font-medium text-slate-500 hover:text-brand-600 dark:text-slate-400">
+          ← Manage Content
+        </Link>
         <h1 className="flex items-center gap-2 text-2xl font-extrabold">
-          <FolderOpen className="h-6 w-6 text-brand-600" /> Manage Content
+          <FolderOpen className="h-6 w-6 text-brand-600" /> Public Practice
         </h1>
         <p className="text-slate-500 dark:text-slate-400">
-          Build and manage your public quizzes, public test series and practice content.
+          Manage your public quizzes and public test series.
         </p>
       </div>
 
