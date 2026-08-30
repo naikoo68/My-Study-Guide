@@ -280,6 +280,11 @@ export default function AdminContent() {
   useEffect(() => {
     let cancelled = false;
     setSelected([]); setSelNodes([]); setSearch("");
+    // Clear the previous level's list and show the spinner up-front, so a
+    // drill-down never briefly renders the OLD items under the NEW view. Without
+    // this, tapping a topic flashes the topic itself as a phantom
+    // "0 questions · undefined" quiz while the (hidden) session resolves.
+    setItems([]); setLoading(true);
     (async () => {
       try {
         const find = (arr, id) => (arr || []).find((x) => String(x._id) === String(id)) || null;
@@ -304,7 +309,7 @@ export default function AdminContent() {
           const ds = await contentService.topicSession(tid).catch(() => null);
           if (cancelled) return;
           if (ds?._id) setSearchParams({ s: sid, sub: subId, t: tid, se: String(ds._id) }, { replace: true });
-          else setError("Couldn't open this topic's quizzes.");
+          else { setError("Couldn't open this topic's quizzes."); setLoading(false); }
           return;
         }
         if (!seid) sess = null;
@@ -319,7 +324,7 @@ export default function AdminContent() {
         setStream(strm); setSubject(subj); setTopic(tpc); setSession(sess); setQuiz(qz);
         loadWith(view, { stream: strm, subject: subj, topic: tpc, session: sess, quiz: qz });
       } catch (e) {
-        if (!cancelled) setError(e.message);
+        if (!cancelled) { setError(e.message); setLoading(false); }
       }
     })();
     return () => { cancelled = true; };
