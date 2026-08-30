@@ -30,7 +30,7 @@ export const FAQ_DEFAULTS = {
     },
     {
       q: "What is the difference between a quiz, practice and a test series?",
-      a: "Quizzes are short, topic-wise sets you can attempt quickly. Practice mode lets you work through questions by subject and topic at your own pace. Test series are full-length, timed mock exams that simulate the real exam experience.",
+      a: "Quizzes are short, topic-wise sets you can attempt quickly. Practice mode lets you work through questions by subject and topic at your own pace. Public test series are full-length, timed mock exams that simulate the real exam experience.",
     },
     {
       q: "Can I use My Study Guide on my phone?",

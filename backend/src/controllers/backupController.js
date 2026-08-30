@@ -111,7 +111,7 @@ async function runAdminBackup(jobId) {
 
   const exams = await dump(Exam, "Exams", (e) => ({ _id: e._id, name: e.name, description: e.description, order: e.order }));
   const posts = await dump(ExamPost, "Exam posts", (p) => ({ _id: p._id, exam: p.exam, name: p.name, description: p.description, order: p.order }));
-  touch(job, { phase: "Test series" });
+  touch(job, { phase: "Public Test Series" });
   const seriesRaw = await TestSeries.find({ owner: null, practice: { $ne: true } }).lean();
   const series = seriesRaw.map((t) => { bump(); return { _id: t._id, exam: t.exam, post: t.post, name: t.name, category: t.category, duration: t.duration, marks: t.marks, difficulty: t.difficulty, negativeMarking: t.negativeMarking, status: t.status, subjectPlan: t.subjectPlan, aiTopic: t.aiTopic, aiSubtopics: t.aiSubtopics }; });
   const testIds = seriesRaw.map((t) => t._id);
@@ -223,7 +223,7 @@ async function runAdminRestore(jobId, d) {
   for (const e of d.exams) { const r = await upsert(Exam, { name: e.name }, () => ({ name: e.name, description: e.description || "", order: e.order || 1 })); M.exam[String(e._id)] = r.id; if (r.isNew) created.exams++; bump(); }
   touch(job, { phase: "Exam posts" });
   for (const p of d.posts) { const exam = M.exam[String(p.exam)]; if (!exam) { bump(); continue; } const r = await upsert(ExamPost, { exam, name: p.name }, () => ({ exam, name: p.name, description: p.description || "", order: p.order || 1 })); M.post[String(p._id)] = r.id; if (r.isNew) created.posts++; bump(); }
-  touch(job, { phase: "Test series & questions" });
+  touch(job, { phase: "Public Test Series & questions" });
   for (const t of d.series) {
     const exam = M.exam[String(t.exam)]; const post = M.post[String(t.post)];
     const r = await upsert(TestSeries, { owner: null, practice: { $ne: true }, name: t.name, ...(post ? { post } : {}) }, () => ({ owner: null, practice: false, exam, post, name: t.name, category: t.category || "Full-Length", duration: t.duration, marks: t.marks, difficulty: t.difficulty, negativeMarking: t.negativeMarking, status: t.status || "published", subjectPlan: t.subjectPlan, aiTopic: t.aiTopic, aiSubtopics: t.aiSubtopics, questions: [] }));
