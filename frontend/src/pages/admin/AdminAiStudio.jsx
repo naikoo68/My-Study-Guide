@@ -211,21 +211,26 @@ export default function AdminAiStudio({ clientMode = false }) {
   // opts.newTarget = { name } → create a NEW quiz/test under the current parent
   // and insert this batch there (used by the "new quiz" option on Generate more).
   const onUpload = async (questions, opts = {}) => {
-    let selNow = sel;
+    // A minimized/background generation snapshots its destination (dest + the
+    // whole selection) at start, so inserting later targets the SAME place even
+    // if the destination type or cascade selection has since changed. Falls back
+    // to the live selection when no snapshot is present.
+    const destKey = opts.dest?.dest || dest;
+    const cfgNow = DESTS[destKey] || cfg;
+    let selNow = opts.dest?.sel ? { ...opts.dest.sel } : sel;
     let createdName = "";
     if (opts.newTarget) {
       const name = String(opts.newTarget.name || "").trim();
-      if (!name) throw new Error(`Enter a name for the new ${cfg.newLabel}.`);
-      const newId = await cfg.createLeaf(sel, name);
-      if (!newId) throw new Error(`Could not create the new ${cfg.newLabel}.`);
-      selNow = { ...sel, [cfg.leafKey]: newId };
-      setSel(selNow);        // subsequent batches now default to the new leaf
-      setCurrentName(name);  // "current" now points at the just-created quiz/test
+      if (!name) throw new Error(`Enter a name for the new ${cfgNow.newLabel}.`);
+      const newId = await cfgNow.createLeaf(selNow, name);
+      if (!newId) throw new Error(`Could not create the new ${cfgNow.newLabel}.`);
+      selNow = { ...selNow, [cfgNow.leafKey]: newId };
+      if (destKey === dest) { setSel(selNow); setCurrentName(name); } // only sync live state if we're still on the same destination type
       createdName = name;
     }
-    const res = await contentService.bulkQuestions(questions, cfg.target(selNow));
+    const res = await contentService.bulkQuestions(questions, cfgNow.target(selNow));
     const n = res?.inserted ?? res?.count ?? (Array.isArray(questions) ? questions.length : 0);
-    setMsg(`✓ Saved ${n} question${n === 1 ? "" : "s"} to ${createdName ? `the new ${cfg.newLabel} “${createdName}”` : `the selected ${cfg.label}`}.`);
+    setMsg(`✓ Saved ${n} question${n === 1 ? "" : "s"} to ${createdName ? `the new ${cfgNow.newLabel} “${createdName}”` : `the selected ${cfgNow.label}`}.`);
     return res;
   };
 
@@ -295,6 +300,7 @@ export default function AdminAiStudio({ clientMode = false }) {
         open={aiOpen}
         title={`Generate with AI — ${cfg.label}`}
         onClose={() => setAiOpen(false)}
+        onGenerationStart={() => ({ dest, sel: { ...sel } })}
         onUpload={onUpload}
         allowNewTarget
         newLeafLabel={cfg.newLabel}
