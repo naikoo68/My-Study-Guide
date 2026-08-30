@@ -86,20 +86,39 @@ export default function TopicSessions() {
         </p>
       </div>
 
-      <h2 className="mt-10 flex items-center gap-2 text-xl font-bold"><ListChecks className="h-5 w-5 text-brand-600" /> Topics covered</h2>
-      {coveredTopics.length > 0 ? (
-        <div className="mt-4 flex flex-wrap gap-2">
-          {coveredTopics.map((t, i) => (
-            <span key={`${t}-${i}`} className="rounded-full bg-brand-50 px-3 py-1 text-sm font-medium text-brand-700 dark:bg-brand-900/30 dark:text-brand-300">
-              {t}
+      <div className="mt-8 overflow-hidden rounded-3xl border border-brand-100 bg-gradient-to-br from-brand-50/70 via-white to-white shadow-sm ring-1 ring-black/5 dark:border-brand-900/40 dark:from-brand-900/20 dark:via-slate-900 dark:to-slate-900 dark:ring-white/5">
+        <div className="flex items-center justify-between gap-3 border-b border-brand-100/70 px-5 py-3.5 dark:border-brand-900/40">
+          <h2 className="flex items-center gap-2 text-lg font-bold">
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-100 text-brand-600 dark:bg-brand-900/40 dark:text-brand-300">
+              <ListChecks className="h-4 w-4" />
             </span>
-          ))}
+            Topics covered
+          </h2>
+          {coveredTopics.length > 0 && (
+            <span className="rounded-full bg-brand-100 px-2.5 py-0.5 text-xs font-semibold text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">
+              {coveredTopics.length}
+            </span>
+          )}
         </div>
-      ) : (
-        <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
-          Subtopics appear here as questions are added — through “Scan Missing Areas” or by adding subtopics manually when generating.
-        </p>
-      )}
+        <div className="p-5">
+          {coveredTopics.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {coveredTopics.map((t, i) => (
+                <span
+                  key={`${t}-${i}`}
+                  className="inline-flex items-center rounded-full border border-brand-200/70 bg-white px-3 py-1 text-sm font-medium text-slate-700 shadow-sm transition hover:border-brand-300 hover:text-brand-700 dark:border-brand-900/50 dark:bg-slate-800/70 dark:text-slate-200 dark:hover:text-brand-300"
+                >
+                  {t}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              Subtopics appear here as questions are added — through “Scan Missing Areas” or by adding subtopics manually when generating.
+            </p>
+          )}
+        </div>
+      </div>
 
       {sessions.length === 0 ? (
         <EmptyState message="No quizzes in this topic yet." />
