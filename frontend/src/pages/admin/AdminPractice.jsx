@@ -749,8 +749,11 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
   // the current parent and insert the batch there; later batches then target it.
   // Otherwise the batch goes into the item currently open (qItem).
   const saveAiBatch = async (questions, opts = {}) => {
-    const section = opts.section || normSection(forceSection);
-    let itemId = opts.existingTargetId || aiTarget?.id || qItem?._id;
+    // A minimized/background generation snapshots its destination (opts.dest) at
+    // start, so a later Insert lands where it began even if you've since browsed
+    // to another item. Falls back to the live selection when absent.
+    const section = opts.dest?.section ?? opts.section ?? normSection(forceSection);
+    let itemId = opts.existingTargetId || opts.dest?.itemId || aiTarget?.id || qItem?._id;
     if (opts.existingTargetId) {
       // Insert into a chosen EXISTING quiz/test; remember it so later batches append there too.
       const nm = (items || []).find((it) => it._id === opts.existingTargetId)?.name || "";
@@ -761,10 +764,10 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
       if (!name) throw new Error(`Enter a name for the new ${kind}.`);
       const created = await practiceService.createItem({
         name,
-        practiceStream: stream?._id,
-        practiceSubject: subject?._id,
-        practiceTopic: hasTopics ? topic?._id : undefined,
-        practiceKind: kind,
+        practiceStream: opts.dest?.streamId ?? stream?._id,
+        practiceSubject: opts.dest?.subjectId ?? subject?._id,
+        practiceTopic: opts.dest ? opts.dest.topicId : (hasTopics ? topic?._id : undefined),
+        practiceKind: opts.dest?.kind || kind,
       });
       if (!created?._id) throw new Error(`Could not create the new ${kind}.`);
       itemId = created._id;
@@ -1462,6 +1465,7 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
         defaultSubtopics={gapPrefill ? gapPrefill.subtopics : (qItem?.aiSubtopics || "")}
         defaultDest={(gapPrefill || otherTypesTopic) ? "new" : "current"}
         coverageQuestions={topicStems}
+        onGenerationStart={() => ({ itemId: aiTarget?.id || qItem?._id, section: normSection(forceSection), streamId: stream?._id, subjectId: subject?._id, topicId: hasTopics ? topic?._id : undefined, kind })}
         onUpload={(questions, opts = {}) => saveAiBatch(questions, opts)}
       />
 

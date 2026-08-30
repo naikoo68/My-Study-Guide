@@ -899,9 +899,14 @@ export default function AdminTests() {
         sections={sectionsOf(aiTest)}
         defaultSection={aiTest?._forceSection && aiTest._forceSection !== "__unassigned__" ? aiTest._forceSection : ""}
         onClose={() => { setAiTest(null); if (qTest) reloadTq(); }}
+        onGenerationStart={() => ({ testSeriesId: aiTest?._id, section: aiTest?._forceSection && aiTest._forceSection !== "__unassigned__" ? aiTest._forceSection : "" })}
         onUpload={async (questions, opts = {}) => {
-          const section = opts.section || (aiTest?._forceSection && aiTest._forceSection !== "__unassigned__" ? aiTest._forceSection : "");
-          const res = await contentService.bulkQuestions(questions, { testSeries: aiTest._id, section });
+          // A minimized/background generation snapshots its destination (opts.dest)
+          // at start, so a later Insert lands in the SAME test even if you've since
+          // opened another one. Falls back to the currently-open test.
+          const testSeries = opts.dest?.testSeriesId || aiTest?._id;
+          const section = opts.dest?.section ?? opts.section ?? (aiTest?._forceSection && aiTest._forceSection !== "__unassigned__" ? aiTest._forceSection : "");
+          const res = await contentService.bulkQuestions(questions, { testSeries, section });
           load(); // refresh question counts
           if (qTest) reloadTq();
           return res;
