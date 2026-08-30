@@ -5,7 +5,7 @@
    - Cross-origin requests (the API on Render, any CDN) are NEVER intercepted,
      so live data always comes fresh from the network.
    Bump CACHE when you want every client to drop old cached assets. */
-const CACHE = "msg-pwa-v3";
+const CACHE = "msg-pwa-v4";
 const SHELL = "/index.html";
 
 self.addEventListener("install", (event) => {
