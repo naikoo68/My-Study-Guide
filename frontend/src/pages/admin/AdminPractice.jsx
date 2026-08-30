@@ -7,9 +7,8 @@ import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 import QuestionFormModal from "../../components/admin/QuestionFormModal";
 import BulkUploadQuestions, { questionsToCsv } from "../../components/admin/BulkUploadQuestions";
-import AiGenerate from "../../components/admin/AiGenerate";
-import AiImport from "../../components/admin/AiImport";
 import DuplicatesModal from "../../components/admin/DuplicatesModal";
+import { useAiModal } from "../../context/AiModalContext";
 import PaperFilesModal from "../../components/admin/PaperFilesModal";
 import QuestionView from "../../components/admin/QuestionView";
 import QuestionTypeFilter from "../../components/admin/QuestionTypeFilter";
@@ -132,10 +131,8 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
   const [tqModal, setTqModal] = useState(null);
   const [tqSaving, setTqSaving] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
-  const [aiOpen, setAiOpen] = useState(false);
-  const [importOpen, setImportOpen] = useState(false);
+  const { openAiGenerate, openAiImport } = useAiModal();
   const [aiTarget, setAiTarget] = useState(null); // {id,name} — after AI creates a new quiz/test, later batches target it
-  const [otherTypesTopic, setOtherTypesTopic] = useState(false); // AI opened at TOPIC level to build other question types from ALL its quizzes
   // "Scan missing areas": analyse all quizzes in this topic for uncovered syllabus.
   const [scanOpen, setScanOpen] = useState(false);
   const [scanFull, setScanFull] = useState(false); // full-screen the Missing areas modal
@@ -156,8 +153,6 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
   const [seqLive, setSeqLive] = useState(null); // real-time view of the CURRENT subtopic's job: { subtopic, count, byBucket:[{type,difficulty,have,want}] }
   const [seqMsg, setSeqMsg] = useState("");
   const seqStopRef = useRef(false);
-  const [gapPrefill, setGapPrefill] = useState(null); // {topic, subtopics, avoid} when generating from the scan gaps
-  const [topicStems, setTopicStems] = useState([]); // stems of ALL quizzes in this topic → coverage panel scans the whole topic
   const [bankOpen, setBankOpen] = useState(false); // hand-pick questions from the bank
   const [autoOpen, setAutoOpen] = useState(false); // auto-build My Test from My Practice quizzes
   const [dupOpen, setDupOpen] = useState(false);
@@ -517,37 +512,71 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
   const gatherTopicStems = async () => {
     try {
       const lists = await Promise.all((items || []).map((it) => testService.getQuestions(it._id).catch(() => [])));
-      setTopicStems(lists.flat().map((q) => q?.text).filter(Boolean));
+      return lists.flat().map((q) => q?.text).filter(Boolean);
     } catch {
-      setTopicStems([]);
+      return [];
     }
+  };
+
+  // Open the APP-LEVEL AI generator / import (hosted by AiModalProvider) so a
+  // minimized generation keeps running and its pill stays visible even after
+  // navigating to another admin section. All values are captured here at open
+  // time; the onUpload/onGenerationStart closures keep targeting the right
+  // destination (via the destination snapshot) after this page unmounts.
+  const openPracticeGenerate = ({ item = null, gap = null, otherTypes = false, section = "", stems = [] } = {}) => {
+    openAiGenerate({
+      sections: sectionsOf(item),
+      subjectName: subject?.name || "",
+      defaultSection: normSection(section),
+      title: `Generate with AI — ${item?.name || (gap ? `new ${kind} (missing areas)` : (otherTypes ? "other question types (all quizzes)" : ""))}${normSection(section) ? ` (${normSection(section)})` : ""}`,
+      onClose: () => { setForceSection(""); },
+      allowNewTarget: true,
+      newLeafLabel: kind,
+      currentTargetName: aiTarget?.name || item?.name || "",
+      existingItems: (items || []).filter((it) => it._id !== item?._id).map((it) => ({ _id: it._id, name: it.name, questionCount: it.questionCount })),
+      existingQuestions: otherTypes ? [] : (gap ? gap.avoid : tq),
+      defaultTopic: gap ? gap.topic : (item?.aiTopic || (kind === "quiz" ? topic : subject)?.name || ""),
+      defaultSubtopics: gap ? gap.subtopics : (item?.aiSubtopics || ""),
+      defaultDest: (gap || otherTypes) ? "new" : "current",
+      coverageQuestions: stems,
+      onGenerationStart: () => ({ itemId: aiTarget?.id || item?._id, section: normSection(section), streamId: stream?._id, subjectId: subject?._id, topicId: hasTopics ? topic?._id : undefined, kind }),
+      onUpload: (questions, opts = {}) => saveAiBatch(questions, opts),
+    });
+  };
+  const openPracticeImport = ({ item = null, section = "" } = {}) => {
+    openAiImport({
+      sections: sectionsOf(item),
+      defaultSection: normSection(section),
+      title: `Import from Web — ${item?.name || ""}${normSection(section) ? ` (${normSection(section)})` : ""}`,
+      onClose: () => { setForceSection(""); },
+      allowNewTarget: true,
+      newLeafLabel: kind,
+      currentTargetName: aiTarget?.name || item?.name || "",
+      existingItems: (items || []).filter((it) => it._id !== item?._id).map((it) => ({ _id: it._id, name: it.name, questionCount: it.questionCount })),
+      onUpload: (questions, opts = {}) => saveAiBatch(questions, opts),
+    });
   };
 
   // Topic-level entry point for "other question types": open the generator with
   // ALL quizzes in this topic as the source (coverageQuestions) and a NEW quiz
   // as the destination, so the Convert / Generate-from-existing buttons work
   // across the whole topic in one place (beside Add Quiz).
-  const openTopicOtherTypes = () => {
+  const openTopicOtherTypes = async () => {
     setQItem(null);
     setAiTarget(null);
     setForceSection("");
-    setGapPrefill(null);
-    setOtherTypesTopic(true);
-    setTopicStems([]);
-    gatherTopicStems();
-    setAiOpen(true);
+    const stems = await gatherTopicStems();
+    openPracticeGenerate({ item: null, otherTypes: true, stems });
   };
 
   // Open the generator pre-filled to build a NEW quiz covering the missing areas,
   // avoiding every question already made in this topic.
   const generateFromGaps = () => {
-    setGapPrefill({ topic: scanTopic, subtopics: scanMissing.join(", "), avoid: scanStems });
-    setTopicStems(scanStems); // coverage panel reflects the whole topic
     setQItem(null);
     setAiTarget(null);
     setForceSection("");
     setScanOpen(false);
-    setAiOpen(true);
+    openPracticeGenerate({ item: null, gap: { topic: scanTopic, subtopics: scanMissing.join(", "), avoid: scanStems }, stems: scanStems });
   };
 
   // Poll a generation job until done; honours the sequential-run cancel flag.
@@ -1237,8 +1266,8 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
               onCopyCsv={copyCsv}
               onDownloadCsv={downloadCsv}
               onBulkUpload={(subject) => { setForceSection(subject); setBulkOpen(true); }}
-              onAiGenerate={(subject) => { setForceSection(subject); setAiTarget(null); setGapPrefill(null); setTopicStems([]); gatherTopicStems(); setAiOpen(true); }}
-              onImportWeb={(subject) => { setForceSection(subject); setAiTarget(null); setImportOpen(true); }}
+              onAiGenerate={async (subject) => { setForceSection(subject); setAiTarget(null); const stems = await gatherTopicStems(); openPracticeGenerate({ item: qItem, section: subject, stems }); }}
+              onImportWeb={(subject) => { setForceSection(subject); setAiTarget(null); openPracticeImport({ item: qItem, section: subject }); }}
               onPickFromBank={(subject) => { setForceSection(subject); setBankOpen(true); }}
               onAutoBuild={kind === "test" ? () => setAutoOpen(true) : undefined}
               onExtendExplanations={() => setExtendItem(qItem)}
@@ -1447,39 +1476,6 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
           load("items");
           return res;
         }}
-      />
-
-      <AiGenerate
-        open={aiOpen}
-        sections={sectionsOf(qItem)}
-        subjectName={subject?.name || ""}
-        defaultSection={normSection(forceSection)}
-        title={`Generate with AI — ${qItem?.name || (gapPrefill ? `new ${kind} (missing areas)` : (otherTypesTopic ? "other question types (all quizzes)" : ""))}${normSection(forceSection) ? ` (${normSection(forceSection)})` : ""}`}
-        onClose={() => { setAiOpen(false); setForceSection(""); setGapPrefill(null); setOtherTypesTopic(false); }}
-        allowNewTarget
-        newLeafLabel={kind}
-        currentTargetName={aiTarget?.name || qItem?.name || ""}
-        existingItems={(items || []).filter((it) => it._id !== qItem?._id).map((it) => ({ _id: it._id, name: it.name, questionCount: it.questionCount }))}
-        existingQuestions={otherTypesTopic ? [] : (gapPrefill ? gapPrefill.avoid : tq)}
-        defaultTopic={gapPrefill ? gapPrefill.topic : (qItem?.aiTopic || (kind === "quiz" ? topic : subject)?.name || "")}
-        defaultSubtopics={gapPrefill ? gapPrefill.subtopics : (qItem?.aiSubtopics || "")}
-        defaultDest={(gapPrefill || otherTypesTopic) ? "new" : "current"}
-        coverageQuestions={topicStems}
-        onGenerationStart={() => ({ itemId: aiTarget?.id || qItem?._id, section: normSection(forceSection), streamId: stream?._id, subjectId: subject?._id, topicId: hasTopics ? topic?._id : undefined, kind })}
-        onUpload={(questions, opts = {}) => saveAiBatch(questions, opts)}
-      />
-
-      <AiImport
-        open={importOpen}
-        sections={sectionsOf(qItem)}
-        defaultSection={normSection(forceSection)}
-        title={`Import from Web — ${qItem?.name || ""}${normSection(forceSection) ? ` (${normSection(forceSection)})` : ""}`}
-        onClose={() => { setImportOpen(false); setForceSection(""); }}
-        allowNewTarget
-        newLeafLabel={kind}
-        currentTargetName={aiTarget?.name || qItem?.name || ""}
-        existingItems={(items || []).filter((it) => it._id !== qItem?._id).map((it) => ({ _id: it._id, name: it.name, questionCount: it.questionCount }))}
-        onUpload={(questions, opts = {}) => saveAiBatch(questions, opts)}
       />
 
       {/* Scan missing areas — coverage report across all quizzes/tests in this topic */}

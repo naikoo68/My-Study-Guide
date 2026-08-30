@@ -7,7 +7,6 @@ import { loadNav, saveNav } from "../../lib/navState";
 import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 import BulkUploadQuestions, { questionsToCsv } from "../../components/admin/BulkUploadQuestions";
-import AiGenerate from "../../components/admin/AiGenerate";
 import QuestionFormModal from "../../components/admin/QuestionFormModal";
 import ContentMoveQuestionsModal from "../../components/admin/ContentMoveQuestionsModal";
 import ContentMoveQuizModal from "../../components/admin/ContentMoveQuizModal";
@@ -17,7 +16,7 @@ import QuestionStatusFilter, { filterByStatus } from "../../components/admin/Que
 import AddToTestModal from "../../components/admin/AddToTestModal";
 import { questionDateText, searchQuestions, questionTypeKey, QUESTION_TYPE_LABELS } from "../../lib/questions";
 import DuplicatesModal from "../../components/admin/DuplicatesModal";
-import AiImport from "../../components/admin/AiImport";
+import { useAiModal } from "../../context/AiModalContext";
 import ExtendExplanationsModal from "../../components/admin/ExtendExplanationsModal";
 import ExtendOneQuestionModal from "../../components/admin/ExtendOneQuestionModal";
 import RegenerateAllModal from "../../components/admin/RegenerateAllModal";
@@ -90,11 +89,9 @@ export default function AdminContent() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const { openAiGenerate, openAiImport } = useAiModal();
   const [modal, setModal] = useState(null); // { type, mode, data }
   const [bulkOpen, setBulkOpen] = useState(false);
-  const [aiOpen, setAiOpen] = useState(false);
-  const [aiTopicLevel, setAiTopicLevel] = useState(false); // AI opened from the quiz LIST (topic) → generate into a NEW quiz + scan the whole topic
-  const [importOpen, setImportOpen] = useState(false);
   const [aiTarget, setAiTarget] = useState(null); // {id,title} — after AI creates a new quiz, later batches target it
   const [extendOpen, setExtendOpen] = useState(false); // AI extend-explanations (whole quiz)
   const [regenAllOpen, setRegenAllOpen] = useState(false); // AI regenerate-all (whole quiz)
@@ -126,7 +123,6 @@ export default function AdminContent() {
   const [selected, setSelected] = useState([]); // bulk-selected question ids
   const [moveQ, setMoveQ] = useState(null); // { mode: "move" | "copy" } — move/copy selected questions to another quiz
   const [migrateQuiz, setMigrateQuiz] = useState(null); // quiz being moved/copied to another session (Migrate)
-  const [topicStems, setTopicStems] = useState([]); // all question stems in the current topic → powers AI "Missing areas" coverage
   // "Scan missing areas": analyse all quizzes in this topic for uncovered syllabus.
   const [scanOpen, setScanOpen] = useState(false);
   const [scanFull, setScanFull] = useState(false); // full-screen the Missing areas modal
@@ -147,7 +143,6 @@ export default function AdminContent() {
   const [seqLive, setSeqLive] = useState(null); // real-time view of the CURRENT subtopic's job: { subtopic, count, byBucket:[{type,difficulty,have,want}] }
   const [seqMsg, setSeqMsg] = useState("");
   const seqStopRef = useRef(false);
-  const [gapPrefill, setGapPrefill] = useState(null); // { topic, subtopics } → prefills the AI modal from the scan ("All-in-one")
   const [delProgress, setDelProgress] = useState(null); // real-time bulk-delete progress: { total, done, finished? }
   const [bulkAddBusy, setBulkAddBusy] = useState(null); // live auto-add progress: { done, total, added, kind: "subject"|"topic" }
   const [search, setSearch] = useState(""); // question search query
@@ -372,18 +367,6 @@ export default function AdminContent() {
   // share the topic's implicit session) so "Generate with AI" can show the
   // Syllabus-coverage / Missing-areas report for the whole topic, not just one
   // quiz. Same engine My Practice uses (AiGenerate's coverageQuestions).
-  // Fetch the topic's stems LAZILY — only when the AI generator opens (not on
-  // every topic browse) so we don't ship a whole topic's questions on each
-  // navigation. Keeps bandwidth down.
-  useEffect(() => {
-    if (!aiOpen || !session?._id) return;
-    let cancelled = false;
-    contentService.questions(session._id)
-      .then((qs) => { if (!cancelled) setTopicStems((qs || []).map((q) => q?.text).filter(Boolean)); })
-      .catch(() => { if (!cancelled) setTopicStems([]); });
-    return () => { cancelled = true; };
-  }, [aiOpen, session?._id]);
-
   // After editing a question that was opened from the single-question preview,
   // reopen the preview on that (now-reloaded, updated) question so you land back
   // on the question you just edited instead of the list.
@@ -517,14 +500,52 @@ export default function AdminContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scanOpen, scanMissing, scanCounts, scanTypes, globalMix, seqProgress]);
 
+  // Open the APP-LEVEL AI generator (hosted by AiModalProvider) so a minimized
+  // generation keeps running and its pill stays visible even after navigating to
+  // another admin section. Props are captured here at open time; the onUpload /
+  // onGenerationStart closures keep targeting the right destination (via the
+  // destination snapshot) even after this page unmounts.
+  const openContentGenerate = async ({ topicLevel = false, gap = null, stems = null } = {}) => {
+    setAiTarget(null);
+    // Coverage stems for the whole topic (previously loaded by a lazy effect
+    // gated on the modal opening). Fetch here unless the caller supplies them
+    // (the missing-areas scan passes its own).
+    let cover = stems;
+    if (cover == null) {
+      cover = session?._id
+        ? await contentService.questions(session._id).then((qs) => (qs || []).map((q) => q?.text).filter(Boolean)).catch(() => [])
+        : [];
+    }
+    openAiGenerate({
+      title: topicLevel ? `Generate with AI — ${topic?.title || ""} (missing areas)` : `Generate with AI${quiz ? ` — ${quiz.title}` : ""}`,
+      allowNewTarget: true,
+      newLeafLabel: "quiz",
+      currentTargetName: quiz?.title || "",
+      existingQuestions: view === "questions" ? items : [],
+      defaultTopic: gap?.topic || quiz?.aiTopic || topic?.title || "",
+      defaultSubtopics: gap?.subtopics || quiz?.aiSubtopics || "",
+      defaultDest: topicLevel ? "new" : "current",
+      coverageQuestions: cover,
+      subjectName: subject?.name || "",
+      onGenerationStart: () => ({ subjectId: subject?._id, sessionId: session?._id, quizId: aiTarget?.id || quiz?._id }),
+      onUpload: (questions, opts = {}) => saveAiBatch(questions, opts),
+    });
+  };
+  const openContentImport = () => {
+    setAiTarget(null);
+    openAiImport({
+      title: `Import from Web${quiz ? ` — ${quiz.title}` : ""}`,
+      allowNewTarget: true,
+      newLeafLabel: "quiz",
+      currentTargetName: quiz?.title || "",
+      onUpload: (questions, opts = {}) => saveAiBatch(questions, opts),
+    });
+  };
+
   // "All-in-one": hand the whole gap list to the standard AI generator modal.
   const generateFromGaps = () => {
-    setGapPrefill({ topic: scanTopic, subtopics: scanMissing.join(", ") });
-    setTopicStems(scanStems); // coverage panel reflects the whole topic
-    setAiTarget(null);
-    setAiTopicLevel(true);
     setScanOpen(false);
-    setAiOpen(true);
+    openContentGenerate({ topicLevel: true, gap: { topic: scanTopic, subtopics: scanMissing.join(", ") }, stems: scanStems });
   };
 
   // Poll a generation job, honouring a stop request (keeps the partial result).
@@ -1069,10 +1090,10 @@ export default function AdminContent() {
               <button onClick={() => setBulkOpen(true)} className="btn-outline">
                 <Upload className="h-4 w-4" /> Bulk Upload
               </button>
-              <button onClick={() => { setGapPrefill(null); setAiTarget(null); setAiOpen(true); }} className="btn-outline text-brand-600">
+              <button onClick={() => openContentGenerate()} className="btn-outline text-brand-600">
                 <Sparkles className="h-4 w-4" /> Generate with AI
               </button>
-              <button onClick={() => { setAiTarget(null); setImportOpen(true); }} className="btn-outline text-brand-600">
+              <button onClick={() => openContentImport()} className="btn-outline text-brand-600">
                 <Globe className="h-4 w-4" /> Import from Web
               </button>
               <button onClick={() => setExtendOpen(true)} disabled={!items.length} className="btn-outline text-brand-600" title="AI: make all explanations detailed for this quiz">
@@ -1094,7 +1115,7 @@ export default function AdminContent() {
               <button onClick={scanMissingAreas} className="btn-outline text-brand-600" title="Scan this topic's questions for uncovered syllabus areas, then generate the missing ones">
                 <ScanSearch className="h-4 w-4" /> Scan Missing Areas
               </button>
-              <button onClick={() => { setGapPrefill(null); setAiTarget(null); setAiTopicLevel(true); setAiOpen(true); }} className="btn-outline text-brand-600" title="Generate other question types for this topic (pick the types in the generator)">
+              <button onClick={() => openContentGenerate({ topicLevel: true })} className="btn-outline text-brand-600" title="Generate other question types for this topic (pick the types in the generator)">
                 <Sparkles className="h-4 w-4" /> Other question types
               </button>
             </>
@@ -1374,33 +1395,6 @@ export default function AdminContent() {
           load("questions");
           return res;
         }}
-      />
-
-      <AiGenerate
-        open={aiOpen}
-        title={aiTopicLevel ? `Generate with AI — ${topic?.title || ""} (missing areas)` : `Generate with AI${quiz ? ` — ${quiz.title}` : ""}`}
-        onClose={() => { setAiOpen(false); setAiTopicLevel(false); setGapPrefill(null); }}
-        allowNewTarget
-        newLeafLabel="quiz"
-        currentTargetName={aiTarget?.title || quiz?.title || ""}
-        existingQuestions={view === "questions" ? items : []}
-        defaultTopic={gapPrefill?.topic || quiz?.aiTopic || topic?.title || ""}
-        defaultSubtopics={gapPrefill?.subtopics || quiz?.aiSubtopics || ""}
-        defaultDest={aiTopicLevel ? "new" : "current"}
-        coverageQuestions={topicStems}
-        subjectName={subject?.name || ""}
-        onGenerationStart={() => ({ subjectId: subject?._id, sessionId: session?._id, quizId: aiTarget?.id || quiz?._id })}
-        onUpload={(questions, opts = {}) => saveAiBatch(questions, opts)}
-      />
-
-      <AiImport
-        open={importOpen}
-        title={`Import from Web${quiz ? ` — ${quiz.title}` : ""}`}
-        onClose={() => setImportOpen(false)}
-        allowNewTarget
-        newLeafLabel="quiz"
-        currentTargetName={aiTarget?.title || quiz?.title || ""}
-        onUpload={(questions, opts = {}) => saveAiBatch(questions, opts)}
       />
 
       {/* Scan missing areas — coverage report across all quizzes in this topic */}

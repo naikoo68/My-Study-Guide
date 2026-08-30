@@ -5,8 +5,6 @@ import { loadNav, saveNav } from "../../lib/navState";
 import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 import BulkUploadQuestions, { questionsToCsv } from "../../components/admin/BulkUploadQuestions";
-import AiGenerate from "../../components/admin/AiGenerate";
-import AiImport from "../../components/admin/AiImport";
 import SubjectPlanEditor from "../../components/admin/SubjectPlanEditor";
 import PickFromBank from "../../components/admin/PickFromBank";
 import WeightageFill from "../../components/admin/WeightageFill";
@@ -14,6 +12,7 @@ import AutoBuildTest from "../../components/admin/AutoBuildTest";
 import DuplicatesModal from "../../components/admin/DuplicatesModal";
 import { Files, Maximize2, Minimize2, Loader2, CheckCircle2, Wand2 } from "lucide-react";
 import QuestionFormModal from "../../components/admin/QuestionFormModal";
+import { useAiModal } from "../../context/AiModalContext";
 import QuestionView from "../../components/admin/QuestionView";
 import QuestionTypeFilter from "../../components/admin/QuestionTypeFilter";
 import QuestionStatusFilter, { filterByStatus } from "../../components/admin/QuestionStatusFilter";
@@ -62,10 +61,41 @@ export default function AdminTests() {
   const [accessSaving, setAccessSaving] = useState(false);
   const [userSearch, setUserSearch] = useState("");
 
+  const { openAiGenerate, openAiImport } = useAiModal();
   // Bulk-upload-questions-to-a-test state
   const [bulkTest, setBulkTest] = useState(null);
-  const [aiTest, setAiTest] = useState(null); // AI-generate questions for a test
-  const [importTest, setImportTest] = useState(null); // import-from-web questions for a test
+  // AI Generate / Import for a test open the APP-LEVEL modals (hosted by
+  // AiModalProvider) so a minimized generation keeps running and its pill stays
+  // visible even after you navigate to another section. The target test row is
+  // captured in the closures below (was previously the aiTest/importTest state).
+  const openTestGenerate = (t) => openAiGenerate({
+    title: `Generate with AI${t ? ` — ${t.name}${t._forceSection ? ` (${t._forceSection})` : ""}` : ""}`,
+    sections: sectionsOf(t),
+    defaultSection: t?._forceSection && t._forceSection !== "__unassigned__" ? t._forceSection : "",
+    onClose: () => { if (qTest) reloadTq(); },
+    onGenerationStart: () => ({ testSeriesId: t?._id, section: t?._forceSection && t._forceSection !== "__unassigned__" ? t._forceSection : "" }),
+    onUpload: async (questions, opts = {}) => {
+      const testSeries = opts.dest?.testSeriesId || t?._id;
+      const section = opts.dest?.section ?? opts.section ?? (t?._forceSection && t._forceSection !== "__unassigned__" ? t._forceSection : "");
+      const res = await contentService.bulkQuestions(questions, { testSeries, section });
+      load();
+      if (qTest) reloadTq();
+      return res;
+    },
+  });
+  const openTestImport = (t) => openAiImport({
+    title: `Import from Web${t ? ` — ${t.name}${t._forceSection ? ` (${t._forceSection})` : ""}` : ""}`,
+    sections: sectionsOf(t),
+    defaultSection: t?._forceSection && t._forceSection !== "__unassigned__" ? t._forceSection : "",
+    onClose: () => { if (qTest) reloadTq(); },
+    onUpload: async (questions, opts = {}) => {
+      const section = opts.section || (t?._forceSection && t._forceSection !== "__unassigned__" ? t._forceSection : "");
+      const res = await contentService.bulkQuestions(questions, { testSeries: t._id, section });
+      load();
+      if (qTest) reloadTq();
+      return res;
+    },
+  });
   const [bankTest, setBankTest] = useState(null); // manual pick-from-bank for a test
   const [weightTest, setWeightTest] = useState(null); // auto-fill by subject (weightage)
   const [autoTest, setAutoTest] = useState(null); // auto-build by subject/topic/type/difficulty blueprint
@@ -590,10 +620,10 @@ export default function AdminTests() {
                       <button onClick={() => setBulkTest(t)} title="Bulk upload questions" className="rounded-lg p-2 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30">
                         <Upload className="h-4 w-4" />
                       </button>
-                      <button onClick={() => setAiTest(t)} title="Generate questions with AI" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30">
+                      <button onClick={() => openTestGenerate(t)} title="Generate questions with AI" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30">
                         <Sparkles className="h-4 w-4" />
                       </button>
-                      <button onClick={() => setImportTest(t)} title="Import questions from web" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30">
+                      <button onClick={() => openTestImport(t)} title="Import questions from web" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30">
                         <Globe className="h-4 w-4" />
                       </button>
                       <button onClick={() => setBankTest(t)} title="Add questions from quizzes / practice (hand-pick)" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30">
@@ -893,41 +923,6 @@ export default function AdminTests() {
         }}
       />
 
-      <AiGenerate
-        open={!!aiTest}
-        title={`Generate with AI${aiTest ? ` — ${aiTest.name}${aiTest._forceSection ? ` (${aiTest._forceSection})` : ""}` : ""}`}
-        sections={sectionsOf(aiTest)}
-        defaultSection={aiTest?._forceSection && aiTest._forceSection !== "__unassigned__" ? aiTest._forceSection : ""}
-        onClose={() => { setAiTest(null); if (qTest) reloadTq(); }}
-        onGenerationStart={() => ({ testSeriesId: aiTest?._id, section: aiTest?._forceSection && aiTest._forceSection !== "__unassigned__" ? aiTest._forceSection : "" })}
-        onUpload={async (questions, opts = {}) => {
-          // A minimized/background generation snapshots its destination (opts.dest)
-          // at start, so a later Insert lands in the SAME test even if you've since
-          // opened another one. Falls back to the currently-open test.
-          const testSeries = opts.dest?.testSeriesId || aiTest?._id;
-          const section = opts.dest?.section ?? opts.section ?? (aiTest?._forceSection && aiTest._forceSection !== "__unassigned__" ? aiTest._forceSection : "");
-          const res = await contentService.bulkQuestions(questions, { testSeries, section });
-          load(); // refresh question counts
-          if (qTest) reloadTq();
-          return res;
-        }}
-      />
-
-      <AiImport
-        open={!!importTest}
-        title={`Import from Web${importTest ? ` — ${importTest.name}${importTest._forceSection ? ` (${importTest._forceSection})` : ""}` : ""}`}
-        sections={sectionsOf(importTest)}
-        defaultSection={importTest?._forceSection && importTest._forceSection !== "__unassigned__" ? importTest._forceSection : ""}
-        onClose={() => { setImportTest(null); if (qTest) reloadTq(); }}
-        onUpload={async (questions, opts = {}) => {
-          const section = opts.section || (importTest?._forceSection && importTest._forceSection !== "__unassigned__" ? importTest._forceSection : "");
-          const res = await contentService.bulkQuestions(questions, { testSeries: importTest._id, section });
-          load();
-          if (qTest) reloadTq();
-          return res;
-        }}
-      />
-
       <PickFromBank
         open={!!bankTest}
         testId={bankTest?._id}
@@ -997,8 +992,8 @@ export default function AdminTests() {
               onCopyCsv={copyCsv}
               onDownloadCsv={(qs) => downloadCsv(qs, qTest?.name || "test")}
               onBulkUpload={(subject) => { setBulkTest({ ...qTest, _forceSection: subject }); }}
-              onAiGenerate={(subject) => { setAiTest({ ...qTest, _forceSection: subject }); }}
-              onImportWeb={(subject) => { setImportTest({ ...qTest, _forceSection: subject }); }}
+              onAiGenerate={(subject) => openTestGenerate({ ...qTest, _forceSection: subject })}
+              onImportWeb={(subject) => openTestImport({ ...qTest, _forceSection: subject })}
               onPickFromBank={(subject) => { setBankTest({ ...qTest, _forceSection: subject }); }}
               onExtendExplanations={() => setExtendTest(qTest)}
               onExtendQuestion={(item) => setExtendOneItem(item)}

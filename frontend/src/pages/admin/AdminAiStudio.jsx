@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
 import { Sparkles, Wand2, Globe, ArrowRight, Layers, Plus, BookOpen } from "lucide-react";
 import { practiceService, contentService, examService, testService } from "../../services";
-import AiGenerate from "../../components/admin/AiGenerate";
-import AiImport from "../../components/admin/AiImport";
 import AiPdfTopics from "../../components/admin/AiPdfTopics";
 import AiSyllabusImport from "../../components/admin/AiSyllabusImport";
+import { useAiModal } from "../../context/AiModalContext";
 
 // A standalone home for AI question generation / import. Pick a destination
 // (like the Migration tool), then Generate or Import questions straight into it.
@@ -186,10 +185,9 @@ export default function AdminAiStudio({ clientMode = false }) {
   // Clients only build their own practice content (My Quiz / My Test); admins
   // get all four destination types.
   const destKeys = clientMode ? ["myquiz", "mytest"] : Object.keys(DESTS);
+  const { openAiGenerate, openAiImport } = useAiModal();
   const [dest, setDest] = useState("myquiz");
   const [sel, setSel] = useState({});
-  const [aiOpen, setAiOpen] = useState(false);
-  const [importOpen, setImportOpen] = useState(false);
   const [pdfTopicsOpen, setPdfTopicsOpen] = useState(false);
   const [syllabusOpen, setSyllabusOpen] = useState(false);
   const [msg, setMsg] = useState("");
@@ -273,10 +271,38 @@ export default function AdminAiStudio({ clientMode = false }) {
         {msg && <p className="mt-4 text-sm font-medium text-emerald-600">{msg}</p>}
 
         <div className="mt-6 flex flex-wrap items-center gap-3">
-          <button onClick={() => { setMsg(""); setAiOpen(true); }} disabled={!ready} className="btn-primary disabled:opacity-50">
+          <button
+            onClick={() => {
+              setMsg("");
+              openAiGenerate({
+                title: `Generate with AI — ${cfg.label}`,
+                onGenerationStart: () => ({ dest, sel: { ...sel } }),
+                onUpload,
+                allowNewTarget: true,
+                newLeafLabel: cfg.newLabel,
+                currentTargetName: currentName,
+              });
+            }}
+            disabled={!ready}
+            className="btn-primary disabled:opacity-50"
+          >
             <Wand2 className="h-4 w-4" /> Generate with AI
           </button>
-          <button onClick={() => { setMsg(""); setImportOpen(true); }} disabled={!ready} className="btn-outline disabled:opacity-50">
+          <button
+            onClick={() => {
+              setMsg("");
+              openAiImport({
+                documents: true,
+                title: `Questions from a source — ${cfg.label}`,
+                onUpload,
+                allowNewTarget: true,
+                newLeafLabel: cfg.newLabel,
+                currentTargetName: currentName,
+              });
+            }}
+            disabled={!ready}
+            className="btn-outline disabled:opacity-50"
+          >
             <Globe className="h-4 w-4" /> From Document / PDF / Web / Text
           </button>
           {cfg.topicAdapter && (
@@ -296,26 +322,6 @@ export default function AdminAiStudio({ clientMode = false }) {
         )}
       </div>
 
-      <AiGenerate
-        open={aiOpen}
-        title={`Generate with AI — ${cfg.label}`}
-        onClose={() => setAiOpen(false)}
-        onGenerationStart={() => ({ dest, sel: { ...sel } })}
-        onUpload={onUpload}
-        allowNewTarget
-        newLeafLabel={cfg.newLabel}
-        currentTargetName={currentName}
-      />
-      <AiImport
-        open={importOpen}
-        documents
-        title={`Questions from a source — ${cfg.label}`}
-        onClose={() => setImportOpen(false)}
-        onUpload={onUpload}
-        allowNewTarget
-        newLeafLabel={cfg.newLabel}
-        currentTargetName={currentName}
-      />
       {cfg.topicAdapter && (
         <AiPdfTopics
           open={pdfTopicsOpen}
