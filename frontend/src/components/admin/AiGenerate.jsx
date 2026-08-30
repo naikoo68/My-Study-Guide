@@ -252,30 +252,6 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
 
   if (!open) return null;
 
-  // Collapsed to a floating pill: generation keeps running in the background
-  // (the component stays mounted) while the rest of the page stays usable.
-  // Restore to review/insert — Insert still targets the snapshotted destination.
-  if (minimized) {
-    const done = !busy && preview.length > 0;
-    return (
-      <div className="fixed bottom-4 right-4 z-50 w-72 max-w-[calc(100vw-2rem)] animate-scale-in rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
-        <div className="flex items-start gap-2.5">
-          <div className={`mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full ${done ? "bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-300" : "bg-brand-100 text-brand-600 dark:bg-brand-900/40 dark:text-brand-300"}`}>
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : done ? <CheckCircle2 className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold">{done ? "Questions ready" : busy ? "Generating…" : "AI generator"}</p>
-            <p className="mt-0.5 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">{done ? `${preview.length} question(s) ready to insert` : (msg || "Working in the background…")}</p>
-          </div>
-        </div>
-        <div className="mt-2.5 flex gap-2">
-          <button onClick={() => setMinimized(false)} className="btn-primary flex-1 py-1 text-xs">{done ? "Open to insert" : "Open"}</button>
-          {busy && <button onClick={stop} className="btn-outline py-1 text-xs !text-rose-600 dark:!text-rose-400"><Square className="h-3.5 w-3.5" /> Stop</button>}
-        </div>
-      </div>
-    );
-  }
-
   // Effective per-batch cap for THIS account — the admin's global limit or the
   // client's assigned plan (reported by /ai/status). Falls back to the default.
   const maxPerBatch = status?.maxPerBatch || MAX_TOTAL;
@@ -732,6 +708,31 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
       setInserting(false);
     }
   };
+
+  // Collapsed to a floating pill: generation keeps running in the background
+  // (the component stays mounted) while the rest of the page stays usable.
+  // Restore to review/insert — Insert still targets the snapshotted destination.
+  // (Placed here — after stop() is defined — to avoid a const TDZ reference.)
+  if (minimized) {
+    const done = !busy && preview.length > 0;
+    return (
+      <div className="fixed bottom-4 right-4 z-50 w-72 max-w-[calc(100vw-2rem)] animate-scale-in rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+        <div className="flex items-start gap-2.5">
+          <div className={`mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full ${done ? "bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-300" : "bg-brand-100 text-brand-600 dark:bg-brand-900/40 dark:text-brand-300"}`}>
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : done ? <CheckCircle2 className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold">{done ? "Questions ready" : busy ? "Generating…" : "AI generator"}</p>
+            <p className="mt-0.5 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">{done ? `${preview.length} question(s) ready to insert` : (msg || "Working in the background…")}</p>
+          </div>
+        </div>
+        <div className="mt-2.5 flex gap-2">
+          <button onClick={() => setMinimized(false)} className="btn-primary flex-1 py-1 text-xs">{done ? "Open to insert" : "Open"}</button>
+          {busy && <button onClick={stop} className="btn-outline py-1 text-xs !text-rose-600 dark:!text-rose-400"><Square className="h-3.5 w-3.5" /> Stop</button>}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-0 sm:p-4">
