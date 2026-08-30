@@ -264,11 +264,12 @@ export default function Home() {
           </div>
           </div>
 
-          {/* Hero boxes for the three products */}
-          <div className="mt-14 grid gap-5 sm:grid-cols-3">
+          {/* Hero boxes for the products */}
+          <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
             {[
               { to: "/choose/quiz", feature: "content", label: "Quizzes", desc: "Subject-wise adaptive quizzes with instant solutions.", Icon: ListChecks, cls: "from-brand-600 to-indigo-600" },
               { to: "/choose/tests", feature: "tests", label: "Test Series", desc: "Full-length & sectional mocks with real exam timing.", Icon: FileText, cls: "from-accent-500 to-orange-600" },
+              { to: "/practice/paper", feature: "previousPapers", label: "Previous Papers", desc: "Practise from previous years' question papers.", Icon: FileStack, cls: "from-violet-600 to-purple-600" },
               { to: "/study", feature: "study", label: "Study Material", desc: "Curated notes, PDFs and resources to revise faster.", Icon: BookMarked, cls: "from-emerald-500 to-teal-600" },
             ].filter((p) => publicFeatureEnabled(settings, p.feature)).map((p) => (
               <Link key={p.to} to={p.to} className="card-hover group relative overflow-hidden p-6">
