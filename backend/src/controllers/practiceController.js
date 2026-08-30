@@ -81,7 +81,30 @@ async function ensureDefaultExam(streamId, owner) {
   return exam._id;
 }
 
+// Self-healing for the My-Quiz "Exam" level: any subjects that still hang
+// directly off a stream (exam == null) — pre-exam data, or content that the
+// one-time boot backfill hasn't touched yet — are adopted into a default
+// "General" exam so they are NEVER hidden behind the exam gate. Their quiz
+// items are tagged with the same exam. Idempotent; scoped to the given owner.
+async function adoptOrphanSubjects(streamId, owner) {
+  if (!streamId) return;
+  const scope = { owner: owner ?? null };
+  const subjects = await PracticeSubject.find({ stream: streamId, ...scope }).select("_id exam").lean();
+  const orphans = subjects.filter((s) => !s.exam);
+  if (!orphans.length) return;
+  const examId = await ensureDefaultExam(streamId, owner);
+  for (const s of orphans) {
+    await PracticeSubject.updateOne({ _id: s._id }, { $set: { exam: examId } });
+    await TestSeries.updateMany(
+      { practice: true, practiceKind: "quiz", practiceSubject: s._id, ...scope },
+      { $set: { practiceExam: examId } }
+    );
+  }
+}
+
 export async function listExams(req, res) {
+  // Make sure pre-exam / not-yet-migrated subjects are visible under an exam.
+  await adoptOrphanSubjects(req.params.streamId, ownerValue(req));
   const exams = await PracticeExam.find({ stream: req.params.streamId, isActive: true, ...ownerFilter(req) }).sort("order name").lean();
   const examIds = exams.map((e) => e._id);
   const subs = await PracticeSubject.aggregate([
@@ -1234,6 +1257,7 @@ export async function browseSubjects(req, res) {
 // first quiz in each topic is free, so every non-empty exam is discoverable).
 export async function browseExams(req, res) {
   const { streamId } = req.params;
+  await adoptOrphanSubjects(streamId, null); // self-heal platform content not yet migrated
   const items = await TestSeries.find({ practice: true, practiceKind: "quiz", status: "published", disabled: { $ne: true }, practiceStream: streamId, owner: null })
     .select("practiceExam")
     .lean();
