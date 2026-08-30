@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { X, Sparkles, Wand2, CheckCircle2, AlertTriangle, Loader2, Server, KeyRound, ListChecks, Circle, Square, Bookmark, Trash2, Globe } from "lucide-react";
+import { X, Minus, Sparkles, Wand2, CheckCircle2, AlertTriangle, Loader2, Server, KeyRound, ListChecks, Circle, Square, Bookmark, Trash2, Globe } from "lucide-react";
 import { aiService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
 import GraphView from "../ui/GraphView";
@@ -50,7 +50,7 @@ const ENGLISH_PRESETS = [
   { label: "Fill in the blanks", text: "Write fill-in-the-blank sentence questions. PREFER sentences with TWO blanks that test commonly-confused words (e.g. affect / effect, its / it's, then / than, principal / principle, complement / compliment, stationary / stationery). Show each blank as ______ (a run of underscores) inside the sentence. All 4 options must be PAIRS of words in the SAME order as the blanks, written as 'word1 / word2' (e.g. 'affect / effect'); exactly ONE pair fills both blanks correctly and the other three are plausible swaps. If a sentence has a single blank, the 4 options are single words instead. In the explanation, give the meaning/rule for each word and say why the correct pair fits and the others don't." },
 ];
 
-export default function AiGenerate({ open, onClose, onUpload, title = "Generate Questions with AI", sections = [], subjectName = "", existingQuestions = [], defaultSection = "", allowNewTarget = false, newLeafLabel = "quiz", currentTargetName = "", existingItems = [], defaultTopic = "", defaultSubtopics = "", defaultDest = "current", coverageQuestions = [] }) {
+export default function AiGenerate({ open, onClose, onUpload, title = "Generate Questions with AI", sections = [], subjectName = "", existingQuestions = [], defaultSection = "", allowNewTarget = false, newLeafLabel = "quiz", currentTargetName = "", existingItems = [], defaultTopic = "", defaultSubtopics = "", defaultDest = "current", coverageQuestions = [], onGenerationStart = null }) {
   const { user } = useAuth();
   // Clients granted BOTH sources may pick which one this generation uses.
   const isClient = user?.role === "client" && user?.aiAccess;
@@ -84,6 +84,9 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
   const stopRef = useRef(false); // set when the user clicks Stop — breaks/short-circuits the poll loop
   const pendingDoneRef = useRef([]); // subtopics queued (via "Use selected") to hide after the next Generate
   const [inserting, setInserting] = useState(false);
+  const [minimized, setMinimized] = useState(false); // collapsed to a floating pill — keeps generating in the background
+  const destSnapRef = useRef(null); // { subjectId, sessionId, quizId } captured at generation start, so a later Insert lands in the RIGHT place even after browsing away
+  const wasBusyRef = useRef(false); // to detect the busy→idle transition (generation finished) for the completion notice
   const [msg, setMsg] = useState("");
   const [keyStats, setKeyStats] = useState(null); // live per-key activity this run { label: {requests,ok,limited,error,questions} }
   const [liveWave, setLiveWave] = useState({}); // in-progress wave's per-bucket "have" counts { "type|difficulty": n }
@@ -167,6 +170,8 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
     if (!open) return;
     setMsg("");
     setPreview([]);
+    setMinimized(false); // always (re)open expanded, never as the collapsed pill
+    destSnapRef.current = null; // fresh destination for this session
     setCoverage(null);
     setCoverageLoading(false);
     setSyllabus(null);
@@ -230,7 +235,46 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, topic]);
 
+  // When a generation FINISHES while the panel is minimized, nudge the user with
+  // a browser notification (best-effort). The floating pill also flips to a
+  // "ready" state on its own. Tracks the busy → idle edge.
+  useEffect(() => {
+    const justFinished = wasBusyRef.current && !busy;
+    wasBusyRef.current = busy;
+    if (justFinished && minimized && preview.length) {
+      try {
+        if ("Notification" in window && Notification.permission === "granted") {
+          new Notification("Questions ready", { body: `${preview.length} question(s) generated — open to insert.` });
+        }
+      } catch { /* notifications are best-effort */ }
+    }
+  }, [busy, minimized, preview.length]);
+
   if (!open) return null;
+
+  // Collapsed to a floating pill: generation keeps running in the background
+  // (the component stays mounted) while the rest of the page stays usable.
+  // Restore to review/insert — Insert still targets the snapshotted destination.
+  if (minimized) {
+    const done = !busy && preview.length > 0;
+    return (
+      <div className="fixed bottom-4 right-4 z-50 w-72 max-w-[calc(100vw-2rem)] animate-scale-in rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+        <div className="flex items-start gap-2.5">
+          <div className={`mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full ${done ? "bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-300" : "bg-brand-100 text-brand-600 dark:bg-brand-900/40 dark:text-brand-300"}`}>
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : done ? <CheckCircle2 className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold">{done ? "Questions ready" : busy ? "Generating…" : "AI generator"}</p>
+            <p className="mt-0.5 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">{done ? `${preview.length} question(s) ready to insert` : (msg || "Working in the background…")}</p>
+          </div>
+        </div>
+        <div className="mt-2.5 flex gap-2">
+          <button onClick={() => setMinimized(false)} className="btn-primary flex-1 py-1 text-xs">{done ? "Open to insert" : "Open"}</button>
+          {busy && <button onClick={stop} className="btn-outline py-1 text-xs !text-rose-600 dark:!text-rose-400"><Square className="h-3.5 w-3.5" /> Stop</button>}
+        </div>
+      </div>
+    );
+  }
 
   // Effective per-batch cap for THIS account — the admin's global limit or the
   // client's assigned plan (reported by /ai/status). Falls back to the default.
@@ -361,6 +405,12 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
     const plan = buildPlan();
     if (!plan.length) { setMsg("Set at least one question count in the grid below."); return; }
     if (total > maxPerBatch) { setMsg(`Please keep the total to ${maxPerBatch} questions or fewer per batch.`); return; }
+    // Snapshot the destination for THIS batch (on a fresh run) so that, if the
+    // user minimizes and browses to another topic/quiz while it generates, the
+    // eventual Insert still lands where the generation was started.
+    if (!append && onGenerationStart) {
+      try { const snap = onGenerationStart(); destSnapRef.current = snap || null; } catch { destSnapRef.current = null; }
+    }
     setBusy(true);
     setStopping(false);
     stopRef.current = false;
@@ -664,6 +714,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
       const opts = { section, topic: topic.trim(), subtopics: subtopics.trim() };
       if (makingNew) opts.newTarget = { name: newName.trim() };
       else if (usingExisting) opts.existingTargetId = existingId;
+      if (destSnapRef.current) opts.dest = destSnapRef.current; // insert where the batch was started, not wherever we've since navigated
       const res = await onUpload(preview, opts);
       const where = makingNew ? ` into new ${newLeafLabel} “${newName.trim()}”` : usingExisting ? ` into “${existingName}”` : "";
       setMsg(`✓ Inserted ${res?.inserted ?? preview.length} question(s)${where}. Generate the next batch, or click Close when you're done.`);
@@ -689,7 +740,20 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
           <h3 className="flex items-center gap-2 text-lg font-bold">
             <Sparkles className="h-5 w-5 text-brand-600" /> {title}
           </h3>
-          <button type="button" onClick={onClose}><X className="h-5 w-5" /></button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              title="Minimize — keep generating in the background while you work; you'll be notified when it's ready to insert"
+              onClick={() => {
+                try { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {}); } catch { /* ignore */ }
+                setMinimized(true);
+              }}
+              className="rounded-lg p-1 text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              <Minus className="h-5 w-5" />
+            </button>
+            <button type="button" onClick={onClose} title="Close"><X className="h-5 w-5" /></button>
+          </div>
         </div>
 
         {/* Per-generation API source (clients allowed both pools). Kept above the

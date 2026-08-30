@@ -399,18 +399,25 @@ export default function AdminContent() {
   // session and insert the batch there; later batches then default to that new
   // quiz. Otherwise the batch goes into the quiz currently open.
   const saveAiBatch = async (questions, opts = {}) => {
-    let quizId = aiTarget?.id || quiz?._id;
+    // A minimized/background generation snapshots its destination at start
+    // (opts.dest), so inserting later lands in the RIGHT topic even if you've
+    // since browsed elsewhere. Falls back to the currently-open destination.
+    const dest = opts.dest || {};
+    const subjId = dest.subjectId || subject?._id;
+    const sessId = dest.sessionId || session?._id;
+    let quizId = dest.quizId || aiTarget?.id || quiz?._id;
     if (opts.newTarget) {
       const title = String(opts.newTarget.name || "").trim();
       if (!title) throw new Error("Enter a name for the new quiz.");
-      const created = await contentService.createQuiz({ title, subject: subject._id, session: session._id });
+      if (!subjId || !sessId) throw new Error("Lost the destination — reopen the generator from the topic.");
+      const created = await contentService.createQuiz({ title, subject: subjId, session: sessId });
       if (!created?._id) throw new Error("Could not create the new quiz.");
       quizId = created._id;
       setAiTarget({ id: quizId, title }); // subsequent batches target the new quiz
     }
     const res = await contentService.bulkQuestions(questions, {
-      subject: subject._id,
-      session: session._id,
+      subject: subjId,
+      session: sessId,
       quiz: quizId,
     });
     // Remember the topic/subtopics on the quiz so reopening the generator
@@ -1382,6 +1389,7 @@ export default function AdminContent() {
         defaultDest={aiTopicLevel ? "new" : "current"}
         coverageQuestions={topicStems}
         subjectName={subject?.name || ""}
+        onGenerationStart={() => ({ subjectId: subject?._id, sessionId: session?._id, quizId: aiTarget?.id || quiz?._id })}
         onUpload={(questions, opts = {}) => saveAiBatch(questions, opts)}
       />
 
