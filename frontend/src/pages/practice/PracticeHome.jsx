@@ -1,15 +1,18 @@
 import { Link } from "react-router-dom";
 import { ListChecks, Globe, ArrowRight } from "lucide-react";
 import { useSeo } from "../../lib/useSeo";
+import { useSettings } from "../../context/SettingsContext";
+import { publicFeatureEnabled } from "../../lib/features";
 
 // "Practice Quizzes" landing — My Quiz + Public Quizzes. (My Test lives under
 // Explore Test Series → My Tests, so it's not duplicated here.)
 export default function PracticeHome() {
   useSeo("Practice Questions & Tests", "Practise questions, quizzes, tests and previous papers with instant solutions and progress tracking on My Study Guide.");
+  const { settings } = useSettings();
   const cards = [
-    { to: "/practice/quiz", label: "My Quiz", desc: "Curated practice quizzes shared with you.", Icon: ListChecks, cls: "from-violet-500 to-fuchsia-600" },
-    { to: "/public-quizzes", label: "Public Quizzes", desc: "Everyone's subject-wise quizzes with instant, detailed solutions.", Icon: Globe, cls: "from-emerald-500 to-teal-600" },
-  ];
+    { to: "/practice/quiz", label: "My Quiz", desc: "Curated practice quizzes shared with you.", Icon: ListChecks, cls: "from-violet-500 to-fuchsia-600", feature: "practiceQuiz" },
+    { to: "/public-quizzes", label: "Public Quizzes", desc: "Everyone's subject-wise quizzes with instant, detailed solutions.", Icon: Globe, cls: "from-emerald-500 to-teal-600", feature: "content" },
+  ].filter((c) => publicFeatureEnabled(settings, c.feature));
   return (
     <div className="container-page py-12">
       <div className="mx-auto max-w-2xl text-center">

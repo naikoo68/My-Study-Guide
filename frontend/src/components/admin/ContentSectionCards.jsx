@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { ChevronRight, Loader2 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { useSettings } from "../../context/SettingsContext";
+import { publicFeatureEnabled } from "../../lib/features";
 
 // Reusable card grid for the "Manage Content" section pages (Manage Content,
 // Public Practice, My Practice). Each card links to a section (or a sub-folder)
@@ -38,7 +39,9 @@ export default function ContentSectionCards({ cards }) {
     return feats.length ? feats.some(adminOn) : true;
   };
   // The public switch is ON only when ALL of a card's features are public-on.
-  const publicOn = (c) => featsOf(c).every((f) => publicFlags[f] !== false);
+  // Uses publicFeatureEnabled so per-kind practice flags (and their legacy
+  // fallback) resolve the same way they do on the public site.
+  const publicOn = (c) => featsOf(c).every((f) => publicFeatureEnabled(settings, f));
 
   const toggle = async (c) => {
     const feats = featsOf(c);
