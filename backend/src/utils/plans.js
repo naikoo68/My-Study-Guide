@@ -1,4 +1,36 @@
 import Settings from "../models/Settings.js";
+import Tenant from "../models/Tenant.js";
+import { getCurrentTenantId, runUnscoped } from "./tenantContext.js";
+
+// Resolve the SAME "site" Settings record the admin panel reads & writes
+// (mirrors settingsController.findSite: current tenant → default tenant →
+// legacy null-tenant → any), running UNSCOPED so the tenant plugin can't
+// silently redirect the read to a different record.
+//
+// Why this exists: with TENANT_ENFORCEMENT=on and MORE THAN ONE "site" record
+// (e.g. a legacy null-tenant doc plus a default-tenant doc after the Oracle
+// migration), a naive `Settings.findOne({ key: "site" })` could match the WRONG
+// record — one with no plans — and wrongly fall back to the built-in defaults.
+// That made admin-saved plans never appear on the public pricing/registration
+// pages no matter what was saved. Reading the exact record the admin writes to
+// fixes that.
+async function findSiteSettings(select) {
+  const tid = getCurrentTenantId(); // capture BEFORE unscoping (runUnscoped nulls it)
+  return runUnscoped(async () => {
+    if (tid) {
+      const s = await Settings.findOne({ key: "site", tenantId: tid }).select(select).lean();
+      if (s) return s;
+    }
+    const def = await Tenant.findOne({ isDefault: true }).select("_id").lean();
+    if (def) {
+      const s = await Settings.findOne({ key: "site", tenantId: def._id }).select(select).lean();
+      if (s) return s;
+    }
+    const legacy = await Settings.findOne({ key: "site", tenantId: null }).select(select).lean();
+    if (legacy) return legacy;
+    return Settings.findOne({ key: "site" }).select(select).lean();
+  });
+}
 
 // Default client subscription plans (used until an admin edits them in the
 // panel). Each plan carries BOTH its pricing (label/months/price) AND its AI
@@ -37,7 +69,7 @@ export const DEFAULT_TENANT_PLANS = [
 // The admin-managed client plans (from Settings), or the defaults if none saved.
 export async function getClientPlans() {
   try {
-    const s = await Settings.findOne({ key: "site" }).select("clientPlans").lean();
+    const s = await findSiteSettings("clientPlans");
     if (Array.isArray(s?.clientPlans) && s.clientPlans.length) return s.clientPlans;
   } catch {
     /* fall through to defaults */
@@ -48,7 +80,7 @@ export async function getClientPlans() {
 // The admin-managed student plans (from Settings), or the defaults if none saved.
 export async function getStudentPlans() {
   try {
-    const s = await Settings.findOne({ key: "site" }).select("studentPlans").lean();
+    const s = await findSiteSettings("studentPlans");
     if (Array.isArray(s?.studentPlans) && s.studentPlans.length) return s.studentPlans;
   } catch {
     /* fall through to defaults */
@@ -59,7 +91,7 @@ export async function getStudentPlans() {
 // The admin-managed institute (tenant) plans (from Settings), or the defaults.
 export async function getTenantPlans() {
   try {
-    const s = await Settings.findOne({ key: "site" }).select("tenantPlans").lean();
+    const s = await findSiteSettings("tenantPlans");
     if (Array.isArray(s?.tenantPlans) && s.tenantPlans.length) return s.tenantPlans;
   } catch {
     /* fall through to defaults */
