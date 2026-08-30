@@ -53,8 +53,17 @@ export default function Footer({ hideProduct = false }) {
   // pushed to the public website's content. Also drop any link whose feature was
   // turned off in Admin → Features, and any column left empty.
   const dropProduct = hideProduct || user?.role === "client";
+  const loggedIn = !!user;
   const visibleColumns = (dropProduct ? columns.filter((c) => c.title !== "Product") : columns)
-    .map((c) => ({ ...c, links: c.links.filter((l) => publicFeatureEnabled(settings, l.feature)) }))
+    .map((c) => ({
+      ...c,
+      links: c.links.filter(
+        (l) =>
+          publicFeatureEnabled(settings, l.feature) &&
+          // A logged-in user shouldn't see the "Login" link.
+          !(loggedIn && l.to === "/login")
+      ),
+    }))
     .filter((c) => c.links.length > 0);
 
   // Brand block (logo, tagline, social icons) — shared by both layouts.

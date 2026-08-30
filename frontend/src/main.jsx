@@ -27,7 +27,20 @@ if (typeof window !== 'undefined') {
 // Register the PWA service worker (installable app + offline shell). Kept
 // out of the render path and failure-tolerant so it never blocks the app.
 if ('serviceWorker' in navigator) {
+  // Remember whether a SW already controlled this page BEFORE registering, so we
+  // can tell a genuine UPDATE (existing app got a new deploy) apart from the
+  // very first install (nothing to reload for).
+  const hadController = !!navigator.serviceWorker.controller
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch(() => {})
+  })
+  // When a freshly-deployed service worker takes control, reload ONCE so the app
+  // runs the new assets instead of a stale cached bundle. Without this, a PWA
+  // client can keep serving an old build long after a deploy.
+  let reloaded = false
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloaded || !hadController) return
+    reloaded = true
+    window.location.reload()
   })
 }
