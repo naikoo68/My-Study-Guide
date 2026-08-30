@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ShieldCheck, Loader2, AlertCircle, CheckCircle2, RefreshCw } from "lucide-react";
+import { ShieldCheck, Loader2, AlertCircle, CheckCircle2, RefreshCw, MailWarning } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 
 // Reusable 6-digit OTP verification step. Used after registration and when an
@@ -67,6 +67,16 @@ export default function OtpVerify({ email, devOtp: initialDevOtp, emailSent, aut
           Enter the 6-digit code we sent to <span className="font-semibold">{email}</span>.
         </p>
       </div>
+
+      {!devOtp && emailSent !== false && (
+        <div className="mb-4 flex items-start gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800 dark:border-sky-900/50 dark:bg-sky-900/20 dark:text-sky-200">
+          <MailWarning className="mt-0.5 h-4 w-4 flex-shrink-0" />
+          <span>
+            Didn't get the code? Check your <b>Spam</b> or <b>Promotions</b> folder — it can take a
+            minute to arrive. Then tap <b>Resend code</b> below.
+          </span>
+        </div>
+      )}
 
       {devOtp && (
         <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200">
