@@ -52,7 +52,7 @@ export default function StreamsIndex() {
           {streams.map((s) => (
             <Link
               key={s._id}
-              to={s.slug ? `/streams/${s.slug}` : "/quiz"}
+              to={s.slug ? `/streams/${s.slug}` : "/public-quizzes"}
               className="card p-5 transition hover:-translate-y-0.5 hover:shadow-lg"
             >
               <h2 className="font-bold">{s.name}</h2>

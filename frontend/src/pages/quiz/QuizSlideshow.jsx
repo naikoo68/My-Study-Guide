@@ -49,7 +49,7 @@ export default function QuizSlideshow() {
       questions={questions}
       quizTitle={quizTitle}
       crumb={crumb}
-      backTo={`/quiz/${subjectId}/${topicId}/${sessionId}`}
+      backTo={`/public-quizzes/${subjectId}/${topicId}/${sessionId}`}
     />
   );
 }

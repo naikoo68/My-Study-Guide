@@ -20,7 +20,7 @@ const MODES = {
         desc: "Your own quizzes — the ones you built or that were shared with you.",
       },
       {
-        to: "/quiz",
+        to: "/public-quizzes",
         feature: "content",
         Icon: BookOpen,
         color: "from-emerald-500 to-teal-600",
@@ -80,7 +80,7 @@ const MODES = {
         desc: "Your own test series that you created or received.",
       },
       {
-        to: "/test-series",
+        to: "/public-test-series",
         feature: "tests",
         Icon: Trophy,
         color: "from-amber-500 to-orange-600",

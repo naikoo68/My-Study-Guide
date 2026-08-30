@@ -365,7 +365,7 @@ export default function Home() {
             <p className="mt-2 text-sm text-white/90">
               Jump into a free quiz right now — no signup required.
             </p>
-            <Link to="/quiz" className="mt-4 inline-flex w-fit items-center gap-2 rounded-xl bg-white px-5 py-2.5 text-sm font-semibold text-brand-700 transition hover:bg-slate-100">
+            <Link to="/public-quizzes" className="mt-4 inline-flex w-fit items-center gap-2 rounded-xl bg-white px-5 py-2.5 text-sm font-semibold text-brand-700 transition hover:bg-slate-100">
               Take a Quiz <ArrowRight className="h-4 w-4" />
             </Link>
           </div>

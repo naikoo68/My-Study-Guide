@@ -14,8 +14,8 @@ import { publicFeatureEnabled } from "../../lib/features";
 // public switch is off, the link is hidden from the navbar (no feature = shown).
 const links = [
   { to: "/", label: "Home", end: true },
-  { to: "/quiz", label: "Public Quizzes", feature: "content" },
-  { to: "/test-series", label: "Public Test Series", feature: "tests" },
+  { to: "/public-quizzes", label: "Public Quizzes", feature: "content" },
+  { to: "/public-test-series", label: "Public Test Series", feature: "tests" },
   { to: "/practice", label: "My Practice", feature: "practice" },
   { to: "/study", label: "Study Material", feature: "study" },
   { to: "/pricing", label: "Pricing" },
@@ -41,7 +41,7 @@ export default function Navbar() {
   const visibleLinks = isClient
     ? [{ to: "/creator", label: "My Practice", end: true }]
     : user && user.quizAccess === false
-    ? featLinks.filter((l) => l.to !== "/quiz")
+    ? featLinks.filter((l) => l.to !== "/public-quizzes")
     : featLinks;
   const homeTo = isClient ? "/creator" : "/";
 

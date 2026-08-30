@@ -973,8 +973,8 @@ export default function AdminContent() {
   const sharePath = (item) => {
     if (view === "streams") return item.slug ? `/streams/${item.slug}` : null;
     if (view === "subjects") return item.slug ? `/subjects/${item.slug}` : null;
-    if (view === "topics") return subject ? `/quiz/${subject._id}/${item._id}` : null;
-    if (view === "quizzes") return subject && topic && session ? `/quiz/${subject._id}/${topic._id}/${session._id}/${item._id}` : null;
+    if (view === "topics") return subject ? `/public-quizzes/${subject._id}/${item._id}` : null;
+    if (view === "quizzes") return subject && topic && session ? `/public-quizzes/${subject._id}/${topic._id}/${session._id}/${item._id}` : null;
     return null;
   };
   const shareLink = async (item) => {

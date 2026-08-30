@@ -89,8 +89,8 @@ export default function SubjectLanding() {
       )}
 
       <div className="mt-6 flex flex-wrap gap-3">
-        <Link to={`/quiz/${subject._id}`} className="btn-primary"><BookOpen className="h-4 w-4" /> Start {subject.name} quizzes <ArrowRight className="h-4 w-4" /></Link>
-        <Link to="/test-series" className="btn-outline"><FileStack className="h-4 w-4" /> Public test series</Link>
+        <Link to={`/public-quizzes/${subject._id}`} className="btn-primary"><BookOpen className="h-4 w-4" /> Start {subject.name} quizzes <ArrowRight className="h-4 w-4" /></Link>
+        <Link to="/public-test-series" className="btn-outline"><FileStack className="h-4 w-4" /> Public test series</Link>
         <Link to="/study" className="btn-outline"><BookMarked className="h-4 w-4" /> Study material</Link>
       </div>
 
@@ -101,7 +101,7 @@ export default function SubjectLanding() {
             {topics.map((t) => (
               <Link
                 key={t._id}
-                to={`/quiz/${subject._id}/${t._id}`}
+                to={`/public-quizzes/${subject._id}/${t._id}`}
                 className="card flex items-center justify-between gap-2 p-4 transition hover:-translate-y-0.5 hover:shadow-md"
               >
                 <span className="font-medium">{t.title}</span>

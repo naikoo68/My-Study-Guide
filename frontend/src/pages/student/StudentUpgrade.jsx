@@ -183,7 +183,7 @@ export default function StudentUpgrade({ onClose }) {
           </p>
           <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-center">
             <Link to="/dashboard" className="btn-primary">Go to Dashboard <ArrowRight className="h-4 w-4" /></Link>
-            <Link to="/test-series" className="btn-outline">Browse test-series</Link>
+            <Link to="/public-test-series" className="btn-outline">Browse test-series</Link>
           </div>
         </div>
       </div>

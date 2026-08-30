@@ -147,6 +147,18 @@ const router = createBrowserRouter([
       { path: "/review", element: S(WriteReview) },
 
       { path: "/choose/:mode", element: S(ChooseMode) },
+      // Public Quizzes browse. Canonical URLs are /public-quizzes/*; the old
+      // /quiz/* paths are kept as working aliases (same components) so existing
+      // bookmarks, shared links and SEO never break.
+      { path: "/public-quizzes", element: S(QuizHome) },
+      { path: "/public-quizzes/stream/:streamId", element: S(StreamSubjects) },
+      { path: "/public-quizzes/:subjectId", element: S(SubjectTopics) },
+      { path: "/public-quizzes/:subjectId/:topicId", element: S(TopicSessions) },
+      { path: "/public-quizzes/:subjectId/:topicId/:sessionId", element: S(SessionQuizzes) },
+      { path: "/public-quizzes/:subjectId/:topicId/:sessionId/:quizId", element: <StudentGate>{S(QuizPlay)}</StudentGate> },
+      { path: "/public-quizzes/:subjectId/:topicId/:sessionId/:quizId/result", element: S(QuizResult) },
+      { path: "/public-quizzes/:subjectId/:topicId/:sessionId/:quizId/slideshow", element: <ProtectedRoute role={["admin"]}>{S(QuizSlideshow)}</ProtectedRoute> },
+
       { path: "/quiz", element: S(QuizHome) },
       { path: "/quiz/stream/:streamId", element: S(StreamSubjects) },
       { path: "/quiz/:subjectId", element: S(SubjectTopics) },
@@ -161,6 +173,12 @@ const router = createBrowserRouter([
       // Slideshow / presentation mode — auto-advancing question → answer player
       // meant for screen-recording (e.g. YouTube). Admin-only.
       { path: "/quiz/:subjectId/:topicId/:sessionId/:quizId/slideshow", element: <ProtectedRoute role={["admin"]}>{S(QuizSlideshow)}</ProtectedRoute> },
+
+      // Public Test Series browse. Canonical /public-test-series/*; old
+      // /test-series/* kept as working aliases.
+      { path: "/public-test-series", element: S(TestExams) },
+      { path: "/public-test-series/:examId", element: S(ExamPosts) },
+      { path: "/public-test-series/:examId/:postId", element: S(PostTests) },
 
       { path: "/test-series", element: S(TestExams) },
       { path: "/test-series/:examId", element: S(ExamPosts) },
@@ -227,6 +245,10 @@ const router = createBrowserRouter([
 
   // Full-screen test interface (outside main layout). Gated: attempting a
   // test-series requires an active student subscription (admins/clients pass).
+  {
+    path: "/public-test-series/attempt/:testId",
+    element: <ProtectedRoute><StudentGate>{S(TestAttempt)}</StudentGate></ProtectedRoute>,
+  },
   {
     path: "/test-series/attempt/:testId",
     element: <ProtectedRoute><StudentGate>{S(TestAttempt)}</StudentGate></ProtectedRoute>,

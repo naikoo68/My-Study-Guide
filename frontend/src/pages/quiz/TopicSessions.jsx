@@ -73,7 +73,7 @@ export default function TopicSessions() {
 
   return (
     <div className="container-page py-12">
-      <Link to={`/quiz/${subjectId}`} className="btn-ghost mb-6 -ml-2 w-fit">
+      <Link to={`/public-quizzes/${subjectId}`} className="btn-ghost mb-6 -ml-2 w-fit">
         <ChevronLeft className="h-4 w-4" /> Back to topics
       </Link>
 
@@ -127,7 +127,7 @@ export default function TopicSessions() {
           {sessions.map((s, i) => (
             <Link
               key={s._id}
-              to={`/quiz/${subjectId}/${topicId}/${s._id}`}
+              to={`/public-quizzes/${subjectId}/${topicId}/${s._id}`}
               style={{ animationDelay: `${i * 50}ms` }}
               className="card-hover animate-fade-in-up flex flex-col p-6 opacity-0"
             >

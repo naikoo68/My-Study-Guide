@@ -37,7 +37,7 @@ export default function TestExams() {
           {exams.map((ex, i) => (
             <Link
               key={ex._id}
-              to={`/test-series/${ex._id}`}
+              to={`/public-test-series/${ex._id}`}
               style={{ animationDelay: `${i * 40}ms` }}
               className="card-hover flex animate-fade-in-up items-center gap-4 p-6 opacity-0"
             >

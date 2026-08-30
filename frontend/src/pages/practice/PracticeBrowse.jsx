@@ -72,11 +72,11 @@ export default function PracticeBrowse() {
     // My Test Series → full test interface (timed, submit at end). The FIRST
     // test in each subject is FREE for everyone; the rest need login+subscription.
     if (item.freePreview) {
-      return navigate(user ? `/test-series/attempt/${item._id}` : `/practice/test/free/${item._id}`);
+      return navigate(user ? `/public-test-series/attempt/${item._id}` : `/practice/test/free/${item._id}`);
     }
     if (!user) return navigate("/login");
     if (item.locked) return navigate("/pricing");
-    navigate(`/test-series/attempt/${item._id}`);
+    navigate(`/public-test-series/attempt/${item._id}`);
   };
 
   return (

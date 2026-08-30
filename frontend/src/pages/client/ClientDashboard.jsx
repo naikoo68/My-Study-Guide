@@ -211,7 +211,7 @@ export default function ClientDashboard({ onBuild, onUpgrade }) {
 
   const play = (item) => {
     if (item.kind === "quiz") navigate(`/practice/quiz/play/${item._id}`);
-    else navigate(`/test-series/attempt/${item._id}`);
+    else navigate(`/public-test-series/attempt/${item._id}`);
   };
 
   // Load questions (with answers) for the paper/answer-key download — the client

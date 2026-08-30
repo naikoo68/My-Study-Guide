@@ -22,7 +22,7 @@ export default function PostTests() {
   const [error, setError] = useState("");
 
   const crumbs = post
-    ? [{ label: "Home", to: "/" }, { label: "Public Test Series", to: "/test-series" }, { label: post.name }]
+    ? [{ label: "Home", to: "/" }, { label: "Public Test Series", to: "/public-test-series" }, { label: post.name }]
     : [];
   useSeo(
     post ? `${post.name} — Mock Tests` : "Public Test Series",
@@ -51,7 +51,7 @@ export default function PostTests() {
   return (
     <div className="container-page py-12">
       {crumbs.length > 0 && <Breadcrumbs items={crumbs} />}
-      <Link to={`/test-series/${examId}`} className="btn-ghost mb-6 -ml-2 w-fit">
+      <Link to={`/public-test-series/${examId}`} className="btn-ghost mb-6 -ml-2 w-fit">
         <ChevronLeft className="h-4 w-4" /> Back to posts
       </Link>
 
@@ -97,7 +97,7 @@ export default function PostTests() {
           {filtered.map((t, i) => (
             <div
               key={t._id}
-              onClick={() => navigate(user ? `/test-series/attempt/${t._id}` : "/login")}
+              onClick={() => navigate(user ? `/public-test-series/attempt/${t._id}` : "/login")}
               style={{ animationDelay: `${i * 40}ms` }}
               className="card-hover flex animate-fade-in-up cursor-pointer flex-col p-6 opacity-0"
             >

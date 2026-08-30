@@ -72,14 +72,14 @@ export default function StreamLanding() {
       <h2 className="mt-8 text-xl font-bold">Subjects in {stream.name}</h2>
       {subjects.length === 0 ? (
         <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
-          Subjects are being added. Meanwhile, <Link to="/quiz" className="text-brand-600 hover:underline dark:text-brand-400">browse all quizzes</Link>.
+          Subjects are being added. Meanwhile, <Link to="/public-quizzes" className="text-brand-600 hover:underline dark:text-brand-400">browse all quizzes</Link>.
         </p>
       ) : (
         <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {subjects.map((s) => (
             <Link
               key={s._id}
-              to={s.slug ? `/subjects/${s.slug}` : `/quiz/${s._id}`}
+              to={s.slug ? `/subjects/${s.slug}` : `/public-quizzes/${s._id}`}
               className="card p-5 transition hover:-translate-y-0.5 hover:shadow-lg"
             >
               <h3 className="font-bold">{s.name}</h3>

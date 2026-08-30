@@ -18,7 +18,7 @@ const GROUPS = {
     Icon: GraduationCap,
     intro: "Everything you need to know about quizzes, test series, subjects, results and preparing for your exams with My Study Guide.",
     ctas: [
-      { label: "Browse quizzes", to: "/quiz", primary: true },
+      { label: "Browse quizzes", to: "/public-quizzes", primary: true },
       { label: "See student pricing", to: "/pricing" },
     ],
   },
