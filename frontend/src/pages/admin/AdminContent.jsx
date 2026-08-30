@@ -113,6 +113,7 @@ export default function AdminContent() {
   const [migrateQuiz, setMigrateQuiz] = useState(null); // quiz being moved/copied to another session (Migrate)
   const [topicStems, setTopicStems] = useState([]); // all question stems in the current topic → powers AI "Missing areas" coverage
   const [delProgress, setDelProgress] = useState(null); // real-time bulk-delete progress: { total, done, finished? }
+  const [bulkAddBusy, setBulkAddBusy] = useState(null); // live auto-add progress: { done, total, added, kind: "subject"|"topic" }
   const [search, setSearch] = useState(""); // question search query
 
   const toggleSelect = (id) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
@@ -461,6 +462,7 @@ export default function AdminContent() {
     if (!list?.length || !stream?._id) return;
     setSaving(true);
     setError("");
+    setBulkAddBusy({ done: 0, total: list.length, added: 0, kind: "subject" }); // live counter
     try {
       let added = 0;
       const failed = [];
@@ -477,6 +479,8 @@ export default function AdminContent() {
         } catch (e) {
           failed.push(`${s.name} — ${e.message}`);
         }
+        // Update the live "Added X of Y" counter after every attempt.
+        setBulkAddBusy((p) => (p ? { ...p, done: p.done + 1, added } : p));
       }
       setModal(null);
       load(view);
@@ -487,6 +491,7 @@ export default function AdminContent() {
       setError(e.message);
     } finally {
       setSaving(false);
+      setBulkAddBusy(null);
     }
   };
 
@@ -498,6 +503,7 @@ export default function AdminContent() {
     if (!list?.length || !subject?._id) return;
     setSaving(true);
     setError("");
+    setBulkAddBusy({ done: 0, total: list.length, added: 0, kind: "topic" }); // live counter
     try {
       let added = 0;
       const failed = [];
@@ -515,6 +521,8 @@ export default function AdminContent() {
         } catch (e) {
           failed.push(`${t.name || t.title} — ${e.message}`);
         }
+        // Update the live "Added X of Y" counter after every attempt.
+        setBulkAddBusy((p) => (p ? { ...p, done: p.done + 1, added } : p));
       }
       setModal(null);
       load(view);
@@ -525,6 +533,7 @@ export default function AdminContent() {
       setError(e.message);
     } finally {
       setSaving(false);
+      setBulkAddBusy(null);
     }
   };
 
@@ -990,6 +999,7 @@ export default function AdminContent() {
           streamName={stream?.name}
           subjectName={subject?.name}
           saving={saving}
+          bulkProgress={bulkAddBusy}
           onClose={() => setModal(null)}
           onSave={save}
           onBulkSave={bulkSaveSubjects}
@@ -1300,7 +1310,7 @@ export default function AdminContent() {
 }
 
 /* ---------------- Form modal (adapts to subject/topic/session/question) ---------------- */
-function FormModal({ modal, streamName, subjectName, saving, onClose, onSave, onBulkSave, onBulkSaveTopics, onAiSuggest, onAiSuggestTopics }) {
+function FormModal({ modal, streamName, subjectName, saving, bulkProgress, onClose, onSave, onBulkSave, onBulkSaveTopics, onAiSuggest, onAiSuggestTopics }) {
   const { type, mode, data } = modal;
   // Bulk-add picker: search suggested subjects (under a stream) or topics (under
   // a subject), tick several to add them all at once, or type a single custom
@@ -1412,9 +1422,13 @@ function FormModal({ modal, streamName, subjectName, saving, onClose, onSave, on
             <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <span className="text-sm font-semibold">Add {nounPlural} for {staticSuggest.streamLabel || parentName || `this ${parentKind}`}</span>
-                {picked.length > 0 && (
+                {bulkProgress ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                    <Loader2 className="h-3 w-3 animate-spin" /> Added {bulkProgress.added} of {bulkProgress.total}
+                  </span>
+                ) : picked.length > 0 ? (
                   <span className="rounded-full bg-brand-100 px-2 py-0.5 text-xs font-semibold text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">{picked.length} selected</span>
-                )}
+                ) : null}
               </div>
               <div className="mb-2 flex gap-2">
                 <div className="relative flex-1">
@@ -1533,7 +1547,11 @@ function FormModal({ modal, streamName, subjectName, saving, onClose, onSave, on
           <button type="button" onClick={onClose} className="btn-outline">Cancel</button>
           {bulkMode ? (
             <button type="button" disabled={saving} className="btn-primary" onClick={() => bulkSaveFn(picked)}>
-              {saving ? "Adding…" : `Add ${picked.length} ${noun}${picked.length === 1 ? "" : "s"}`}
+              {bulkProgress ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> Added {bulkProgress.added} of {bulkProgress.total} {noun}{bulkProgress.total === 1 ? "" : "s"}…</>
+              ) : (
+                `Add ${picked.length} ${noun}${picked.length === 1 ? "" : "s"}`
+              )}
             </button>
           ) : (
             <button type="submit" disabled={saving} className="btn-primary">{saving ? "Saving..." : "Save"}</button>
