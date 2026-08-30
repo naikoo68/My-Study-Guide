@@ -46,7 +46,7 @@ export default function AddToTestModal({ question, onClose, clientMode = false }
   const first = (t) => (isSeries ? t.exam : t.stream);
   const second = (t) => (isSeries ? t.post : t.subject);
   const labels = isSeries
-    ? { a: "Exam", b: "Post", test: "Test series" }
+    ? { a: "Exam", b: "Post", test: "Public Test series" }
     : { a: "Stream", b: "Subject", test: "My Test" };
 
   // (Re)load the list whenever the destination type changes; reset selections.
@@ -96,7 +96,7 @@ export default function AddToTestModal({ question, onClose, clientMode = false }
     }
   };
 
-  const kindLabel = isSeries ? "test series" : clientMode ? "tests" : "my tests";
+  const kindLabel = isSeries ? "public test series" : clientMode ? "tests" : "my tests";
 
   return (
     <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/50 p-4" onClick={onClose}>
@@ -119,7 +119,7 @@ export default function AddToTestModal({ question, onClose, clientMode = false }
             {!clientMode && (
               <div className="flex gap-2">
                 <button onClick={() => setTarget("series")} className={`flex-1 ${isSeries ? "btn-primary" : "btn-outline"}`}>
-                  Add to Test Series
+                  Add to Public Test Series
                 </button>
                 <button onClick={() => setTarget("mytest")} className={`flex-1 ${!isSeries ? "btn-primary" : "btn-outline"}`}>
                   Add to My Test

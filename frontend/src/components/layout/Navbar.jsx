@@ -15,7 +15,7 @@ import { publicFeatureEnabled } from "../../lib/features";
 const links = [
   { to: "/", label: "Home", end: true },
   { to: "/quiz", label: "Quiz", feature: "content" },
-  { to: "/test-series", label: "Test Series", feature: "tests" },
+  { to: "/test-series", label: "Public Test Series", feature: "tests" },
   { to: "/practice", label: "My Practice", feature: "practice" },
   { to: "/study", label: "Study Material", feature: "study" },
   { to: "/pricing", label: "Pricing" },

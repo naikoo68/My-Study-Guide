@@ -38,8 +38,8 @@ const GROUPS = [
   {
     title: "Content & practice",
     items: [
-      { key: "content", label: "Content", icon: BookCopy, desc: "Streams, subjects, topics, sessions & quizzes." },
-      { key: "tests", label: "Test Series", icon: FileStack, desc: "Build and manage full test series." },
+      { key: "content", label: "Public Quizzes", icon: BookCopy, desc: "Streams, subjects, topics, sessions & quizzes." },
+      { key: "tests", label: "Public Test Series", icon: FileStack, desc: "Build and manage full test series." },
       { key: "practice", label: "My Practice", icon: GraduationCap, desc: "Practice quizzes and test series." },
       { key: "previousPapers", label: "Previous Papers", icon: Files, desc: "Upload and organise previous-year papers." },
       { key: "checker", label: "Question Checker", icon: SearchCheck, desc: "Review and verify question quality." },

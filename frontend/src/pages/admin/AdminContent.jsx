@@ -1064,7 +1064,7 @@ export default function AdminContent() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-extrabold">Content Management</h1>
+          <h1 className="text-2xl font-extrabold">Public Quizzes Management</h1>
           <p className="text-slate-500 dark:text-slate-400">Stream → Subject → Topic → Quiz → Questions. Add, edit or delete at any level.</p>
         </div>
         <div className="flex flex-wrap gap-2">
