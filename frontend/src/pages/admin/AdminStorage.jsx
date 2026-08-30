@@ -140,7 +140,7 @@ export default function AdminStorage() {
                   {/* stat tiles */}
                   <div className="mt-4 grid grid-cols-3 gap-3">
                     {[
-                      { icon: FileStack, label: "Content", value: fmtMB(data.dataMB), tint: "text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20" },
+                      { icon: FileStack, label: "Data", value: fmtMB(data.dataMB), tint: "text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20" },
                       { icon: Layers, label: "Indexes", value: fmtMB(data.indexMB), tint: "text-indigo-600 bg-indigo-50 dark:bg-indigo-900/20" },
                       { icon: Hash, label: "Total records", value: (data.objects || 0).toLocaleString(), tint: "text-slate-600 bg-slate-100 dark:bg-slate-800" },
                     ].map((t) => (
