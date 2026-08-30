@@ -14,6 +14,8 @@ import {
   getPlans,
   getStudentPlans,
   validateOffer,
+  sendEmailOtp,
+  verifyEmailOtp,
 } from "../controllers/authController.js";
 import { attachUser } from "../middleware/auth.js";
 
@@ -22,6 +24,8 @@ const router = Router();
 router.get("/plans", getPlans);
 router.get("/student-plans", getStudentPlans);
 router.post("/validate-offer", validateOffer);
+router.post("/send-email-otp", sendEmailOtp); // pre-account email verification (student/creator inline "Verify")
+router.post("/verify-email-otp", verifyEmailOtp);
 router.post("/register", register);
 router.post("/verify-otp", verifyOtp);
 router.post("/resend-otp", resendOtp);

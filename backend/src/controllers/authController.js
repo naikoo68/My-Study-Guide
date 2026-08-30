@@ -3,6 +3,7 @@ import User from "../models/User.js";
 import Tenant from "../models/Tenant.js";
 import TrialClaim from "../models/TrialClaim.js";
 import { trialClaimed, recordTrialUsed } from "../utils/trialLedger.js";
+import EmailOtp from "../models/EmailOtp.js";
 import Coupon, { redeemCoupon } from "../models/Coupon.js";
 import generateToken from "../utils/generateToken.js";
 import { razorpayConfigured, verifyPaymentSignature, verifyPaidOrder } from "../config/razorpay.js";
@@ -207,6 +208,90 @@ export async function creditReferrer(referredUser) {
   await referrer.save();
 }
 
+// Start the subscription/trial clock on a user (or a not-yet-created account
+// doc) once its email is confirmed. Shared by verifyOtp (post-signup OTP) and
+// register (pre-verified email). Idempotent — never overwrites an existing
+// expiry, and safely no-ops when no plan is set (e.g. plans turned off).
+async function applyActivationClock(u) {
+  if (u.role === "client" && u.subscriptionPlan && !u.expiresAt) {
+    const exp = new Date();
+    if (u.subscriptionPlan === "trial") {
+      const trialPlan = (await getClientPlans()).find((p) => p.key === "trial");
+      exp.setDate(exp.getDate() + trialDays(trialPlan, 1));
+    } else {
+      exp.setMonth(exp.getMonth() + (u.subscriptionMonths || 0));
+    }
+    u.expiresAt = exp;
+  }
+  if (u.role === "student" && u.studentPlan && !u.studentPlanExpiresAt) {
+    const exp = new Date();
+    if (u.studentPlan === "trial") {
+      const trialPlan = (await loadStudentPlans()).find((p) => p.key === "trial");
+      exp.setDate(exp.getDate() + trialDays(trialPlan, 1));
+    } else {
+      exp.setMonth(exp.getMonth() + (u.studentPlanMonths || 0));
+      u.studentTrial = false;
+    }
+    u.studentPlanExpiresAt = exp;
+  }
+}
+
+// ---- Pre-account email verification (student / creator inline "Verify") ----
+// Same mechanism as institute signup: a short-lived code keyed by EMAIL (no
+// user exists yet), stored in the standalone EmailOtp collection. Lets students
+// and creators confirm their email BEFORE the account is created — matching the
+// institute UX — so the account can be created already-verified.
+async function emailPreVerified(email) {
+  if (!email) return false;
+  return !!(await runUnscoped(() => EmailOtp.findOne({ email, verified: true }).select("_id")));
+}
+function consumeEmailOtp(email) {
+  return runUnscoped(() => EmailOtp.deleteOne({ email })).catch(() => {});
+}
+
+// POST /api/auth/send-email-otp { email } — email a fresh 6-digit code.
+export async function sendEmailOtp(req, res) {
+  const email = norm(req.body?.email);
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ message: "Enter a valid email address." });
+  }
+  // Don't let someone verify an email that's already tied to an account.
+  const taken = await runUnscoped(() => User.findOne({ email }).select("_id"));
+  if (taken) return res.status(409).json({ message: "That email is already registered. Please log in instead." });
+
+  const otp = genOtp();
+  await runUnscoped(() =>
+    EmailOtp.findOneAndUpdate(
+      { email },
+      { email, otpHash: hashOtp(otp), otpExpires: new Date(Date.now() + OTP_TTL_MS), verified: false, verifiedAt: null },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    )
+  );
+
+  const emailSent = await sendOtpEmail(email, "", otp).catch(() => false);
+  const exposeDevOtp = !emailSent && process.env.NODE_ENV !== "production";
+  res.json({ emailSent, ...(exposeDevOtp ? { devOtp: otp } : {}) });
+}
+
+// POST /api/auth/verify-email-otp { email, otp } — confirm the code.
+export async function verifyEmailOtp(req, res) {
+  const email = norm(req.body?.email);
+  const otp = String(req.body?.otp || "").trim();
+  const rec = await runUnscoped(() => EmailOtp.findOne({ email }));
+  if (!rec || !rec.otpHash || !rec.otpExpires || rec.otpExpires.getTime() < Date.now()) {
+    return res.status(400).json({ message: "Your code has expired. Please request a new one." });
+  }
+  if (hashOtp(otp) !== rec.otpHash) {
+    return res.status(400).json({ message: "Incorrect code. Please try again." });
+  }
+  rec.verified = true;
+  rec.verifiedAt = new Date();
+  rec.otpHash = undefined;
+  rec.otpExpires = undefined;
+  await runUnscoped(() => rec.save());
+  res.json({ verified: true });
+}
+
 // POST /api/auth/register
 export async function register(req, res) {
   const { name, password } = req.body;
@@ -378,7 +463,17 @@ export async function register(req, res) {
     }
   }
 
-  // Create UNVERIFIED — the user must confirm the OTP to activate the account.
+  // Email verified up-front (student/creator inline "Verify", like institutes)?
+  // → create the account already-verified and start its plan clock now, so the
+  // user is signed straight in and skips the post-signup OTP screen. Falls back
+  // to the classic create-unverified + OTP flow when the email wasn't verified.
+  const preVerified = !paidActive && (role === "client" || role === "student") && (await emailPreVerified(email));
+  if (preVerified) {
+    doc.isEmailVerified = true;
+    await applyActivationClock(doc);
+  }
+
+  // Create the account (UNVERIFIED unless paid or pre-verified above).
   // Retry if the random referral code happens to collide with an existing one.
   let user;
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -406,6 +501,14 @@ export async function register(req, res) {
     await user.save(); // persist the referrerRewarded flag set above
     notifyNewUser(user);
     return res.status(201).json({ paid: true, token: generateToken(user._id), user: sanitize(user) });
+  }
+
+  // Pre-verified email (inline "Verify") → account is already active; sign the
+  // user straight in with no post-signup OTP screen.
+  if (preVerified) {
+    consumeEmailOtp(email);
+    notifyNewUser(user);
+    return res.status(201).json({ verified: true, token: generateToken(user._id), user: sanitize(user) });
   }
 
   const otp = await issueOtp(user);
@@ -439,31 +542,9 @@ export async function verifyOtp(req, res) {
     user.isEmailVerified = true;
     user.otpHash = undefined;
     user.otpExpires = undefined;
-    // Start a client's subscription clock now that the account is active.
-    if (user.role === "client" && user.subscriptionPlan && !user.expiresAt) {
-      const exp = new Date();
-      if (user.subscriptionPlan === "trial") {
-        // Free trial → the admin-configured number of days (default 1).
-        const trialPlan = (await getClientPlans()).find((p) => p.key === "trial");
-        exp.setDate(exp.getDate() + trialDays(trialPlan, 1));
-      } else {
-        exp.setMonth(exp.getMonth() + (user.subscriptionMonths || 0));
-      }
-      user.expiresAt = exp;
-    }
-    // Start a student's subscription clock now that the account is active
-    // (paid student signups already set studentPlanExpiresAt + skip OTP).
-    if (user.role === "student" && user.studentPlan && !user.studentPlanExpiresAt) {
-      const exp = new Date();
-      if (user.studentPlan === "trial") {
-        const trialPlan = (await loadStudentPlans()).find((p) => p.key === "trial");
-        exp.setDate(exp.getDate() + trialDays(trialPlan, 1));
-      } else {
-        exp.setMonth(exp.getMonth() + (user.studentPlanMonths || 0));
-        user.studentTrial = false;
-      }
-      user.studentPlanExpiresAt = exp;
-    }
+    // Start the client/student subscription clock now that the account is active
+    // (paid signups already set their expiry and skip OTP).
+    await applyActivationClock(user);
     await user.save();
     notifyNewUser(user); // notify admin of the new registration (fire-and-forget)
   }
