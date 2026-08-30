@@ -4,14 +4,15 @@ import ContentSectionCards from "../../components/admin/ContentSectionCards";
 
 // "My Practice" folder — drilled into from the Manage Content page. Groups the
 // two personal practice sections (locked to a single kind each). Both map to
-// the "practice" feature, so their Enable/Disable switches move together.
+// INDEPENDENT public switches: My Quizzes → practiceQuiz, My Tests →
+// practiceTest, so disabling one no longer disables the other.
 const CARDS = [
   {
     to: "/admin/practice/quiz",
     label: "My Quizzes",
     desc: "Your own practice quizzes.",
     icon: ListChecks,
-    feature: "practice",
+    feature: "practiceQuiz",
     tint: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
   },
   {
@@ -19,7 +20,7 @@ const CARDS = [
     label: "My Tests",
     desc: "Your own practice tests.",
     icon: FileStack,
-    feature: "practice",
+    feature: "practiceTest",
     tint: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
   },
 ];

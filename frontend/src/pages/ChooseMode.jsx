@@ -13,7 +13,7 @@ const MODES = {
     options: [
       {
         to: "/practice",
-        feature: "practice",
+        feature: "practiceQuiz",
         Icon: ListChecks,
         color: "from-brand-600 to-blue-600",
         title: "My Quiz",
@@ -73,7 +73,7 @@ const MODES = {
     options: [
       {
         to: "/practice/test",
-        feature: "practice",
+        feature: "practiceTest",
         Icon: FileStack,
         color: "from-brand-600 to-blue-600",
         title: "My Test Series",

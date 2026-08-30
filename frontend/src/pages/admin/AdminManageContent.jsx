@@ -21,7 +21,8 @@ const CARDS = [
     label: "My Practice",
     desc: "Your own practice quizzes and tests.",
     icon: GraduationCap,
-    feature: "practice",
+    // Folder over both practice kinds — its switch reflects/controls both.
+    features: ["practiceQuiz", "practiceTest"],
     tint: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
   },
 ];
