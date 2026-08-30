@@ -80,6 +80,7 @@ const AdminLogin = lazy(() => import("./pages/admin/AdminLogin"));
 const AdminLayout = lazy(() => import("./pages/admin/AdminLayout"));
 const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
 const AdminContent = lazy(() => import("./pages/admin/AdminContent"));
+const AdminManageContent = lazy(() => import("./pages/admin/AdminManageContent"));
 const AdminTests = lazy(() => import("./pages/admin/AdminTests"));
 const AdminStudyMaterial = lazy(() => import("./pages/admin/AdminStudyMaterial"));
 const AdminFeedback = lazy(() => import("./pages/admin/AdminFeedback"));
@@ -303,6 +304,7 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: S(AdminDashboard) },
       { path: "institutes", element: S(AdminInstitutes) },
+      { path: "manage-content", element: S(AdminManageContent) },
       { path: "content", element: S(AdminContent) },
       { path: "tests", element: S(AdminTests) },
       { path: "practice", element: S(AdminPractice) },
