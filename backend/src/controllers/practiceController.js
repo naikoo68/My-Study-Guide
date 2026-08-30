@@ -1243,6 +1243,35 @@ const hasQuizAccess = (req, t) =>
   isTestVisibleToUser(t, req.user?._id) ||
   isSharedWithUser(t, req.user?._id);
 
+// A node is hidden from the PUBLIC when it — OR ANY ANCESTOR — is disabled or
+// inactive. Browse lists filter each level's own `disabled`, but that alone
+// doesn't stop a DEEP link (e.g. straight to a subject/topic) from reaching
+// content under a disabled parent. These walk the chain up to the stream so a
+// disabled Stream/Exam/Subject/Topic hides everything beneath it everywhere.
+async function streamHidden(streamId) {
+  if (!streamId) return true;
+  const s = await PracticeStream.findById(streamId).select("disabled isActive").lean();
+  return !s || s.disabled === true || s.isActive === false;
+}
+async function examHidden(examId) {
+  if (!examId) return false; // no exam in the chain (My Test / Previous Papers)
+  const e = await PracticeExam.findById(examId).select("disabled isActive stream").lean();
+  if (!e || e.disabled === true || e.isActive === false) return true;
+  return streamHidden(e.stream);
+}
+async function subjectHidden(subjectId) {
+  if (!subjectId) return true;
+  const s = await PracticeSubject.findById(subjectId).select("disabled isActive stream exam").lean();
+  if (!s || s.disabled === true || s.isActive === false) return true;
+  return s.exam ? examHidden(s.exam) : streamHidden(s.stream);
+}
+async function topicHidden(topicId) {
+  if (!topicId) return true;
+  const t = await PracticeTopic.findById(topicId).select("disabled isActive subject").lean();
+  if (!t || t.disabled === true || t.isActive === false) return true;
+  return subjectHidden(t.subject);
+}
+
 export async function browseStreams(req, res) {
   const kind = req.params.kind;
   const freemium = true; // all practice kinds are publicly discoverable (freemium)
@@ -1256,6 +1285,7 @@ export async function browseStreams(req, res) {
 }
 export async function browseSubjects(req, res) {
   const { kind, streamId } = req.params;
+  if (await streamHidden(streamId)) return res.json([]); // disabled stream → hide all
   const freemium = true; // all practice kinds are publicly discoverable (freemium)
   const grantAll = kind === "test" ? req.user?.myTestAccess === true : req.user?.myQuizAccess === true;
   const items = await TestSeries.find({ practice: true, practiceKind: kind, status: "published", disabled: { $ne: true }, practiceStream: streamId, owner: null })
@@ -1269,6 +1299,7 @@ export async function browseSubjects(req, res) {
 // first quiz in each topic is free, so every non-empty exam is discoverable).
 export async function browseExams(req, res) {
   const { streamId } = req.params;
+  if (await streamHidden(streamId)) return res.json([]); // disabled stream → hide all
   await adoptOrphanSubjects(streamId, null); // self-heal platform content not yet migrated
   const items = await TestSeries.find({ practice: true, practiceKind: "quiz", status: "published", disabled: { $ne: true }, practiceStream: streamId, owner: null })
     .select("practiceExam")
@@ -1280,8 +1311,7 @@ export async function browseExams(req, res) {
 // My Quiz: subjects under an exam that contain ANY published quiz.
 export async function browseExamSubjects(req, res) {
   const { examId } = req.params;
-  const exam = await PracticeExam.findOne({ _id: examId, disabled: { $ne: true }, owner: null }).select("_id").lean();
-  if (!exam) return res.json([]); // disabled/unknown exam → nothing to browse
+  if (await examHidden(examId)) return res.json([]); // disabled exam/stream → hide all
   const items = await TestSeries.find({ practice: true, practiceKind: "quiz", status: "published", disabled: { $ne: true }, practiceExam: examId, owner: null })
     .select("practiceSubject")
     .lean();
@@ -1294,6 +1324,7 @@ export async function browseExamSubjects(req, res) {
 // `locked` unless the user has access (login + subscription / share / owner).
 export async function browseItems(req, res) {
   const { kind, subjectId } = req.params;
+  if (await subjectHidden(subjectId)) return res.json([]); // disabled subject/exam/stream → hide all
   const grantAll = req.user?.role === "admin" || (kind === "quiz" ? req.user?.myQuizAccess === true : req.user?.myTestAccess === true);
   const items = (await TestSeries.find({ practice: true, practiceKind: kind, status: "published", disabled: { $ne: true }, practiceSubject: subjectId, owner: null })
     .lean()).sort(byNatural("name"));
@@ -1315,6 +1346,7 @@ export async function browseItems(req, res) {
 // the first quiz in each is free, so every non-empty topic is discoverable).
 export async function browseTopics(req, res) {
   const { subjectId } = req.params;
+  if (await subjectHidden(subjectId)) return res.json([]); // disabled subject/exam/stream → hide all
   const items = await TestSeries.find({ practice: true, practiceKind: "quiz", status: "published", disabled: { $ne: true }, practiceSubject: subjectId, owner: null })
     .select("practiceTopic")
     .lean();
@@ -1327,6 +1359,7 @@ export async function browseTopics(req, res) {
 // sees them as `locked` with `loginOnly` so the UI can prompt sign-in.
 export async function browseStreamItems(req, res) {
   const { kind, streamId } = req.params;
+  if (await streamHidden(streamId)) return res.json([]); // disabled stream → hide all
   const items = (await TestSeries.find({ practice: true, practiceKind: kind, status: "published", disabled: { $ne: true }, practiceStream: streamId, owner: null }).lean()).sort(byNatural("name"));
   if (kind === "paper") {
     return res.json(items.map((t) => ({ _id: t._id, name: t.name, duration: t.duration, marks: t.marks, difficulty: t.difficulty, questionCount: t.questions?.length || 0, views: t.views || 0, loginOnly: true, locked: !req.user })));
@@ -1342,6 +1375,7 @@ export async function browseStreamItems(req, res) {
 // …). The FIRST quiz is a FREE preview anyone can attempt; the rest are
 // `locked` unless the user has access (login + subscription / share / owner).
 export async function browseTopicItems(req, res) {
+  if (await topicHidden(req.params.topicId)) return res.json([]); // disabled topic/subject/exam/stream → hide all
   const items = (await TestSeries.find({ practice: true, practiceKind: "quiz", status: "published", disabled: { $ne: true }, practiceTopic: req.params.topicId, owner: null })
     .lean()).sort(byNatural("name"));
   res.json(
@@ -1438,6 +1472,14 @@ export async function getPublicNode(req, res) {
   if (!node) { node = await PracticeTopic.findOne({ publicToken: token, publicShare: true, disabled: { $ne: true } }); if (node) level = "topic"; }
   if (!node) return res.status(404).json({ message: "This link is invalid or public sharing was turned off." });
   if (nodePublicExpired(node)) return res.status(403).json({ message: "This public link has expired." });
+  // Also honour a disabled ANCESTOR — a shared subject/topic under a disabled
+  // exam/stream (or a shared exam under a disabled stream) must stay hidden.
+  const ancestorHidden =
+    level === "exam" ? await streamHidden(node.stream)
+    : level === "subject" ? (node.exam ? await examHidden(node.exam) : await streamHidden(node.stream))
+    : level === "topic" ? await subjectHidden(node.subject)
+    : false;
+  if (ancestorHidden) return res.status(404).json({ message: "This link is invalid or public sharing was turned off." });
 
   const field = level === "stream" ? "practiceStream" : level === "exam" ? "practiceExam" : level === "subject" ? "practiceSubject" : "practiceTopic";
   const items = (await TestSeries.find({
