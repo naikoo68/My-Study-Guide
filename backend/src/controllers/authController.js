@@ -312,6 +312,72 @@ export async function register(req, res) {
     }
   }
 
+  // Students may also pick a plan at sign-up (mirrors the client flow, but writes
+  // the SEPARATE student* fields so it never touches client/temp-account expiry).
+  // When the STUDENT plans toggle is OFF, students use everything free — skip the
+  // plan/payment step and just create a free account.
+  const studentPlansOff = role === "student" && planFlagsSync().studentPlansEnabled === false;
+  if (role === "student" && !studentPlansOff) {
+    const offer =
+      (await computeOffer({ planKey: req.body.plan, couponCode: req.body.couponCode, referralCode: req.body.referralCode, selfEmail: email, audience: "student" })) ||
+      (await computeOffer({ planKey: "trial", selfEmail: email, audience: "student" }));
+    if (offer) {
+      if (offer.plan.key === "trial") {
+        // One free student trial per email (durable) — block re-claiming.
+        if (await trialClaimed(email, "student")) {
+          return res.status(400).json({ message: "This email has already used the free trial. Please choose a paid plan." });
+        }
+        doc.studentPlan = "trial";
+        doc.studentTrial = true;
+        doc.studentTrialUsed = true;
+        doc.studentPlanMonths = 0;
+        doc.studentPlanPrice = 0;
+        // Validity (studentPlanExpiresAt) starts when they verify the OTP.
+      } else {
+        doc.studentPlan = offer.plan.key;
+        doc.studentPlanMonths = offer.plan.months;
+        doc.studentPlanPrice = offer.finalPrice;
+        if (offer.applied?.coupon && !offer.applied.coupon.invalid) doc.couponCode = offer.applied.coupon.code;
+        if (offer.applied?.referral && !offer.applied.referral.invalid) doc.referredBy = offer.applied.referral.code;
+
+        // Paid plan → require a verified Razorpay payment when payments are on.
+        // On success the student plan is active immediately and they're signed in.
+        if (razorpayConfigured() && offer.finalPrice > 0) {
+          const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+          if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+            return res.status(400).json({ message: "No payment was received. Please refresh the page (hard-reload) and try again." });
+          }
+          if (!verifyPaymentSignature({ orderId: razorpay_order_id, paymentId: razorpay_payment_id, signature: razorpay_signature })) {
+            return res.status(400).json({ message: "Payment signature check failed. Please ensure the server's Razorpay keys are a matching Live pair, then try again." });
+          }
+          const match = await verifyPaidOrder({
+            orderId: razorpay_order_id,
+            expectedAmountRupees: offer.finalPrice,
+            expectedPlan: offer.plan.key,
+            expectedEmail: email,
+          });
+          if (!match.ok) {
+            console.error("[payment] student order verification failed", { order: razorpay_order_id, reason: match.reason });
+            return res.status(400).json({ message: "Payment could not be verified. Please try again." });
+          }
+          // Replay protection: a payment id may only activate ONE account.
+          const usedPayment = await runUnscoped(() =>
+            User.findOne({ $or: [{ paymentId: razorpay_payment_id }, { studentPaymentId: razorpay_payment_id }] }).select("_id")
+          );
+          if (usedPayment) {
+            return res.status(400).json({ message: "This payment has already been used to create an account." });
+          }
+          doc.isEmailVerified = true;
+          doc.studentPaymentId = razorpay_payment_id;
+          const exp = new Date();
+          exp.setMonth(exp.getMonth() + offer.plan.months);
+          doc.studentPlanExpiresAt = exp;
+          paidActive = true;
+        }
+      }
+    }
+  }
+
   // Create UNVERIFIED — the user must confirm the OTP to activate the account.
   // Retry if the random referral code happens to collide with an existing one.
   let user;
@@ -331,6 +397,8 @@ export async function register(req, res) {
   // Record a client's free-trial use against their email (durable, global) so
   // the same email can't claim another client trial later.
   if (role === "client" && doc.isTrial) recordTrialUsed(email, "client").catch(() => {});
+  // Same for a student's free trial (durable per-email ledger).
+  if (role === "student" && doc.studentTrial) recordTrialUsed(email, "student").catch(() => {});
 
   // Paid client → already active & verified, sign them straight in (no OTP step).
   if (paidActive) {
@@ -382,6 +450,19 @@ export async function verifyOtp(req, res) {
         exp.setMonth(exp.getMonth() + (user.subscriptionMonths || 0));
       }
       user.expiresAt = exp;
+    }
+    // Start a student's subscription clock now that the account is active
+    // (paid student signups already set studentPlanExpiresAt + skip OTP).
+    if (user.role === "student" && user.studentPlan && !user.studentPlanExpiresAt) {
+      const exp = new Date();
+      if (user.studentPlan === "trial") {
+        const trialPlan = (await loadStudentPlans()).find((p) => p.key === "trial");
+        exp.setDate(exp.getDate() + trialDays(trialPlan, 1));
+      } else {
+        exp.setMonth(exp.getMonth() + (user.studentPlanMonths || 0));
+        user.studentTrial = false;
+      }
+      user.studentPlanExpiresAt = exp;
     }
     await user.save();
     notifyNewUser(user); // notify admin of the new registration (fire-and-forget)
