@@ -47,12 +47,11 @@ const GROUPS = {
 // Helpful internal links (kept separate from answers so the visible answer text
 // matches the FAQPage JSON-LD exactly — better for rich-result eligibility).
 const EXPLORE = [
-  { label: "Public Quizzes", to: "/quiz" },
-  { label: "Public Test Series", to: "/test-series" },
-  { label: "Practice", to: "/practice" },
+  { label: "Quizzes", to: "/quiz" },
+  { label: "Test Series", to: "/test-series" },
+  { label: "Previous Papers", to: "/practice/paper" },
   { label: "Study Material", to: "/study" },
   { label: "Streams", to: "/streams" },
-  { label: "Subjects", to: "/subjects" },
   { label: "Exams", to: "/exams" },
   { label: "Pricing", to: "/pricing" },
   { label: "Contact", to: "/contact" },
