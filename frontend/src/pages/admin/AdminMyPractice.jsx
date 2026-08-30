@@ -1,10 +1,10 @@
 import { Link } from "react-router-dom";
-import { FolderOpen, ListChecks, FileStack, ChevronRight } from "lucide-react";
-import { useAuth } from "../../context/AuthContext";
-import { useSettings } from "../../context/SettingsContext";
+import { FolderOpen, ListChecks, FileStack } from "lucide-react";
+import ContentSectionCards from "../../components/admin/ContentSectionCards";
 
 // "My Practice" folder — drilled into from the Manage Content page. Groups the
-// two personal practice sections (locked to a single kind each).
+// two personal practice sections (locked to a single kind each). Both map to
+// the "practice" feature, so their Enable/Disable switches move together.
 const CARDS = [
   {
     to: "/admin/practice/quiz",
@@ -25,20 +25,6 @@ const CARDS = [
 ];
 
 export default function AdminMyPractice() {
-  const { user } = useAuth();
-  const { settings } = useSettings();
-
-  // Hide a card whose feature was turned off — globally (Admin → Features) or
-  // for this institute — so it mirrors the sidebar / route-guard visibility.
-  const instituteFeatures = user?.role === "institute_admin" ? (user?.tenant?.features || {}) : null;
-  const globalFeatures = settings?.featureFlags || {};
-  const isOn = (f) => {
-    if (globalFeatures[f] === false) return false;
-    if (instituteFeatures && instituteFeatures[f] === false) return false;
-    return true;
-  };
-  const cards = CARDS.filter((c) => isOn(c.feature));
-
   return (
     <div className="space-y-6">
       <div>
@@ -53,26 +39,7 @@ export default function AdminMyPractice() {
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {cards.map((c) => (
-          <Link
-            key={c.to}
-            to={c.to}
-            className="card group flex items-start gap-4 p-5 transition hover:-translate-y-0.5 hover:shadow-lg"
-          >
-            <span className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl ${c.tint}`}>
-              <c.icon className="h-6 w-6" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="flex items-center gap-1 font-bold">
-                {c.label}
-                <ChevronRight className="h-4 w-4 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-brand-600" />
-              </p>
-              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{c.desc}</p>
-            </div>
-          </Link>
-        ))}
-      </div>
+      <ContentSectionCards cards={CARDS} />
     </div>
   );
 }
