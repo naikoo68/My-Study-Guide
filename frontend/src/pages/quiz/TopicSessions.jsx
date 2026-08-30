@@ -102,11 +102,11 @@ export default function TopicSessions() {
         </div>
         <div className="p-5">
           {coveredTopics.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
               {coveredTopics.map((t, i) => (
                 <span
                   key={`${t}-${i}`}
-                  className="inline-flex items-center rounded-full border border-brand-200/70 bg-white px-3 py-1 text-sm font-medium text-slate-700 shadow-sm transition hover:border-brand-300 hover:text-brand-700 dark:border-brand-900/50 dark:bg-slate-800/70 dark:text-slate-200 dark:hover:text-brand-300"
+                  className="flex items-center rounded-full border border-brand-200/70 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition hover:border-brand-300 hover:text-brand-700 dark:border-brand-900/50 dark:bg-slate-800/70 dark:text-slate-200 dark:hover:text-brand-300 sm:text-sm"
                 >
                   {t}
                 </span>
