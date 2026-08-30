@@ -1,11 +1,10 @@
 // AI Question Generator — talks to any OpenAI-compatible provider
 import AiKey from "../models/AiKey.js";
 import Question from "../models/Question.js";
-import Settings from "../models/Settings.js";
 import User from "../models/User.js";
 import { ownerFilter } from "../utils/ownership.js";
 import { softDeletePatch } from "../utils/softDelete.js";
-import { DEFAULT_CLIENT_PLANS } from "../utils/plans.js";
+import { getClientPlans, findSiteSettings } from "../utils/plans.js";
 import { webResearch } from "../utils/webResearch.js";
 import { splitIntoStems, contentOfBlock, questionLocation } from "./contentController.js";
 
@@ -1071,13 +1070,21 @@ export function aiRecordUsage(key, count) {
 // (settingsController), so we only bound clients by that absolute ceiling.
 const HARD_BATCH_CEILING = 5000; // absolute system safety bound for any plan
 export async function effectiveAiLimits(user) {
+  // Read the admin's global per-batch cap from the SAME "site" record the admin
+  // panel writes to (tenant-safe) — a naive Settings.findOne could match the
+  // wrong record under multi-tenant.
   let s = null;
-  try { s = await Settings.findOne({ key: "site" }).select("aiMaxPerBatch clientPlans").lean(); } catch { /* ignore */ }
+  try { s = await findSiteSettings("aiMaxPerBatch"); } catch { /* ignore */ }
   const globalMax = Math.max(1, s?.aiMaxPerBatch || MAX_TOTAL);
   if (!user || user.role !== "client") {
     return { maxPerBatch: globalMax, perWindow: Infinity, windowMinutes: 5, planName: "Admin" };
   }
-  const plans = Array.isArray(s?.clientPlans) && s.clientPlans.length ? s.clientPlans : DEFAULT_CLIENT_PLANS;
+  // Resolve the client's plan from the SAME source the dashboard & pricing use
+  // (getClientPlans → tenant-safe, admin-saved plans or defaults). Reading
+  // Settings.clientPlans directly could grab a record without the admin's
+  // custom plans and wrongly fall back to defaults — which downgraded a paid
+  // plan (e.g. "1 Year Plus" 500/batch) to the first default plan (50/batch).
+  const plans = await getClientPlans();
   const plan = plans.find((p) => p.key === user.subscriptionPlan) || plans.find((p) => !p.trial) || plans[0] || null;
   const maxPerBatch = Math.min(HARD_BATCH_CEILING, Math.max(1, plan?.maxPerBatch || globalMax));
   const perWindow = Math.max(1, plan?.perWindow || globalMax);

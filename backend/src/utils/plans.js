@@ -14,7 +14,7 @@ import { getCurrentTenantId, runUnscoped } from "./tenantContext.js";
 // That made admin-saved plans never appear on the public pricing/registration
 // pages no matter what was saved. Reading the exact record the admin writes to
 // fixes that.
-async function findSiteSettings(select) {
+export async function findSiteSettings(select) {
   const tid = getCurrentTenantId(); // capture BEFORE unscoping (runUnscoped nulls it)
   return runUnscoped(async () => {
     if (tid) {
