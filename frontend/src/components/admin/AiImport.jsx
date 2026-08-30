@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { X, Globe, Download, CheckCircle2, AlertTriangle, Loader2, Server, KeyRound, FileText, Upload, Files, ScanText, Maximize2, Minimize2, Plus, Sparkles, ListChecks, Circle, Trash2 } from "lucide-react";
+import { X, Minus, Globe, Download, CheckCircle2, AlertTriangle, Loader2, Server, KeyRound, FileText, Upload, Files, ScanText, Maximize2, Minimize2, Plus, Sparkles, ListChecks, Circle, Trash2 } from "lucide-react";
 import { aiService, documentService } from "../../services";
 import LanguageSelect from "./LanguageSelect";
 import { useAuth } from "../../context/AuthContext";
@@ -77,6 +77,8 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
   const [busyMore, setBusyMore] = useState(false); // "Extract remaining" pass in progress
   const [inserting, setInserting] = useState(false);
   const [insertingIdx, setInsertingIdx] = useState(-1);
+  const [minimized, setMinimized] = useState(false); // collapsed to a floating pill — keeps working in the background
+  const wasBusyRef = useRef(false); // to detect the busy→idle edge (import/generation finished) for the completion notice
   const [msg, setMsg] = useState("");
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfProgress, setPdfProgress] = useState(null);
@@ -91,6 +93,7 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
     if (!open) return;
     setMsg("");
     setPreview([]);
+    setMinimized(false); // always (re)open expanded, never as the collapsed pill
     setDetected(0);
     setBusyMore(false);
     setDocId("");
@@ -129,6 +132,22 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
       .then((s) => { setStatus(s); setModel(s?.model || (s?.models && s.models[0]) || ""); })
       .catch(() => setStatus({ enabled: false }));
   }, [open, source, isClient]);
+
+  // When an import/generation FINISHES while minimized, nudge the user with a
+  // browser notification (best-effort). The floating pill also flips to a
+  // "ready" state on its own. Tracks the working → idle edge.
+  useEffect(() => {
+    const working = busy || busyMore;
+    const justFinished = wasBusyRef.current && !working;
+    wasBusyRef.current = working;
+    if (justFinished && minimized && preview.length) {
+      try {
+        if ("Notification" in window && Notification.permission === "granted") {
+          new Notification("Questions ready", { body: `${preview.length} question(s) ready — open to insert.` });
+        }
+      } catch { /* notifications are best-effort */ }
+    }
+  }, [busy, busyMore, minimized, preview.length]);
 
   if (!open) return null;
 
@@ -632,6 +651,31 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
     </div>
   );
 
+  // Collapsed to a floating pill: the import/generation keeps running in the
+  // background (the component stays mounted) while the rest of the page stays
+  // usable. Restore to review/insert. (Placed here — after stop() is defined.)
+  if (minimized) {
+    const working = busy || busyMore;
+    const done = !working && preview.length > 0;
+    return (
+      <div className="fixed bottom-4 right-4 z-50 w-72 max-w-[calc(100vw-2rem)] animate-scale-in rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+        <div className="flex items-start gap-2.5">
+          <div className={`mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full ${done ? "bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-300" : "bg-brand-100 text-brand-600 dark:bg-brand-900/40 dark:text-brand-300"}`}>
+            {working ? <Loader2 className="h-4 w-4 animate-spin" /> : done ? <CheckCircle2 className="h-4 w-4" /> : <Globe className="h-4 w-4" />}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold">{done ? "Questions ready" : working ? "Importing…" : "Import from Web"}</p>
+            <p className="mt-0.5 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">{done ? `${preview.length} question(s) ready to insert` : (msg || "Working in the background…")}</p>
+          </div>
+        </div>
+        <div className="mt-2.5 flex gap-2">
+          <button onClick={() => setMinimized(false)} className="btn-primary flex-1 py-1 text-xs">{done ? "Open to insert" : "Open"}</button>
+          {working && <button onClick={stop} className="btn-outline py-1 text-xs !text-rose-600 dark:!text-rose-400"><X className="h-3.5 w-3.5" /> Stop</button>}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-0 sm:p-4">
       {textFull && (
@@ -661,7 +705,20 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
       <div className="min-h-full w-full max-w-none animate-scale-in card m-0 rounded-none p-4 sm:rounded-2xl sm:p-6">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="flex items-center gap-2 text-lg font-bold"><Globe className="h-5 w-5 text-brand-600" /> {title}</h3>
-          <button type="button" onClick={onClose}><X className="h-5 w-5" /></button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              title="Minimize — keep working in the background while you use the rest of the page; you'll be notified when it's ready to insert"
+              onClick={() => {
+                try { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {}); } catch { /* ignore */ }
+                setMinimized(true);
+              }}
+              className="rounded-lg p-1 text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              <Minus className="h-5 w-5" />
+            </button>
+            <button type="button" onClick={onClose} title="Close"><X className="h-5 w-5" /></button>
+          </div>
         </div>
 
         {canChooseSource && (
