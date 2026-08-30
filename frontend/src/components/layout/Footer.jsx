@@ -15,7 +15,6 @@ const columns = [
       { label: "Test Series", to: "/choose/tests", feature: "tests" },
       { label: "Exams", to: "/exams", feature: "tests" },
       { label: "Streams", to: "/streams", feature: "content" },
-      { label: "Subjects", to: "/subjects", feature: "content" },
       { label: "Study Material", to: "/study", feature: "study" },
       { label: "Dashboard", to: "/dashboard", feature: "performance" },
       { label: "Leaderboard", to: "/dashboard", feature: "performance" },
