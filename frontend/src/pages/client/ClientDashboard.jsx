@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import * as Icons from "lucide-react";
 import {
   ListChecks,
@@ -97,6 +97,16 @@ const DASH_NAV_KEY = "mpm-client-dashboard-nav";
 export default function ClientDashboard({ onBuild, onUpgrade }) {
   const { user } = useAuth();
   const navigate = useNavigate();
+  // The drill-down LEVEL lives in the URL (?dv=exams|subjects|topics|items) so
+  // each step is its own history entry — pressing the phone/browser Back button
+  // steps UP one level (Streams › Exam › Subject › Topic › Quizzes) instead of
+  // leaving the dashboard for the previous tab. (Mirrors the practice manager.)
+  const [searchParams, setSearchParams] = useSearchParams();
+  const setLevelParam = (lvl, opts) => {
+    const next = new URLSearchParams(searchParams);
+    if (lvl && lvl !== "streams") next.set("dv", lvl); else next.delete("dv");
+    setSearchParams(next, opts);
+  };
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -178,6 +188,19 @@ export default function ClientDashboard({ onBuild, onUpgrade }) {
     saveNav(DASH_NAV_KEY, { kind, stream, exam, subject, topic });
   }, [kind, stream, exam, subject, topic]);
 
+  // Keep the loaded objects in sync with the URL level. When the level moves UP
+  // (e.g. the Back button removes/shrinks ?dv), drop the objects below the new
+  // level so the shown list matches the URL. Forward drilling sets the object
+  // BEFORE bumping the level, so here it only ever clears already-empty slots.
+  useEffect(() => {
+    const dv = searchParams.get("dv") || "streams";
+    if (dv === "streams") { setStream(null); setExam(null); setSubject(null); setTopic(null); }
+    else if (dv === "exams") { setExam(null); setSubject(null); setTopic(null); }
+    else if (dv === "subjects") { setSubject(null); setTopic(null); }
+    else if (dv === "topics") { setTopic(null); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
   // Search the client's QUESTIONS by content (their own + published) via the
   // backend search, so questions are findable here just like everywhere else.
   useEffect(() => {
@@ -208,7 +231,8 @@ export default function ClientDashboard({ onBuild, onUpgrade }) {
   }, [q]);
 
   const resetPath = () => { setStream(null); setExam(null); setSubject(null); setTopic(null); };
-  const switchKind = (k) => { setKind(k); resetPath(); };
+  // Switching My Quiz ↔ My Test resets the drill-down to the top (and the URL).
+  const switchKind = (k) => { setKind(k); resetPath(); setLevelParam("streams", { replace: true }); };
 
   const play = (item) => {
     if (item.kind === "quiz") navigate(`/practice/quiz/play/${item._id}`);
@@ -268,9 +292,17 @@ export default function ClientDashboard({ onBuild, onUpgrade }) {
   //   My Quiz : streams → subjects → topics → items(quizzes)
   //   My Test : streams → items(tests)
   //   My Quiz : streams → exams → subjects → topics → items(quizzes)
-  const level = kind === "quiz"
+  //   My Test : streams → items(tests)
+  // The desired level comes from the URL (?dv=…); it's clamped to the deepest
+  // level the currently-loaded stream/exam/subject/topic objects can support
+  // (so a stale/hand-edited URL can never dereference a null parent).
+  const levelOrder = kind === "quiz" ? ["streams", "exams", "subjects", "topics", "items"] : ["streams", "items"];
+  const supportedLevel = kind === "quiz"
     ? (topic ? "items" : subject ? "topics" : exam ? "subjects" : stream ? "exams" : "streams")
     : (stream ? "items" : "streams");
+  const dvParam = searchParams.get("dv") || "streams";
+  let level = levelOrder.includes(dvParam) ? dvParam : "streams";
+  if (levelOrder.indexOf(level) > levelOrder.indexOf(supportedLevel)) level = supportedLevel;
 
   // Rows for the current level, derived from the flat item list.
   let rows = [];
@@ -297,18 +329,22 @@ export default function ClientDashboard({ onBuild, onUpgrade }) {
   const isItems = level === "items";
 
   // Breadcrumb trail for the active kind.
-  const crumbs = [{ label: (KINDS.find((k) => k.key === kind) || KINDS[0]).label, onClick: resetPath }];
-  if (stream) crumbs.push({ label: stream.name, onClick: () => { setExam(null); setSubject(null); setTopic(null); } });
-  if (exam) crumbs.push({ label: exam.name, onClick: () => { setSubject(null); setTopic(null); } });
-  if (subject) crumbs.push({ label: subject.name, onClick: () => setTopic(null) });
+  // Breadcrumb — each hop drives the URL level (the sync effect clears the
+  // objects below), so a crumb tap and the Back button behave identically.
+  const crumbs = [{ label: (KINDS.find((k) => k.key === kind) || KINDS[0]).label, onClick: () => setLevelParam("streams") }];
+  if (stream) crumbs.push({ label: stream.name, onClick: () => setLevelParam(kind === "quiz" ? "exams" : "items") });
+  if (exam) crumbs.push({ label: exam.name, onClick: () => setLevelParam("subjects") });
+  if (subject) crumbs.push({ label: subject.name, onClick: () => setLevelParam("topics") });
   if (topic) crumbs.push({ label: topic.name, onClick: null });
 
+  // Drill DOWN one level: set the chosen node, then push the new level into the
+  // URL (a new history entry) so Back returns here.
   const openNode = (node) => {
-    if (kind === "test") { setStream(node); return; } // stream → tests
-    if (level === "streams") setStream(node);
-    else if (level === "exams") setExam(node);
-    else if (level === "subjects") setSubject(node);
-    else if (level === "topics") setTopic(node);
+    if (kind === "test") { setStream(node); setLevelParam("items"); return; } // stream → tests
+    if (level === "streams") { setStream(node); setLevelParam("exams"); }
+    else if (level === "exams") { setExam(node); setLevelParam("subjects"); }
+    else if (level === "subjects") { setSubject(node); setLevelParam("topics"); }
+    else if (level === "topics") { setTopic(node); setLevelParam("items"); }
   };
 
   const levelHint =
