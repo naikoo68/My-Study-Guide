@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { HelpCircle, GraduationCap, Store, School, ArrowRight } from "lucide-react";
 import { useSeo } from "../lib/useSeo";
 import { useSettings } from "../context/SettingsContext";
+import { useAuth } from "../context/AuthContext";
 import { FAQ_DEFAULTS } from "../lib/faqDefaults";
 import Breadcrumbs, { breadcrumbLd } from "../components/ui/Breadcrumbs";
 
@@ -46,19 +47,26 @@ const GROUPS = {
 
 // Helpful internal links (kept separate from answers so the visible answer text
 // matches the FAQPage JSON-LD exactly — better for rich-result eligibility).
+// `content: true` marks a PUBLIC content page (public quizzes/tests/etc.). These
+// are hidden for a logged-in creator, who works in their own account and
+// shouldn't be pushed to the public website's content. Pricing/Contact stay.
 const EXPLORE = [
-  { label: "Quizzes", to: "/choose/quiz" },
-  { label: "Test Series", to: "/choose/tests" },
-  { label: "Previous Papers", to: "/practice/paper" },
-  { label: "Study Material", to: "/study" },
-  { label: "Streams", to: "/streams" },
-  { label: "Exams", to: "/exams" },
+  { label: "Quizzes", to: "/choose/quiz", content: true },
+  { label: "Test Series", to: "/choose/tests", content: true },
+  { label: "Previous Papers", to: "/practice/paper", content: true },
+  { label: "Study Material", to: "/study", content: true },
+  { label: "Streams", to: "/streams", content: true },
+  { label: "Exams", to: "/exams", content: true },
   { label: "Pricing", to: "/pricing" },
   { label: "Contact", to: "/contact" },
 ];
 
 export default function Faq() {
   const { settings } = useSettings();
+  const { user } = useAuth();
+  // A logged-in creator only sees non-content links (Pricing/Contact); the
+  // public content chips are hidden for them.
+  const exploreLinks = user?.role === "client" ? EXPLORE.filter((l) => !l.content) : EXPLORE;
   // Creator / Institute audiences are hidden platform-wide when the super-admin
   // turns off publicClientEnabled / publicInstituteEnabled (same rule as the
   // Pricing page), so we never advertise an audience that isn't open.
@@ -157,7 +165,7 @@ export default function Faq() {
       <div className="mx-auto mt-12 max-w-3xl">
         <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Explore My Study Guide</h2>
         <div className="mt-4 flex flex-wrap gap-3">
-          {EXPLORE.map((l) => (
+          {exploreLinks.map((l) => (
             <Link
               key={l.to}
               to={l.to}

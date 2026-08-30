@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { Mail } from "lucide-react";
 import { useSettings } from "../../context/SettingsContext";
+import { useAuth } from "../../context/AuthContext";
 import { publicFeatureEnabled } from "../../lib/features";
 import Brand from "./Brand";
 import { SOCIAL_ICONS, SOCIAL_COLORS, Website } from "../ui/SocialIcons";
@@ -43,12 +44,16 @@ const columns = [
 
 export default function Footer({ hideProduct = false }) {
   const { settings } = useSettings();
+  const { user } = useAuth();
   const socialLinks = (settings.socialLinks || []).filter((s) => s.url && s.url !== "#");
   const email = (settings.contacts || []).find((c) => c.type === "email")?.value;
-  // Inside the client workspace the "Product" links (public quiz/test pages)
-  // aren't relevant, so allow hiding that column. Also drop any link whose
-  // feature was turned off in Admin → Features, and any column left empty.
-  const visibleColumns = (hideProduct ? columns.filter((c) => c.title !== "Product") : columns)
+  // The "Product" links are PUBLIC content pages (public quizzes/tests/exams/…).
+  // They're hidden inside the client workspace (hideProduct) AND for a logged-in
+  // CREATOR anywhere — a creator works in their own account and shouldn't be
+  // pushed to the public website's content. Also drop any link whose feature was
+  // turned off in Admin → Features, and any column left empty.
+  const dropProduct = hideProduct || user?.role === "client";
+  const visibleColumns = (dropProduct ? columns.filter((c) => c.title !== "Product") : columns)
     .map((c) => ({ ...c, links: c.links.filter((l) => publicFeatureEnabled(settings, l.feature)) }))
     .filter((c) => c.links.length > 0);
 
