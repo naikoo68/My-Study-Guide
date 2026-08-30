@@ -14,7 +14,7 @@ export default function ExamPosts() {
   const [error, setError] = useState("");
 
   const crumbs = exam
-    ? [{ label: "Home", to: "/" }, { label: "Public Test Series", to: "/test-series" }, { label: exam.name }]
+    ? [{ label: "Home", to: "/" }, { label: "Public Test Series", to: "/public-test-series" }, { label: exam.name }]
     : [];
   useSeo(
     exam ? `${exam.name} — Public Test Series & Mock Tests` : "Public Test Series",
@@ -46,7 +46,7 @@ export default function ExamPosts() {
   return (
     <div className="container-page py-12">
       {crumbs.length > 0 && <Breadcrumbs items={crumbs} />}
-      <Link to="/test-series" className="btn-ghost mb-6 -ml-2 w-fit">
+      <Link to="/public-test-series" className="btn-ghost mb-6 -ml-2 w-fit">
         <ChevronLeft className="h-4 w-4" /> Back to exams
       </Link>
 
@@ -64,7 +64,7 @@ export default function ExamPosts() {
           {posts.map((p, i) => (
             <Link
               key={p._id}
-              to={`/test-series/${examId}/${p._id}`}
+              to={`/public-test-series/${examId}/${p._id}`}
               style={{ animationDelay: `${i * 40}ms` }}
               className="card-hover flex animate-fade-in-up items-center gap-4 p-6 opacity-0"
             >

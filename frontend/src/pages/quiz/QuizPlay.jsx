@@ -258,7 +258,7 @@ export default function QuizPlay() {
     }
 
     localStorage.removeItem(storageKey);
-    navigate(`/quiz/${subjectId}/${topicId}/${sessionId}/${quizId}/result`, { state: result });
+    navigate(`/public-quizzes/${subjectId}/${topicId}/${sessionId}/${quizId}/result`, { state: result });
   }, [answers, questions, seconds, subjectId, topicId, sessionId, quizId, subjectName, navigate, storageKey]);
 
   // Resume an unfinished attempt as-is, or wipe it and begin a fresh one.
@@ -286,7 +286,7 @@ export default function QuizPlay() {
     const answeredCount = Object.keys(saved.answers || {}).length;
     return (
       <div className="container-page py-10">
-        <button onClick={() => navigate(`/quiz/${subjectId}/${topicId}`)} className="btn-ghost -ml-2 mb-6">
+        <button onClick={() => navigate(`/public-quizzes/${subjectId}/${topicId}`)} className="btn-ghost -ml-2 mb-6">
           <ChevronLeft className="h-4 w-4" /> Back
         </button>
         <div className="mx-auto max-w-lg card p-8 text-center">
@@ -318,7 +318,7 @@ export default function QuizPlay() {
   if (!started) {
     return (
       <div className="container-page py-10">
-        <button onClick={() => navigate(`/quiz/${subjectId}/${topicId}`)} className="btn-ghost -ml-2 mb-6">
+        <button onClick={() => navigate(`/public-quizzes/${subjectId}/${topicId}`)} className="btn-ghost -ml-2 mb-6">
           <ChevronLeft className="h-4 w-4" /> Back
         </button>
         <div className="mx-auto max-w-lg card p-8 text-center">
@@ -425,7 +425,7 @@ export default function QuizPlay() {
     <div ref={containerRef} className={fullscreen ? "fixed inset-0 z-[60] overflow-y-auto bg-slate-50 px-4 py-6 dark:bg-slate-950" : "container-page py-6"}>
       <Watermark />
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <button onClick={() => navigate(`/quiz/${subjectId}/${topicId}`)} className="btn-ghost -ml-2">
+        <button onClick={() => navigate(`/public-quizzes/${subjectId}/${topicId}`)} className="btn-ghost -ml-2">
           <ChevronLeft className="h-4 w-4" /> Exit
         </button>
         <div className="flex flex-wrap items-center justify-end gap-2">

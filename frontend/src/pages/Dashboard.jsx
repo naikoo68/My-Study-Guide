@@ -142,7 +142,7 @@ export default function Dashboard() {
               <h3 className="flex items-center gap-2 font-bold">
                 <BookOpen className="h-5 w-5 text-accent-500" /> Enrolled Public Test Series
               </h3>
-              <Link to="/test-series" className="text-sm font-semibold text-brand-600 hover:underline dark:text-brand-400">
+              <Link to="/public-test-series" className="text-sm font-semibold text-brand-600 hover:underline dark:text-brand-400">
                 Browse all
               </Link>
             </div>
@@ -158,7 +158,7 @@ export default function Dashboard() {
                     </div>
                     <div className="flex items-center gap-3">
                       <Badge variant={t.difficulty}>{t.difficulty}</Badge>
-                      <Link to={`/test-series/attempt/${t._id}`} className="btn-primary py-2">
+                      <Link to={`/public-test-series/attempt/${t._id}`} className="btn-primary py-2">
                         Start <ArrowRight className="h-4 w-4" />
                       </Link>
                     </div>

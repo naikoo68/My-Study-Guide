@@ -283,7 +283,7 @@ export default function TestAttempt() {
   // Leave the test. After submitting, just go back; mid-test, confirm first
   // (answers are not saved) and drop out of fullscreen.
   const exitTest = () => {
-    const dest = anonymous ? "/" : isClient ? "/creator" : "/test-series";
+    const dest = anonymous ? "/" : isClient ? "/creator" : "/public-test-series";
     if (!result && !window.confirm("Exit the test? Your answers won't be submitted or saved.")) return;
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     navigate(dest);
@@ -442,7 +442,7 @@ export default function TestAttempt() {
               ) : (
                 <>
                   <button onClick={() => navigate("/dashboard")} className="btn-primary">Go to Dashboard</button>
-                  <button onClick={() => navigate("/test-series")} className="btn-outline">More Tests</button>
+                  <button onClick={() => navigate("/public-test-series")} className="btn-outline">More Tests</button>
                 </>
               )}
             </div>
@@ -578,7 +578,7 @@ export default function TestAttempt() {
   if (!q) {
     return (
       <div className="container-page">
-        <ErrorState message="This test has no questions yet." onRetry={() => navigate("/test-series")} />
+        <ErrorState message="This test has no questions yet." onRetry={() => navigate("/public-test-series")} />
       </div>
     );
   }

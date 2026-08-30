@@ -36,7 +36,7 @@ export default function SessionQuizzes() {
 
   return (
     <div className="container-page py-12">
-      <Link to={`/quiz/${subjectId}/${topicId}`} className="btn-ghost mb-6 -ml-2 w-fit">
+      <Link to={`/public-quizzes/${subjectId}/${topicId}`} className="btn-ghost mb-6 -ml-2 w-fit">
         <ChevronLeft className="h-4 w-4" /> Back to sessions
       </Link>
 
@@ -57,7 +57,7 @@ export default function SessionQuizzes() {
               style={{ animationDelay: `${i * 50}ms` }}
               className="card-hover animate-fade-in-up flex flex-col p-6 opacity-0"
             >
-              <Link to={`/quiz/${subjectId}/${topicId}/${sessionId}/${q._id}`} className="flex flex-1 flex-col">
+              <Link to={`/public-quizzes/${subjectId}/${topicId}/${sessionId}/${q._id}`} className="flex flex-1 flex-col">
                 <div className="flex items-start justify-between">
                   <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent-100 text-accent-600 dark:bg-accent-900/40 dark:text-accent-300">
                     <ListChecks className="h-5 w-5" />
@@ -70,12 +70,12 @@ export default function SessionQuizzes() {
                 </p>
               </Link>
               <div className="mt-4 flex flex-col gap-2">
-                <Link to={`/quiz/${subjectId}/${topicId}/${sessionId}/${q._id}`} className="btn-primary w-full">
+                <Link to={`/public-quizzes/${subjectId}/${topicId}/${sessionId}/${q._id}`} className="btn-primary w-full">
                   <Play className="h-4 w-4" /> Start Quiz
                 </Link>
                 {isAdmin && (
                   <Link
-                    to={`/quiz/${subjectId}/${topicId}/${sessionId}/${q._id}/slideshow`}
+                    to={`/public-quizzes/${subjectId}/${topicId}/${sessionId}/${q._id}/slideshow`}
                     className="btn-outline w-full"
                     title="Auto-playing question → answer slideshow for screen-recording a video tutorial"
                   >

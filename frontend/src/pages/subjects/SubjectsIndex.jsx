@@ -66,7 +66,7 @@ export default function SubjectsIndex() {
                 {groups[g].map((s) => (
                   <Link
                     key={s._id}
-                    to={s.slug ? `/subjects/${s.slug}` : `/quiz/${s._id}`}
+                    to={s.slug ? `/subjects/${s.slug}` : `/public-quizzes/${s._id}`}
                     className="card p-5 transition hover:-translate-y-0.5 hover:shadow-lg"
                   >
                     <h3 className="font-bold">{s.name}</h3>

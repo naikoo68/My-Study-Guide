@@ -101,20 +101,20 @@ export async function globalSearch(req, res) {
     ]);
 
     for (const s of streams)
-      results.push({ type: "Stream", id: String(s._id), title: s.name, subtitle: "Stream", path: `/quiz/stream/${s._id}`, adminPath: "/admin/content", active: s.isActive !== false });
+      results.push({ type: "Stream", id: String(s._id), title: s.name, subtitle: "Stream", path: `/public-quizzes/stream/${s._id}`, adminPath: "/admin/content", active: s.isActive !== false });
     for (const s of subjects)
-      results.push({ type: "Subject", id: String(s._id), title: s.name, subtitle: [s.stream?.name, "Subject"].filter(Boolean).join(" · "), path: `/quiz/${s._id}`, adminPath: "/admin/content", active: s.isActive !== false });
+      results.push({ type: "Subject", id: String(s._id), title: s.name, subtitle: [s.stream?.name, "Subject"].filter(Boolean).join(" · "), path: `/public-quizzes/${s._id}`, adminPath: "/admin/content", active: s.isActive !== false });
     for (const t of topics)
-      results.push({ type: "Topic", id: String(t._id), title: t.title, subtitle: [t.subject?.name, "Topic"].filter(Boolean).join(" · "), path: t.subject ? `/quiz/${t.subject._id}/${t._id}` : "/quiz", adminPath: "/admin/content", active: t.isActive !== false });
+      results.push({ type: "Topic", id: String(t._id), title: t.title, subtitle: [t.subject?.name, "Topic"].filter(Boolean).join(" · "), path: t.subject ? `/public-quizzes/${t.subject._id}/${t._id}` : "/public-quizzes", adminPath: "/admin/content", active: t.isActive !== false });
     for (const s of sessions)
-      results.push({ type: "Session", id: String(s._id), title: s.title, subtitle: [s.subject?.name, s.topic?.title].filter(Boolean).join(" · ") || "Session", path: s.subject && s.topic ? `/quiz/${s.subject._id}/${s.topic._id}/${s._id}` : "/quiz", adminPath: "/admin/content", active: s.isActive !== false });
+      results.push({ type: "Session", id: String(s._id), title: s.title, subtitle: [s.subject?.name, s.topic?.title].filter(Boolean).join(" · ") || "Session", path: s.subject && s.topic ? `/public-quizzes/${s.subject._id}/${s.topic._id}/${s._id}` : "/public-quizzes", adminPath: "/admin/content", active: s.isActive !== false });
     for (const qz of quizzes) {
       const subjId = qz.subject?._id, sessId = qz.session?._id, topicId = qz.session?.topic;
-      results.push({ type: "Quiz", id: String(qz._id), title: qz.title, subtitle: [qz.subject?.name, qz.session?.title].filter(Boolean).join(" · ") || "Quiz", path: subjId && sessId && topicId ? `/quiz/${subjId}/${topicId}/${sessId}/${qz._id}` : "/quiz", adminPath: "/admin/content", active: qz.isActive !== false });
+      results.push({ type: "Quiz", id: String(qz._id), title: qz.title, subtitle: [qz.subject?.name, qz.session?.title].filter(Boolean).join(" · ") || "Quiz", path: subjId && sessId && topicId ? `/public-quizzes/${subjId}/${topicId}/${sessId}/${qz._id}` : "/public-quizzes", adminPath: "/admin/content", active: qz.isActive !== false });
     }
     for (const t of tests) {
       const isPractice = t.practice === true;
-      results.push({ type: isPractice ? (t.practiceKind === "quiz" ? "My Quiz" : "My Test") : "Test", id: String(t._id), title: t.name, subtitle: isPractice ? "Practice item" : "Public Test Series", path: "/test-series", adminPath: isPractice ? "/admin/practice" : "/admin/tests", active: t.status === "published" });
+      results.push({ type: isPractice ? (t.practiceKind === "quiz" ? "My Quiz" : "My Test") : "Test", id: String(t._id), title: t.name, subtitle: isPractice ? "Practice item" : "Public Test Series", path: "/public-test-series", adminPath: isPractice ? "/admin/practice" : "/admin/tests", active: t.status === "published" });
     }
 
     // ---- 2) Questions (by body / options / statements / etc.) ----
@@ -179,18 +179,18 @@ export async function globalSearch(req, res) {
         const topicTitle = qq.session?.topic?.title || qq.topic || "";
         const sessTitle = qq.session?.title || "";
         const quizTitle = qq.quiz?.title || "";
-        let path = "/quiz";
+        let path = "/public-quizzes";
         let adminPath = "/admin/content";
         let subtitle = "Question";
         if (qq.testSeries) {
           const ts = qq.testSeries;
           const isPractice = ts.practice === true;
           adminPath = isPractice ? "/admin/practice" : "/admin/tests";
-          path = "/test-series";
+          path = "/public-test-series";
           subtitle = ts.name ? `${ts.name} · Question` : "Test question";
         } else {
           const subjId = qq.subject?._id, sessId = qq.session?._id, topicId = qq.session?.topic?._id, quizId = qq.quiz?._id;
-          if (subjId && sessId && topicId && quizId) path = `/quiz/${subjId}/${topicId}/${sessId}/${quizId}`;
+          if (subjId && sessId && topicId && quizId) path = `/public-quizzes/${subjId}/${topicId}/${sessId}/${quizId}`;
           subtitle = [streamName, subjName, quizTitle].filter(Boolean).join(" · ") || "Question";
         }
         const result = { type: "Question", id: String(qq._id), title: preview(qq.text), subtitle, match: m, path, adminPath, active: qq.status === "published" };

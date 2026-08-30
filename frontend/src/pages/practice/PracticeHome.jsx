@@ -8,7 +8,7 @@ export default function PracticeHome() {
   useSeo("Practice Questions & Tests", "Practise questions, quizzes, tests and previous papers with instant solutions and progress tracking on My Study Guide.");
   const cards = [
     { to: "/practice/quiz", label: "My Quiz", desc: "Curated practice quizzes shared with you.", Icon: ListChecks, cls: "from-violet-500 to-fuchsia-600" },
-    { to: "/quiz", label: "Public Quizzes", desc: "Everyone's subject-wise quizzes with instant, detailed solutions.", Icon: Globe, cls: "from-emerald-500 to-teal-600" },
+    { to: "/public-quizzes", label: "Public Quizzes", desc: "Everyone's subject-wise quizzes with instant, detailed solutions.", Icon: Globe, cls: "from-emerald-500 to-teal-600" },
   ];
   return (
     <div className="container-page py-12">

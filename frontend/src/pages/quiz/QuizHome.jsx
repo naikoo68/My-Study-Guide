@@ -79,7 +79,7 @@ export default function QuizHome() {
               return (
                 <Link
                   key={s._id}
-                  to={`/quiz/stream/${s._id}`}
+                  to={`/public-quizzes/stream/${s._id}`}
                   style={{ animationDelay: `${i * 40}ms` }}
                   className="card-hover group animate-fade-in-up p-6 opacity-0"
                 >

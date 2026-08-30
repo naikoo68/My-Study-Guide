@@ -33,12 +33,12 @@ export default function SubjectTopics() {
       <div className="container-page py-20 text-center">
         <FileQuestion className="mx-auto h-12 w-12 text-slate-400" />
         <h2 className="mt-4 text-2xl font-bold">Subject not found</h2>
-        <Link to="/quiz" className="btn-primary mt-6">Back to subjects</Link>
+        <Link to="/public-quizzes" className="btn-primary mt-6">Back to subjects</Link>
       </div>
     );
   }
 
-  const backTo = subject.stream ? `/quiz/stream/${subject.stream}` : "/quiz";
+  const backTo = subject.stream ? `/public-quizzes/stream/${subject.stream}` : "/public-quizzes";
 
   return (
     <div className="container-page py-12">
@@ -66,7 +66,7 @@ export default function SubjectTopics() {
           {topics.map((t, i) => (
             <Link
               key={t._id}
-              to={`/quiz/${subjectId}/${t._id}`}
+              to={`/public-quizzes/${subjectId}/${t._id}`}
               style={{ animationDelay: `${i * 50}ms` }}
               className="card-hover group animate-fade-in-up flex flex-col p-6 opacity-0"
             >

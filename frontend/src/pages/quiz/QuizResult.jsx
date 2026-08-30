@@ -48,7 +48,7 @@ export default function QuizResult() {
 
   if (!state) {
     // Direct visit without a submission — redirect back.
-    return <Navigate to={`/quiz/${subjectId}/${topicId}/${sessionId}`} replace />;
+    return <Navigate to={`/public-quizzes/${subjectId}/${topicId}/${sessionId}`} replace />;
   }
 
   const {
@@ -187,11 +187,11 @@ export default function QuizResult() {
           {showReview ? "Hide" : "Review"} Answers
         </button>
         {(review || []).length > 0 && <PaperExport title={`${subjectName || "Quiz"}`} questions={review} />}
-        <Link to={`/quiz/${subjectId}/${topicId}/${sessionId}/${quizId}`} className="btn-outline">
+        <Link to={`/public-quizzes/${subjectId}/${topicId}/${sessionId}/${quizId}`} className="btn-outline">
           <RefreshCw className="h-4 w-4" /> Retake Quiz
         </Link>
         <FeedbackButton context="quiz" source={source || `${subjectName || "Quiz"} (Quiz)`} label="Give Feedback" className="btn-outline" />
-        <Link to={`/quiz/${subjectId}/${topicId}/${sessionId}`} className="btn-ghost">
+        <Link to={`/public-quizzes/${subjectId}/${topicId}/${sessionId}`} className="btn-ghost">
           Back to Quizzes
         </Link>
       </div>

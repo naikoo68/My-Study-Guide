@@ -75,14 +75,14 @@ export default function ExamLanding() {
       <h2 className="mt-8 text-xl font-bold">Public test series for {exam.name}</h2>
       {posts.length === 0 ? (
         <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
-          Public test series are being added. Meanwhile, <Link to="/test-series" className="text-brand-600 hover:underline dark:text-brand-400">browse all public test series</Link>.
+          Public test series are being added. Meanwhile, <Link to="/public-test-series" className="text-brand-600 hover:underline dark:text-brand-400">browse all public test series</Link>.
         </p>
       ) : (
         <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {posts.map((p) => (
             <Link
               key={p._id}
-              to={`/test-series/${exam._id}/${p._id}`}
+              to={`/public-test-series/${exam._id}/${p._id}`}
               className="card p-5 transition hover:-translate-y-0.5 hover:shadow-lg"
             >
               <h3 className="font-bold">{p.name}</h3>

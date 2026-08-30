@@ -37,14 +37,14 @@ export default function StreamSubjects() {
       <div className="container-page py-20 text-center">
         <FileQuestion className="mx-auto h-12 w-12 text-slate-400" />
         <h2 className="mt-4 text-2xl font-bold">Stream not found</h2>
-        <Link to="/quiz" className="btn-primary mt-6">Back to streams</Link>
+        <Link to="/public-quizzes" className="btn-primary mt-6">Back to streams</Link>
       </div>
     );
   }
 
   return (
     <div className="container-page py-12">
-      <Link to="/quiz" className="btn-ghost mb-6 -ml-2 w-fit">
+      <Link to="/public-quizzes" className="btn-ghost mb-6 -ml-2 w-fit">
         <ChevronLeft className="h-4 w-4" /> All streams
       </Link>
 
@@ -75,7 +75,7 @@ export default function StreamSubjects() {
               return (
                 <Link
                   key={s._id}
-                  to={`/quiz/${s._id}`}
+                  to={`/public-quizzes/${s._id}`}
                   style={{ animationDelay: `${i * 40}ms` }}
                   className="card-hover group animate-fade-in-up p-6 opacity-0"
                 >

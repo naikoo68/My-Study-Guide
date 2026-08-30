@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import { contentService } from "../../services";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
-import SlideshowPlayer from "../../components/quiz/SlideshowPlayer";
+import SlideshowPlayer from "../../components/public-quizzes/SlideshowPlayer";
 
 // Slideshow for a MAIN-section quiz (Subject → Topic → Session → Quiz). Loads
 // the quiz's questions (with answers) and its breadcrumb, then hands off to the
@@ -49,7 +49,7 @@ export default function QuizSlideshow() {
       questions={questions}
       quizTitle={quizTitle}
       crumb={crumb}
-      backTo={`/quiz/${subjectId}/${topicId}/${sessionId}`}
+      backTo={`/public-quizzes/${subjectId}/${topicId}/${sessionId}`}
     />
   );
 }
