@@ -267,7 +267,7 @@ export default function Home() {
           {/* Hero boxes for the three products */}
           <div className="mt-14 grid gap-5 sm:grid-cols-3">
             {[
-              { to: "/choose/practice", feature: "content", label: "Quizzes", desc: "Subject-wise adaptive quizzes with instant solutions.", Icon: ListChecks, cls: "from-brand-600 to-indigo-600" },
+              { to: "/choose/quiz", feature: "content", label: "Quizzes", desc: "Subject-wise adaptive quizzes with instant solutions.", Icon: ListChecks, cls: "from-brand-600 to-indigo-600" },
               { to: "/choose/tests", feature: "tests", label: "Test Series", desc: "Full-length & sectional mocks with real exam timing.", Icon: FileText, cls: "from-accent-500 to-orange-600" },
               { to: "/study", feature: "study", label: "Study Material", desc: "Curated notes, PDFs and resources to revise faster.", Icon: BookMarked, cls: "from-emerald-500 to-teal-600" },
             ].filter((p) => publicFeatureEnabled(settings, p.feature)).map((p) => (

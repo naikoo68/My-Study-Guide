@@ -7,6 +7,28 @@ import { publicFeatureEnabled } from "../lib/features";
 // Series" buttons open this so the user first lands here, then picks between
 // their OWN content and the PUBLIC content.
 const MODES = {
+  quiz: {
+    title: "Quizzes",
+    subtitle: "Which quizzes would you like to open?",
+    options: [
+      {
+        to: "/practice",
+        feature: "practice",
+        Icon: ListChecks,
+        color: "from-brand-600 to-blue-600",
+        title: "My Quiz",
+        desc: "Your own quizzes — the ones you built or that were shared with you.",
+      },
+      {
+        to: "/quiz",
+        feature: "content",
+        Icon: BookOpen,
+        color: "from-emerald-500 to-teal-600",
+        title: "Public Quiz",
+        desc: "Subject-wise adaptive quizzes with instant solutions.",
+      },
+    ],
+  },
   practice: {
     title: "Start Practicing",
     subtitle: "Where would you like to practice?",
