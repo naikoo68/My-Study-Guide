@@ -80,7 +80,7 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
   // Quizzes) instead of leaving the page — each level is its own history entry.
   // (Mirrors the ?tab= pattern used in the client workspace.)
   const [searchParams, setSearchParams] = useSearchParams();
-  const view = searchParams.get("v") || "streams"; // streams | subjects | topics | items
+  const view = searchParams.get("v") || "streams"; // streams | exams | subjects | topics | items
   // Update ONLY the `v` param, preserving any others (e.g. the client
   // workspace's ?tab=build, which shares this URL) so we don't kick the client
   // back to another tab.
@@ -97,6 +97,7 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
     return saved && saved !== "paper" ? saved : "quiz";
   });
   const [stream, setStream] = useState(() => loadNav(NAV_KEY).stream || null);
+  const [exam, setExam] = useState(() => loadNav(NAV_KEY).exam || null); // My Quiz only: Stream → Exam → Subject
   const [subject, setSubject] = useState(() => loadNav(NAV_KEY).subject || null);
   const [topic, setTopic] = useState(() => loadNav(NAV_KEY).topic || null);
 
@@ -104,11 +105,14 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
   // My Test goes straight stream → subject → items. For Previous Papers the
   // levels are relabelled: subject = "Exam", topic = "Year", item = "Paper".
   const hasTopics = kind === "quiz" || kind === "paper";
+  // My Quiz has an extra Exam level between Stream and Subject:
+  // Stream → Exam → Subject → Topic → Quiz. My Test / Previous Papers do not.
+  const hasExams = kind === "quiz";
   const L = kind === "paper"
-    ? { subjectPl: "Exams", subjectAdd: "Add Exam", topicPl: "Years", topicAdd: "Add Year", itemPl: "Papers", itemAdd: "Add Paper", openTopics: "Open years", itemsWord: "papers", groupWord: "year" }
+    ? { examPl: "Exams", examAdd: "Add Exam", subjectPl: "Exams", subjectAdd: "Add Exam", topicPl: "Years", topicAdd: "Add Year", itemPl: "Papers", itemAdd: "Add Paper", openTopics: "Open years", itemsWord: "papers", groupWord: "year" }
     : kind === "quiz"
-    ? { subjectPl: "Subjects", subjectAdd: "Add Subject", topicPl: "Topics", topicAdd: "Add Topic", itemPl: "Quizzes", itemAdd: "Add Quiz", openTopics: "Open topics", itemsWord: "quizzes", groupWord: "topic" }
-    : { subjectPl: "Subjects", subjectAdd: "Add Subject", topicPl: "Topics", topicAdd: "Add Topic", itemPl: "Tests", itemAdd: "Add Test", openTopics: "Open topics", itemsWord: "tests", groupWord: "subject" };
+    ? { examPl: "Exams", examAdd: "Add Exam", subjectPl: "Subjects", subjectAdd: "Add Subject", topicPl: "Topics", topicAdd: "Add Topic", itemPl: "Quizzes", itemAdd: "Add Quiz", openTopics: "Open topics", itemsWord: "quizzes", groupWord: "topic" }
+    : { examPl: "Exams", examAdd: "Add Exam", subjectPl: "Subjects", subjectAdd: "Add Subject", topicPl: "Topics", topicAdd: "Add Topic", itemPl: "Tests", itemAdd: "Add Test", openTopics: "Open topics", itemsWord: "tests", groupWord: "subject" };
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -201,7 +205,8 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
     // sessionStorage — fall back to the streams list instead of dereferencing a
     // null ._id.
     const missingContext =
-      (which === "subjects" && !stream) ||
+      (which === "exams" && !stream) ||
+      (which === "subjects" && (hasExams ? !exam : !stream)) ||
       (which === "topics" && !subject) ||
       (which === "items" && (hasTopics ? !topic : !subject));
     if (missingContext) {
@@ -212,7 +217,8 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
     setError("");
     const p =
       which === "streams" ? practiceService.adminStreams(kind)
-      : which === "subjects" ? practiceService.adminSubjects(stream._id)
+      : which === "exams" ? practiceService.adminExams(stream._id)
+      : which === "subjects" ? (hasExams ? practiceService.adminExamSubjects(exam._id) : practiceService.adminSubjects(stream._id))
       : which === "topics" ? practiceService.adminTopics(subject._id)
       : hasTopics ? practiceService.adminTopicItems(topic._id)
       : practiceService.adminItems(subject._id, kind);
@@ -231,8 +237,8 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
 
   // Remember the current drill-down position so a page refresh restores it.
   useEffect(() => {
-    saveNav(NAV_KEY, { kind, view, stream, subject, topic });
-  }, [NAV_KEY, kind, view, stream, subject, topic]);
+    saveNav(NAV_KEY, { kind, view, stream, exam, subject, topic });
+  }, [NAV_KEY, kind, view, stream, exam, subject, topic]);
 
   // On first mount, restore the saved drill-down level into the URL (the
   // stream/subject/topic objects above are already restored from navState), so
@@ -249,15 +255,17 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const openStream = (s) => { setStream(s); setSubject(null); setTopic(null); setView("subjects"); };
-  // My Quiz drills into Topics; My Test Series goes straight to items.
+  // My Quiz drills Stream → Exam → Subject → Topic → Quiz; other kinds skip Exam.
+  const openStream = (s) => { setStream(s); setExam(null); setSubject(null); setTopic(null); setView(hasExams ? "exams" : "subjects"); };
+  const openExam = (e) => { setExam(e); setSubject(null); setTopic(null); setView("subjects"); };
   const openSubject = (s) => { setSubject(s); setTopic(null); setView(hasTopics ? "topics" : "items"); };
   const openTopic = (t) => { setTopic(t); setView("items"); };
   // Breadcrumb / upward navigation clears every entity below the destination so
-  // no stale stream/subject/topic survives (the level lives in the ?v= URL param
-  // while the entities live in state/sessionStorage — both must move together).
+  // no stale stream/exam/subject/topic survives (the level lives in the ?v= URL
+  // param while the entities live in state/sessionStorage — both must move together).
   const goTo = (v) => {
-    if (v === "streams") { setStream(null); setSubject(null); setTopic(null); }
+    if (v === "streams") { setStream(null); setExam(null); setSubject(null); setTopic(null); }
+    else if (v === "exams") { setExam(null); setSubject(null); setTopic(null); }
     else if (v === "subjects") { setSubject(null); setTopic(null); }
     else if (v === "topics") { setTopic(null); }
     setView(v);
@@ -273,12 +281,12 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
   // source of truth.
 
   // Clear topic multi-select whenever we navigate.
-  useEffect(() => { setSelTopics({}); }, [view, subject?._id, stream?._id, kind]);
+  useEffect(() => { setSelTopics({}); }, [view, subject?._id, exam?._id, stream?._id, kind]);
   const toggleTopicSel = (id) => setSelTopics((s) => ({ ...s, [id]: !s[id] }));
   const selectedTopics = () => items.filter((it) => selTopics[it._id]).map((it) => ({ _id: it._id, name: it.name }));
   // The node level for the CURRENT view — used to send selected items to another
   // account (works for streams, subjects, topics and quizzes/tests alike).
-  const nodeLevelForView = () => (view === "streams" ? "stream" : view === "subjects" ? "subject" : view === "topics" ? "topic" : "item");
+  const nodeLevelForView = () => (view === "streams" ? "stream" : view === "exams" ? "exam" : view === "subjects" ? "subject" : view === "topics" ? "topic" : "item");
   const selectedNodes = () => { const level = nodeLevelForView(); return items.filter((it) => selTopics[it._id]).map((it) => ({ level, id: it._id, name: it.name })); };
   const allTopicsSelected = items.length > 0 && items.every((it) => selTopics[it._id]);
   const toggleAllTopics = () => setSelTopics(allTopicsSelected ? {} : Object.fromEntries(items.map((it) => [it._id, true])));
@@ -290,10 +298,13 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
     try {
       const { type, mode, data } = modal;
       if (type === "stream") mode === "add" ? await practiceService.createStream({ ...form, kind }) : await practiceService.updateStream(data._id, form);
-      else if (type === "subject") mode === "add" ? await practiceService.createSubject({ ...form, stream: stream._id }) : await practiceService.updateSubject(data._id, form);
+      else if (type === "exam") mode === "add" ? await practiceService.createExam({ ...form, stream: stream._id }) : await practiceService.updateExam(data._id, form);
+      // My Quiz subjects are created under an EXAM (backend keeps stream in sync);
+      // My Test / Previous Papers subjects are created directly under the stream.
+      else if (type === "subject") mode === "add" ? await practiceService.createSubject(hasExams ? { ...form, exam: exam._id } : { ...form, stream: stream._id }) : await practiceService.updateSubject(data._id, form);
       else if (type === "topic") mode === "add" ? await practiceService.createTopic({ ...form, subject: subject._id }) : await practiceService.updateTopic(data._id, form);
       else if (type === "item") {
-        if (mode === "add") await practiceService.createItem({ ...form, practiceStream: stream._id, practiceSubject: subject._id, practiceTopic: topic?._id, practiceKind: kind });
+        if (mode === "add") await practiceService.createItem({ ...form, practiceStream: stream._id, practiceExam: exam?._id, practiceSubject: subject._id, practiceTopic: topic?._id, practiceKind: kind });
         else await testService.update(data._id, form);
       }
       setModal(null);
@@ -304,6 +315,7 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
     if (!window.confirm(`Delete ${label}? This also deletes everything inside it. This cannot be undone.`)) return;
     try {
       if (type === "stream") await practiceService.deleteStream(id);
+      else if (type === "exam") await practiceService.deleteExam(id);
       else if (type === "subject") await practiceService.deleteSubject(id);
       else if (type === "topic") await practiceService.deleteTopic(id);
       else if (type === "item") await testService.remove(id);
@@ -315,12 +327,13 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
   // stays here in the manager but is hidden from students, public share links
   // and the client browse/play — flip it back on any time.
   const toggleDisabled = async (item) => {
-    const type = view === "streams" ? "stream" : view === "subjects" ? "subject" : view === "topics" ? "topic" : "item";
+    const type = nodeLevelForView();
     const next = !item.disabled;
     setTogglingId(item._id);
     setError("");
     try {
       if (type === "stream") await practiceService.updateStream(item._id, { disabled: next });
+      else if (type === "exam") await practiceService.updateExam(item._id, { disabled: next });
       else if (type === "subject") await practiceService.updateSubject(item._id, { disabled: next });
       else if (type === "topic") await practiceService.updateTopic(item._id, { disabled: next });
       else await practiceService.updateItem(item._id, { disabled: next });
@@ -922,11 +935,15 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
   };
 
   const H = view === "streams" ? { title: "Streams", add: "Add Stream", icon: GraduationCap }
-    : view === "subjects" ? { title: `${L.subjectPl} in ${stream?.name || ""}`, add: L.subjectAdd, icon: FolderOpen }
+    : view === "exams" ? { title: `${L.examPl} in ${stream?.name || ""}`, add: L.examAdd, icon: ClipboardList }
+    : view === "subjects" ? { title: `${L.subjectPl} in ${(hasExams ? exam : stream)?.name || ""}`, add: L.subjectAdd, icon: FolderOpen }
     : view === "topics" ? { title: `${L.topicPl} in ${subject?.name || ""}`, add: L.topicAdd, icon: HelpCircle }
     : { title: `${L.itemPl} in ${(hasTopics ? topic : subject)?.name || ""}`, add: L.itemAdd, icon: kind === "quiz" ? ListChecks : kind === "paper" ? Files : FileStack };
 
-  const addType = view === "streams" ? "stream" : view === "subjects" ? "subject" : view === "topics" ? "topic" : "item";
+  const addType = nodeLevelForView();
+  // Node level of the CURRENT list item (stream/exam/subject/topic) for the
+  // share/edit/disable/delete actions — "item" for the quizzes/tests level.
+  const nodeLevel = nodeLevelForView();
 
   return (
     <div className="space-y-5">
@@ -974,7 +991,7 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
         {KINDS.filter((k) => k.key !== "paper").map((k) => (
           <button
             key={k.key}
-            onClick={() => { setKind(k.key); setStream(null); setSubject(null); setTopic(null); setView("streams"); }}
+            onClick={() => { setKind(k.key); setStream(null); setExam(null); setSubject(null); setTopic(null); setView("streams"); }}
             className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold transition ${kind === k.key ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"}`}
           >
             <k.icon className="h-4 w-4" /> {k.label}
@@ -989,7 +1006,11 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
           <button onClick={() => goTo("streams")} className={`rounded px-2 py-1 font-medium ${view === "streams" ? "text-brand-600" : "text-slate-500 hover:text-brand-600"}`}>Streams</button>
           {stream && view !== "streams" && (<>
             <ChevronRight className="h-4 w-4 text-slate-400" />
-            <button onClick={() => goTo("subjects")} className={`rounded px-2 py-1 font-medium ${view === "subjects" ? "text-brand-600" : "text-slate-500 hover:text-brand-600"}`}>{stream.name}</button>
+            <button onClick={() => goTo(hasExams ? "exams" : "subjects")} className={`rounded px-2 py-1 font-medium ${view === (hasExams ? "exams" : "subjects") ? "text-brand-600" : "text-slate-500 hover:text-brand-600"}`}>{stream.name}</button>
+          </>)}
+          {hasExams && exam && (view === "subjects" || view === "topics" || view === "items") && (<>
+            <ChevronRight className="h-4 w-4 text-slate-400" />
+            <button onClick={() => goTo("subjects")} className={`rounded px-2 py-1 font-medium ${view === "subjects" ? "text-brand-600" : "text-slate-500 hover:text-brand-600"}`}>{exam.name}</button>
           </>)}
           {subject && (view === "topics" || view === "items") && (<>
             <ChevronRight className="h-4 w-4 text-slate-400" />
@@ -1074,7 +1095,7 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
                   title={view === "topics" ? "Select to send or move" : "Select to send"}
                 />
                 <button
-                  onClick={() => (view === "streams" ? openStream(item) : view === "subjects" ? openSubject(item) : view === "topics" ? openTopic(item) : openQuestions(item))}
+                  onClick={() => (view === "streams" ? openStream(item) : view === "exams" ? openExam(item) : view === "subjects" ? openSubject(item) : view === "topics" ? openTopic(item) : openQuestions(item))}
                   className="min-w-0 flex-1 text-left"
                 >
                   <p className="flex items-center gap-2 font-bold">
@@ -1082,7 +1103,8 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
                     {item.disabled && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">Disabled</span>}
                   </p>
                   <p className="mt-0.5 text-xs text-slate-400">
-                    {view === "streams" && `${item.subjects ?? 0} ${L.subjectPl.toLowerCase()}`}
+                    {view === "streams" && `${item.subjects ?? 0} ${(hasExams ? L.examPl : L.subjectPl).toLowerCase()}`}
+                    {view === "exams" && `${item.subjects ?? 0} ${L.subjectPl.toLowerCase()}`}
                     {view === "subjects" && (hasTopics ? L.openTopics : `${item.items ?? 0} tests`)}
                     {view === "topics" && `${item.items ?? 0} ${L.itemsWord}`}
                     {view === "items" && `${item.questionCount ?? 0} questions · ${item.visibleToAll ? "Visible to all" : "Hidden by default"}`}
@@ -1108,18 +1130,18 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
                     </button>
                   )}
                   {view !== "items" && (
-                    <button onClick={() => setShareNode({ node: item, level: view === "streams" ? "stream" : view === "subjects" ? "subject" : "topic" })} title="Share a public link to this whole stream/subject/topic (anyone can open & take everything under it — no login)" className={`rounded-lg p-2 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 ${item.publicShare ? "text-emerald-600" : "text-slate-500 hover:text-emerald-600 dark:text-slate-400"}`}><Share2 className="h-4 w-4" /></button>
+                    <button onClick={() => setShareNode({ node: item, level: nodeLevel })} title="Share a public link to this whole stream/exam/subject/topic (anyone can open & take everything under it — no login)" className={`rounded-lg p-2 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 ${item.publicShare ? "text-emerald-600" : "text-slate-500 hover:text-emerald-600 dark:text-slate-400"}`}><Share2 className="h-4 w-4" /></button>
                   )}
                   {view !== "items" && (
-                    <button onClick={() => setShareEmailTarget({ level: view === "streams" ? "stream" : view === "subjects" ? "subject" : "topic", id: item._id, name: item.name })} title="Send to another user by email (they must have an account)" className="rounded-lg p-2 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30"><Send className="h-4 w-4" /></button>
+                    <button onClick={() => setShareEmailTarget({ level: nodeLevel, id: item._id, name: item.name })} title="Send to another user by email (they must have an account)" className="rounded-lg p-2 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30"><Send className="h-4 w-4" /></button>
                   )}
                   {view !== "items" && (
-                    <button onClick={() => setModal({ type: view === "streams" ? "stream" : view === "subjects" ? "subject" : "topic", mode: "edit", data: item })} className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30"><Pencil className="h-4 w-4" /></button>
+                    <button onClick={() => setModal({ type: nodeLevel, mode: "edit", data: item })} className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30"><Pencil className="h-4 w-4" /></button>
                   )}
                   {view !== "items" && (
                     <button onClick={() => toggleDisabled(item)} disabled={togglingId === item._id} title={item.disabled ? "Enable — show to students again" : "Disable — hide from students (stays here in the manager)"} className={`rounded-lg p-2 hover:bg-amber-50 disabled:opacity-50 dark:hover:bg-amber-900/30 ${item.disabled ? "text-amber-600" : "text-slate-500 hover:text-amber-600 dark:text-slate-400"}`}>{item.disabled ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}</button>
                   )}
-                  <button onClick={() => remove(view === "streams" ? "stream" : view === "subjects" ? "subject" : view === "topics" ? "topic" : "item", item._id, item.name)} className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30"><Trash2 className="h-4 w-4" /></button>
+                  <button onClick={() => remove(nodeLevel, item._id, item.name)} className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30"><Trash2 className="h-4 w-4" /></button>
                 </div>
               </div>
               {view === "items" && (
@@ -1850,6 +1872,7 @@ function EntityForm({ type, data, kind, saving, onClose, onSave }) {
   const title = type === "item"
     ? (kind === "quiz" ? "Quiz" : kind === "paper" ? "Paper" : "Test")
     : type === "stream" ? "Stream"
+    : type === "exam" ? "Exam"
     : type === "topic" ? (kind === "paper" ? "Year" : "Topic")
     : (kind === "paper" ? "Exam" : "Subject");
 

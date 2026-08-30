@@ -12,7 +12,7 @@ import { runAcceptShareJob, acceptSharePercent } from "../../lib/acceptShareProg
 //   share    — the pending ContentShare ({ _id, level, kind, title, ... })
 //   onClose  — close without accepting
 //   onDone   — called after a successful accept (host removes it + refreshes)
-const LABEL = { stream: "Stream", subject: "Subject", topic: "Topic" };
+const LABEL = { stream: "Stream", exam: "Exam", subject: "Subject", topic: "Topic" };
 
 export default function AcceptShareModal({ share, onClose, onDone }) {
   const [loading, setLoading] = useState(true);
@@ -23,7 +23,7 @@ export default function AcceptShareModal({ share, onClose, onDone }) {
   useEffect(() => () => { aliveRef.current = false; }, []);
   const [chain, setChain] = useState([]); // [{ level, suggestedName }]
   const [choice, setChoice] = useState({}); // level -> { mode:'existing'|'new', id, name }
-  const [options, setOptions] = useState({ stream: [], subject: [], topic: [] }); // existing containers per level
+  const [options, setOptions] = useState({ stream: [], exam: [], subject: [], topic: [] }); // existing containers per level
 
   // Load the placement plan (which levels + suggested names) and the recipient's
   // existing streams for the first dropdown.
@@ -52,27 +52,30 @@ export default function AcceptShareModal({ share, onClose, onDone }) {
     return () => { alive = false; };
   }, [share._id, share.kind]);
 
-  // When an existing stream/subject is chosen, load the children for the next
-  // level's "existing" dropdown.
+  // Chain-order helpers so the placement works for ANY depth (My Quiz adds an
+  // Exam level between Stream and Subject, so the chain can be stream → exam →
+  // subject → topic). Parent/child/descendants are derived from `chain` order.
+  const levelIndex = (lvl) => chain.findIndex((s) => s.level === lvl);
+  const parentLevel = (lvl) => { const i = levelIndex(lvl); return i > 0 ? chain[i - 1].level : null; };
+  const childLevel = (lvl) => { const i = levelIndex(lvl); return i >= 0 && i < chain.length - 1 ? chain[i + 1].level : null; };
+  const descendants = (lvl) => { const i = levelIndex(lvl); return i < 0 ? [] : chain.slice(i + 1).map((s) => s.level); };
+
+  // Load the EXISTING containers for `level`, scoped to its chosen parent id.
   const loadChildren = async (level, parentId) => {
     try {
-      if (level === "subject") {
-        const subs = await practiceService.adminSubjects(parentId);
-        setOptions((o) => ({ ...o, subject: Array.isArray(subs) ? subs : [], topic: [] }));
-      } else if (level === "topic") {
-        const tops = await practiceService.adminTopics(parentId);
-        setOptions((o) => ({ ...o, topic: Array.isArray(tops) ? tops : [] }));
-      }
+      let res = [];
+      if (level === "exam") res = await practiceService.adminExams(parentId);
+      else if (level === "subject") res = share.kind === "quiz" ? await practiceService.adminExamSubjects(parentId) : await practiceService.adminSubjects(parentId);
+      else if (level === "topic") res = await practiceService.adminTopics(parentId);
+      setOptions((o) => ({ ...o, [level]: Array.isArray(res) ? res : [] }));
     } catch {
       /* leave existing options empty; user can still create new */
     }
   };
 
-  const parentLevel = (level) => (level === "subject" ? "stream" : level === "topic" ? "subject" : null);
-
   // A level can only reuse an EXISTING container when its parent is also an
   // existing (already-saved) container — you can't pick an existing subject
-  // under a brand-new stream.
+  // under a brand-new exam/stream.
   const canUseExisting = (level) => {
     const p = parentLevel(level);
     if (!p) return true;
@@ -83,33 +86,24 @@ export default function AcceptShareModal({ share, onClose, onDone }) {
   const setMode = (level, mode) => {
     setChoice((c) => {
       const next = { ...c, [level]: { ...c[level], mode } };
-      // If a parent becomes "new", its descendants can't reuse an existing
+      // If this becomes "new", its descendants can't reuse an existing
       // container, so force them back to "new" (and drop any selected ids).
-      if (mode === "new") {
-        if (level === "stream") {
-          if (next.subject) next.subject = { ...next.subject, mode: "new", id: "" };
-          if (next.topic) next.topic = { ...next.topic, mode: "new", id: "" };
-        }
-        if (level === "subject" && next.topic) next.topic = { ...next.topic, mode: "new", id: "" };
-      }
+      if (mode === "new") for (const d of descendants(level)) if (next[d]) next[d] = { ...next[d], mode: "new", id: "" };
       return next;
     });
-    if (mode === "new") {
-      if (level === "stream") setOptions((o) => ({ ...o, subject: [], topic: [] }));
-      if (level === "subject") setOptions((o) => ({ ...o, topic: [] }));
-    }
+    if (mode === "new") setOptions((o) => { const n = { ...o }; for (const d of descendants(level)) n[d] = []; return n; });
   };
 
   const setExistingId = (level, id) => {
     setChoice((c) => {
       const next = { ...c, [level]: { ...c[level], id } };
       // Reset descendants — their existing lists depend on this parent.
-      if (level === "stream") { next.subject = next.subject ? { ...next.subject, mode: "new", id: "" } : next.subject; next.topic = next.topic ? { ...next.topic, mode: "new", id: "" } : next.topic; }
-      if (level === "subject") { next.topic = next.topic ? { ...next.topic, mode: "new", id: "" } : next.topic; }
+      for (const d of descendants(level)) if (next[d]) next[d] = { ...next[d], mode: "new", id: "" };
       return next;
     });
-    if (id) loadChildren(level === "stream" ? "subject" : "topic", id);
-    else setOptions((o) => (level === "stream" ? { ...o, subject: [], topic: [] } : { ...o, topic: [] }));
+    const child = childLevel(level);
+    if (id && child) loadChildren(child, id);
+    else setOptions((o) => { const n = { ...o }; for (const d of descendants(level)) n[d] = []; return n; });
   };
 
   const setName = (level, name) => {

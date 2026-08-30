@@ -8,6 +8,7 @@ import connectDB from "./config/db.js";
 import { seedIfEmpty } from "./utils/seedData.js";
 import { ensureAdminFromEnv } from "./utils/ensureAdmin.js";
 import { backfillTenants } from "./utils/backfillTenants.js";
+import { backfillPracticeExams } from "./utils/backfillPracticeExams.js";
 import { ensureDefaultStream } from "./utils/ensureDefaultStream.js";
 import { runDueFbSchedules } from "./config/facebook.js";
 import Settings from "./models/Settings.js";
@@ -161,6 +162,24 @@ async function backfillTenantsOnce() {
   }
 }
 
+// One-time migration: the My-Quiz hierarchy gained an "Exam" level between
+// Stream and Subject. Place every EXISTING My-Quiz subject (and its quiz items)
+// under a default "General" exam so nothing is orphaned from the new
+// exam-based browse. Idempotent, and a flag in Settings prevents repeats.
+async function backfillPracticeExamsOnce() {
+  try {
+    const settings = await Settings.findOne({ key: "site" }).select("practiceExamsBackfilled").lean();
+    if (settings?.practiceExamsBackfilled) return;
+    const { examsCreated, subjectsMoved, itemsUpdated } = await backfillPracticeExams();
+    await Settings.updateOne({ key: "site" }, { $set: { practiceExamsBackfilled: true } }, { upsert: true });
+    if (examsCreated || subjectsMoved || itemsUpdated) {
+      console.log(`🎓 Practice-exam backfill: created ${examsCreated} "General" exam(s), moved ${subjectsMoved} subject(s), tagged ${itemsUpdated} quiz item(s) (one-time).`);
+    }
+  } catch (err) {
+    console.error("Practice-exam backfill skipped:", err.message);
+  }
+}
+
 // Migrate the Settings index from the legacy GLOBAL-unique `key` to a per-tenant
 // compound unique (tenantId, key), so each institute can have its own "site"
 // settings document. Idempotent: drop attempts on a missing index are ignored,
@@ -292,6 +311,9 @@ async function start() {
 
   // Ensure a default "JKSSB" stream exists and move any stream-less subjects in.
   ensureDefaultStream();
+
+  // Place existing My-Quiz subjects under a default "General" exam (one-time).
+  backfillPracticeExamsOnce();
 
   // Seed in the background (never blocks startup, never crashes the server).
   // Runs only when the database has no users — handy on hosts without shell

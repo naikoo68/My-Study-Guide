@@ -2,14 +2,15 @@ import { Router } from "express";
 import express from "express";
 import {
   listStreams, createStream, updateStream, deleteStream,
+  listExams, createExam, updateExam, deleteExam, listExamSubjects,
   listSubjects, createSubject, updateSubject, deleteSubject,
   listTopics, createTopic, updateTopic, deleteTopic, moveTopic, listTopicItems,
   listItems, createItem,
-  browseStreams, browseSubjects, browseTopics, browseItems, browseTopicItems, browseStreamItems,
+  browseStreams, browseExams, browseExamSubjects, browseSubjects, browseTopics, browseItems, browseTopicItems, browseStreamItems,
   playQuiz, allSubjects, myItems, moveItem, updateItem, splitItem, splitTopic, mergeItem, moveQuestions, copyQuestions, shareContent,
   incomingShares, acceptShare, acceptShareJob, declineShare, sharePlacement, removeSharedWithMe,
   startBackup, backupJobStatus, backupJobFile, startRestore, restoreJobStatus,
-  toggleStreamPublicLink, toggleSubjectPublicLink, toggleTopicPublicLink, getPublicNode,
+  toggleStreamPublicLink, toggleExamPublicLink, toggleSubjectPublicLink, toggleTopicPublicLink, getPublicNode,
 } from "../controllers/practiceController.js";
 import { protect, authorize, optionalAuth, blockTrialClient } from "../middleware/auth.js";
 
@@ -20,6 +21,8 @@ const admin = [protect, authorize("admin", "client")];
 
 // Student browse (visibility-filtered). Attempting an item reuses /tests/:id.
 router.get("/browse/:kind/streams", optionalAuth, browseStreams);
+router.get("/browse/:kind/streams/:streamId/exams", optionalAuth, browseExams); // My Quiz: Stream → Exam
+router.get("/browse/:kind/exams/:examId/subjects", optionalAuth, browseExamSubjects); // My Quiz: Exam → Subject
 router.get("/browse/:kind/streams/:streamId/subjects", optionalAuth, browseSubjects);
 router.get("/browse/:kind/streams/:streamId/items", optionalAuth, browseStreamItems); // Previous Papers: papers directly under a stream
 router.get("/browse/:kind/subjects/:subjectId/topics", optionalAuth, browseTopics); // My Quiz
@@ -71,6 +74,14 @@ router.put("/streams/:id", ...admin, updateStream);
 router.delete("/streams/:id", ...admin, deleteStream);
 router.patch("/streams/:id/public-link", ...admin, toggleStreamPublicLink); // public share link for a whole stream
 router.get("/streams/:streamId/subjects", ...admin, listSubjects);
+router.get("/streams/:streamId/exams", ...admin, listExams); // My Quiz: exams under a stream
+
+// Admin — exams (My Quiz only: Stream → Exam → Subject → Topic → Quiz)
+router.post("/exams", ...admin, createExam);
+router.put("/exams/:id", ...admin, updateExam);
+router.delete("/exams/:id", ...admin, deleteExam);
+router.patch("/exams/:id/public-link", ...admin, toggleExamPublicLink); // public share link for a whole exam
+router.get("/exams/:examId/subjects", ...admin, listExamSubjects); // subjects under an exam
 
 // Admin — subjects
 router.post("/subjects", ...admin, createSubject);

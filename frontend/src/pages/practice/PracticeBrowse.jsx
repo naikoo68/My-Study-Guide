@@ -9,12 +9,16 @@ import SubjectLogo from "../../components/ui/SubjectLogo";
 
 const KIND_LABEL = { quiz: "My Quiz", test: "My Test", paper: "Previous Papers" };
 
-// Handles the three practice browse levels based on the URL params:
-//   /practice/:kind                         → streams
-//   /practice/:kind/:streamId               → subjects
-//   /practice/:kind/:streamId/:subjectId    → items (attempt via TestAttempt)
+// Handles the practice browse levels from the URL. Path segments are positional
+// and mean different things per kind (a single set of routes serves all kinds):
+//   My Quiz : /practice/quiz/:stream/:exam/:subject/:topic
+//             streams → exams → subjects → topics → items
+//   My Test : /practice/test/:stream/:subject
+//             streams → subjects → items
+//   Papers  : /practice/paper/:stream
+//             streams → items (papers directly under the stream)
 export default function PracticeBrowse() {
-  const { kind, streamId, subjectId, topicId } = useParams();
+  const { kind, streamId, seg2, seg3, seg4 } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
   // Slideshow (recording) is a platform-admin-only tool — hidden from institute
@@ -24,12 +28,17 @@ export default function PracticeBrowse() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // My Quiz has an extra Topic level; My Test Series goes subject → items.
-  // My Quiz: stream → subject → topic → items. My Test: stream → subject → items.
-  // Previous Papers: stream → papers (items directly under the stream, no subject).
+  // Map the positional segments to named ids per kind. Only My Quiz uses the
+  // exam level, so its subject/topic sit one segment deeper.
+  const hasExams = kind === "quiz";
+  const examId = hasExams ? seg2 : null;
+  const subjectId = hasExams ? seg3 : seg2;
+  const topicId = hasExams ? seg4 : seg3;
+
   const level = topicId ? "items"
     : subjectId ? (kind === "quiz" ? "topics" : "items")
-    : streamId ? (kind === "paper" ? "items" : "subjects")
+    : examId ? "subjects"
+    : streamId ? (kind === "paper" ? "items" : hasExams ? "exams" : "subjects")
     : "streams";
 
   const load = () => {
@@ -38,19 +47,21 @@ export default function PracticeBrowse() {
     const p =
       level === "items" ? (kind === "paper" ? practiceService.streamItems(kind, streamId) : kind === "quiz" ? practiceService.topicItems(kind, topicId) : practiceService.items(kind, subjectId))
       : level === "topics" ? practiceService.topics(kind, subjectId)
-      : level === "subjects" ? practiceService.subjects(kind, streamId)
+      : level === "subjects" ? (hasExams ? practiceService.examSubjects(kind, examId) : practiceService.subjects(kind, streamId))
+      : level === "exams" ? practiceService.exams(kind, streamId)
       : practiceService.streams(kind);
     p.then(setRows).catch((e) => setError(e.message)).finally(() => setLoading(false));
   };
-  useEffect(load, [kind, streamId, subjectId, topicId]);
+  useEffect(load, [kind, streamId, seg2, seg3, seg4]);
 
   const back =
-    level === "items" ? (kind === "paper" ? `/practice/${kind}` : kind === "quiz" ? `/practice/${kind}/${streamId}/${subjectId}` : `/practice/${kind}/${streamId}`)
-    : level === "topics" ? `/practice/${kind}/${streamId}`
-    : level === "subjects" ? `/practice/${kind}`
+    level === "items" ? (kind === "paper" ? `/practice/${kind}` : kind === "quiz" ? `/practice/${kind}/${streamId}/${examId}/${subjectId}` : `/practice/${kind}/${streamId}`)
+    : level === "topics" ? `/practice/${kind}/${streamId}/${examId}`
+    : level === "subjects" ? (hasExams ? `/practice/${kind}/${streamId}` : `/practice/${kind}`)
+    : level === "exams" ? `/practice/${kind}`
     : "/practice";
 
-  const title = level === "items" ? "Select one to start" : level === "topics" ? "Choose a topic" : level === "subjects" ? "Choose a subject" : KIND_LABEL[kind] || "Practice";
+  const title = level === "items" ? "Select one to start" : level === "topics" ? "Choose a topic" : level === "subjects" ? "Choose a subject" : level === "exams" ? "Choose an exam" : KIND_LABEL[kind] || "Practice";
 
   const openItem = (item) => {
     // Previous Papers: LOGIN required, but no subscription.
@@ -133,10 +144,11 @@ export default function PracticeBrowse() {
           {rows.map((s, i) => {
             // Subjects use the shared, realistic SubjectLogo (image → emoji +
             // colour by name). Streams/topics keep their line icon.
-            const Icon = Icons[s.icon] || (level === "streams" ? Icons.GraduationCap : level === "topics" ? Icons.Layers : Icons.BookOpen);
+            const Icon = Icons[s.icon] || (level === "streams" ? Icons.GraduationCap : level === "exams" ? Icons.ClipboardList : level === "topics" ? Icons.Layers : Icons.BookOpen);
             const to = level === "streams" ? `/practice/${kind}/${s._id}`
-              : level === "subjects" ? `/practice/${kind}/${streamId}/${s._id}`
-              : `/practice/${kind}/${streamId}/${subjectId}/${s._id}`;
+              : level === "exams" ? `/practice/${kind}/${streamId}/${s._id}`
+              : level === "subjects" ? (hasExams ? `/practice/${kind}/${streamId}/${examId}/${s._id}` : `/practice/${kind}/${streamId}/${s._id}`)
+              : `/practice/${kind}/${streamId}/${examId}/${subjectId}/${s._id}`;
             return (
               <Link key={s._id} to={to} style={{ animationDelay: `${i * 40}ms` }} className="card-hover group animate-fade-in-up p-6 opacity-0">
                 {level === "subjects" ? (

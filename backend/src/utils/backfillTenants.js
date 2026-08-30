@@ -16,7 +16,7 @@ import Settings from "../models/Settings.js";
 export const TENANT_OWNED_MODELS = [
   "AiKey", "Attempt", "CbtAttempt", "CbtRegistration", "ContentShare", "Coupon",
   "Document", "Exam", "ExamPost", "FbSchedule", "Feedback", "Institution", "Message",
-  "Notice", "PracticeStream", "PracticeSubject", "PracticeTopic", "PublicAttempt",
+  "Notice", "PracticeExam", "PracticeStream", "PracticeSubject", "PracticeTopic", "PublicAttempt",
   "Question", "Quiz", "Review", "Session", "Settings", "SmClass", "SmFile", "SmSubject",
   "Stream", "Subject", "TestSeries", "Topic", "User", "UserManual",
 ];

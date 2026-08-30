@@ -11,8 +11,8 @@ import { practiceService } from "../../services";
 //  - target:  { level: "stream"|"subject"|"topic"|"item", id, name }  — single item
 //  - targets: [ { level, id, name }, … ]  — bulk "Send selected"
 //  - onClose()
-const LABEL = { stream: "stream", subject: "subject", topic: "topic", item: "quiz / test" };
-const PLURAL = { stream: "streams", subject: "subjects", topic: "topics", item: "quizzes / tests" };
+const LABEL = { stream: "stream", exam: "exam", subject: "subject", topic: "topic", item: "quiz / test" };
+const PLURAL = { stream: "streams", exam: "exams", subject: "subjects", topic: "topics", item: "quizzes / tests" };
 
 export default function ShareByEmailModal({ target, targets, onClose }) {
   // Normalise to a list so single + bulk share share one code path.

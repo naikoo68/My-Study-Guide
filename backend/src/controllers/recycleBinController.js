@@ -29,6 +29,7 @@ import SmSubject from "../models/SmSubject.js";
 import SmClass from "../models/SmClass.js";
 import SmFile from "../models/SmFile.js";
 import PracticeStream from "../models/PracticeStream.js";
+import PracticeExam from "../models/PracticeExam.js";
 import PracticeSubject from "../models/PracticeSubject.js";
 import PracticeTopic from "../models/PracticeTopic.js";
 import { ONLY_DELETED, restorePatch } from "../utils/softDelete.js";
@@ -128,7 +129,25 @@ const TYPES = {
         TestSeries.deleteMany({ practice: true, practiceStream: id }),
         PracticeTopic.deleteMany({ subject: { $in: subjectIds } }),
         PracticeSubject.deleteMany({ stream: id }),
+        PracticeExam.deleteMany({ stream: id }), // My Quiz exam grouping under this stream
         PracticeStream.findByIdAndDelete(id),
+      ]);
+    },
+  },
+  // Practice exam (My Quiz grouping) — permanent delete removes its subjects,
+  // topics, items and questions.
+  practiceexam: {
+    Model: PracticeExam, label: "Practice exam",
+    cascade: async (id) => {
+      const items = await withDeleted(TestSeries.find({ practice: true, practiceExam: id }).select("questions"));
+      const qIds = items.flatMap((i) => i.questions || []);
+      const subjectIds = (await withDeleted(PracticeSubject.find({ exam: id }).select("_id"))).map((s) => s._id);
+      await Promise.all([
+        Question.deleteMany({ _id: { $in: qIds } }),
+        TestSeries.deleteMany({ practice: true, practiceExam: id }),
+        PracticeTopic.deleteMany({ subject: { $in: subjectIds } }),
+        PracticeSubject.deleteMany({ exam: id }),
+        PracticeExam.findByIdAndDelete(id),
       ]);
     },
   },

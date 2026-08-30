@@ -5,6 +5,7 @@ import { runUnscoped } from "../utils/tenantContext.js";
 import TestSeries from "../models/TestSeries.js";
 import Question from "../models/Question.js";
 import PracticeStream from "../models/PracticeStream.js";
+import PracticeExam from "../models/PracticeExam.js";
 import PracticeSubject from "../models/PracticeSubject.js";
 import PracticeTopic from "../models/PracticeTopic.js";
 import { findAccessEntry } from "../utils/accessControl.js";
@@ -280,6 +281,7 @@ export async function permanentDeleteUser(req, res) {
       TestSeries.deleteMany({ owner: user._id }),
       PracticeTopic.deleteMany({ owner: user._id }),
       PracticeSubject.deleteMany({ owner: user._id }),
+      PracticeExam.deleteMany({ owner: user._id }),
       PracticeStream.deleteMany({ owner: user._id }),
     ]);
   }

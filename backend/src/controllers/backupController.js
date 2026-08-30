@@ -23,6 +23,7 @@ import Exam from "../models/Exam.js";
 import ExamPost from "../models/ExamPost.js";
 import TestSeries from "../models/TestSeries.js";
 import PracticeStream from "../models/PracticeStream.js";
+import PracticeExam from "../models/PracticeExam.js";
 import PracticeSubject from "../models/PracticeSubject.js";
 import PracticeTopic from "../models/PracticeTopic.js";
 import { tenantStore } from "../utils/tenantContext.js";
@@ -71,14 +72,14 @@ export async function startAdminBackup(req, res) {
   const nContentQ = await Question.countDocuments({ owner: null, quiz: { $ne: null } });
   const nTestQ = testIds.length ? await Question.countDocuments({ owner: null, testSeries: { $in: testIds } }) : 0;
   // My Practice content (admin's own — owner null): practice tree + practice items + their questions.
-  const [nPStream, nPSub, nPTop] = await Promise.all([
-    PracticeStream.countDocuments({ owner: null }), PracticeSubject.countDocuments({ owner: null }), PracticeTopic.countDocuments({ owner: null }),
+  const [nPStream, nPExam, nPSub, nPTop] = await Promise.all([
+    PracticeStream.countDocuments({ owner: null }), PracticeExam.countDocuments({ owner: null }), PracticeSubject.countDocuments({ owner: null }), PracticeTopic.countDocuments({ owner: null }),
   ]);
   const practiceItems = await TestSeries.find({ owner: null, practice: true }, { _id: 1 }).lean();
   const practiceIds = practiceItems.map((t) => t._id);
   const nPracticeQ = practiceIds.length ? await Question.countDocuments({ owner: null, testSeries: { $in: practiceIds } }) : 0;
   const total = nStream + nSub + nTop + nSes + nQuiz + nInst + nSmSub + nSmCls + nSmFile + nExam + nPost + adminTests.length + nContentQ + nTestQ
-    + nPStream + nPSub + nPTop + practiceItems.length + nPracticeQ;
+    + nPStream + nPExam + nPSub + nPTop + practiceItems.length + nPracticeQ;
 
   const jobId = newId();
   jobs.set(jobId, { user: String(req.user._id), kind: "backup", status: "running", phase: "Starting…", total, done: 0, payload: null, error: null, updatedAt: Date.now() });
@@ -121,11 +122,12 @@ async function runAdminBackup(jobId) {
 
   // My Practice (admin's own): practice streams/subjects/topics + practice items + their questions.
   const pStreams = await dump(PracticeStream, "My Practice streams", (s) => ({ _id: s._id, kind: s.kind, name: s.name, slug: s.slug, icon: s.icon, color: s.color, description: s.description, order: s.order, isActive: s.isActive }), { owner: null });
-  const pSubjects = await dump(PracticeSubject, "My Practice subjects", (s) => ({ _id: s._id, stream: s.stream, name: s.name, slug: s.slug, icon: s.icon, color: s.color, description: s.description, order: s.order, isActive: s.isActive }), { owner: null });
+  const pExams = await dump(PracticeExam, "My Practice exams", (e) => ({ _id: e._id, stream: e.stream, name: e.name, slug: e.slug, icon: e.icon, color: e.color, description: e.description, order: e.order, isActive: e.isActive }), { owner: null });
+  const pSubjects = await dump(PracticeSubject, "My Practice subjects", (s) => ({ _id: s._id, stream: s.stream, exam: s.exam, name: s.name, slug: s.slug, icon: s.icon, color: s.color, description: s.description, order: s.order, isActive: s.isActive }), { owner: null });
   const pTopics = await dump(PracticeTopic, "My Practice topics", (t) => ({ _id: t._id, subject: t.subject, name: t.name, slug: t.slug, icon: t.icon, color: t.color, description: t.description, order: t.order, isActive: t.isActive }), { owner: null });
   touch(job, { phase: "My Practice items" });
   const pItemsRaw = await TestSeries.find({ owner: null, practice: true }).lean();
-  const pItems = pItemsRaw.map((it) => { bump(); return { _id: it._id, name: it.name, practiceKind: it.practiceKind, practiceStream: it.practiceStream, practiceSubject: it.practiceSubject, practiceTopic: it.practiceTopic, category: it.category, duration: it.duration, marks: it.marks, difficulty: it.difficulty, subjectPlan: it.subjectPlan, negativeMarking: it.negativeMarking, status: it.status, aiTopic: it.aiTopic, aiSubtopics: it.aiSubtopics, paperPdfUrl: it.paperPdfUrl, answerKeyPdfUrl: it.answerKeyPdfUrl, answerKeys: it.answerKeys, additionalInfo: it.additionalInfo }; });
+  const pItems = pItemsRaw.map((it) => { bump(); return { _id: it._id, name: it.name, practiceKind: it.practiceKind, practiceStream: it.practiceStream, practiceExam: it.practiceExam, practiceSubject: it.practiceSubject, practiceTopic: it.practiceTopic, category: it.category, duration: it.duration, marks: it.marks, difficulty: it.difficulty, subjectPlan: it.subjectPlan, negativeMarking: it.negativeMarking, status: it.status, aiTopic: it.aiTopic, aiSubtopics: it.aiSubtopics, paperPdfUrl: it.paperPdfUrl, answerKeyPdfUrl: it.answerKeyPdfUrl, answerKeys: it.answerKeys, additionalInfo: it.additionalInfo }; });
   const pItemIds = pItemsRaw.map((i) => i._id);
   const pQuestions = pItemIds.length
     ? await dump(Question, "My Practice questions", qMap((q) => ({ testSeries: q.testSeries })), { owner: null, testSeries: { $in: pItemIds } })
@@ -137,12 +139,12 @@ async function runAdminBackup(jobId) {
       streams: streams.length, subjects: subjects.length, topics: topics.length, sessions: sessions.length, quizzes: quizzes.length, contentQuestions: contentQuestions.length,
       institutions: institutions.length, smSubjects: smSubjects.length, smClasses: smClasses.length, smFiles: smFiles.length,
       exams: exams.length, posts: posts.length, series: series.length, testQuestions: testQuestions.length,
-      practiceStreams: pStreams.length, practiceSubjects: pSubjects.length, practiceTopics: pTopics.length, practiceItems: pItems.length, practiceQuestions: pQuestions.length,
+      practiceStreams: pStreams.length, practiceExams: pExams.length, practiceSubjects: pSubjects.length, practiceTopics: pTopics.length, practiceItems: pItems.length, practiceQuestions: pQuestions.length,
     },
     content: { streams, subjects, topics, sessions, quizzes, questions: contentQuestions },
     study: { institutions, smSubjects, smClasses, smFiles },
     tests: { exams, posts, series, questions: testQuestions },
-    practice: { streams: pStreams, subjects: pSubjects, topics: pTopics, items: pItems, questions: pQuestions },
+    practice: { streams: pStreams, exams: pExams, subjects: pSubjects, topics: pTopics, items: pItems, questions: pQuestions },
   };
   touch(job, { status: "done", phase: "Done", done: job.total });
 }
@@ -171,7 +173,7 @@ export async function startAdminRestore(req, res) {
     streams: arr(content.streams), subjects: arr(content.subjects), topics: arr(content.topics), sessions: arr(content.sessions), quizzes: arr(content.quizzes), contentQuestions: arr(content.questions),
     institutions: arr(study.institutions), smSubjects: arr(study.smSubjects), smClasses: arr(study.smClasses), smFiles: arr(study.smFiles),
     exams: arr(tests.exams), posts: arr(tests.posts), series: arr(tests.series), testQuestions: arr(tests.questions),
-    pStreams: arr(practice.streams), pSubjects: arr(practice.subjects), pTopics: arr(practice.topics), pItems: arr(practice.items), pQuestions: arr(practice.questions),
+    pStreams: arr(practice.streams), pExams: arr(practice.exams), pSubjects: arr(practice.subjects), pTopics: arr(practice.topics), pItems: arr(practice.items), pQuestions: arr(practice.questions),
   };
   const total = Object.values(data).reduce((a, x) => a + x.length, 0);
   if (!total) return res.status(400).json({ message: "This backup file has no content to restore." });
@@ -186,8 +188,8 @@ async function runAdminRestore(jobId, d) {
   const job = jobs.get(jobId);
   if (!job) return;
   const bump = (n = 1) => { job.done += n; job.updatedAt = Date.now(); };
-  const M = { stream: {}, subject: {}, topic: {}, session: {}, quiz: {}, inst: {}, smsub: {}, smcls: {}, exam: {}, post: {}, pstream: {}, psubject: {}, ptopic: {} };
-  const created = { streams: 0, subjects: 0, topics: 0, sessions: 0, quizzes: 0, questions: 0, institutions: 0, smSubjects: 0, smClasses: 0, smFiles: 0, exams: 0, posts: 0, series: 0, practiceStreams: 0, practiceSubjects: 0, practiceTopics: 0, practiceItems: 0, practiceQuestions: 0 };
+  const M = { stream: {}, subject: {}, topic: {}, session: {}, quiz: {}, inst: {}, smsub: {}, smcls: {}, exam: {}, post: {}, pstream: {}, pexam: {}, psubject: {}, ptopic: {} };
+  const created = { streams: 0, subjects: 0, topics: 0, sessions: 0, quizzes: 0, questions: 0, institutions: 0, smSubjects: 0, smClasses: 0, smFiles: 0, exams: 0, posts: 0, series: 0, practiceStreams: 0, practiceExams: 0, practiceSubjects: 0, practiceTopics: 0, practiceItems: 0, practiceQuestions: 0 };
 
   // Reuse an existing record matching `filter`, else create one via makeDoc().
   const upsert = async (Model, filter, makeDoc) => {
@@ -240,13 +242,15 @@ async function runAdminRestore(jobId, d) {
   // My Practice (owner null) — merge by name within each parent.
   touch(job, { phase: "My Practice streams" });
   for (const s of d.pStreams) { const r = await upsert(PracticeStream, { owner: null, kind: s.kind || "quiz", name: s.name }, () => ({ owner: null, kind: s.kind || "quiz", name: s.name, slug: s.slug || slug(s.name), icon: s.icon, color: s.color, description: s.description, order: s.order || 0, isActive: s.isActive !== false })); M.pstream[String(s._id)] = r.id; if (r.isNew) created.practiceStreams++; bump(); }
+  touch(job, { phase: "My Practice exams" });
+  for (const e of d.pExams) { const stream = M.pstream[String(e.stream)]; if (!stream) { bump(); continue; } const r = await upsert(PracticeExam, { owner: null, stream, name: e.name }, () => ({ owner: null, stream, name: e.name, slug: e.slug || slug(e.name), icon: e.icon, color: e.color, description: e.description, order: e.order || 0, isActive: e.isActive !== false })); M.pexam[String(e._id)] = r.id; if (r.isNew) created.practiceExams++; bump(); }
   touch(job, { phase: "My Practice subjects" });
-  for (const s of d.pSubjects) { const stream = M.pstream[String(s.stream)]; if (!stream) { bump(); continue; } const r = await upsert(PracticeSubject, { owner: null, stream, name: s.name }, () => ({ owner: null, stream, name: s.name, slug: s.slug || slug(s.name), icon: s.icon, color: s.color, description: s.description, order: s.order || 0, isActive: s.isActive !== false })); M.psubject[String(s._id)] = r.id; if (r.isNew) created.practiceSubjects++; bump(); }
+  for (const s of d.pSubjects) { const stream = M.pstream[String(s.stream)]; if (!stream) { bump(); continue; } const exam = s.exam ? (M.pexam[String(s.exam)] || null) : null; const r = await upsert(PracticeSubject, { owner: null, stream, name: s.name }, () => ({ owner: null, stream, exam, name: s.name, slug: s.slug || slug(s.name), icon: s.icon, color: s.color, description: s.description, order: s.order || 0, isActive: s.isActive !== false })); M.psubject[String(s._id)] = r.id; if (r.isNew) created.practiceSubjects++; bump(); }
   touch(job, { phase: "My Practice topics" });
   for (const t of d.pTopics) { const subject = M.psubject[String(t.subject)]; if (!subject) { bump(); continue; } const r = await upsert(PracticeTopic, { owner: null, subject, name: t.name }, () => ({ owner: null, subject, name: t.name, slug: t.slug || slug(t.name), icon: t.icon, color: t.color, description: t.description, order: t.order || 0, isActive: t.isActive !== false })); M.ptopic[String(t._id)] = r.id; if (r.isNew) created.practiceTopics++; bump(); }
   touch(job, { phase: "My Practice items & questions" });
   for (const it of d.pItems) {
-    const r = await upsert(TestSeries, { owner: null, practice: true, name: it.name }, () => ({ owner: null, practice: true, practiceKind: it.practiceKind || "quiz", practiceStream: M.pstream[String(it.practiceStream)], practiceSubject: M.psubject[String(it.practiceSubject)], practiceTopic: M.ptopic[String(it.practiceTopic)], name: it.name, category: it.category || "Full-Length", duration: it.duration, marks: it.marks, difficulty: it.difficulty, subjectPlan: it.subjectPlan, negativeMarking: it.negativeMarking, status: it.status || "published", visibleToAll: false, aiTopic: it.aiTopic, aiSubtopics: it.aiSubtopics, paperPdfUrl: it.paperPdfUrl, answerKeyPdfUrl: it.answerKeyPdfUrl, answerKeys: it.answerKeys, additionalInfo: it.additionalInfo, questions: [] }));
+    const r = await upsert(TestSeries, { owner: null, practice: true, name: it.name }, () => ({ owner: null, practice: true, practiceKind: it.practiceKind || "quiz", practiceStream: M.pstream[String(it.practiceStream)], practiceExam: it.practiceExam ? (M.pexam[String(it.practiceExam)] || null) : null, practiceSubject: M.psubject[String(it.practiceSubject)], practiceTopic: M.ptopic[String(it.practiceTopic)], name: it.name, category: it.category || "Full-Length", duration: it.duration, marks: it.marks, difficulty: it.difficulty, subjectPlan: it.subjectPlan, negativeMarking: it.negativeMarking, status: it.status || "published", visibleToAll: false, aiTopic: it.aiTopic, aiSubtopics: it.aiSubtopics, paperPdfUrl: it.paperPdfUrl, answerKeyPdfUrl: it.answerKeyPdfUrl, answerKeys: it.answerKeys, additionalInfo: it.additionalInfo, questions: [] }));
     if (r.isNew) created.practiceItems++;
     bump();
     const mine = d.pQuestions.filter((q) => String(q.testSeries) === String(it._id));

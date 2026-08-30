@@ -14,7 +14,7 @@
 export const MODEL_INDEXES = {
   // The 57k-row table — index every parent it's fetched by.
   Question: ["quiz", "session", "subject", "testSeries", "owner"],
-  TestSeries: ["owner", "practiceSubject", "practiceStream", "exam", "post"],
+  TestSeries: ["owner", "practiceSubject", "practiceStream", "practiceExam", "exam", "post"],
   Attempt: ["user", "testSeries", "quiz"],
   PublicAttempt: ["testSeries", "user"],
   CbtAttempt: ["testSeries", "user"],
@@ -25,7 +25,8 @@ export const MODEL_INDEXES = {
   Topic: ["subject"],
   Subject: ["stream"],
   ExamPost: ["exam"],
-  PracticeSubject: ["stream", "owner"],
+  PracticeExam: ["stream", "owner"],
+  PracticeSubject: ["stream", "owner", "exam"],
   PracticeTopic: ["subject", "owner"],
   SmSubject: ["institution"],
   SmClass: ["institution", "subject"],
