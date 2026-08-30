@@ -14,8 +14,8 @@ const CRUMBS = [{ label: "Home", to: "/" }, { label: "Exams" }];
 
 export default function ExamsIndex() {
   useSeo(
-    "Exams — Public Test Series & Mock Tests",
-    "Browse every exam on My Study Guide and take full-length mock tests and public test series with instant results and detailed solutions.",
+    "Exams — Practice Quizzes by Exam",
+    "Pick an exam on My Study Guide and practise its quizzes online with instant results and detailed solutions.",
     undefined,
     breadcrumbLd(CRUMBS)
   );
@@ -28,7 +28,10 @@ export default function ExamsIndex() {
     let alive = true;
     examService
       .exams()
-      .then((e) => alive && setExams(Array.isArray(e) ? e : []))
+      // Show ONLY exams that actually contain quizzes (e.g. "Finance Account
+      // Assistant"). Test-series-only exams (e.g. "JKSSB — 1 test series") are
+      // hidden here — they live under the Test Series section instead.
+      .then((e) => alive && setExams((Array.isArray(e) ? e : []).filter((x) => (x.quizzes || 0) > 0)))
       .catch((err) => alive && setError(err.message || "Could not load exams."))
       .finally(() => alive && setLoading(false));
     return () => { alive = false; };
@@ -37,9 +40,9 @@ export default function ExamsIndex() {
   return (
     <div className="container-page py-12">
       <Breadcrumbs items={CRUMBS} />
-      <h1 className="text-3xl font-extrabold sm:text-4xl">Exams — Public Test Series &amp; Mock Tests</h1>
+      <h1 className="text-3xl font-extrabold sm:text-4xl">Exams</h1>
       <p className="mt-3 max-w-2xl text-slate-600 dark:text-slate-300">
-        Pick an exam to explore its full-length mock tests and public test series — attempt them online with instant results and detailed solutions.
+        Pick an exam to practise its quizzes — attempt them online with instant results and detailed solutions.
       </p>
 
       {loading ? (
