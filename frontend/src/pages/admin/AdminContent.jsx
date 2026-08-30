@@ -836,10 +836,10 @@ export default function AdminContent() {
                   </>
                 ) : (
                   <>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <H.icon className="h-5 w-5 text-brand-500" />
-                      <p className="font-semibold">{item.name || item.title}</p>
-                      {item.disabled && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">Disabled</span>}
+                    <div className="flex min-w-0 items-center gap-2">
+                      <H.icon className="h-5 w-5 flex-shrink-0 text-brand-500" />
+                      <p className="truncate font-semibold">{item.name || item.title}</p>
+                      {item.disabled && <span className="flex-shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">Disabled</span>}
                     </div>
                     <p className="mt-0.5 text-xs text-slate-400">
                       {view === "streams" && `${item.subjects ?? 0} subjects`}
