@@ -749,11 +749,11 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
                 try { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {}); } catch { /* ignore */ }
                 setMinimized(true);
               }}
-              className="rounded-lg p-1 text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
             >
-              <Minus className="h-5 w-5" />
+              <Minus className="h-4 w-4" /> Minimize
             </button>
-            <button type="button" onClick={onClose} title="Close"><X className="h-5 w-5" /></button>
+            <button type="button" onClick={onClose} title="Close" className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"><X className="h-5 w-5" /></button>
           </div>
         </div>
 
