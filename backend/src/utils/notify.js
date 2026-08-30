@@ -51,7 +51,7 @@ export async function notifyNewContent(kind, doc) {
     if (!settings?.notifyOnNewContent) return;
 
     const siteName = settings.siteName || "My Study Guide";
-    const label = kind === "test" ? "Test Series" : "Quiz";
+    const label = kind === "test" ? "Public Test Series" : "Quiz";
     const { parts, link } = kind === "test" ? await buildTestPath(doc) : await buildQuizPath(doc);
     const fallback = (kind === "test" ? doc.name : doc.title) || label;
     const path = parts.length ? parts.join(" › ") : fallback;

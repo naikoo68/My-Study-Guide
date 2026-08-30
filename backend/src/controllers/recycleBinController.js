@@ -60,7 +60,7 @@ const TYPES = {
 
   // Test series — permanent delete also removes its questions.
   testseries: {
-    Model: TestSeries, label: "Test Series",
+    Model: TestSeries, label: "Public Test Series",
     cascade: async (id) => {
       const t = await withDeleted(TestSeries.findById(id).select("questions"));
       if (t?.questions?.length) await Question.deleteMany({ _id: { $in: t.questions } });

@@ -13,7 +13,7 @@ const LETTERS = ["A", "B", "C", "D"];
 
 const CONTEXT_STYLE = {
   Quiz: "bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300",
-  "Test Series": "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300",
+  "Public Test Series": "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300",
   "Practice Quiz": "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
   "Practice Test": "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
   Uncategorized: "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
@@ -193,7 +193,7 @@ export default function DuplicatesModal({
                   value={subjectId}
                   onChange={(e) => onSubjectChange(e.target.value)}
                 >
-                  <option value="all">All subjects (+ Test Series &amp; Practice)</option>
+                  <option value="all">All subjects (+ Public Test Series &amp; Practice)</option>
                   {subjects.map((s) => (
                     <option key={s._id} value={s._id}>{s.name}</option>
                   ))}
@@ -215,7 +215,7 @@ export default function DuplicatesModal({
 
             <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
               A question counts as a duplicate only when the <b>whole question</b> matches (text + all options). Duplicates
-              are found <b>within</b> each container — Quiz per subject, Test Series and Practice separately.
+              are found <b>within</b> each container — Quiz per subject, Public Test Series and Practice separately.
             </p>
 
             {/* One-click cleanup: delete every extra copy, keep one of each. */}

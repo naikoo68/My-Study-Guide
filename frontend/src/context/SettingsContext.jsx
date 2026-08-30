@@ -79,7 +79,7 @@ const DEFAULTS = {
   aboutStats: [
     { value: "1,20,000+", label: "Total Students" },
     { value: "8,500+", label: "Total Quizzes" },
-    { value: "640+", label: "Total Test Series" },
+    { value: "640+", label: "Total Public Test Series" },
   ],
 };
 

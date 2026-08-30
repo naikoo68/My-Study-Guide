@@ -22,10 +22,10 @@ export default function PostTests() {
   const [error, setError] = useState("");
 
   const crumbs = post
-    ? [{ label: "Home", to: "/" }, { label: "Test Series", to: "/test-series" }, { label: post.name }]
+    ? [{ label: "Home", to: "/" }, { label: "Public Test Series", to: "/test-series" }, { label: post.name }]
     : [];
   useSeo(
-    post ? `${post.name} — Mock Tests` : "Test Series",
+    post ? `${post.name} — Mock Tests` : "Public Test Series",
     post
       ? `Attempt ${post.name} tests on My Study Guide — full-length mocks, subject and chapter tests and previous-year papers with instant results and detailed solutions.`
       : undefined,

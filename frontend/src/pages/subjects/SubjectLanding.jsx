@@ -90,7 +90,7 @@ export default function SubjectLanding() {
 
       <div className="mt-6 flex flex-wrap gap-3">
         <Link to={`/quiz/${subject._id}`} className="btn-primary"><BookOpen className="h-4 w-4" /> Start {subject.name} quizzes <ArrowRight className="h-4 w-4" /></Link>
-        <Link to="/test-series" className="btn-outline"><FileStack className="h-4 w-4" /> Test series</Link>
+        <Link to="/test-series" className="btn-outline"><FileStack className="h-4 w-4" /> Public test series</Link>
         <Link to="/study" className="btn-outline"><BookMarked className="h-4 w-4" /> Study material</Link>
       </div>
 

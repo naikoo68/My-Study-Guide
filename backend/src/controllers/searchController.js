@@ -113,7 +113,7 @@ export async function globalSearch(req, res) {
     }
     for (const t of tests) {
       const isPractice = t.practice === true;
-      results.push({ type: isPractice ? (t.practiceKind === "quiz" ? "My Quiz" : "My Test") : "Test", id: String(t._id), title: t.name, subtitle: isPractice ? "Practice item" : "Test Series", path: "/test-series", adminPath: isPractice ? "/admin/practice" : "/admin/tests", active: t.status === "published" });
+      results.push({ type: isPractice ? (t.practiceKind === "quiz" ? "My Quiz" : "My Test") : "Test", id: String(t._id), title: t.name, subtitle: isPractice ? "Practice item" : "Public Test Series", path: "/test-series", adminPath: isPractice ? "/admin/practice" : "/admin/tests", active: t.status === "published" });
     }
 
     // ---- 2) Questions (by body / options / statements / etc.) ----

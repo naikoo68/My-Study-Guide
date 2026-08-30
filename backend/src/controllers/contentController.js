@@ -699,7 +699,7 @@ export async function findDuplicates(req, res) {
         ? ts.practiceKind === "quiz"
           ? "Practice Quiz"
           : "Practice Test"
-        : "Test Series";
+        : "Public Test Series";
       return {
         category,
         scopeId: poolScopeId || String(ts._id),
@@ -811,7 +811,7 @@ const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 export function questionLocation(q) {
   if (q.testSeries) {
     const ts = q.testSeries;
-    const cat = ts.practice ? (ts.practiceKind === "quiz" ? "Practice Quiz" : "Practice Test") : "Test Series";
+    const cat = ts.practice ? (ts.practiceKind === "quiz" ? "Practice Quiz" : "Practice Test") : "Public Test Series";
     return `${cat}: ${ts.name || "Untitled"}`;
   }
   const parts = [q.subject?.stream?.name, q.subject?.name, q.session?.topic?.title || q.topic, q.quiz?.title].filter(Boolean);

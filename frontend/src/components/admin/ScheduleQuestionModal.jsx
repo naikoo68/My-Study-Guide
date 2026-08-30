@@ -136,7 +136,7 @@ export default function ScheduleQuestionModal({ open, question, onClose }) {
         </div>
         {opts.toInstagram && <p className="mt-1 text-xs text-slate-400">Instagram always posts an image — one is generated automatically.</p>}
 
-        <p className="mb-1 mt-4 text-sm font-semibold">Content</p>
+        <p className="mb-1 mt-4 text-sm font-semibold">Public Quizzes</p>
         <div className="flex flex-wrap gap-4">
           <Toggle k="includeOptions" label="Show options" color="#4f46e5" />
           <Toggle k="includeAnswer" label="Reveal answer" color="#059669" />

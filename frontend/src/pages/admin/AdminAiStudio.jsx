@@ -86,7 +86,7 @@ const DESTS = {
     },
   },
   testseries: {
-    label: "Test Series",
+    label: "Public Test Series",
     hint: "Platform test",
     levels: [
       { key: "exam", label: "Exam…", load: () => examService.exams(), create: (s, name) => examService.createExam({ name }) },

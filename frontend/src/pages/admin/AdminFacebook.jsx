@@ -592,7 +592,7 @@ export default function AdminFacebook() {
             </div>
             {form.toInstagram && <p className="mt-1 text-xs text-slate-400">Instagram always posts an image, so a question image is generated automatically.</p>}
 
-            <p className="mb-1 mt-4 text-sm font-semibold">Content</p>
+            <p className="mb-1 mt-4 text-sm font-semibold">Public Quizzes</p>
             <div className="flex flex-wrap gap-4">
               {[["includeOptions", "Show A/B/C/D options"], ["includeAnswer", "Reveal the answer + explanation"], ["includeLink", "Append site link"]].map(([k, l]) => (
                 <label key={k} className="flex items-center gap-2 text-sm">
