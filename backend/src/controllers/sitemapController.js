@@ -75,9 +75,9 @@ export async function sitemap(req, res) {
 
   try {
     const [streams, subjects, exams] = await Promise.all([
-      Stream.find({ isActive: true, ...NOT_DELETED, slug: { $exists: true, $ne: "" } })
+      Stream.find({ isActive: true, disabled: { $ne: true }, ...NOT_DELETED, slug: { $exists: true, $ne: "" } })
         .select("slug updatedAt").sort("order name").lean(),
-      Subject.find({ isActive: true, ...NOT_DELETED, slug: { $exists: true, $ne: "" } })
+      Subject.find({ isActive: true, disabled: { $ne: true }, ...NOT_DELETED, slug: { $exists: true, $ne: "" } })
         .select("slug updatedAt").sort("name").lean(),
       Exam.find().select("name updatedAt").sort("order name").lean(),
     ]);

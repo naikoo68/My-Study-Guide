@@ -27,14 +27,17 @@ export const authService = {
 // ---- Subjects / topics / sessions / questions ----
 export const contentService = {
   // public reads
-  streams: () => api.get("/streams"),
-  subjectsByStream: (streamId) => api.get(`/streams/${streamId}/subjects`),
-  subjects: () => api.get("/subjects"),
-  topics: (subjectId) => api.get(`/subjects/${subjectId}/topics`),
-  sessions: (topicId) => api.get(`/topics/${topicId}/sessions`),
+  // `opts.manage` (admin content manager only) also returns DISABLED items so
+  // they can be re-enabled. Public/student pages omit it, so disabled content
+  // stays hidden for everyone on the public site.
+  streams: (opts) => api.get(`/streams${opts?.manage ? "?manage=1" : ""}`),
+  subjectsByStream: (streamId, opts) => api.get(`/streams/${streamId}/subjects${opts?.manage ? "?manage=1" : ""}`),
+  subjects: (opts) => api.get(`/subjects${opts?.manage ? "?manage=1" : ""}`),
+  topics: (subjectId, opts) => api.get(`/subjects/${subjectId}/topics${opts?.manage ? "?manage=1" : ""}`),
+  sessions: (topicId, opts) => api.get(`/topics/${topicId}/sessions${opts?.manage ? "?manage=1" : ""}`),
   // The topic's single implicit session (the admin UI hides the Session level).
   topicSession: (topicId) => api.post(`/topics/${topicId}/session`, {}),
-  quizzes: (sessionId) => api.get(`/sessions/${sessionId}/quizzes`),
+  quizzes: (sessionId, opts) => api.get(`/sessions/${sessionId}/quizzes${opts?.manage ? "?manage=1" : ""}`),
   quizQuestions: (quizId) => api.get(`/quizzes/${quizId}/questions`),
   questions: (sessionId) => api.get(`/sessions/${sessionId}/questions`),
   allQuestions: () => api.get("/questions"),
