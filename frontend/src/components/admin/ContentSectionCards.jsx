@@ -38,15 +38,19 @@ export default function ContentSectionCards({ cards }) {
     const feats = featsOf(c);
     return feats.length ? feats.some(adminOn) : true;
   };
-  // The public switch is ON only when ALL of a card's features are public-on.
-  // Uses publicFeatureEnabled so per-kind practice flags (and their legacy
-  // fallback) resolve the same way they do on the public site.
-  const publicOn = (c) => featsOf(c).every((f) => publicFeatureEnabled(settings, f));
+  // A folder card wraps several features (e.g. Public Practice = content +
+  // tests). Its switch shows ENABLED when ANY child is on, so disabling ONE
+  // child (e.g. Public Quizzes) no longer makes the whole folder look disabled;
+  // it reads Disabled only when EVERY child is off. Single-feature cards behave
+  // exactly as before. Uses publicFeatureEnabled so per-kind flags + their
+  // legacy fallback resolve like they do on the public site.
+  const publicOn = (c) => featsOf(c).some((f) => publicFeatureEnabled(settings, f));
 
   const toggle = async (c) => {
     const feats = featsOf(c);
     if (!feats.length || saving) return;
-    const turnOn = !publicOn(c); // any feature off → turn them all on
+    // ON (any child on) → turn them all OFF; OFF (all children off) → turn all ON.
+    const turnOn = !publicOn(c);
     setSaving(c.to);
     try {
       const next = { ...publicFlags };
