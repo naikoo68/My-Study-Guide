@@ -15,6 +15,10 @@ export function paymentConfig(req, res) {
 export async function createOrder(req, res) {
   if (!razorpayConfigured()) return res.status(400).json({ message: "Online payments are not enabled." });
 
+  // "student" prices against the student plan catalog (used by student sign-up);
+  // anything else falls back to the client catalog (the historical default).
+  const audience = req.body?.audience === "student" ? "student" : undefined;
+
   const email = String(req.body?.email || "").toLowerCase().trim();
   if (email) {
     const exists = await runUnscoped(() => User.findOne({ email }).select("_id"));
@@ -26,6 +30,7 @@ export async function createOrder(req, res) {
     couponCode: req.body?.couponCode,
     referralCode: req.body?.referralCode,
     selfEmail: email,
+    audience,
   });
   if (!offer) return res.status(400).json({ message: "Choose a valid plan." });
   if (offer.finalPrice <= 0) return res.json({ free: true, finalPrice: 0 });
@@ -33,8 +38,8 @@ export async function createOrder(req, res) {
   try {
     const order = await createRazorpayOrder({
       amount: offer.finalPrice,
-      receipt: `mpm_${offer.plan.key}_${Date.now()}`,
-      notes: { plan: offer.plan.key, email },
+      receipt: `${audience === "student" ? "stu" : "mpm"}_${offer.plan.key}_${Date.now()}`,
+      notes: { plan: offer.plan.key, email, audience: audience || "client" },
     });
     res.json({
       orderId: order.id,
