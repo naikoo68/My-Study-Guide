@@ -2578,6 +2578,81 @@ export async function suggestSubjects(req, res) {
   res.json({ subjects });
 }
 
+// POST /api/ai/suggest-topics — given a SUBJECT name (and, when known, the
+// stream it sits under for disambiguation), return the topics / chapters that
+// make up that subject so the admin can tick and bulk-add them. Mirrors
+// suggestSubjects one level deeper. Works for ANY subject (e.g. "Circuit
+// Theory", "Indian Polity"). Returns
+//   { topics: [ { title, description } ] }.
+export async function suggestTopics(req, res) {
+  const scope = resolveScope(req.user, req.body?.mode);
+  if (scope.denied) return res.status(403).json({ message: "AI access is not enabled for your account." });
+  const chosen = await resolveModel(String(req.body?.model || "").trim(), scope);
+  if (!chosen || !chosen.endpoints.length) {
+    return res.status(400).json({ message: scope.mode === "self" ? "No API keys added yet." : "AI is not configured. Add an API key in Admin → AI Keys." });
+  }
+  const subject = String(req.body?.subject || "").trim().slice(0, 160);
+  if (!subject) return res.status(400).json({ message: "Provide the subject name to find topics for." });
+  const stream = String(req.body?.stream || "").trim().slice(0, 160);
+
+  const context = stream ? ` (part of the "${stream}" stream / course)` : "";
+  const userPrompt = [
+    `List the TOPICS / chapters that make up the subject "${subject}"${context}.`,
+    "Rules:",
+    "- Return the standard topics a student actually studies WITHIN this subject (e.g. for Physics: Mechanics, Thermodynamics, Optics, Modern Physics …).",
+    "- Each topic has a short title (2-6 words) and a one-line description (max ~14 words).",
+    "- Between 5 and 40 topics, ordered the way they are usually taught (foundational first). No duplicates, no numbering.",
+    "- Stay STRICTLY inside the scope of this subject — do NOT drift into other subjects or list the subject itself as a topic.",
+    "",
+    'Return ONLY a JSON array like: [{"title":"Mechanics","description":"Kinematics, laws of motion, work and energy."}]',
+    "No markdown, no commentary.",
+  ].join("\n");
+
+  const r = await callWithFallback({
+    endpoints: chosen.endpoints,
+    model: chosen.model,
+    userPrompt,
+    maxTokens: 1800,
+    owner: scope.owner,
+    systemPrompt: "You output ONLY a JSON array of {title, description} objects — no markdown, no commentary.",
+    failOnEmpty: true,
+  });
+  if (!r.ok) {
+    return res.status(502).json({ message: r.status === 429 ? quota429Message(r.detail) : `AI provider error (${r.status}). ${(r.detail || "").slice(0, 160)}` });
+  }
+
+  // Parse a JSON array of {title, description} objects; tolerate a bare string
+  // array (some models return just titles) too. De-dupe case-insensitively.
+  const topics = [];
+  const seen = new Set();
+  const push = (title, description) => {
+    const n = String(title || "").replace(/\s+/g, " ").trim();
+    if (n.length < 2) return;
+    const k = n.toLowerCase();
+    if (seen.has(k)) return;
+    seen.add(k);
+    topics.push({ title: n, description: String(description || "").replace(/\s+/g, " ").trim().slice(0, 160) });
+  };
+  let parsed = null;
+  try {
+    const t = String(r.content || "").trim();
+    const s = t.indexOf("[");
+    const e = t.lastIndexOf("]");
+    if (s !== -1 && e !== -1 && e > s) parsed = JSON.parse(t.slice(s, e + 1));
+  } catch { /* fall through to string parsing */ }
+  if (Array.isArray(parsed)) {
+    for (const item of parsed) {
+      if (typeof item === "string") push(item, "");
+      else if (item && typeof item === "object") push(item.title || item.name || item.topic, item.description || item.desc);
+      if (topics.length >= 40) break;
+    }
+  } else {
+    for (const n of parseStringArray(r.content)) { push(n, ""); if (topics.length >= 40) break; }
+  }
+  if (!topics.length) return res.status(502).json({ message: "The AI didn't return any topics. Try again." });
+  res.json({ topics });
+}
+
 // POST /api/ai/parse-syllabus — read a FULL syllabus (pasted text / extracted
 // PDF / OCR) and return the structure to save in one go:
 //   { subject, topics: [ { title, subtopics: [ ... ] } ] }
