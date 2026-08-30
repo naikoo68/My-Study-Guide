@@ -23,7 +23,7 @@ export default function TestExams() {
 
   return (
     <div className="container-page py-12">
-      <h1 className="text-3xl font-extrabold sm:text-4xl">Test Series</h1>
+      <h1 className="text-3xl font-extrabold sm:text-4xl">Public Test Series</h1>
       <p className="mt-2 text-slate-600 dark:text-slate-300">Choose an exam to see its posts and mock tests.</p>
 
       {loading ? (

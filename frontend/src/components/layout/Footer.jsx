@@ -11,7 +11,7 @@ const columns = [
   {
     title: "Product",
     links: [
-      { label: "Quizzes", to: "/choose/quiz", feature: "content" },
+      { label: "Public Quizzes", to: "/choose/quiz", feature: "content" },
       { label: "Public Test Series", to: "/choose/tests", feature: "tests" },
       { label: "Exams", to: "/exams", feature: "tests" },
       { label: "Streams", to: "/streams", feature: "content" },
