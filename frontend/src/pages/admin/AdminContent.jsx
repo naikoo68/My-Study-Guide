@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef, Fragment } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Plus, Pencil, Trash2, X, ChevronRight, FolderOpen, Layers, BookOpen, HelpCircle, ListChecks, Upload, Eye, EyeOff, Copy, Download, GraduationCap, Search, Clock, Share2 } from "lucide-react";
 import { contentService, aiService } from "../../services";
@@ -24,7 +24,7 @@ import RegenerateAllModal from "../../components/admin/RegenerateAllModal";
 import RegenerateOneModal from "../../components/admin/RegenerateOneModal";
 import ScheduleQuestionModal from "../../components/admin/ScheduleQuestionModal";
 import RecycleBinModal from "../../components/admin/RecycleBinModal";
-import { Sparkles, Files, Globe, Wand2, Loader2, ClipboardList, RefreshCw, Scissors, GitMerge, CheckCircle2, Maximize2, Minimize2, Archive, ArrowRightLeft, ScanSearch } from "lucide-react";
+import { Sparkles, Files, Globe, Wand2, Loader2, ClipboardList, RefreshCw, Scissors, GitMerge, CheckCircle2, Maximize2, Minimize2, Archive, ArrowRightLeft, ScanSearch, Save } from "lucide-react";
 
 const COLORS = [
   "from-blue-500 to-indigo-600",
@@ -37,6 +37,21 @@ const COLORS = [
 
 // Singular type name for each drill-down level (used by the form modal).
 const VIEW_TYPE = { streams: "stream", subjects: "subject", topics: "topic", sessions: "session", quizzes: "quiz", questions: "question" };
+
+// Question types offered per subtopic in the "Missing areas" sequential generator.
+const GEN_TYPES = [
+  { id: "mcq", label: "MCQ" },
+  { id: "matching", label: "Matching" },
+  { id: "statement", label: "Statement" },
+  { id: "pair", label: "Pair" },
+  { id: "pairselect", label: "Pair-select" },
+  { id: "assertion", label: "Assertion" },
+  { id: "table", label: "Table" },
+];
+const GEN_DIFFS = ["Easy", "Medium", "Hard"]; // difficulty levels per type
+
+// Sum every type×level cell of a subtopic's mix.
+const mixTotal = (row) => Object.values(row || {}).reduce((s, dm) => s + Object.values(dm || {}).reduce((a, v) => a + (parseInt(v, 10) || 0), 0), 0);
 
 
 
@@ -112,6 +127,27 @@ export default function AdminContent() {
   const [moveQ, setMoveQ] = useState(null); // { mode: "move" | "copy" } — move/copy selected questions to another quiz
   const [migrateQuiz, setMigrateQuiz] = useState(null); // quiz being moved/copied to another session (Migrate)
   const [topicStems, setTopicStems] = useState([]); // all question stems in the current topic → powers AI "Missing areas" coverage
+  // "Scan missing areas": analyse all quizzes in this topic for uncovered syllabus.
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scanFull, setScanFull] = useState(false); // full-screen the Missing areas modal
+  const [scanning, setScanning] = useState(false);
+  const [scanErr, setScanErr] = useState("");
+  const [scanMissing, setScanMissing] = useState([]);
+  const [scanTopic, setScanTopic] = useState("");
+  const [scanStems, setScanStems] = useState([]);
+  const [scanResumed, setScanResumed] = useState(false); // showing a saved plan (not a fresh scan)
+  // Per-subtopic sequential generation from the "missing areas" scan.
+  const [scanCounts, setScanCounts] = useState({}); // subtopic index -> total question count
+  const [scanTypes, setScanTypes] = useState({});   // subtopic index -> { type: { level: count } }
+  const [openTypeRows, setOpenTypeRows] = useState(() => new Set()); // which rows show the type editor
+  const [globalMix, setGlobalMix] = useState({});   // shared type×level mix set once for ALL subtopics
+  const [mixOpen, setMixOpen] = useState(false);
+  const [seqRunning, setSeqRunning] = useState(false);
+  const [seqProgress, setSeqProgress] = useState({}); // subtopic name -> { status, count }
+  const [seqLive, setSeqLive] = useState(null); // real-time view of the CURRENT subtopic's job: { subtopic, count, byBucket:[{type,difficulty,have,want}] }
+  const [seqMsg, setSeqMsg] = useState("");
+  const seqStopRef = useRef(false);
+  const [gapPrefill, setGapPrefill] = useState(null); // { topic, subtopics } → prefills the AI modal from the scan ("All-in-one")
   const [delProgress, setDelProgress] = useState(null); // real-time bulk-delete progress: { total, done, finished? }
   const [bulkAddBusy, setBulkAddBusy] = useState(null); // live auto-add progress: { done, total, added, kind: "subject"|"topic" }
   const [search, setSearch] = useState(""); // question search query
@@ -387,6 +423,296 @@ export default function AdminContent() {
     }
     if (quizId === quiz?._id) load("questions"); // refresh only when writing to the open quiz
     return res;
+  };
+
+  // ───────────────────────── Scan missing areas ─────────────────────────
+  // Analyse ALL questions in the current topic (they share the topic's implicit
+  // session) against the syllabus, list the subtopics NOT yet covered, then let
+  // the admin generate questions for just those — one subtopic at a time into a
+  // new "<topic> — gaps" quiz. Mirrors the same feature in My Practice.
+  const scanStorageKey = (name) => `mstg.missingAreas:${name || scanTopic || "global"}`;
+  const persistScan = (name, extra) => {
+    const missing = extra?.missing || scanMissing;
+    if (!missing.length) return;
+    try {
+      localStorage.setItem(scanStorageKey(name), JSON.stringify({
+        topic: name || scanTopic,
+        missing,
+        counts: extra?.counts || scanCounts,
+        types: scanTypes,
+        globalMix,
+        progress: seqProgress,
+        savedAt: Date.now(),
+      }));
+    } catch { /* storage blocked/full — the in-memory plan still works this session */ }
+  };
+
+  // Every question stem in the topic (via its implicit session) → the AI uses
+  // these to work out what's already covered.
+  const gatherScanStems = async () => {
+    try {
+      if (!session?._id) return [];
+      const qs = await contentService.questions(session._id).catch(() => []);
+      return (qs || []).map((q) => q?.text).filter(Boolean);
+    } catch { return []; }
+  };
+
+  // The actual AI scan (also used by the "Re-scan" button).
+  const runScan = async (topicName) => {
+    setScanning(true); setScanErr(""); setScanMissing([]); setScanTopic(topicName); setScanStems([]);
+    setScanCounts({}); setScanTypes({}); setOpenTypeRows(new Set()); setGlobalMix({}); setMixOpen(false); setSeqProgress({}); setSeqMsg(""); seqStopRef.current = false;
+    setScanResumed(false);
+    try {
+      const stems = await gatherScanStems();
+      setScanStems(stems);
+      const r = await aiService.coverageGaps({ topic: topicName, questions: stems });
+      const missing = Array.isArray(r?.missing) ? r.missing : [];
+      setScanMissing(missing);
+      const counts = Object.fromEntries(missing.map((_, i) => [i, 10])); // default 10 per subtopic
+      setScanCounts(counts);
+      persistScan(topicName, { missing, counts }); // save the fresh scan right away
+    } catch (e) {
+      setScanErr(e.message || "Scan failed.");
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  // Button entry point: resume a saved plan for this topic if there is one,
+  // otherwise run a fresh scan.
+  const scanMissingAreas = async () => {
+    const topicName = topic?.title || "";
+    setScanOpen(true); setScanFull(false); setScanErr(""); setSeqMsg(""); seqStopRef.current = false;
+    let saved = null;
+    try { const raw = localStorage.getItem(scanStorageKey(topicName)); saved = raw ? JSON.parse(raw) : null; } catch { saved = null; }
+    if (saved && Array.isArray(saved.missing) && saved.missing.length) {
+      setScanning(false);
+      setScanResumed(true);
+      setScanTopic(saved.topic || topicName);
+      setScanMissing(saved.missing);
+      setScanCounts(saved.counts || {});
+      setScanTypes(saved.types || {});
+      setGlobalMix(saved.globalMix || {});
+      const restored = {};
+      Object.entries(saved.progress || {}).forEach(([k, v]) => { restored[k] = v && v.status === "working" ? { ...v, status: "pending" } : v; });
+      setSeqProgress(restored);
+      setOpenTypeRows(new Set()); setMixOpen(false);
+      gatherScanStems().then(setScanStems); // re-gather stems in bg (not persisted)
+      return;
+    }
+    await runScan(topicName);
+  };
+
+  // Keep the saved plan in sync as the admin tweaks counts/types/progress.
+  useEffect(() => {
+    if (!scanOpen || !scanMissing.length) return;
+    persistScan(scanTopic);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scanOpen, scanMissing, scanCounts, scanTypes, globalMix, seqProgress]);
+
+  // "All-in-one": hand the whole gap list to the standard AI generator modal.
+  const generateFromGaps = () => {
+    setGapPrefill({ topic: scanTopic, subtopics: scanMissing.join(", ") });
+    setTopicStems(scanStems); // coverage panel reflects the whole topic
+    setAiTarget(null);
+    setAiTopicLevel(true);
+    setScanOpen(false);
+    setAiOpen(true);
+  };
+
+  // Poll a generation job, honouring a stop request (keeps the partial result).
+  const pollGenJob = async (jobId, onTick) => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    let cancelSent = false;
+    for (let i = 0; i < 240; i++) {
+      await sleep(2000);
+      if (seqStopRef.current && !cancelSent) { cancelSent = true; try { await aiService.cancelJob(jobId); } catch { /* keep polling for the partial */ } }
+      let s;
+      try { s = await aiService.job(jobId); } catch { continue; }
+      try { onTick?.(s); } catch { /* live UI update must never break polling */ }
+      if (s.status === "done") return s.questions || [];
+      if (s.status === "error") throw new Error(s.error || "Generation failed.");
+    }
+    throw new Error("Generation timed out.");
+  };
+
+  // Core per-subtopic generator: build the type×level plan, generate in rounds
+  // (topping up any buckets that fall short), de-duped, until satisfied/stopped.
+  const runSubtopic = async (i, avoidBase) => {
+    const name = scanMissing[i];
+    const chosen = scanTypes[i];
+    const want = (() => {
+      const b = [];
+      if (chosen) {
+        for (const [type, dm] of Object.entries(chosen)) {
+          for (const [difficulty, v] of Object.entries(dm || {})) {
+            const n = parseInt(v, 10) || 0;
+            if (n > 0) b.push({ type, difficulty, count: n });
+          }
+        }
+      }
+      return b.length ? b : [{ type: "mcq", difficulty: "Medium", count: Math.max(0, parseInt(scanCounts[i], 10) || 0) }];
+    })();
+    const collected = [];
+    const keyOf = (q) => `${q?.type || "mcq"}::${String(q?.text || "").trim().toLowerCase()}::${Array.isArray(q?.columnA) ? q.columnA.join("|").toLowerCase() : ""}::${String(q?.assertion || "").toLowerCase()}`;
+    const seen = new Set();
+    let rounds = 0, emptyRounds = 0, lastErr = "";
+    while (rounds < 6 && emptyRounds < 2 && !seqStopRef.current) {
+      const have = {};
+      collected.forEach((q) => { const k = `${q.type || "mcq"}|${q.difficulty || "Medium"}`; have[k] = (have[k] || 0) + 1; });
+      const plan = want
+        .map((b) => ({ type: b.type, difficulty: b.difficulty, count: Math.max(0, b.count - (have[`${b.type}|${b.difficulty}`] || 0)) }))
+        .filter((b) => b.count > 0);
+      if (!plan.length) break;
+      const body = {
+        topic: scanTopic,
+        plan,
+        notes: `Write EVERY question ONLY about the subtopic "${name}" within "${scanTopic}". Do not drift to other subtopics.`,
+        avoid: [...avoidBase, ...collected.map((q) => q.text)].filter(Boolean).slice(-400),
+      };
+      let got = [];
+      const doneSoFar = collected.length;
+      const onTick = (s) => setSeqLive({
+        subtopic: name,
+        count: doneSoFar + (s?.count || 0),
+        byBucket: Array.isArray(s?.byBucket) ? s.byBucket : [],
+      });
+      try { const { jobId } = await aiService.generate(body); if (jobId) got = await pollGenJob(jobId, onTick); else lastErr = "Could not start generation."; }
+      catch (e) { lastErr = e?.message || "Generation failed."; }
+      const before = collected.length;
+      for (const q of got) { const k = keyOf(q); if (String(q?.text || "").trim() && !seen.has(k)) { seen.add(k); collected.push(q); } }
+      if (collected.length <= before) emptyRounds += 1; else emptyRounds = 0;
+      rounds += 1;
+    }
+    return { collected, lastErr };
+  };
+
+  // Ensure the "<topic> — gaps" quiz exists (create once), returning its id.
+  // Insert generated questions there directly — self-contained so a sequential
+  // run reliably appends to ONE quiz (no reliance on async aiTarget state).
+  const ensureGapsQuiz = async (existingId) => {
+    if (existingId) return existingId;
+    if (!subject?._id || !session?._id) throw new Error("Open a topic's quizzes first.");
+    const created = await contentService.createQuiz({ title: `${scanTopic} — gaps`, subject: subject._id, session: session._id });
+    if (!created?._id) throw new Error("Could not create the gaps quiz.");
+    setAiTarget({ id: created._id, title: `${scanTopic} — gaps` });
+    return created._id;
+  };
+  const insertGapQuestions = async (quizId, list, subtopics) => {
+    await contentService.bulkQuestions(list, { subject: subject._id, session: session._id, quiz: quizId });
+    contentService.updateQuiz(quizId, { aiTopic: scanTopic, aiSubtopics: subtopics || "" }).catch(() => {});
+  };
+
+  // Generate a SINGLE subtopic now (per-row "Generate" button).
+  const generateOne = async (i) => {
+    const name = scanMissing[i];
+    const cnt = scanTypes[i] ? mixTotal(scanTypes[i]) : (parseInt(scanCounts[i], 10) || 0);
+    if (cnt <= 0) { setSeqMsg(`Set a question count for “${name}” first.`); return; }
+    if (!subject?._id || !session?._id) { setSeqMsg("Open a topic's quizzes first."); return; }
+    seqStopRef.current = false;
+    setSeqRunning(true);
+    setSeqProgress((p) => ({ ...p, [name]: { status: "working", count: 0 } }));
+    setSeqMsg("");
+    try {
+      const { collected, lastErr } = await runSubtopic(i, [...scanStems]);
+      if (collected.length) {
+        const targetId = await ensureGapsQuiz(aiTarget?.id);
+        await insertGapQuestions(targetId, collected, name);
+        setSeqProgress((p) => ({ ...p, [name]: { status: "done", count: collected.length } }));
+        setSeqMsg(seqStopRef.current ? `Stopped — kept ${collected.length} question(s) for “${name}”.` : `Generated ${collected.length} question(s) for “${name}”.`);
+        load(view); // refresh the quiz list so the gaps quiz + counts show
+      } else {
+        setSeqProgress((p) => ({ ...p, [name]: { status: "failed", count: 0, err: lastErr || "No questions returned — rate-limited/quota, or mix too large." } }));
+      }
+    } catch (e) {
+      setSeqProgress((p) => ({ ...p, [name]: { status: "failed", count: 0, err: e.message || "Generation failed." } }));
+    } finally {
+      setSeqRunning(false);
+      setSeqLive(null);
+    }
+  };
+
+  // Generate EVERY chosen subtopic in turn, all into the same new gaps quiz.
+  const generateSequential = async () => {
+    const subs = scanMissing
+      .map((name, i) => ({ name, i, count: (scanTypes[i] ? mixTotal(scanTypes[i]) : (parseInt(scanCounts[i], 10) || 0)) }))
+      .filter((s) => s.count > 0);
+    if (!subs.length) { setSeqMsg("Set a question count (e.g. 10) on at least one subtopic first."); return; }
+    if (!subject?._id || !session?._id) { setSeqMsg("Open a topic's quizzes first."); return; }
+
+    seqStopRef.current = false;
+    setSeqRunning(true); setSeqMsg("");
+    const prog = {}; subs.forEach((s) => (prog[s.name] = { status: "pending", count: 0 })); setSeqProgress({ ...prog });
+    setAiTarget(null);
+    const targetName = `${scanTopic} — gaps`;
+    const allNames = subs.map((x) => x.name).join(", ");
+    const doneStems = [...scanStems];
+    let targetId = null; // the gaps quiz, created lazily on the first successful subtopic
+    let total = 0;
+
+    try {
+      for (const s of subs) {
+        if (seqStopRef.current) break;
+        prog[s.name].status = "working"; setSeqProgress({ ...prog });
+        const { collected, lastErr } = await runSubtopic(s.i, doneStems);
+        if (collected.length) {
+          try {
+            targetId = await ensureGapsQuiz(targetId);
+            await insertGapQuestions(targetId, collected, allNames);
+            total += collected.length;
+            doneStems.push(...collected.map((q) => q.text).filter(Boolean));
+            prog[s.name] = { status: "done", count: collected.length };
+          } catch (e) { prog[s.name] = { status: "failed", count: 0, err: e.message || "Insert failed." }; }
+        } else {
+          prog[s.name] = { status: "failed", count: 0, err: lastErr || "No questions returned — keys may be rate-limited/out of quota, or the mix is too large for the free tier." };
+        }
+        setSeqProgress({ ...prog });
+      }
+      const failed = Object.values(prog).filter((p) => p.status === "failed").length;
+      const failNote = failed ? ` ${failed} subtopic(s) produced 0 (rate-limited/out of quota or too large a mix — try fewer questions or more working keys).` : "";
+      setSeqMsg(seqStopRef.current
+        ? `Stopped. Generated ${total} question(s) into “${targetName}” so far.${failNote}`
+        : `Done — generated ${total} question(s) across ${subs.length} subtopic(s) into “${targetName}”.${failNote}`);
+      if (targetId) load(view); // refresh the quiz list
+    } catch (e) {
+      setSeqMsg(e.message || "Sequential generation failed.");
+    } finally {
+      setSeqRunning(false);
+      seqStopRef.current = false;
+      setSeqLive(null);
+    }
+  };
+
+  const cancelSequential = () => { seqStopRef.current = true; setSeqMsg("Stopping after the current subtopic…"); };
+
+  // ── Question-mix helpers (shared mix set once, applied to every subtopic) ──
+  const setGlobalType = (type, diff, value) => setGlobalMix((prev) => {
+    const row = { ...prev }; const cell = { ...(row[type] || {}) };
+    let n = parseInt(value, 10); if (!Number.isFinite(n) || n < 0) n = 0;
+    cell[diff] = n; row[type] = cell; return row;
+  });
+  const applyMixToAll = () => {
+    const total = mixTotal(globalMix);
+    if (total <= 0) { setSeqMsg("Set at least one question in the mix above first."); return; }
+    const clone = JSON.parse(JSON.stringify(globalMix));
+    setScanTypes(Object.fromEntries(scanMissing.map((_, i) => [i, JSON.parse(JSON.stringify(clone))])));
+    setScanCounts(Object.fromEntries(scanMissing.map((_, i) => [i, total])));
+    setSeqMsg(`Applied ${total} question(s) per subtopic (same mix) to all ${scanMissing.length} subtopic(s).`);
+  };
+  const setSubType = (i, type, diff, value) => setScanTypes((prev) => {
+    const cap = Math.max(0, parseInt(scanCounts[i], 10) || 0);
+    const row = { ...(prev[i] || {}) };
+    const cell = { ...(row[type] || {}) };
+    const othersTotal = mixTotal(row) - (parseInt(cell[diff], 10) || 0);
+    let n = parseInt(value, 10); if (!Number.isFinite(n) || n < 0) n = 0;
+    n = Math.min(n, Math.max(0, cap - othersTotal));
+    cell[diff] = n;
+    row[type] = cell;
+    return { ...prev, [i]: row };
+  });
+  const toggleTypeRow = (i) => {
+    setOpenTypeRows((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; });
+    setScanTypes((prev) => (prev[i] ? prev : { ...prev, [i]: { mcq: { Medium: Math.max(0, parseInt(scanCounts[i], 10) || 0) } } }));
   };
 
   // Remember the current drill-down position so a page refresh restores it.
@@ -736,7 +1062,7 @@ export default function AdminContent() {
               <button onClick={() => setBulkOpen(true)} className="btn-outline">
                 <Upload className="h-4 w-4" /> Bulk Upload
               </button>
-              <button onClick={() => { setAiTarget(null); setAiOpen(true); }} className="btn-outline text-brand-600">
+              <button onClick={() => { setGapPrefill(null); setAiTarget(null); setAiOpen(true); }} className="btn-outline text-brand-600">
                 <Sparkles className="h-4 w-4" /> Generate with AI
               </button>
               <button onClick={() => { setAiTarget(null); setImportOpen(true); }} className="btn-outline text-brand-600">
@@ -758,10 +1084,10 @@ export default function AdminContent() {
           )}
           {view === "quizzes" && (
             <>
-              <button onClick={() => { setAiTarget(null); setAiTopicLevel(true); setAiOpen(true); }} className="btn-outline text-brand-600" title="Scan this topic's questions for uncovered syllabus areas, then generate the missing ones">
+              <button onClick={scanMissingAreas} className="btn-outline text-brand-600" title="Scan this topic's questions for uncovered syllabus areas, then generate the missing ones">
                 <ScanSearch className="h-4 w-4" /> Scan Missing Areas
               </button>
-              <button onClick={() => { setAiTarget(null); setAiTopicLevel(true); setAiOpen(true); }} className="btn-outline text-brand-600" title="Generate other question types for this topic (pick the types in the generator)">
+              <button onClick={() => { setGapPrefill(null); setAiTarget(null); setAiTopicLevel(true); setAiOpen(true); }} className="btn-outline text-brand-600" title="Generate other question types for this topic (pick the types in the generator)">
                 <Sparkles className="h-4 w-4" /> Other question types
               </button>
             </>
@@ -1046,13 +1372,13 @@ export default function AdminContent() {
       <AiGenerate
         open={aiOpen}
         title={aiTopicLevel ? `Generate with AI — ${topic?.title || ""} (missing areas)` : `Generate with AI${quiz ? ` — ${quiz.title}` : ""}`}
-        onClose={() => { setAiOpen(false); setAiTopicLevel(false); }}
+        onClose={() => { setAiOpen(false); setAiTopicLevel(false); setGapPrefill(null); }}
         allowNewTarget
         newLeafLabel="quiz"
         currentTargetName={aiTarget?.title || quiz?.title || ""}
         existingQuestions={view === "questions" ? items : []}
-        defaultTopic={quiz?.aiTopic || topic?.title || ""}
-        defaultSubtopics={quiz?.aiSubtopics || ""}
+        defaultTopic={gapPrefill?.topic || quiz?.aiTopic || topic?.title || ""}
+        defaultSubtopics={gapPrefill?.subtopics || quiz?.aiSubtopics || ""}
         defaultDest={aiTopicLevel ? "new" : "current"}
         coverageQuestions={topicStems}
         subjectName={subject?.name || ""}
@@ -1068,6 +1394,186 @@ export default function AdminContent() {
         currentTargetName={aiTarget?.title || quiz?.title || ""}
         onUpload={(questions, opts = {}) => saveAiBatch(questions, opts)}
       />
+
+      {/* Scan missing areas — coverage report across all quizzes in this topic */}
+      {scanOpen && (
+        <div className={`fixed inset-0 z-50 flex justify-center overflow-y-auto bg-black/50 ${scanFull ? "items-stretch p-2 sm:p-4" : "items-start p-4"}`} onClick={() => setScanOpen(false)}>
+          <div className={`card flex flex-col p-6 ${scanFull ? "m-0 h-full w-full max-w-none" : "my-8 max-h-[calc(100vh-4rem)] w-full max-w-lg"}`} onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-lg font-bold">
+                <ScanSearch className="h-5 w-5 text-brand-600" /> Missing areas{scanTopic ? ` — ${scanTopic}` : ""}
+              </h3>
+              <div className="flex items-center gap-1">
+                <button onClick={() => setScanFull((v) => !v)} title={scanFull ? "Exit full screen" : "Full screen"} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800">
+                  {scanFull ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
+                </button>
+                <button onClick={() => setScanOpen(false)} title="Close"><X className="h-5 w-5" /></button>
+              </div>
+            </div>
+
+            {scanning ? (
+              <p className="flex items-center gap-2 text-sm text-slate-500">
+                <Loader2 className="h-4 w-4 animate-spin" /> Scanning {items.length} quiz(zes) for uncovered subtopics…
+              </p>
+            ) : scanErr ? (
+              <div className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">{scanErr}</div>
+            ) : scanMissing.length === 0 ? (
+              <p className="text-sm text-slate-500">No obvious gaps found — the {scanStems.length} question(s) here already cover the topic broadly.</p>
+            ) : (
+              <>
+                {scanResumed && (
+                  <div className="mb-2 flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300">
+                    <Save className="h-3.5 w-3.5 flex-shrink-0" />
+                    <span>Resumed your <b>saved plan</b> for this topic — your list and progress were kept. Use <b>Re-scan</b> below to refresh the gaps.</span>
+                  </div>
+                )}
+                <p className="mb-2 text-sm text-slate-500">
+                  These subtopics are <b>not yet covered</b> (in study order). Set the question mix <b>once</b> below and apply it to every subtopic — they're generated <b>one subtopic at a time</b> into a new quiz. This list is <b>saved automatically</b>, so you can close it and finish later.
+                </p>
+
+                {/* Shared question mix — set the type × level counts once, apply to all subtopics. */}
+                <div className="mb-2 rounded-xl border border-brand-200 bg-brand-50/40 dark:border-brand-900/40 dark:bg-brand-900/10">
+                  <button onClick={() => setMixOpen((o) => !o)} className="flex w-full items-center justify-between px-3 py-2 text-sm font-semibold">
+                    <span>Question mix for all subtopics{mixTotal(globalMix) > 0 ? ` — ${mixTotal(globalMix)}/subtopic` : ""}</span>
+                    <span className="text-slate-400">{mixOpen ? "▾" : "▸"}</span>
+                  </button>
+                  {mixOpen && (
+                    <div className="px-3 pb-3">
+                      <div className="grid grid-cols-[1fr_repeat(3,3rem)] items-center gap-x-2 gap-y-1">
+                        <span />
+                        {GEN_DIFFS.map((d) => <span key={d} className="text-center text-[11px] font-semibold text-slate-500 dark:text-slate-400">{d}</span>)}
+                        {GEN_TYPES.map((t) => (
+                          <Fragment key={t.id}>
+                            <span className="text-xs text-slate-600 dark:text-slate-300">{t.label}</span>
+                            {GEN_DIFFS.map((d) => (
+                              <input key={d} type="number" min="0" value={globalMix[t.id]?.[d] ?? 0} onChange={(e) => setGlobalType(t.id, d, e.target.value)} className="input !w-12 py-0.5 text-center text-xs" />
+                            ))}
+                          </Fragment>
+                        ))}
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-xs text-slate-500 dark:text-slate-400">Total <b>{mixTotal(globalMix)}</b> questions per subtopic</span>
+                        <button onClick={applyMixToAll} className="btn-primary py-1 text-xs"><Sparkles className="h-3.5 w-3.5" /> Apply to all {scanMissing.length} subtopics</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className={`space-y-1 overflow-y-auto rounded-xl border border-slate-200 p-3 dark:border-slate-700 ${scanFull ? "min-h-0 flex-1" : "max-h-72"}`}>
+                  {scanMissing.map((m, i) => {
+                    const st = seqProgress[m];
+                    const cap = Math.max(0, parseInt(scanCounts[i], 10) || 0);
+                    const row = scanTypes[i] || {};
+                    const alloc = mixTotal(row);
+                    const customized = alloc > 0;
+                    return (
+                      <div key={i} className="border-b border-slate-100 py-1 last:border-0 dark:border-slate-800">
+                        <div className="flex items-center gap-2">
+                          <span className="text-brand-500">•</span>
+                          <span className="flex-1 text-sm">{m}</span>
+                          {st?.status === "working" ? (
+                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600"><Loader2 className="h-3.5 w-3.5 animate-spin" /> generating…</span>
+                          ) : (
+                            <>
+                              {st?.status === "done" && <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">✓ {st.count}</span>}
+                              {st?.status === "failed" && <span title={st.err} className="cursor-help text-xs font-semibold text-rose-600 dark:text-rose-400">✗ 0</span>}
+                              <input
+                                type="number" min="0"
+                                value={scanCounts[i] ?? 10}
+                                onChange={(e) => setScanCounts((c) => ({ ...c, [i]: e.target.value }))}
+                                disabled={seqRunning}
+                                title="Total questions for this subtopic (max for the type mix)"
+                                className="input !w-14 py-1 text-xs"
+                              />
+                              <button onClick={() => toggleTypeRow(i)} className={`rounded-lg border px-2 py-1 text-xs font-medium ${customized ? "border-brand-500 text-brand-600" : "border-slate-200 text-slate-500 dark:border-slate-700"}`} title="Choose how many of each question type (MCQ, matching, …)">
+                                Types{customized ? ` (${alloc})` : ""}
+                              </button>
+                              <button onClick={() => generateOne(i)} disabled={seqRunning} className="inline-flex items-center gap-1 rounded-lg bg-brand-600 px-2 py-1 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50" title="Generate this subtopic now">
+                                <Sparkles className="h-3.5 w-3.5" /> {st?.status === "done" || st?.status === "failed" ? "Again" : "Generate"}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                        {st?.status !== "working" && openTypeRows.has(i) && (
+                          <div className="ml-4 mt-1 rounded-lg border border-slate-200 bg-slate-50/60 p-2 dark:border-slate-700 dark:bg-slate-800/40">
+                            <div className="mb-1.5 flex items-center justify-between text-xs">
+                              <span className="text-slate-500 dark:text-slate-400">Split up to <b>{cap}</b> across types</span>
+                              <span className={alloc > cap ? "font-semibold text-rose-600" : "text-slate-500 dark:text-slate-400"}>allocated {alloc} · {Math.max(0, cap - alloc)} left</span>
+                            </div>
+                            <div className="grid grid-cols-[1fr_repeat(3,3rem)] items-center gap-x-2 gap-y-1">
+                              <span />
+                              {GEN_DIFFS.map((d) => <span key={d} className="text-center text-[11px] font-semibold text-slate-500 dark:text-slate-400">{d}</span>)}
+                              {GEN_TYPES.map((t) => (
+                                <Fragment key={t.id}>
+                                  <span className="text-xs text-slate-600 dark:text-slate-300">{t.label}</span>
+                                  {GEN_DIFFS.map((d) => (
+                                    <input
+                                      key={d}
+                                      type="number" min="0" max={cap}
+                                      value={row[t.id]?.[d] ?? 0}
+                                      onChange={(e) => setSubType(i, t.id, d, e.target.value)}
+                                      className="input !w-12 py-0.5 text-center text-xs"
+                                    />
+                                  ))}
+                                </Fragment>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                {scanMissing.length > 0 && (() => {
+                  const perSub = (i) => (scanTypes[i] ? mixTotal(scanTypes[i]) : (parseInt(scanCounts[i], 10) || 0));
+                  const req = scanMissing.reduce((a, _, i) => a + perSub(i), 0);
+                  const gen = Object.values(seqProgress).reduce((a, p) => a + (p.count || 0), 0);
+                  const doneN = Object.values(seqProgress).filter((p) => p.status === "done" || p.status === "failed").length;
+                  const activeSubs = scanMissing.filter((_, i) => perSub(i) > 0).length;
+                  return (
+                    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-slate-50 px-3 py-1.5 text-xs dark:bg-slate-800/40">
+                      <span>Total requested: <b>{req}</b></span>
+                      <span>Generated so far: <b className="text-emerald-600 dark:text-emerald-400">{gen}</b></span>
+                      <span>Subtopics done: <b>{doneN}</b> / {activeSubs}</span>
+                    </div>
+                  );
+                })()}
+                {seqLive && (
+                  <div className="mt-2 rounded-lg border border-brand-200 bg-brand-50/60 px-3 py-2 text-xs dark:border-brand-900/40 dark:bg-brand-900/10">
+                    <p className="flex flex-wrap items-center gap-1.5 font-semibold text-brand-700 dark:text-brand-300">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> Now generating: {seqLive.subtopic}
+                      <span className="font-normal text-slate-500 dark:text-slate-400">· {seqLive.count} question(s) so far</span>
+                    </p>
+                    {seqLive.byBucket?.length > 0 && (
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {seqLive.byBucket.map((b, k) => (
+                          <span key={k} className={`rounded-full border px-2 py-0.5 ${(b.have || 0) >= (b.want || 0) ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300" : "border-slate-200 bg-white text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"}`}>
+                            {(QUESTION_TYPE_LABELS[b.type] || b.type)} · {b.difficulty}: <b>{b.have || 0}</b>/{b.want || 0}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {seqMsg && <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{seqMsg}</p>}
+                <div className="mt-4 flex flex-wrap justify-end gap-2">
+                  {seqRunning ? (
+                    <button onClick={cancelSequential} className="btn-outline !text-rose-600 dark:!text-rose-400"><X className="h-4 w-4" /> Cancel &amp; keep</button>
+                  ) : (
+                    <>
+                      <button onClick={() => { persistScan(scanTopic); setSeqMsg("Saved — you can close this and reopen \u201cMissing areas\u201d for this topic any time to resume the list and your progress."); }} className="btn-outline" title="Save this list & progress so you can finish it later"><Save className="h-4 w-4" /> Save</button>
+                      <button onClick={() => runScan(scanTopic)} className="btn-outline" title="Scan again for fresh gaps (replaces the saved list)"><ScanSearch className="h-4 w-4" /> Re-scan</button>
+                      <button onClick={() => setScanCounts(Object.fromEntries(scanMissing.map((_, i) => [i, 10])))} className="btn-outline">Set all to 10</button>
+                      <button onClick={() => { try { navigator.clipboard?.writeText(scanMissing.join(", ")); } catch { /* ignore */ } }} className="btn-outline">Copy list</button>
+                      <button onClick={generateFromGaps} className="btn-outline"><Sparkles className="h-4 w-4" /> All-in-one</button>
+                      <button onClick={generateSequential} className="btn-primary"><Sparkles className="h-4 w-4" /> Generate per subtopic</button>
+                    </>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Split a quiz / topic into quizzes of N */}
       {splitTarget && (
