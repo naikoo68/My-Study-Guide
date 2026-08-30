@@ -76,7 +76,7 @@ const MODES = {
         feature: "practice",
         Icon: FileStack,
         color: "from-brand-600 to-blue-600",
-        title: "My Tests",
+        title: "My Test Series",
         desc: "Your own test series that you created or received.",
       },
       {
@@ -84,7 +84,7 @@ const MODES = {
         feature: "tests",
         Icon: Trophy,
         color: "from-amber-500 to-orange-600",
-        title: "Test Series",
+        title: "Public Test Series",
         desc: "Public full-length & sectional mock tests with real exam timing.",
       },
     ],
