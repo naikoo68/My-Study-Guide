@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { User, Mail, Lock, Eye, EyeOff, UserPlus, Loader2, AlertCircle, Sparkles, Check, Tag, Gift } from "lucide-react";
+import { User, Lock, Eye, EyeOff, UserPlus, Loader2, AlertCircle, Sparkles, Check, Tag, Gift } from "lucide-react";
 import AuthShell from "../../components/auth/AuthShell";
 import OtpVerify from "../../components/auth/OtpVerify";
 import AccountTypeTabs from "../../components/auth/AccountTypeTabs";
+import EmailVerify from "../../components/auth/EmailVerify";
 import PlanPicker from "../../components/client/PlanPicker";
 import { useAuth } from "../../context/AuthContext";
 import { useSettings } from "../../context/SettingsContext";
@@ -43,6 +44,7 @@ export default function ClientRegister() {
     if (settings?.publicClientEnabled === false) navigate("/", { replace: true });
   }, [settings?.publicClientEnabled, navigate]);
   const [showPw, setShowPw] = useState(false);
+  const [emailVerified, setEmailVerified] = useState(false);
   const [otpStep, setOtpStep] = useState(null); // { email, devOtp, emailSent }
   const [form, setForm] = useState({ name: "", email: "", password: "" });
   const [plans, setPlans] = useState(FALLBACK_PLANS);
@@ -102,19 +104,24 @@ export default function ClientRegister() {
       referralCode: referral.trim() || undefined,
       ...paymentFields,
     });
-    // Paid signup → server returns a session; log in and go straight to the app.
-    if (res?.paid && res?.token) {
+    // Paid OR pre-verified signup → server returns a session; log in and go
+    // straight to the app.
+    if (res?.token) {
       applySession(res.token, res.user);
       navigate("/creator", { replace: true });
       return;
     }
-    // Free / payments-off → verify email via OTP.
+    // Fallback (email not pre-verified) → verify email via the OTP screen.
     setOtpStep({ email: res.email || form.email, devOtp: res.devOtp, emailSent: res.emailSent });
   };
 
   const submit = async (e) => {
     e.preventDefault();
     setError("");
+    if (!emailVerified) {
+      setError("Please verify your email with the code first.");
+      return;
+    }
     setBusy(true);
     try {
       // Take payment first when it's enabled and the plan costs money. When
@@ -211,23 +218,12 @@ export default function ClientRegister() {
             />
           </div>
         </div>
-        <div>
-          <label className="mb-1.5 block text-sm font-medium">Email</label>
-          <div className="relative">
-            <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input
-              required
-              type="email"
-              autoCapitalize="none"
-              autoCorrect="off"
-              spellCheck={false}
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
-              placeholder="you@example.com"
-              className="input pl-9"
-            />
-          </div>
-        </div>
+        <EmailVerify
+          email={form.email}
+          onEmailChange={(v) => setForm({ ...form, email: v })}
+          verified={emailVerified}
+          onVerifiedChange={setEmailVerified}
+        />
         <div>
           <label className="mb-1.5 block text-sm font-medium">Password</label>
           <div className="relative">
@@ -346,7 +342,13 @@ export default function ClientRegister() {
           I agree to the Terms of Service and Privacy Policy.
         </label>
 
-        <button type="submit" disabled={busy} className="btn-primary w-full">
+        {!emailVerified && (
+          <p className="flex items-center justify-center gap-1 text-center text-xs text-amber-600 dark:text-amber-400">
+            <AlertCircle className="h-3.5 w-3.5" /> Verify your email above to continue.
+          </p>
+        )}
+
+        <button type="submit" disabled={busy || !emailVerified} className="btn-primary w-full">
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
           {busy
             ? "Processing..."

@@ -11,6 +11,9 @@ export const authService = {
   studentPlans: () => api.get("/auth/student-plans", { auth: false }),
   // Live price preview. Pass { audience: "student" } to price student plans.
   validateOffer: (data) => api.post("/auth/validate-offer", data, { auth: false }),
+  // Pre-account email verification (student/creator inline "Verify"), same as institutes.
+  sendEmailOtp: (email) => api.post("/auth/send-email-otp", { email }, { auth: false }),
+  verifyEmailOtp: (email, otp) => api.post("/auth/verify-email-otp", { email, otp }, { auth: false }),
   verifyOtp: (email, otp) => api.post("/auth/verify-otp", { email, otp }, { auth: false }),
   resendOtp: (email) => api.post("/auth/resend-otp", { email }, { auth: false }),
   google: (profile) => api.post("/auth/google", profile, { auth: false }),
