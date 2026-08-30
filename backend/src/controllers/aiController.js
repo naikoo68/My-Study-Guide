@@ -1057,10 +1057,19 @@ export function aiRecordUsage(key, count) {
   aiUsageByUser.set(key, arr);
 }
 
-// Effective limits for a requester. Admins use the global per-batch cap with no
-// rate limit. A client's limits come from the subscription plan they PURCHASED
-// (user.subscriptionPlan) — capped by the global ceiling — falling back to the
-// cheapest paid plan, then the first plan.
+// Effective limits for a requester. Admins use their own global per-batch cap
+// with no rate limit. A client's limits come from the subscription plan they
+// PURCHASED (user.subscriptionPlan), falling back to the cheapest paid plan,
+// then the first plan.
+//
+// IMPORTANT: the admin's personal per-batch cap (aiMaxPerBatch) governs the
+// ADMIN's own generation only — it must NOT silently shrink a client's PAID
+// plan below what they bought and see on their dashboard. (Previously we did
+// Math.min(globalMax, plan.maxPerBatch), so an admin cap of e.g. 50 downgraded
+// a 500/batch plan to 50 — the plan said 500 but the generator allowed 50.)
+// Plan values are already clamped to a sane range [1, 5000] when saved
+// (settingsController), so we only bound clients by that absolute ceiling.
+const HARD_BATCH_CEILING = 5000; // absolute system safety bound for any plan
 export async function effectiveAiLimits(user) {
   let s = null;
   try { s = await Settings.findOne({ key: "site" }).select("aiMaxPerBatch clientPlans").lean(); } catch { /* ignore */ }
@@ -1070,7 +1079,7 @@ export async function effectiveAiLimits(user) {
   }
   const plans = Array.isArray(s?.clientPlans) && s.clientPlans.length ? s.clientPlans : DEFAULT_CLIENT_PLANS;
   const plan = plans.find((p) => p.key === user.subscriptionPlan) || plans.find((p) => !p.trial) || plans[0] || null;
-  const maxPerBatch = Math.min(globalMax, Math.max(1, plan?.maxPerBatch || globalMax));
+  const maxPerBatch = Math.min(HARD_BATCH_CEILING, Math.max(1, plan?.maxPerBatch || globalMax));
   const perWindow = Math.max(1, plan?.perWindow || globalMax);
   const windowMinutes = Math.max(1, plan?.windowMinutes || 5);
   return { maxPerBatch, perWindow, windowMinutes, planName: plan?.label || plan?.key || "" };
