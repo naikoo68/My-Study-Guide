@@ -35,6 +35,8 @@ import {
   Star,
   Trash2,
   SlidersHorizontal,
+  ChevronDown,
+  FolderOpen,
 } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
@@ -49,9 +51,18 @@ import Avatar from "../../components/ui/Avatar";
 // "admin"); an institute_admin sees the rest, scoped to their own institute.
 const nav = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard, end: true },
-  { to: "/admin/content", label: "Public Quizzes", icon: BookCopy, feature: "content" },
-  { to: "/admin/tests", label: "Public Test Series", icon: FileStack, feature: "tests" },
-  { to: "/admin/practice", label: "My Practice", icon: GraduationCap, feature: "practice" },
+  // Collapsible "drill-down" group that holds the three content-building
+  // sections. Rendered as an expandable folder in the sidebar.
+  {
+    group: "manage-content",
+    label: "Manage Content",
+    icon: FolderOpen,
+    children: [
+      { to: "/admin/content", label: "Public Quizzes", icon: BookCopy, feature: "content" },
+      { to: "/admin/tests", label: "Public Test Series", icon: FileStack, feature: "tests" },
+      { to: "/admin/practice", label: "My Practice", icon: GraduationCap, feature: "practice" },
+    ],
+  },
   { to: "/admin/previous-papers", label: "Previous Papers", icon: Files, feature: "previousPapers" },
   { to: "/admin/checker", label: "Question Checker", icon: SearchCheck, feature: "checker" },
   { to: "/admin/shared", label: "Shared Links", icon: Share2, feature: "shared" },
@@ -82,9 +93,16 @@ const nav = [
   { to: "/admin/manual", label: "User Manual", icon: BookOpen },
 ];
 
+// Flattened list of all leaf nav items (group children pulled up to the top
+// level) — used for feature-visibility guards and route matching.
+const flatNav = nav.flatMap((n) => (n.children ? n.children : [n]));
+
 export default function AdminLayout() {
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(0);
+  // Collapsible sidebar groups (drill-down). "Manage Content" starts expanded;
+  // a group is treated as open unless explicitly toggled to false.
+  const [openGroups, setOpenGroups] = useState({ "manage-content": true });
 
   // Lock background page scroll while the mobile drawer is open, so scrolling
   // inside the drawer doesn't move the page behind it (and the drawer can scroll
@@ -118,17 +136,21 @@ export default function AdminLayout() {
   const ALWAYS_ON = new Set(["users", "aiKeys", "storage", "customization"]);
   const isGloballyOff = (feature) => !!feature && !ALWAYS_ON.has(feature) && globalFeatures[feature] === false;
 
-  const visibleNav = nav.filter((n) => {
+  const isItemVisible = (n) => {
     if (n.superOnly && user?.role !== "admin") return false;
     if (isGloballyOff(n.feature)) return false;
     if (instituteFeatures && n.feature && instituteFeatures[n.feature] === false) return false;
     return true;
-  });
+  };
+
+  // Group nodes are always kept here; their children are filtered again at
+  // render time. Leaf items are filtered by feature/role visibility.
+  const visibleNav = nav.filter((n) => (n.children ? true : isItemVisible(n)));
 
   // Guard direct-URL access: if an admin opens a page for a feature that's been
   // turned off (globally, or per-institute), send them back to the dashboard.
   useEffect(() => {
-    const hit = nav.find((n) => n.feature && (location.pathname === n.to || location.pathname.startsWith(n.to + "/")));
+    const hit = flatNav.find((n) => n.feature && (location.pathname === n.to || location.pathname.startsWith(n.to + "/")));
     if (!hit) return;
     if (isGloballyOff(hit.feature)) return void navigate("/admin", { replace: true });
     if (instituteFeatures && instituteFeatures[hit.feature] === false) navigate("/admin", { replace: true });
@@ -152,6 +174,31 @@ export default function AdminLayout() {
     navigate("/");
   };
 
+  // A single sidebar link (used for both top-level items and group children).
+  const renderLink = (n) => (
+    <NavLink
+      key={n.to}
+      to={n.to}
+      end={n.end}
+      onClick={() => setOpen(false)}
+      className={({ isActive }) =>
+        `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
+          isActive
+            ? "bg-brand-600 text-white shadow-soft"
+            : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+        }`
+      }
+    >
+      <n.icon className="h-5 w-5" />
+      <span className="flex-1">{n.label}</span>
+      {n.to === "/admin/messages" && unread > 0 && (
+        <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-accent-500 px-1.5 text-xs font-bold text-white">
+          {unread}
+        </span>
+      )}
+    </NavLink>
+  );
+
   const SidebarContent = () => (
     <div className="flex h-full flex-col">
       <Link to="/admin" className="flex items-center gap-2 px-6 py-5">
@@ -169,29 +216,35 @@ export default function AdminLayout() {
       </Link>
 
       <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3">
-        {visibleNav.map((n) => (
-          <NavLink
-            key={n.to}
-            to={n.to}
-            end={n.end}
-            onClick={() => setOpen(false)}
-            className={({ isActive }) =>
-              `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
-                isActive
-                  ? "bg-brand-600 text-white shadow-soft"
-                  : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
-              }`
-            }
-          >
-            <n.icon className="h-5 w-5" />
-            <span className="flex-1">{n.label}</span>
-            {n.to === "/admin/messages" && unread > 0 && (
-              <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-accent-500 px-1.5 text-xs font-bold text-white">
-                {unread}
-              </span>
-            )}
-          </NavLink>
-        ))}
+        {visibleNav.map((n) => {
+          // Collapsible group (e.g. "Manage Content") — a drill-down that
+          // reveals its nested items when expanded.
+          if (n.children) {
+            const children = n.children.filter(isItemVisible);
+            if (!children.length) return null;
+            const isOpen = openGroups[n.group] !== false;
+            return (
+              <div key={n.group}>
+                <button
+                  type="button"
+                  onClick={() => setOpenGroups((s) => ({ ...s, [n.group]: s[n.group] === false }))}
+                  aria-expanded={isOpen}
+                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                >
+                  <n.icon className="h-5 w-5" />
+                  <span className="flex-1 text-left">{n.label}</span>
+                  <ChevronDown className={`h-4 w-4 transition-transform ${isOpen ? "" : "-rotate-90"}`} />
+                </button>
+                {isOpen && (
+                  <div className="mt-1 ml-5 space-y-1 border-l border-slate-200 pl-2 dark:border-slate-800">
+                    {children.map(renderLink)}
+                  </div>
+                )}
+              </div>
+            );
+          }
+          return renderLink(n);
+        })}
       </nav>
 
       <div className="space-y-1 border-t border-slate-200 p-3 dark:border-slate-800">
