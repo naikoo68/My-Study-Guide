@@ -20,7 +20,12 @@ const slugify = (s) =>
 // endpoints (which are the same for admin and public). Requires the route to
 // use optionalAuth so req.user is populated when a token is present.
 const isAdminReq = (req) => !!req.user && (req.user.role === "admin" || req.user.role === "institute_admin");
-const visFilter = (req) => (isAdminReq(req) ? {} : { disabled: { $ne: true } });
+// Disabled items are hidden from the PUBLIC site for EVERYONE — including an
+// admin who happens to be browsing the public pages while logged in. The admin
+// CONTENT MANAGER loads them explicitly by passing ?manage=1, so it can still
+// show disabled items (with a "Disabled" tag) and re-enable them. So: only an
+// admin request that explicitly asks to manage sees disabled content.
+const visFilter = (req) => (isAdminReq(req) && req.query?.manage === "1" ? {} : { disabled: { $ne: true } });
 
 // Build a URL-safe slug that is GUARANTEED non-empty and NOT already taken by
 // another live (non-deleted) record of the same Model.

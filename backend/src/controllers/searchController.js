@@ -84,7 +84,8 @@ export async function globalSearch(req, res) {
 
     const rx = new RegExp(escapeRegex(q), "i");
     const isAdmin = req.user?.role === "admin";
-    const active = isAdmin ? {} : { isActive: true };
+    // Non-admins must never see disabled content in search results either.
+    const active = isAdmin ? {} : { isActive: true, disabled: { $ne: true } };
     const results = [];
 
     // ---- 1) Metadata (names) ----

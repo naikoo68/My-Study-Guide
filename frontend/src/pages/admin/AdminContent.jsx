@@ -267,12 +267,14 @@ export default function AdminContent() {
     }
   };
 
+  // `{ manage: true }` — the admin manager must also see DISABLED items (to
+  // re-enable them); the public site omits it so disabled content stays hidden.
   const loaders = {
-    streams: () => contentService.streams(),
-    subjects: () => contentService.subjectsByStream(stream._id),
-    topics: () => contentService.topics(subject._id),
-    sessions: () => contentService.sessions(topic._id),
-    quizzes: () => contentService.quizzes(session._id),
+    streams: () => contentService.streams({ manage: true }),
+    subjects: () => contentService.subjectsByStream(stream._id, { manage: true }),
+    topics: () => contentService.topics(subject._id, { manage: true }),
+    sessions: () => contentService.sessions(topic._id, { manage: true }),
+    quizzes: () => contentService.quizzes(session._id, { manage: true }),
     questions: () => contentService.quizQuestions(quiz._id),
   };
 
@@ -294,12 +296,12 @@ export default function AdminContent() {
     setLoading(true);
     setError("");
     const p =
-      which === "subjects" ? contentService.subjectsByStream(o.stream._id)
-      : which === "topics" ? contentService.topics(o.subject._id)
-      : which === "sessions" ? contentService.sessions(o.topic._id)
-      : which === "quizzes" ? contentService.quizzes(o.session._id)
+      which === "subjects" ? contentService.subjectsByStream(o.stream._id, { manage: true })
+      : which === "topics" ? contentService.topics(o.subject._id, { manage: true })
+      : which === "sessions" ? contentService.sessions(o.topic._id, { manage: true })
+      : which === "quizzes" ? contentService.quizzes(o.session._id, { manage: true })
       : which === "questions" ? contentService.quizQuestions(o.quiz._id)
-      : contentService.streams();
+      : contentService.streams({ manage: true });
     p.then(setItems).catch((e) => setError(e.message)).finally(() => setLoading(false));
   };
 
@@ -323,15 +325,15 @@ export default function AdminContent() {
         let strm = stream, subj = subject, tpc = topic, sess = session, qz = quiz;
 
         if (!sid) strm = null;
-        else if (!strm || String(strm._id) !== sid) strm = find(await contentService.streams(), sid);
+        else if (!strm || String(strm._id) !== sid) strm = find(await contentService.streams({ manage: true }), sid);
         if (sid && !strm) { if (!cancelled) setSearchParams({}, { replace: true }); return; }
 
         if (!subId) subj = null;
-        else if (strm && (!subj || String(subj._id) !== subId)) subj = find(await contentService.subjectsByStream(sid), subId);
+        else if (strm && (!subj || String(subj._id) !== subId)) subj = find(await contentService.subjectsByStream(sid, { manage: true }), subId);
         if (subId && !subj) { if (!cancelled) setSearchParams({ s: sid }, { replace: true }); return; }
 
         if (!tid) tpc = null;
-        else if (subj && (!tpc || String(tpc._id) !== tid)) tpc = find(await contentService.topics(subId), tid);
+        else if (subj && (!tpc || String(tpc._id) !== tid)) tpc = find(await contentService.topics(subId, { manage: true }), tid);
         if (tid && !tpc) { if (!cancelled) setSearchParams({ s: sid, sub: subId }, { replace: true }); return; }
 
         // Session level is HIDDEN: when a topic is open but the URL has no
@@ -345,11 +347,11 @@ export default function AdminContent() {
           return;
         }
         if (!seid) sess = null;
-        else if (tpc && (!sess || String(sess._id) !== seid)) sess = find(await contentService.sessions(tid), seid);
+        else if (tpc && (!sess || String(sess._id) !== seid)) sess = find(await contentService.sessions(tid, { manage: true }), seid);
         if (seid && !sess) { if (!cancelled) setSearchParams({ s: sid, sub: subId, t: tid }, { replace: true }); return; }
 
         if (!qid) qz = null;
-        else if (sess && (!qz || String(qz._id) !== qid)) qz = find(await contentService.quizzes(seid), qid);
+        else if (sess && (!qz || String(qz._id) !== qid)) qz = find(await contentService.quizzes(seid, { manage: true }), qid);
         if (qid && !qz) { if (!cancelled) setSearchParams({ s: sid, sub: subId, t: tid, se: seid }, { replace: true }); return; }
 
         if (cancelled) return;
