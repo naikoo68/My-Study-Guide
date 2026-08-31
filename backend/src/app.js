@@ -112,12 +112,12 @@ app.use(compression());
 // subdomain, which isn't known ahead of time, so a fixed allowlist would break
 // them. To lock the API down to a known set of origins, set the env var
 // CORS_ALLOWED_ORIGINS to a comma-separated list — requests from anything else
-// are then refused. (CLIENT_URL is always included; Vercel/Netlify preview URLs
+// are then refused. (CLIENT_URL is always included; Vercel preview URLs
 // are allowed; requests with no Origin — curl, mobile, server-to-server — pass.)
 // Security fix: DEFAULT-DENY unknown origins (was previously permissive/reflect-any).
 // Allowed origins are: the exact allowlist (CLIENT_URL + CORS_ALLOWED_ORIGINS),
 // wildcard subdomains of configured base domains (CORS_ALLOWED_DOMAINS, e.g. the
-// white-label platform domain) plus Vercel/Netlify previews, and any registered
+// white-label platform domain) plus Vercel previews, and any registered
 // tenant custom domain / <slug>.<PLATFORM_BASE_DOMAIN> looked up from the DB.
 // Requests with NO Origin (curl, mobile apps, server-to-server) still pass — CORS
 // is a browser control and these aren't browser cross-origin requests.
@@ -133,8 +133,11 @@ const wildcardDomains = [
   // even if CLIENT_URL / CORS_ALLOWED_DOMAINS aren't set on the server. Matches
   // both mystudyguide.in and any subdomain (www., app., <institute>., …).
   "mystudyguide.in",
+  // Vercel preview deployments (*.vercel.app) so a preview build can talk to the
+  // API. Netlify is NOT used by this project, so it's intentionally not allowed.
+  // If you ever stop using Vercel previews against prod, set CORS_ALLOWED_DOMAINS
+  // and drop this by editing here.
   "vercel.app",
-  "netlify.app",
 ].map((d) => String(d || "").trim().toLowerCase().replace(/^\.*/, "")).filter(Boolean);
 
 const hostMatchesWildcard = (host) =>
