@@ -158,7 +158,7 @@ export async function updateUser(req, res) {
     user.role = role;
   }
   if (plan) user.plan = plan;
-  if (password) user.password = password; // re-hashed by the model's pre-save hook
+  if (password) { user.password = password; user.mustChangePassword = false; } // re-hashed by pre-save hook; a new password clears the forced-change flag
 
   // AI access (admin-controlled, for client accounts). Each is applied only when
   // present in the body so partial updates don't reset the others.

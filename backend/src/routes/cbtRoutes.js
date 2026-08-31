@@ -29,6 +29,7 @@ import {
   setLateEntryAccess,
 } from "../controllers/cbtController.js";
 import { protect, authorize } from "../middleware/auth.js";
+import { loginLimiter, loginAccountLimiter, otpLimiter, otpAccountLimiter, forgotLimiter, registerLimiter } from "../middleware/rateLimit.js";
 
 const router = Router();
 const admin = [protect, authorize("admin")];
@@ -37,12 +38,13 @@ const admin = [protect, authorize("admin")];
 // (deferred) result. Students sign in with just their name + email on the
 // client. Declared before admin routes.
 router.get("/portal", getCbtPortal); // the one shareable exam page (lists exams)
-router.post("/register", registerPortal); // register: name+email+password → OTP
-router.post("/verify", verifyPortal); // verify OTP → sessionToken (completes registration)
-router.post("/login", loginPortal); // returning student: email+password → sessionToken
-router.post("/forgot", forgotPasswordPortal); // request a password-reset code
-router.post("/reset", resetPasswordPortal); // set a new password with the code → sessionToken
-router.post("/change-password", changePasswordPortal); // signed-in student changes password
+// Brute-force protection: IP + per-account rate limiting on all CBT auth endpoints.
+router.post("/register", registerLimiter, registerPortal); // register: name+email+password → OTP
+router.post("/verify", otpLimiter, otpAccountLimiter, verifyPortal); // verify OTP → sessionToken (completes registration)
+router.post("/login", loginLimiter, loginAccountLimiter, loginPortal); // returning student: email+password → sessionToken
+router.post("/forgot", forgotLimiter, forgotPasswordPortal); // request a password-reset code
+router.post("/reset", otpLimiter, otpAccountLimiter, resetPasswordPortal); // set a new password with the code → sessionToken
+router.post("/change-password", loginLimiter, changePasswordPortal); // signed-in student changes password
 router.get("/exam/:token", getCbtExam); // exam META
 router.post("/exam/:token/start", startCbt); // hand out questions (verified portal session)
 router.post("/exam/:token/view", registerCbtView); // count an open (impression)

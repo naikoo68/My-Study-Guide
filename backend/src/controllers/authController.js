@@ -29,6 +29,7 @@ async function issueOtp(user) {
   const otp = genOtp();
   user.otpHash = hashOtp(otp);
   user.otpExpires = new Date(Date.now() + OTP_TTL_MS);
+  user.otpAttempts = 0; // fresh code → reset the wrong-guess counter
   await user.save();
   return otp;
 }
@@ -56,6 +57,7 @@ const sanitize = (u) => ({
   plan: u.plan,
   avatar: u.avatar,
   isEmailVerified: u.isEmailVerified,
+  mustChangePassword: u.mustChangePassword === true, // frontend forces a password change when true (bootstrap password)
   expiresAt: u.expiresAt,
   quizAccess: u.quizAccess !== false,
   streak: u.streak,
@@ -263,7 +265,7 @@ export async function sendEmailOtp(req, res) {
   await runUnscoped(() =>
     EmailOtp.findOneAndUpdate(
       { email },
-      { email, otpHash: hashOtp(otp), otpExpires: new Date(Date.now() + OTP_TTL_MS), verified: false, verifiedAt: null },
+      { email, otpHash: hashOtp(otp), otpExpires: new Date(Date.now() + OTP_TTL_MS), otpAttempts: 0, verified: false, verifiedAt: null },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     )
   );
@@ -282,6 +284,10 @@ export async function verifyEmailOtp(req, res) {
     return res.status(400).json({ message: "Your code has expired. Please request a new one." });
   }
   if (hashOtp(otp) !== rec.otpHash) {
+    // Cap wrong guesses so the 6-digit email code can't be brute-forced.
+    rec.otpAttempts = (rec.otpAttempts || 0) + 1;
+    if (rec.otpAttempts >= 5) { rec.otpHash = undefined; rec.otpExpires = undefined; await runUnscoped(() => rec.save()); return res.status(429).json({ message: "Too many incorrect codes. Please request a new one." }); }
+    await runUnscoped(() => rec.save());
     return res.status(400).json({ message: "Incorrect code. Please try again." });
   }
   rec.verified = true;
@@ -529,7 +535,7 @@ export async function register(req, res) {
 export async function verifyOtp(req, res) {
   const email = norm(req.body.email);
   const { otp } = req.body;
-  const user = await runUnscoped(() => User.findOne({ email }).select("+otpHash +otpExpires"));
+  const user = await runUnscoped(() => User.findOne({ email }).select("+otpHash +otpExpires +otpAttempts"));
   if (!user) return res.status(400).json({ message: "Account not found" });
 
   if (!user.isEmailVerified) {
@@ -537,11 +543,16 @@ export async function verifyOtp(req, res) {
       return res.status(400).json({ message: "Your code has expired. Please request a new one." });
     }
     if (hashOtp(otp) !== user.otpHash) {
+      // Cap wrong guesses so the 6-digit OTP can't be brute-forced in its window.
+      user.otpAttempts = (user.otpAttempts || 0) + 1;
+      if (user.otpAttempts >= 5) { user.otpHash = undefined; user.otpExpires = undefined; await user.save(); return res.status(429).json({ message: "Too many incorrect codes. Please request a new one." }); }
+      await user.save();
       return res.status(400).json({ message: "Incorrect code. Please try again." });
     }
     user.isEmailVerified = true;
     user.otpHash = undefined;
     user.otpExpires = undefined;
+    user.otpAttempts = 0;
     // Start the client/student subscription clock now that the account is active
     // (paid signups already set their expiry and skip OTP).
     await applyActivationClock(user);
@@ -700,6 +711,7 @@ export async function resetPassword(req, res) {
   user.password = req.body.password;
   user.resetPasswordToken = undefined;
   user.resetPasswordExpires = undefined;
+  user.mustChangePassword = false; // a fresh password clears the forced-change flag
   await user.save();
   res.json({ message: "Password reset successful" });
 }
