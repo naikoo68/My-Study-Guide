@@ -2756,6 +2756,120 @@ export async function suggestTopics(req, res) {
   res.json({ topics });
 }
 
+// Normalise a name for duplicate detection (case / punctuation / a single
+// leading article insensitive). Local so findDuplicates is self-contained.
+function normConceptName(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/^\s*(the|a|an)\s+/, "")
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// POST /api/ai/find-duplicates — scan an EXISTING list of subjects (under a
+// stream) or topics (under a subject) and return groups of duplicates / overlaps
+// so the admin can delete the extras. Detects not just identical names but
+// synonyms and overlapping / combined wordings (via an AI pass), while keeping
+// genuinely-distinct specializations apart. Falls back to exact-name grouping if
+// the AI call is unavailable. Body:
+//   { level:"subject"|"topic", parentName?, items:[{ id, name }] }
+// → { groups: [ { keepId, keepName, duplicates:[{ id, name }] } ] }.
+export async function findDuplicates(req, res) {
+  const scope = resolveScope(req.user, req.body?.mode);
+  if (scope.denied) return res.status(403).json({ message: "AI access is not enabled for your account." });
+
+  const level = req.body?.level === "topic" ? "topic" : "subject";
+  const parentName = String(req.body?.parentName || "").trim();
+  const items = (Array.isArray(req.body?.items) ? req.body.items : [])
+    .map((it) => ({ id: String(it?.id || it?._id || ""), name: String(it?.name || it?.title || "").replace(/\s+/g, " ").trim() }))
+    .filter((it) => it.id && it.name);
+  if (items.length < 2) return res.json({ groups: [] });
+
+  // Union-find over item ids to build duplicate clusters.
+  const parent = new Map(items.map((it) => [it.id, it.id]));
+  const find = (x) => { while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x))); x = parent.get(x); } return x; };
+  const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent.set(ra, rb); };
+
+  // normalized name -> [ids] (several items can share a normalized name).
+  const byNorm = new Map();
+  for (const it of items) {
+    const k = normConceptName(it.name);
+    if (!k) continue;
+    if (!byNorm.has(k)) byNorm.set(k, []);
+    byNorm.get(k).push(it.id);
+  }
+  // 1) Exact/case/article duplicates → union (guaranteed even without AI).
+  for (const ids of byNorm.values()) for (let i = 1; i < ids.length; i++) union(ids[0], ids[i]);
+
+  // 2) AI overlap grouping (best-effort — exact grouping still applies on failure).
+  const preferredKeepIds = new Set();
+  const chosen = await resolveModel(String(req.body?.model || "").trim(), scope);
+  if (chosen && chosen.endpoints.length) {
+    const label = level === "topic" ? "topics" : "subjects";
+    const userPrompt = [
+      `Here is a list of ${label}${parentName ? ` under "${parentName}"` : ""}. Find groups that are DUPLICATES or OVERLAPPING:`,
+      "- the SAME thing named differently, synonyms, OR a broader COMBINED wording that overlaps others. Examples: \"Renaissance and Reformation\" overlaps \"The Renaissance\" and \"The Reformation\"; \"Contemporary History\" ≈ \"Contemporary Global History\"; \"The Enlightenment\" ≈ \"Enlightenment Philosophy\"; \"Age of Revolutions\" ≈ \"Atlantic Revolutions\".",
+      "- Do NOT group genuinely DISTINCT items — never group a broad item with a real specialization (e.g. \"Algebra\" vs \"Linear Algebra\", \"Physics\" vs \"Modern Physics\").",
+      "For each duplicate group list the exact names AS GIVEN, with the single BEST canonical name (the one worth KEEPING) FIRST.",
+      'Return ONLY JSON: {"groups":[["Keep Name","Duplicate 2","Duplicate 3"]]}. If there are NO duplicates return {"groups":[]}. No markdown, no commentary.',
+      "",
+      "LIST:",
+      items.map((it) => `- ${it.name}`).join("\n"),
+    ].join("\n");
+    try {
+      const r = await callWithFallback({
+        endpoints: chosen.endpoints,
+        model: chosen.model,
+        userPrompt,
+        maxTokens: 3000,
+        owner: scope.owner,
+        systemPrompt: 'You output ONLY JSON of the form {"groups":[["name",...]]} — no markdown, no commentary.',
+        failOnEmpty: false,
+      });
+      if (r.ok) {
+        let obj = null;
+        try {
+          const t = String(r.content || "").trim();
+          const s = t.indexOf("{");
+          const e = t.lastIndexOf("}");
+          if (s !== -1 && e > s) obj = JSON.parse(t.slice(s, e + 1));
+        } catch { /* ignore a malformed reply — exact grouping remains */ }
+        const aiGroups = obj && Array.isArray(obj.groups) ? obj.groups : [];
+        for (const g of aiGroups) {
+          if (!Array.isArray(g)) continue;
+          const ids = [];
+          for (const nm of g) { const m = byNorm.get(normConceptName(nm)); if (m) ids.push(...m); }
+          const uniq = [...new Set(ids)];
+          if (uniq.length < 2) continue;
+          for (let i = 1; i < uniq.length; i++) union(uniq[0], uniq[i]);
+          const firstMatch = byNorm.get(normConceptName(g[0]));
+          if (firstMatch && firstMatch.length) preferredKeepIds.add(firstMatch[0]); // AI's canonical
+        }
+      }
+    } catch { /* AI unavailable — keep exact-name grouping */ }
+  }
+
+  // Assemble clusters with >= 2 members into { keep, duplicates } groups.
+  const itemById = new Map(items.map((it) => [it.id, it]));
+  const comps = new Map();
+  for (const it of items) { const root = find(it.id); if (!comps.has(root)) comps.set(root, []); comps.get(root).push(it); }
+  const groups = [];
+  for (const members of comps.values()) {
+    if (members.length < 2) continue;
+    // Keep the AI's canonical if it named one, else the shortest (most generic) name.
+    const preferred = members.find((m) => preferredKeepIds.has(m.id));
+    const keep = preferred || members.slice().sort((a, b) => a.name.length - b.name.length)[0];
+    groups.push({
+      keepId: keep.id,
+      keepName: keep.name,
+      duplicates: members.filter((m) => m.id !== keep.id).map((d) => ({ id: d.id, name: d.name })),
+    });
+  }
+  res.json({ groups });
+}
+
 // POST /api/ai/parse-syllabus — read a FULL syllabus (pasted text / extracted
 // PDF / OCR) and return the structure to save in one go:
 //   { subject, topics: [ { title, subtopics: [ ... ] } ] }
