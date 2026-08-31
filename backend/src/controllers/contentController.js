@@ -112,7 +112,11 @@ export async function deleteStream(req, res) {
 
 // GET /api/streams/:streamId/subjects — subjects in a stream, with topic counts
 export async function listStreamSubjects(req, res) {
-  const subjects = await Subject.find({ stream: req.params.streamId, isActive: true, ...NOT_DELETED, ...visFilter(req) }).sort("name").lean();
+  const sid = req.params.streamId;
+  // Match subjects whose HOME stream is this one, OR that are LINKED here via
+  // `streams[]` (reused from another stream). Linked subjects show under this
+  // stream but open in their home stream.
+  const subjects = await Subject.find({ $or: [{ stream: sid }, { streams: sid }], isActive: true, ...NOT_DELETED, ...visFilter(req) }).sort("name").lean();
   const topics = await Topic.aggregate([{ $match: { deleted: { $ne: true } } }, { $group: { _id: "$subject", count: { $sum: 1 } } }]);
   const tMap = Object.fromEntries(topics.map((t) => [String(t._id), t.count]));
   res.json(subjects.map((s) => ({ ...s, topics: tMap[String(s._id)] || 0 })));
@@ -138,8 +142,28 @@ export async function listSubjects(req, res) {
 
 export async function createSubject(req, res) {
   const { name } = req.body;
-  const taken = await nameTaken(Subject, name, "subject");
-  if (taken) return res.status(taken.status).json({ message: taken.message });
+  const trimmed = String(name || "").trim();
+  const targetStream = req.body?.stream ? String(req.body.stream) : null;
+
+  // REUSE ACROSS STREAMS: if a live subject with this name already exists under
+  // a DIFFERENT stream, don't create a duplicate — LINK it to this stream (add
+  // to its `streams[]`) and return the existing subject so its topics/quizzes/
+  // questions stay shared. Opening it later lands on its HOME stream. A true
+  // duplicate WITHIN the same stream (or already linked here) is still a 409.
+  const existing = trimmed ? await Subject.findOne({ name: trimmed, deleted: { $ne: true } }) : null;
+  if (existing) {
+    const home = String(existing.stream || "");
+    const linkedTo = (existing.streams || []).map((s) => String(s));
+    const alreadyHere = !targetStream || home === targetStream || linkedTo.includes(targetStream);
+    if (alreadyHere) {
+      return res.status(409).json({ message: `A subject named “${trimmed}” already exists. Pick a different name or edit the existing one.` });
+    }
+    existing.streams = [...linkedTo, targetStream];
+    await existing.save();
+    const obj = typeof existing.toObject === "function" ? existing.toObject() : { ...existing };
+    return res.status(200).json({ ...obj, linked: true });
+  }
+
   const subject = await Subject.create({ ...sanitizeBody(req.body), slug: await uniqueSlug(Subject, name) });
   res.status(201).json(subject);
 }

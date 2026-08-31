@@ -2,7 +2,12 @@ import mongoose from "../db/odm.js";
 
 const subjectSchema = new mongoose.Schema(
   {
-    stream: { type: mongoose.Schema.Types.ObjectId, ref: "Stream" }, // parent stream
+    stream: { type: mongoose.Schema.Types.ObjectId, ref: "Stream" }, // HOME/primary stream (where it was first added)
+    // Additional streams this same subject is ALSO listed under. A subject is
+    // never duplicated across streams — instead the other streams are linked
+    // here, so its topics/quizzes/questions stay shared. Opening a linked
+    // subject navigates back to its HOME `stream`. See createSubject/listStreamSubjects.
+    streams: [{ type: mongoose.Schema.Types.ObjectId, ref: "Stream" }],
     name: { type: String, required: true, unique: true, trim: true },
     slug: { type: String, required: true, unique: true, lowercase: true },
     icon: { type: String, default: "BookOpen" },
