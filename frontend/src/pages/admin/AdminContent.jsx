@@ -458,7 +458,7 @@ export default function AdminContent() {
     try {
       const stems = await gatherScanStems();
       setScanStems(stems);
-      const r = await aiService.coverageGaps({ topic: topicName, questions: stems });
+      const r = await aiService.coverageGaps({ topic: topicName, questions: stems, subject: subject?.name, stream: stream?.name });
       const missing = Array.isArray(r?.missing) ? r.missing : [];
       setScanMissing(missing);
       const counts = Object.fromEntries(missing.map((_, i) => [i, 10])); // default 10 per subtopic
@@ -597,6 +597,8 @@ export default function AdminContent() {
       if (!plan.length) break;
       const body = {
         topic: scanTopic,
+        subject: subject?.name,
+        stream: stream?.name,
         plan,
         notes: `Write EVERY question ONLY about the subtopic "${name}" within "${scanTopic}". Do not drift to other subtopics.`,
         avoid: [...avoidBase, ...collected.map((q) => q.text)].filter(Boolean).slice(-400),
