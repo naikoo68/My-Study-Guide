@@ -103,6 +103,28 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
   const [plan, setPlan] = useState([]); // [{ text, done, src }] aggregated from all saved plans
   const [selected, setSelected] = useState(() => new Set()); // ticked subtopics to add to "Subtopics to cover"
   const planKey = `mstg.subtopicPlan:${currentTargetName || defaultTopic || "global"}`;
+
+  // ---- Resume across refresh ------------------------------------------------
+  // The generated questions (and the run's settings) are checkpointed to
+  // localStorage continuously, so if generation stalls or the page is refreshed
+  // NOTHING is lost: on reopen we restore every question already made and let you
+  // continue from where it stopped (the avoid-list stops any duplicates).
+  const ckKey = `mstg.genJob:${currentTargetName || defaultTopic || "global"}`;
+  const [resumeAvail, setResumeAvail] = useState(null); // { done, target } — restored-session banner
+  const didResumeRef = useRef(false); // restore only once per open
+  const saveCk = (patch) => {
+    try {
+      const cur = JSON.parse(localStorage.getItem(ckKey) || "{}");
+      localStorage.setItem(ckKey, JSON.stringify({ ...cur, ...patch, updatedAt: Date.now() }));
+    } catch { /* storage full/blocked — the in-memory run still works */ }
+  };
+  const clearCk = () => { try { localStorage.removeItem(ckKey); } catch { /* ignore */ } };
+  const dedupeByText = (arr) => {
+    const seen = new Set(); const out = [];
+    for (const q of arr || []) { const k = String(q?.text || "").trim().toLowerCase(); if (!k || seen.has(k)) continue; seen.add(k); out.push(q); }
+    return out;
+  };
+  const sumMatrix = (m) => TYPE_OPTIONS.reduce((s, t) => s + DIFFS.reduce((a, d) => a + (m?.[t.id]?.[d] || 0), 0), 0);
   // Read EVERY saved subtopic — this quiz/test's own plan PLUS anything saved from
   // the "Missing areas" scans — so you can pick from all of them here. Deduped by
   // text; each item remembers which store it came from (src) for removal.
@@ -250,6 +272,39 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
     }
   }, [busy, minimized, preview.length]);
 
+  // Checkpoint the generated questions + this run's settings to localStorage
+  // whenever the preview changes, so a stall/refresh never loses them.
+  useEffect(() => {
+    if (!open) return;
+    if (preview.length) saveCk({ preview, matrix, topic, section, subtopics, dest: destSnapRef.current || null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, preview]);
+
+  // On open, restore any checkpointed session (recent) so you can Insert what was
+  // already generated or Resume to finish the rest — even after a full refresh.
+  useEffect(() => {
+    if (!open) { didResumeRef.current = false; return; }
+    if (didResumeRef.current) return;
+    didResumeRef.current = true;
+    let ck = null;
+    try { ck = JSON.parse(localStorage.getItem(ckKey) || "null"); } catch { ck = null; }
+    if (!ck) return;
+    const fresh = ck.updatedAt && Date.now() - ck.updatedAt < 12 * 3600 * 1000; // 12h window
+    const restored = dedupeByText([...(ck.preview || []), ...(ck.partial || [])]);
+    if (!fresh || !restored.length) { clearCk(); return; }
+    setPreview(restored);
+    if (ck.matrix) setMatrix(ck.matrix);
+    if (ck.topic) setTopic(ck.topic);
+    if (ck.section) setSection(ck.section);
+    if (typeof ck.subtopics === "string") setSubtopics(ck.subtopics);
+    if (ck.dest) destSnapRef.current = ck.dest;
+    setAvoidStems(restored.map((q) => q?.text).filter(Boolean));
+    const target = ck.matrix ? sumMatrix(ck.matrix) : restored.length;
+    setResumeAvail({ done: restored.length, target });
+    setMsg(`Restored ${restored.length} generated question(s)${target > restored.length ? ` of ${target}` : ""} from your last session — nothing was lost. Insert them, or Resume to continue.`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
   if (!open) return null;
 
   // Effective per-batch cap for THIS account — the admin's global limit or the
@@ -394,10 +449,24 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
     setKeyStats(null);
     setLiveWave({});
     if (!append) setPreview([]);
+    setResumeAvail(null); // any run supersedes the restored-session banner
+    // Resuming: cancel any orphaned background job from the interrupted session
+    // (best-effort) so it stops consuming keys while we continue afresh.
+    if (extra.resume) {
+      try { const ck = JSON.parse(localStorage.getItem(ckKey) || "{}"); if (ck.jobId) await aiService.cancelJob(ck.jobId); } catch { /* ignore */ }
+    }
     // Track how many of each type|difficulty bucket we've produced across waves,
     // so each auto-continue wave requests only the REMAINING buckets (keeping the
     // grid's distribution instead of re-generating the whole plan every wave).
+    // On RESUME, seed it from the already-generated preview so we only make the
+    // remaining questions (and land on the original target, not double it).
     const producedByBucket = {};
+    if (extra.resume) {
+      for (const q of preview) {
+        const k = `${q?.type || "mcq"}|${q?.difficulty || "Medium"}`;
+        producedByBucket[k] = (producedByBucket[k] || 0) + 1;
+      }
+    }
 
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     // Accumulate the avoid-list LOCALLY across waves — React state updates are
@@ -444,6 +513,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
       } catch (e) { setMsg(e.message || "Generation failed."); return { produced: 0, errored: true }; }
       if (!jobId) { setMsg("Could not start generation."); return { produced: 0, errored: true }; }
       jobIdRef.current = jobId;
+      saveCk({ jobId }); // remember the running job so a resume can cancel the orphan
       let done = false, result = { produced: 0, timedOut: true };
       for (let i = 0; i < 300 && !done; i++) {
         await sleep(2000);
@@ -521,13 +591,17 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
 
     try {
       const target = total;
-      const autoLoop = autoContinue && !append; // manual "Generate more" stays a single wave
+      // Manual "Generate more" stays a single wave; a RESUME continues the
+      // auto-continue loop toward the original target (even though it appends).
+      const autoLoop = autoContinue && (!append || extra.resume);
       const MAX_WAVES = 60; // very high cap so a big target can grind through many quota windows
       const MAX_ZERO = 8;   // consecutive EMPTY waves before we conclude the quota is truly dead
       const MIN_YIELD = 2;  // a wave adding 0–1 questions is "barely progressing"
       const MAX_LOW = 4;    // consecutive barely-progressing waves → a bucket the model just can't fill (e.g. Assertion & Reason); stop instead of spinning forever
-      setMsg(append ? `Generating ${total} more from this topic (no duplicates)…` : `Starting generation of ${total} question(s)…`);
-      let producedTotal = 0;
+      setMsg(extra.resume ? `Resuming — continuing toward ${total} question(s)…` : append ? `Generating ${total} more from this topic (no duplicates)…` : `Starting generation of ${total} question(s)…`);
+      // On resume, the restored preview already counts toward the target so the
+      // "X of target" progress and the per-wave trim start from where we left off.
+      let producedTotal = extra.resume ? preview.length : 0;
       let firstWave = true;
       let wave = 0;
       let zeroWaves = 0; // consecutive waves that produced nothing (rate-limited)
@@ -677,6 +751,13 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
     }
   };
 
+  // Resume an interrupted session: keep every restored question and continue the
+  // auto-continue loop toward the original target (no duplicates — the avoid-list
+  // is seeded from the restored preview).
+  const resumeGenerate = () => { setResumeAvail(null); generate(true, null, { resume: true }); };
+  // Throw away a restored session (nothing was inserted).
+  const discardResume = () => { setPreview([]); clearCk(); setResumeAvail(null); setMsg(""); };
+
   const insert = async () => {
     if (!preview.length) return;
     const makingNew = allowNewTarget && destChoice === "new";
@@ -695,6 +776,8 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
       const where = makingNew ? ` into new ${newLeafLabel} “${newName.trim()}”` : usingExisting ? ` into “${existingName}”` : "";
       setMsg(`✓ Inserted ${res?.inserted ?? preview.length} question(s)${where}. Generate the next batch, or click Close when you're done.`);
       setPreview([]);
+      clearCk(); // inserted → the checkpoint is no longer needed
+      setResumeAvail(null);
       setNewName("");
       // Keep the chosen destination so the next batch appends to the same place.
       // (After creating a NEW one, switch to "current" — it's now the active target.)
@@ -1166,6 +1249,25 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
                 })()}
               </span>
             </label>
+
+            {resumeAvail && !busy && preview.length > 0 && (
+              <div className="mt-2 rounded-lg border border-brand-200 bg-brand-50 p-3 dark:border-brand-900/50 dark:bg-brand-900/20">
+                <p className="text-sm font-semibold text-brand-700 dark:text-brand-300">
+                  Resumed {resumeAvail.done} generated question(s){resumeAvail.target > resumeAvail.done ? ` of ${resumeAvail.target}` : ""} from your last session.
+                </p>
+                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                  Nothing was lost. Insert them below, or continue generating the rest from where it stopped — no duplicates.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {resumeAvail.target > resumeAvail.done && (
+                    <button type="button" onClick={resumeGenerate} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-brand-700">
+                      <Wand2 className="h-3.5 w-3.5" /> Resume generating ({resumeAvail.target - resumeAvail.done} to go)
+                    </button>
+                  )}
+                  <button type="button" onClick={discardResume} className="btn-outline text-xs">Discard</button>
+                </div>
+              </div>
+            )}
 
             <button
               type="button"
