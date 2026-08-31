@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import User from "../models/User.js";
 import Tenant from "../models/Tenant.js";
+import { isDev } from "../utils/env.js";
 import TrialClaim from "../models/TrialClaim.js";
 import { trialClaimed, recordTrialUsed } from "../utils/trialLedger.js";
 import EmailOtp from "../models/EmailOtp.js";
@@ -271,7 +272,7 @@ export async function sendEmailOtp(req, res) {
   );
 
   const emailSent = await sendOtpEmail(email, "", otp).catch(() => false);
-  const exposeDevOtp = !emailSent && process.env.NODE_ENV !== "production";
+  const exposeDevOtp = !emailSent && isDev(); // expose devOtp only in explicit development (secure default)
   res.json({ emailSent, ...(exposeDevOtp ? { devOtp: otp } : {}) });
 }
 
@@ -522,7 +523,7 @@ export async function register(req, res) {
 
   // Only reveal the code on-screen in non-production (local dev) when email
   // couldn't be sent. In production the student MUST verify via the emailed OTP.
-  const exposeDevOtp = !emailSent && process.env.NODE_ENV !== "production";
+  const exposeDevOtp = !emailSent && isDev(); // expose devOtp only in explicit development (secure default)
   res.status(201).json({
     needsVerification: true,
     email,
@@ -572,7 +573,7 @@ export async function resendOtp(req, res) {
 
   const otp = await issueOtp(user);
   const emailSent = await sendOtpEmail(email, user.name, otp).catch(() => false);
-  const exposeDevOtp = !emailSent && process.env.NODE_ENV !== "production";
+  const exposeDevOtp = !emailSent && isDev(); // expose devOtp only in explicit development (secure default)
   res.json({ emailSent, ...(exposeDevOtp ? { devOtp: otp } : {}) });
 }
 
@@ -648,8 +649,9 @@ export async function googleLogin(req, res) {
       console.error("[google-login] Token verification error:", err.message);
       return res.status(500).json({ message: "Failed to verify Google token." });
     }
-  } else if (process.env.NODE_ENV !== "production") {
-    // Legacy path: trust raw profile data ONLY in development/testing.
+  } else if (isDev()) {
+    // Legacy path: trust raw profile data ONLY when explicitly in development.
+    // Secure-by-default — a missing/misspelled NODE_ENV can never enable it.
     email = norm(req.body.email);
     name = req.body.name || "";
     avatar = req.body.avatar || "";

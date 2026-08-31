@@ -2,6 +2,13 @@ import Message from "../models/Message.js";
 import { sendMail } from "../config/mailer.js";
 import { NOT_DELETED, softDeletePatch } from "../utils/softDelete.js";
 
+// HTML-escape untrusted contact-form fields before putting them in the admin
+// notification email (same pattern as cbtController.js) so submitted content
+// can't inject markup/links into the email.
+const esc = (s) =>
+  String(s ?? "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
 // POST /api/messages  (auth required) — a logged-in user submits the contact form.
 // The sender's identity comes from their account; a notification email is sent
 // to the admin (best-effort — the message is always saved regardless).
@@ -30,10 +37,10 @@ export async function createMessage(req, res) {
       subject: `New contact message: ${subject || "(no subject)"}`,
       text: `From: ${name} <${email}>\nSubject: ${subject || "(none)"}\n\n${message}`,
       html: `<h3>New contact message</h3>
-             <p><b>From:</b> ${name} &lt;${email}&gt;</p>
-             <p><b>Subject:</b> ${subject || "(none)"}</p>
+             <p><b>From:</b> ${esc(name)} &lt;${esc(email)}&gt;</p>
+             <p><b>Subject:</b> ${esc(subject) || "(none)"}</p>
              <p><b>Message:</b></p>
-             <p style="white-space:pre-wrap">${message}</p>`,
+             <p style="white-space:pre-wrap">${esc(message)}</p>`,
     }).catch((e) => console.error("Email notification failed:", e.message));
   }
 

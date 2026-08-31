@@ -1,3 +1,5 @@
+import { isDev, isTest } from "../utils/env.js";
+
 // 404 handler for unknown routes.
 export function notFound(req, res, next) {
   res.status(404);
@@ -21,15 +23,18 @@ export function errorHandler(err, req, res, next) {
     500;
 
   // Log server errors for debugging (never log expected 4xx client errors).
+  // Full stack is logged server-side in every non-test env — it is never sent
+  // to the client except in explicit development (secure-by-default).
   if (status >= 500) {
     console.error(`[ERROR ${status}] ${req.method} ${req.originalUrl}:`, err.message);
-    if (process.env.NODE_ENV !== "production") console.error(err.stack);
+    if (!isTest()) console.error(err.stack);
   }
 
   res.status(status).json({
-    message: status >= 500 && process.env.NODE_ENV === "production"
+    // Hide 5xx details and stack traces unless NODE_ENV is explicitly development.
+    message: status >= 500 && !isDev()
       ? "An unexpected error occurred"
       : (err.message || "Server error"),
-    stack: process.env.NODE_ENV === "production" ? undefined : err.stack,
+    stack: isDev() ? err.stack : undefined,
   });
 }

@@ -17,6 +17,7 @@ import User from "./models/User.js";
 import Tenant from "./models/Tenant.js";
 import AiKey from "./models/AiKey.js";
 import { encryptAiKeys } from "./utils/encryptAiKeys.js";
+import { assertNodeEnv } from "./utils/env.js";
 
 const PORT = process.env.PORT || 5000;
 
@@ -211,6 +212,7 @@ async function cleanTenantCustomDomains() {
 }
 
 async function start() {
+  assertNodeEnv(); // secure-by-default: warn if NODE_ENV is unset/unrecognised (treated as production)
   await connectDB();
 
   // Security: AI provider keys are encrypted at rest. If any keys already exist

@@ -1,6 +1,7 @@
 // AI Question Generator — talks to any OpenAI-compatible provider
 import AiKey from "../models/AiKey.js";
 import { encryptSecret, decryptSecret, keyFingerprint } from "../utils/keyCrypto.js";
+import { isSafeProviderUrl } from "../utils/urlGuard.js";
 import Question from "../models/Question.js";
 import User from "../models/User.js";
 import { ownerFilter } from "../utils/ownership.js";
@@ -1135,6 +1136,12 @@ function quota429Message(detail = "") {
 
 // One provider call with transient-error retries. Returns { ok, status, content, detail }.
 async function callProvider({ key, baseUrl, model, userPrompt, maxTokens, systemPrompt = SYSTEM_PROMPT, temperature = 0.6, timeoutMs = 90000, failOnEmpty = false }) {
+  // SSRF guard: never let a client-configured baseUrl make the server call an
+  // internal/loopback/metadata address. Unsafe URLs skip this key gracefully.
+  const safeBase = (baseUrl || "https://api.tokenlab.sh/v1").replace(/\/$/, "");
+  if (!isSafeProviderUrl(safeBase)) {
+    return { ok: false, status: 0, detail: "Provider base URL is not allowed (must be a public https endpoint)." };
+  }
   const payload = {
     model,
     messages: [
@@ -1158,7 +1165,7 @@ async function callProvider({ key, baseUrl, model, userPrompt, maxTokens, system
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
     try {
-      resp = await fetch(`${(baseUrl || "https://api.tokenlab.sh/v1").replace(/\/$/, "")}/chat/completions`, {
+      resp = await fetch(`${safeBase}/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
         body: JSON.stringify(payload),
@@ -4541,10 +4548,12 @@ export async function createKey(req, res) {
   const owner = keyOwner(req);
   const order = await AiKey.countDocuments({ owner: owner ?? null });
   const plainKey = String(key).trim();
+  const baseClean = String(baseUrl || "").trim() || "https://generativelanguage.googleapis.com/v1beta/openai";
+  if (!isSafeProviderUrl(baseClean)) return res.status(400).json({ message: "Provider base URL must be a public https endpoint (no internal/loopback/metadata hosts)." }); // SSRF guard at create time
   const doc = await AiKey.create({
     owner,
     label: String(label || "").trim(),
-    baseUrl: String(baseUrl || "").trim() || "https://generativelanguage.googleapis.com/v1beta/openai",
+    baseUrl: baseClean,
     models: String(models || "").trim() || "gemini-2.5-flash",
     key: encryptSecret(plainKey), // encrypt the provider key at rest
     keyHash: keyFingerprint(plainKey),
@@ -4575,13 +4584,15 @@ export async function bulkCreateKeys(req, res) {
   if (!cleaned.length) return res.status(400).json({ message: "Paste at least one API key." });
 
   const owner = keyOwner(req);
-  // De-dupe within THIS pool only (a client's key list, or the platform's).
+  // De-dupe within THIS pool only (a client's key list, or the platform's) —
+  // compare by key fingerprint since stored keys are encrypted.
   const existing = new Set(
     (await AiKey.find({ owner: owner ?? null }).select("keyHash key").lean())
       .map((k) => k.keyHash || keyFingerprint(decryptSecret(k.key)))
-  ); // compare by fingerprint since stored keys are encrypted
+  );
   const baseUrlClean =
     String(baseUrl || "").trim() || "https://generativelanguage.googleapis.com/v1beta/openai";
+  if (!isSafeProviderUrl(baseUrlClean)) return res.status(400).json({ message: "Provider base URL must be a public https endpoint (no internal/loopback/metadata hosts)." }); // SSRF guard at bulk-create time
   const modelsClean = String(models || "").trim() || "gemini-2.5-flash";
   const limitClean = Math.max(0, parseInt(creditLimit, 10) || 0);
   const labelBase = String(label || "").trim();
@@ -4614,7 +4625,11 @@ export async function updateKey(req, res) {
   const { label, baseUrl, models, enabled, key, order, creditLimit, resetUsage } = req.body || {};
   const patch = {};
   if (label !== undefined) patch.label = String(label).trim();
-  if (baseUrl !== undefined) patch.baseUrl = String(baseUrl).trim();
+  if (baseUrl !== undefined) {
+    const b = String(baseUrl).trim();
+    if (b && !isSafeProviderUrl(b)) return res.status(400).json({ message: "Provider base URL must be a public https endpoint (no internal/loopback/metadata hosts)." }); // SSRF guard at update time
+    patch.baseUrl = b;
+  }
   if (models !== undefined) patch.models = String(models).trim();
   if (enabled !== undefined) patch.enabled = !!enabled;
   if (order !== undefined) patch.order = parseInt(order, 10) || 0;
@@ -4653,8 +4668,10 @@ export async function deleteKey(req, res) {
 
 // Fetch the model ids a key can use (OpenAI-compatible /models). Returns [].
 async function fetchModels(key, baseUrl) {
+  const base = (baseUrl || DEFAULT_BASE).replace(/\/$/, "");
+  if (!isSafeProviderUrl(base)) return []; // SSRF guard: never probe an internal/loopback/metadata URL
   try {
-    const resp = await fetch(`${(baseUrl || DEFAULT_BASE).replace(/\/$/, "")}/models`, { headers: { Authorization: `Bearer ${key}` } });
+    const resp = await fetch(`${base}/models`, { headers: { Authorization: `Bearer ${key}` } });
     if (!resp.ok) return [];
     const data = await resp.json().catch(() => ({}));
     return (Array.isArray(data?.data) ? data.data : [])
@@ -4958,6 +4975,7 @@ export async function listKeyModels(req, res) {
   const doc = await AiKey.findOne({ _id: req.params.id, owner: keyOwner(req) ?? null });
   if (!doc) return res.status(404).json({ message: "Key not found" });
   const baseUrl = (doc.baseUrl || DEFAULT_BASE).replace(/\/$/, "");
+  if (!isSafeProviderUrl(baseUrl)) return res.status(400).json({ message: "Provider base URL is not allowed (must be a public https endpoint)." }); // SSRF guard
   try {
     const resp = await fetch(`${baseUrl}/models`, { headers: { Authorization: `Bearer ${decryptSecret(doc.key)}` } }); // decrypt only in memory
     const data = await resp.json().catch(() => ({}));
