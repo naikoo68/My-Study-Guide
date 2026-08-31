@@ -24,6 +24,7 @@ import RegenerateOneModal from "../../components/admin/RegenerateOneModal";
 import ScheduleQuestionModal from "../../components/admin/ScheduleQuestionModal";
 import RecycleBinModal from "../../components/admin/RecycleBinModal";
 import MissingItemsModal from "../../components/admin/MissingItemsModal";
+import SubjectTopicDuplicatesModal from "../../components/admin/SubjectTopicDuplicatesModal";
 import LinkExistingSubjectModal from "../../components/admin/LinkExistingSubjectModal";
 import { Sparkles, Files, Globe, Wand2, Loader2, ClipboardList, RefreshCw, Scissors, GitMerge, CheckCircle2, Maximize2, Minimize2, Archive, ArrowRightLeft, ScanSearch, Save, Link2 } from "lucide-react";
 
@@ -148,6 +149,7 @@ export default function AdminContent() {
   const [delProgress, setDelProgress] = useState(null); // real-time bulk-delete progress: { total, done, finished? }
   const [bulkAddBusy, setBulkAddBusy] = useState(null); // live auto-add progress: { done, total, added, kind: "subject"|"topic" }
   const [missingLevel, setMissingLevel] = useState(null); // "subject" | "topic" — open "Search Missing Subjects/Topics" scan
+  const [dupLevel, setDupLevel] = useState(null); // "subject" | "topic" — open "Find Duplicates" scan
   const [linkOpen, setLinkOpen] = useState(false); // "Add existing subject" (reuse from another stream) modal
   const [search, setSearch] = useState(""); // question search query
 
@@ -970,6 +972,36 @@ export default function AdminContent() {
     }
   };
 
+  // Remove the ticked duplicate subjects/topics (soft-delete → Recycle Bin, so
+  // they're recoverable). A shared/linked subject is UNLINKED from this stream
+  // instead of deleted, keeping its home stream + content intact.
+  const bulkRemoveDuplicates = async (type, ids) => {
+    if (!ids?.length) return;
+    setSaving(true);
+    setError("");
+    setBulkAddBusy({ done: 0, total: ids.length, added: 0, kind: type });
+    const failed = [];
+    for (const id of ids) {
+      try {
+        if (type === "subject") {
+          const it = items.find((x) => x._id === id);
+          const isLinked = it?.stream && sid && String(it.stream) !== sid;
+          if (isLinked) await contentService.unlinkSubject(id, sid);
+          else await contentService.deleteSubject(id);
+        } else {
+          await contentService.deleteTopic(id);
+        }
+      } catch {
+        failed.push(id);
+      }
+      setBulkAddBusy((p) => (p ? { ...p, done: p.done + 1 } : p));
+    }
+    setSaving(false);
+    setBulkAddBusy(null);
+    if (failed.length) setError(`Couldn't remove ${failed.length} item${failed.length === 1 ? "" : "s"}.`);
+    load(view);
+  };
+
   const remove = async (type, id, label) => {
     // A SHARED subject (linked from another stream — its home `stream` differs
     // from the one we're browsing) is UNLINKED from this stream rather than
@@ -1148,15 +1180,23 @@ export default function AdminContent() {
               <button onClick={() => setMissingLevel("subject")} className="btn-outline text-brand-600" title="Ask AI which subjects belong to this stream, then add the ones you're missing">
                 <ScanSearch className="h-4 w-4" /> Search Missing Subjects
               </button>
+              <button onClick={() => setDupLevel("subject")} className="btn-outline text-brand-600" title="Find duplicate or overlapping subjects in this stream and remove the extras">
+                <Copy className="h-4 w-4" /> Find Duplicates
+              </button>
               <button onClick={() => setLinkOpen(true)} className="btn-outline" title="Reuse a subject that already exists in another stream (no duplicate — content stays shared)">
                 <Link2 className="h-4 w-4" /> Add Existing Subject
               </button>
             </>
           )}
           {view === "topics" && (
-            <button onClick={() => setMissingLevel("topic")} className="btn-outline text-brand-600" title="Ask AI which topics make up this subject, then add the ones you're missing">
-              <ScanSearch className="h-4 w-4" /> Search Missing Topics
-            </button>
+            <>
+              <button onClick={() => setMissingLevel("topic")} className="btn-outline text-brand-600" title="Ask AI which topics make up this subject, then add the ones you're missing">
+                <ScanSearch className="h-4 w-4" /> Search Missing Topics
+              </button>
+              <button onClick={() => setDupLevel("topic")} className="btn-outline text-brand-600" title="Find duplicate or overlapping topics in this subject and remove the extras">
+                <Copy className="h-4 w-4" /> Find Duplicates
+              </button>
+            </>
           )}
           {view === "quizzes" && (
             <>
@@ -1431,6 +1471,26 @@ export default function AdminContent() {
           }}
           bulkProgress={bulkAddBusy}
           onClose={() => setMissingLevel(null)}
+        />
+      )}
+
+      {dupLevel && (
+        <SubjectTopicDuplicatesModal
+          level={dupLevel}
+          parentName={dupLevel === "topic" ? subject?.name : stream?.name}
+          fetchGroups={() =>
+            aiService.findDuplicates({
+              level: dupLevel,
+              parentName: dupLevel === "topic" ? subject?.name : stream?.name,
+              items: items.map((it) => ({ id: it._id, name: it.name || it.title })),
+            })
+          }
+          onDelete={async (ids) => {
+            await bulkRemoveDuplicates(dupLevel, ids);
+            setDupLevel(null);
+          }}
+          bulkProgress={bulkAddBusy}
+          onClose={() => setDupLevel(null)}
         />
       )}
 
