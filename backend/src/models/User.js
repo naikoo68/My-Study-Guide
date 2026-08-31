@@ -12,6 +12,11 @@ const userSchema = new mongoose.Schema(
     // an auto-generated bootstrap password, so a known/default password is never
     // usable long-term). Cleared the moment the user changes their password.
     mustChangePassword: { type: Boolean, default: false },
+    // Token revocation counter. Embedded into every issued JWT as the `tv`
+    // claim; the auth middleware rejects a token whose `tv` doesn't match this
+    // value. Incrementing it (on logout, password reset/change, or account
+    // block) instantly invalidates all previously-issued tokens for this user.
+    tokenVersion: { type: Number, default: 0 },
     googleId: { type: String },
     avatar: { type: String },
     // "client" = a self-service account that can ONLY use the My Practice

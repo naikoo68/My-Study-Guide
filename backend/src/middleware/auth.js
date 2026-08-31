@@ -53,6 +53,11 @@ export async function protect(req, res, next) {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const user = await runUnscoped(() => User.findById(decoded.id));
     if (!user) return res.status(401).json({ message: "User no longer exists" });
+    // Server-side revocation: reject a token whose version is stale (password
+    // reset/change, block, or logout bumps the user's tokenVersion).
+    if ((decoded.tv || 0) !== (user.tokenVersion || 0)) {
+      return res.status(401).json({ message: "Session expired. Please sign in again." });
+    }
     if (user.status === "blocked") {
       return res.status(403).json({ message: "Your account has been blocked" });
     }
@@ -85,6 +90,10 @@ export async function attachUser(req, res, next) {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const user = await runUnscoped(() => User.findById(decoded.id));
     if (!user) return res.status(401).json({ message: "User no longer exists" });
+    // Server-side revocation: reject a stale token version (see protect()).
+    if ((decoded.tv || 0) !== (user.tokenVersion || 0)) {
+      return res.status(401).json({ message: "Session expired. Please sign in again." });
+    }
     if (user.status === "blocked") return res.status(403).json({ message: "Your account has been blocked" });
     if (user.deleted) return res.status(403).json({ message: "This account has been deleted" });
     if (await tenantSuspended(user)) return res.status(403).json({ message: SUSPENDED_INSTITUTE_MESSAGE });
@@ -171,7 +180,8 @@ export async function optionalAuth(req, res, next) {
       const user = await runUnscoped(() => User.findById(decoded.id));
       const expired = user?.expiresAt && user.expiresAt.getTime() < Date.now() && !creatorPlansDisabled(user);
       const suspended = await tenantSuspended(user);
-      if (user && user.status !== "blocked" && !user.deleted && !expired && !suspended) {
+      const revoked = user && (decoded.tv || 0) !== (user.tokenVersion || 0); // stale token version → ignore
+      if (user && !revoked && user.status !== "blocked" && !user.deleted && !expired && !suspended) {
         req.user = user;
         applyUserTenantScope(req, user);
       }

@@ -158,7 +158,7 @@ export async function updateUser(req, res) {
     user.role = role;
   }
   if (plan) user.plan = plan;
-  if (password) { user.password = password; user.mustChangePassword = false; } // re-hashed by pre-save hook; a new password clears the forced-change flag
+  if (password) { user.password = password; user.mustChangePassword = false; user.tokenVersion = (user.tokenVersion || 0) + 1; } // re-hashed by pre-save hook; a new password clears the forced-change flag and revokes existing tokens
 
   // AI access (admin-controlled, for client accounts). Each is applied only when
   // present in the body so partial updates don't reset the others.
@@ -294,6 +294,9 @@ export async function toggleStatus(req, res) {
   const user = await User.findById(req.params.id);
   if (!user) return res.status(404).json({ message: "User not found" });
   user.status = user.status === "blocked" ? "active" : "blocked";
+  // When blocking, revoke any outstanding tokens so the user is booted out
+  // immediately rather than staying logged in until their JWT expires.
+  if (user.status === "blocked") user.tokenVersion = (user.tokenVersion || 0) + 1;
   await user.save();
   res.json({ id: user._id, status: user.status });
 }

@@ -315,7 +315,7 @@ export async function provisionInstitute(req, res) {
 
   res.status(201).json({
     ok: true,
-    token: generateToken(created.admin._id),
+    token: generateToken(created.admin._id, created.admin.tokenVersion),
     tenant: { id: created.tenant._id, name: created.tenant.name, slug: created.tenant.slug },
     admin: { id: created.admin._id, name: created.admin.name, email: created.admin.email, role: created.admin.role },
   });
