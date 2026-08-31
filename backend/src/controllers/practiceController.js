@@ -10,7 +10,7 @@ import ContentShare from "../models/ContentShare.js";
 import { isTestVisibleToUser, isSharedWithUser, hasActiveSubscription } from "../utils/accessControl.js";
 import { ownerFilter, ownerValue } from "../utils/ownership.js";
 import { runUnscoped } from "../utils/tenantContext.js";
-import { sanitizeBody } from "../utils/sanitizeBody.js";
+import { sanitizeBody, ALLOW } from "../utils/sanitizeBody.js";
 import { sendMail, isMailConfigured } from "../config/mailer.js";
 import { clientBaseFromReq } from "../config/clientUrl.js";
 import { duplicateQuestions } from "../utils/duplicateQuestions.js";
@@ -45,11 +45,11 @@ export async function listStreams(req, res) {
   res.json(streams.map((s) => ({ ...s, subjects: map[String(s._id)] || 0 })));
 }
 export async function createStream(req, res) {
-  const s = await PracticeStream.create({ ...sanitizeBody(req.body), slug: slugify(req.body.name), owner: ownerValue(req) });
+  const s = await PracticeStream.create({ ...sanitizeBody(req.body, { allow: ALLOW.P_STREAM }), slug: slugify(req.body.name), owner: ownerValue(req) });
   res.status(201).json(s);
 }
 export async function updateStream(req, res) {
-  const d = sanitizeBody(req.body); // strips owner/tenantId/_id/etc. (never client-set)
+  const d = sanitizeBody(req.body, { allow: ALLOW.P_STREAM }); // allowlist: only editable fields
   if (d.name) d.slug = slugify(d.name);
   const s = await PracticeStream.findOneAndUpdate({ _id: req.params.id, ...ownerFilter(req) }, d, { new: true });
   if (!s) return res.status(404).json({ message: "Stream not found" });
@@ -129,11 +129,12 @@ export async function listExams(req, res) {
 export async function createExam(req, res) {
   const stream = await PracticeStream.findOne({ _id: req.body?.stream, ...ownerFilter(req) }).lean();
   if (!stream) return res.status(400).json({ message: "Choose a valid stream." });
-  const e = await PracticeExam.create({ ...sanitizeBody(req.body), stream: stream._id, slug: slugify(req.body.name), owner: ownerValue(req) });
+  const e = await PracticeExam.create({ ...sanitizeBody(req.body, { allow: ALLOW.P_EXAM }), stream: stream._id, slug: slugify(req.body.name), owner: ownerValue(req) });
   res.status(201).json(e);
 }
 export async function updateExam(req, res) {
-  const d = sanitizeBody(req.body, ["stream"]); // never re-parent an exam via update
+  // Allowlist minus parent ref — never re-parent an exam via update.
+  const d = sanitizeBody(req.body, { allow: ALLOW.P_EXAM.filter((f) => f !== "stream") });
   if (d.name) d.slug = slugify(d.name);
   const e = await PracticeExam.findOneAndUpdate({ _id: req.params.id, ...ownerFilter(req) }, d, { new: true });
   if (!e) return res.status(404).json({ message: "Exam not found" });
@@ -175,7 +176,7 @@ export async function listSubjects(req, res) {
   res.json(subjects.map((s) => ({ ...s, items: map[String(s._id)] || 0 })));
 }
 export async function createSubject(req, res) {
-  const body = sanitizeBody(req.body);
+  const body = sanitizeBody(req.body, { allow: ALLOW.P_SUBJECT });
   // My Quiz: a subject is created under an EXAM. Keep `stream` in sync with the
   // exam's stream so existing stream-scoped queries (pickers, share, browse of
   // other kinds) keep working. My Test/Previous Papers pass `stream` directly.
@@ -207,7 +208,8 @@ export async function allSubjects(req, res) {
   );
 }
 export async function updateSubject(req, res) {
-  const d = sanitizeBody(req.body); // strips owner/tenantId/_id/etc. (never client-set)
+  // Allowlist minus parent refs — never re-parent a subject via a plain update.
+  const d = sanitizeBody(req.body, { allow: ALLOW.P_SUBJECT.filter((f) => f !== "stream" && f !== "exam") });
   if (d.name) d.slug = slugify(d.name);
   const s = await PracticeSubject.findOneAndUpdate({ _id: req.params.id, ...ownerFilter(req) }, d, { new: true });
   if (!s) return res.status(404).json({ message: "Subject not found" });
@@ -270,11 +272,12 @@ export async function listTopics(req, res) {
   res.json(topics.map((t) => ({ ...t, items: map[String(t._id)] || 0 })));
 }
 export async function createTopic(req, res) {
-  const t = await PracticeTopic.create({ ...sanitizeBody(req.body), slug: slugify(req.body.name), owner: ownerValue(req) });
+  const t = await PracticeTopic.create({ ...sanitizeBody(req.body, { allow: ALLOW.P_TOPIC }), slug: slugify(req.body.name), owner: ownerValue(req) });
   res.status(201).json(t);
 }
 export async function updateTopic(req, res) {
-  const d = sanitizeBody(req.body); // strips owner/tenantId/_id/etc. (never client-set)
+  // Allowlist minus parent ref — never re-parent a topic via a plain update.
+  const d = sanitizeBody(req.body, { allow: ALLOW.P_TOPIC.filter((f) => f !== "subject") });
   if (d.name) d.slug = slugify(d.name);
   const t = await PracticeTopic.findOneAndUpdate({ _id: req.params.id, ...ownerFilter(req) }, d, { new: true });
   if (!t) return res.status(404).json({ message: "Topic not found" });

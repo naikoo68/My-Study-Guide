@@ -21,21 +21,31 @@ import { assertNodeEnv } from "./utils/env.js";
 
 const PORT = process.env.PORT || 5000;
 
-// Global safety net — never let a stray async error take down the whole API.
-// In modern Node an unhandled promise rejection (or an uncaught exception) exits
-// the process with status 1, which on a single-instance host (e.g. Render free
-// tier) takes the ENTIRE site down until it restarts. These almost always come
-// from isolated, non-fatal async work — a flaky AI-provider request, a slow
-// third-party key probe, a background generation/extend job — so we LOG them
-// (with stack) and keep serving instead of crashing. Per-request errors are
-// already handled by Express's error middleware; this only catches the detached
-// ones that would otherwise be fatal.
-process.on("unhandledRejection", (reason) => {
-  console.error("[unhandledRejection]", reason instanceof Error ? reason.stack : reason);
-});
-process.on("uncaughtException", (err) => {
-  console.error("[uncaughtException]", err?.stack || err);
-});
+// Global safety net for DETACHED fatal errors (an unhandled promise rejection
+// or an uncaught exception). After one of these the process is in an unknown,
+// possibly corrupt state, so rather than keep serving in that state we LOG it
+// and shut down GRACEFULLY: stop accepting new connections, let in-flight
+// requests finish for a few seconds, then exit non-zero. The container runs
+// under Docker `--restart always`, so a clean exit is immediately replaced by a
+// fresh, healthy process (see deploy-backend.yml). Per-request errors are still
+// handled by Express's error middleware; this only catches the detached ones.
+let httpServer = null;
+let shuttingDown = false;
+function fatalShutdown(label, err) {
+  console.error(`[${label}]`, err?.stack || err);
+  if (shuttingDown) return; // one fatal error already in progress — don't double-exit
+  shuttingDown = true;
+  const force = setTimeout(() => process.exit(1), 5000); // hard cap so a stuck close can't hang forever
+  force.unref();
+  try {
+    if (httpServer) httpServer.close(() => process.exit(1));
+    else process.exit(1);
+  } catch {
+    process.exit(1);
+  }
+}
+process.on("unhandledRejection", (reason) => fatalShutdown("unhandledRejection", reason));
+process.on("uncaughtException", (err) => fatalShutdown("uncaughtException", err));
 
 // NOTE: Expired accounts are NEVER deleted. When a client's subscription/trial
 // ends we only RESTRICT access (the `protect` middleware blocks their content
@@ -232,7 +242,9 @@ async function start() {
   }
 
   // Start listening immediately so the host detects an open port quickly.
-  app.listen(PORT, () => {
+  // Keep the server reference so fatalShutdown() can stop accepting new
+  // connections and drain in-flight requests before the process exits.
+  httpServer = app.listen(PORT, () => {
     console.log(`✔ My Study Guide API running on http://localhost:${PORT}`);
   });
 
