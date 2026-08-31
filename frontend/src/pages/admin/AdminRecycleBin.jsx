@@ -78,7 +78,7 @@ export default function AdminRecycleBin() {
   const restoreMany = async (list) => {
     if (!list.length || bulkBusy) return;
     setMsg("");
-    setBulkBusy({ done: 0, total: list.length });
+    setBulkBusy({ done: 0, total: list.length, mode: "restore" });
     let failed = 0;
     for (const it of list) {
       try { await recycleService.restore(it.type, it._id); } catch { failed++; }
@@ -91,6 +91,24 @@ export default function AdminRecycleBin() {
   };
   const restoreSelected = () => restoreMany(items.filter((it) => selected.has(keyOf(it))));
   const restoreAll = () => restoreMany(items.slice());
+
+  // Permanently delete the ticked items (cascade removal — cannot be undone).
+  const removeSelected = async () => {
+    const list = items.filter((it) => selected.has(keyOf(it)));
+    if (!list.length || bulkBusy) return;
+    if (!window.confirm(`Permanently delete ${list.length} selected item${list.length === 1 ? "" : "s"}? This also removes everything inside them and CANNOT be undone.`)) return;
+    setMsg("");
+    setBulkBusy({ done: 0, total: list.length, mode: "delete" });
+    let failed = 0;
+    for (const it of list) {
+      try { await recycleService.remove(it.type, it._id); } catch { failed++; }
+      setBulkBusy((p) => (p ? { ...p, done: p.done + 1 } : p));
+    }
+    setBulkBusy(null);
+    setSelected(new Set());
+    setMsg(failed ? `Deleted ${list.length - failed} of ${list.length}; ${failed} failed.` : `Permanently deleted ${list.length} item${list.length === 1 ? "" : "s"}.`);
+    load();
+  };
 
   const fmtWhen = (d) => {
     if (!d) return "";
@@ -116,12 +134,17 @@ export default function AdminRecycleBin() {
           </button>
           {selected.size > 0 && (
             <button onClick={restoreSelected} disabled={!!bulkBusy} className="btn-outline text-emerald-600 disabled:opacity-50">
-              {bulkBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Restore selected ({selected.size})
+              {bulkBusy?.mode === "restore" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Restore selected ({selected.size})
+            </button>
+          )}
+          {selected.size > 0 && (
+            <button onClick={removeSelected} disabled={!!bulkBusy} className="btn-outline border-rose-200 text-rose-600 hover:bg-rose-50 disabled:opacity-50 dark:border-rose-900/50 dark:hover:bg-rose-900/10">
+              {bulkBusy?.mode === "delete" ? (<><Loader2 className="h-4 w-4 animate-spin" /> Deleting {bulkBusy.done}/{bulkBusy.total}</>) : (<><Trash2 className="h-4 w-4" /> Delete selected ({selected.size})</>)}
             </button>
           )}
           {data?.total > 0 && (
             <button onClick={restoreAll} disabled={!!bulkBusy} className="btn-outline text-emerald-600 disabled:opacity-50">
-              {bulkBusy ? (<><Loader2 className="h-4 w-4 animate-spin" /> Restoring {bulkBusy.done}/{bulkBusy.total}</>) : (<><RotateCcw className="h-4 w-4" /> Restore all</>)}
+              {bulkBusy?.mode === "restore" ? (<><Loader2 className="h-4 w-4 animate-spin" /> Restoring {bulkBusy.done}/{bulkBusy.total}</>) : (<><RotateCcw className="h-4 w-4" /> Restore all</>)}
             </button>
           )}
           {data?.total > 0 && (
