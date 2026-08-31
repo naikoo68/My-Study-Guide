@@ -475,7 +475,7 @@ function parseStringArray(text) {
 // spread across the whole breadth instead of repeating a few obvious facts.
 // Best-effort: returns [] on any failure, in which case generation proceeds
 // without explicit subtopic assignment (the prompt still asks for variety).
-async function outlineSubtopics({ endpoints, model, topic, notes, source, want, subject = "" }) {
+async function outlineSubtopics({ endpoints, model, topic, notes, source, want, subject = "", stream = "" }) {
   const n = Math.min(40, Math.max(12, want || 12));
   const language = isLanguageSubject(subject, topic, notes);
   const parts = [
@@ -483,6 +483,8 @@ async function outlineSubtopics({ endpoints, model, topic, notes, source, want, 
     `List ${n} DISTINCT, specific subtopics/syllabus points that TOGETHER comprehensively cover the topic below, exactly as covered in NCERT, standard university textbooks and competitive examinations (and current affairs where relevant).`,
     `Topic: ${topic}.`,
   ];
+  if (subject && String(subject).trim()) parts.push(`Subject: ${String(subject).trim()} — interpret the topic within this subject so ambiguous names are read in the right context.`);
+  if (stream && String(stream).trim()) parts.push(`Exam / course: ${String(stream).trim()} — lean the subtopic map toward the areas THIS exam/syllabus emphasises (without leaving the given subject and topic).`);
   if (source) parts.push(`Draw the subtopics from this source material:\n${String(source).slice(0, 4000)}`);
   if (notes) parts.push(`Respect these user instructions: ${notes}`);
   if (language) {
@@ -527,7 +529,7 @@ async function outlineSubtopics({ endpoints, model, topic, notes, source, want, 
   return [];
 }
 
-function buildUserPrompt({ topic, count, difficulty, types, notes, plan, avoid, source, focus, numerical = false, reshape = false, subject = "", outLang = "" }) {
+function buildUserPrompt({ topic, count, difficulty, types, notes, plan, avoid, source, focus, numerical = false, reshape = false, subject = "", stream = "", outLang = "" }) {
   const lines = [];
   const language = isLanguageSubject(subject, topic, notes);
   if (source) {
@@ -537,6 +539,10 @@ function buildUserPrompt({ topic, count, difficulty, types, notes, plan, avoid, 
   }
   if (subject && String(subject).trim()) {
     lines.push(`Subject: ${String(subject).trim()}. Interpret the topic within this subject so ambiguous topic names are understood in the right context (e.g. "Articles" under an English subject means grammar articles a/an/the, NOT news articles or history).`);
+  }
+  if (stream && String(stream).trim()) {
+    const st = String(stream).trim();
+    lines.push(`Stream / course / exam: ${st}. This is the exam/course the content is being prepared for — TAILOR the questions to how this subject & topic actually appear in the "${st}" syllabus and exam pattern: weight the emphasis, difficulty level, phrasing style and the specific facts toward what THIS exam tends to ask, and prefer the angles, examples and regional/contextual details most relevant to it. Use the stream ONLY to focus and prioritise the questions — never to drift outside the given subject and topic.`);
   }
   lines.push(`Topic / syllabus: ${topic}.`);
   if (language) lines.push(LANGUAGE_FOCUS);
@@ -1288,7 +1294,7 @@ function planGaps(planArr, collected, reserved) {
 }
 
 async function runGenerationJob(id, ctx) {
-  const { workers, fallbackWorkers = [], model, topic, notes, subject = "", plan, count, difficulty, types, target, avoid, owner = null, source = "", userSubtopics = [], numerical = false, reshape = false, outLang = "" } = ctx;
+  const { workers, fallbackWorkers = [], model, topic, notes, subject = "", stream = "", plan, count, difficulty, types, target, avoid, owner = null, source = "", userSubtopics = [], numerical = false, reshape = false, outLang = "" } = ctx;
   const job = genJobs.get(id);
   const deadline = Date.now() + 8 * 60 * 1000; // overall time budget
   if (!job.keyStats) job.keyStats = {}; // live per-key activity for THIS run
@@ -1375,6 +1381,7 @@ async function runGenerationJob(id, ctx) {
         topic,
         notes,
         subject,
+        stream,
         source,
         want: target,
       });
@@ -1428,8 +1435,8 @@ async function runGenerationJob(id, ctx) {
       const res = reserveChunk();
       if (!res) break; // nothing left to generate
       const prompt = plan
-        ? buildUserPrompt({ topic, notes, subject, plan: res.chunk, avoid: avoidNow(), source, focus: res.focus, numerical, reshape, outLang })
-        : buildUserPrompt({ topic, notes, subject, count: res.n, difficulty, types, avoid: avoidNow(), source, focus: res.focus, numerical, reshape, outLang });
+        ? buildUserPrompt({ topic, notes, subject, stream, plan: res.chunk, avoid: avoidNow(), source, focus: res.focus, numerical, reshape, outLang })
+        : buildUserPrompt({ topic, notes, subject, stream, count: res.n, difficulty, types, avoid: avoidNow(), source, focus: res.focus, numerical, reshape, outLang });
       const maxTokens = Math.min(16000, 1800 + res.n * 1000);
       attempts += 1;
       // Live per-key activity for this run (surfaced via jobStatus.keyStats).
@@ -1665,6 +1672,9 @@ export async function generateQuestions(req, res) {
   const notes = String(req.body?.notes || "").trim();
   // Subject/section name (e.g. "English") so generation can be language-aware.
   const subject = String(req.body?.subject || "").trim();
+  // Stream/course/exam name (e.g. "JKSSB") — used to WEIGHT & tailor questions
+  // to that exam's pattern, and to disambiguate the topic within its context.
+  const stream = String(req.body?.stream || "").trim().slice(0, 160);
   // OUTPUT LANGUAGE the questions should be WRITTEN in (user-chosen, optional).
   // "" = default (model's default / English). Capped to a short label.
   const outLang = String(req.body?.language || "").trim().slice(0, 40);
@@ -1752,7 +1762,7 @@ export async function generateQuestions(req, res) {
     : []; // may include EVERY existing question in the whole topic (across its quizzes) so new questions don't duplicate them
 
   // Fire-and-forget — the client polls /api/ai/job/:id for progress.
-  guardJob(id, runGenerationJob(id, { workers, fallbackWorkers, model, topic, notes, subject, plan, count, difficulty, types, target, avoid, owner: jobOwner, source, userSubtopics, numerical: !!req.body?.numerical, reshape: !!req.body?.reshape, outLang }));
+  guardJob(id, runGenerationJob(id, { workers, fallbackWorkers, model, topic, notes, subject, stream, plan, count, difficulty, types, target, avoid, owner: jobOwner, source, userSubtopics, numerical: !!req.body?.numerical, reshape: !!req.body?.reshape, outLang }));
 
   res.json({ jobId: id, requested: target, model });
 }
@@ -2850,6 +2860,16 @@ export async function coverageGaps(req, res) {
     });
   }
   const topic = String(req.body?.topic || "").trim();
+  // Subject + stream/exam are DISAMBIGUATION context for the checklist: they let
+  // an ambiguous topic name (e.g. "Cell", "Articles") be read within the right
+  // subject/exam, and lean the checklist slightly toward what the exam covers —
+  // WITHOUT changing which topic the syllabus is built for.
+  const gapSubject = String(req.body?.subject || "").trim().slice(0, 160);
+  const gapStream = String(req.body?.stream || "").trim().slice(0, 160);
+  const gapContext = [
+    gapSubject ? `Subject: ${gapSubject}.` : "",
+    gapStream ? `Exam / course: ${gapStream}.` : "",
+  ].filter(Boolean).join(" ");
   // SOURCE MATERIAL (PDF / link / pasted text): when provided, the coverage
   // checklist is built from the ACTUAL content of the source — its sections /
   // areas — instead of a general syllabus for a typed topic. This is what powers
@@ -2886,6 +2906,7 @@ export async function coverageGaps(req, res) {
       : [
           "You are a syllabus coverage analyst. Build a checklist of the important, broad, non-overlapping subtopics for the topic below (NCERT / standard university / competitive-exam scope). List AS MANY subtopics as the topic GENUINELY warrants — and NO MORE. Do NOT pad to a fixed number: a small/narrow topic may have only 4-6 subtopics, while a broad one may have 40 or more. Match the topic's real breadth — never invent filler, and never split one idea into near-duplicate items just to reach a count. Keep them at a consistent, medium granularity — NOT hyper-specific niche facts. ORDER them as a learner would study them, step by step: foundational items first (introduction, definitions, terminology), then structure/classification, then processes/mechanisms, then causes/effects/factors, then importance/applications, and finally comparisons/exceptions/advanced items.",
           `Topic: ${topic}.`,
+          gapContext ? `Context — ${gapContext} Read the topic within this subject/exam so ambiguous names are understood correctly, and lean the checklist toward the areas this exam emphasises — but stay strictly inside the given topic.` : "",
           TOPIC_SCOPE_RULE,
           "Return ONLY a JSON array of strings, e.g. [\"subtopic one\",\"subtopic two\"]. No commentary, no markdown.",
         ].join("\n");
