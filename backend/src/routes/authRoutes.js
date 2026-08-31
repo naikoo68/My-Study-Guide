@@ -9,6 +9,7 @@ import {
   forgotPassword,
   resetPassword,
   getMe,
+  logout,
   updateProfile,
   completeCreatorGuide,
   getPlans,
@@ -37,6 +38,7 @@ router.get("/verify-email/:token", verifyEmail);
 router.post("/forgot-password", forgotLimiter, forgotPassword);
 router.post("/reset-password/:token", otpLimiter, resetPassword);
 router.get("/me", attachUser, getMe); // expired clients can still load their profile (to upgrade)
+router.post("/logout", attachUser, logout); // revoke current token server-side (bumps tokenVersion)
 router.put("/profile", attachUser, updateProfile); // update own name / profile photo
 router.patch("/creator-guide", attachUser, completeCreatorGuide); // creator marks first-run setup guide done
 

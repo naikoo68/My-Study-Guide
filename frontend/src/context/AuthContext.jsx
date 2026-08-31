@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { authService } from "../services";
-import { setToken, clearToken, getToken } from "../lib/api";
+import { setToken, clearToken, getToken, api } from "../lib/api";
 
 const AuthContext = createContext();
 
@@ -91,6 +91,9 @@ export function AuthProvider({ children }) {
   };
 
   const logout = () => {
+    // Best-effort server-side revocation (bumps tokenVersion) before dropping the
+    // local token, so the token can't be reused even if it was captured.
+    try { api.post("/auth/logout", {}, { auth: true }).catch(() => {}); } catch { /* ignore */ }
     clearToken();
     persist(null);
   };

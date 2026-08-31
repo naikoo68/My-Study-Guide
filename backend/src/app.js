@@ -11,6 +11,8 @@ import rateLimit from "express-rate-limit";
 // handler automatically, without needing individual try/catch or asyncHandler
 // wrappers on every route. This is equivalent to the `express-async-errors` pkg.
 import Layer from "express/lib/router/layer.js";
+import Tenant from "./models/Tenant.js";
+import { runUnscoped } from "./utils/tenantContext.js";
 const origHandle = Layer.prototype.handle_request;
 Layer.prototype.handle_request = function handleRequest(req, res, next) {
   try {
@@ -111,22 +113,62 @@ app.use(compression());
 // CORS_ALLOWED_ORIGINS to a comma-separated list — requests from anything else
 // are then refused. (CLIENT_URL is always included; Vercel/Netlify preview URLs
 // are allowed; requests with no Origin — curl, mobile, server-to-server — pass.)
-const allowList = [process.env.CLIENT_URL, ...(process.env.CORS_ALLOWED_ORIGINS || "").split(",")]
-  .map((o) => String(o || "").trim().replace(/\/$/, ""))
-  .filter(Boolean);
+// Security fix: DEFAULT-DENY unknown origins (was previously permissive/reflect-any).
+// Allowed origins are: the exact allowlist (CLIENT_URL + CORS_ALLOWED_ORIGINS),
+// wildcard subdomains of configured base domains (CORS_ALLOWED_DOMAINS, e.g. the
+// white-label platform domain) plus Vercel/Netlify previews, and any registered
+// tenant custom domain / <slug>.<PLATFORM_BASE_DOMAIN> looked up from the DB.
+// Requests with NO Origin (curl, mobile apps, server-to-server) still pass — CORS
+// is a browser control and these aren't browser cross-origin requests.
+const exactAllow = new Set(
+  [process.env.CLIENT_URL, ...(process.env.CORS_ALLOWED_ORIGINS || "").split(",")]
+    .map((o) => String(o || "").trim().replace(/\/$/, "").toLowerCase())
+    .filter(Boolean)
+);
+const wildcardDomains = [
+  ...(process.env.CORS_ALLOWED_DOMAINS || "").split(","),
+  process.env.PLATFORM_BASE_DOMAIN || "",
+  // The production site. Baked in as a default so the live app is never blocked
+  // even if CLIENT_URL / CORS_ALLOWED_DOMAINS aren't set on the server. Matches
+  // both mystudyguide.in and any subdomain (www., app., <institute>., …).
+  "mystudyguide.in",
+  "vercel.app",
+  "netlify.app",
+].map((d) => String(d || "").trim().toLowerCase().replace(/^\.*/, "")).filter(Boolean);
 
-const corsOrigin =
-  allowList.length && process.env.CORS_ALLOWED_ORIGINS
-    ? (origin, callback) => {
-        if (!origin) return callback(null, true); // not a browser CORS request
-        const o = origin.replace(/\/$/, "");
-        if (allowList.includes(o) || /\.vercel\.app$/.test(o) || /\.netlify\.app$/.test(o)) {
-          return callback(null, true);
-        }
-        console.warn(`[CORS] blocked request from origin: ${origin}`);
-        return callback(new Error("Not allowed by CORS"));
-      }
-    : true; // permissive (see note above)
+const hostMatchesWildcard = (host) =>
+  wildcardDomains.some((d) => host === d || host.endsWith("." + d));
+
+// Cached set of registered tenant custom domains (refreshed at most once/minute)
+// so white-label institutes on their own domains keep working without a DB hit
+// on every request.
+let tenantDomainCache = { at: 0, set: new Set() };
+async function isRegisteredTenantHost(host) {
+  if (Date.now() - tenantDomainCache.at > 60 * 1000) {
+    try {
+      const rows = await runUnscoped(() =>
+        Tenant.find({ customDomain: { $exists: true, $ne: null } }).select("customDomain").lean()
+      );
+      tenantDomainCache = {
+        at: Date.now(),
+        set: new Set(rows.map((t) => String(t.customDomain || "").toLowerCase().replace(/^https?:\/\//, "").replace(/\/$/, ""))),
+      };
+    } catch { /* keep the previous cache on a transient DB error */ }
+  }
+  return tenantDomainCache.set.has(host);
+}
+
+const corsOrigin = async (origin, callback) => {
+  if (!origin) return callback(null, true); // not a browser CORS request (curl/mobile/server)
+  let host;
+  try { host = new URL(origin).hostname.toLowerCase(); } catch { return callback(new Error("Not allowed by CORS")); }
+  const o = origin.replace(/\/$/, "").toLowerCase();
+  if (exactAllow.has(o) || hostMatchesWildcard(host) || (await isRegisteredTenantHost(host))) {
+    return callback(null, true);
+  }
+  console.warn(`[CORS] blocked request from origin: ${origin}`);
+  return callback(new Error("Not allowed by CORS"));
+};
 app.use(cors({ origin: corsOrigin, credentials: false }));
 // Restore endpoints accept large backup files — they attach their own 60mb JSON
 // parser at the route level. Skip the global 10mb parser for them so it doesn't

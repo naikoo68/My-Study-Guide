@@ -507,7 +507,7 @@ export async function register(req, res) {
     await creditReferrer(user); // friend bought a plan → reward the referrer (+10 days)
     await user.save(); // persist the referrerRewarded flag set above
     notifyNewUser(user);
-    return res.status(201).json({ paid: true, token: generateToken(user._id), user: sanitize(user) });
+    return res.status(201).json({ paid: true, token: generateToken(user._id, user.tokenVersion), user: sanitize(user) });
   }
 
   // Pre-verified email (inline "Verify") → account is already active; sign the
@@ -515,7 +515,7 @@ export async function register(req, res) {
   if (preVerified) {
     consumeEmailOtp(email);
     notifyNewUser(user);
-    return res.status(201).json({ verified: true, token: generateToken(user._id), user: sanitize(user) });
+    return res.status(201).json({ verified: true, token: generateToken(user._id, user.tokenVersion), user: sanitize(user) });
   }
 
   const otp = await issueOtp(user);
@@ -561,7 +561,7 @@ export async function verifyOtp(req, res) {
     notifyNewUser(user); // notify admin of the new registration (fire-and-forget)
   }
 
-  res.json({ user: sanitize(user), token: generateToken(user._id) });
+  res.json({ user: sanitize(user), token: generateToken(user._id, user.tokenVersion) });
 }
 
 // POST /api/auth/resend-otp — send a fresh code
@@ -604,7 +604,7 @@ export async function login(req, res) {
       email,
     });
   }
-  res.json({ user: { ...sanitize(user), tenant: await tenantInfo(user.tenantId) }, token: generateToken(user._id) });
+  res.json({ user: { ...sanitize(user), tenant: await tenantInfo(user.tenantId) }, token: generateToken(user._id, user.tokenVersion) });
 }
 
 // POST /api/auth/google  — verify the Google ID token server-side before trusting it.
@@ -666,7 +666,7 @@ export async function googleLogin(req, res) {
     user = await User.create({ name, email, googleId, avatar, isEmailVerified: true });
     notifyNewUser(user); // notify admin of the new registration (fire-and-forget)
   }
-  res.json({ user: sanitize(user), token: generateToken(user._id) });
+  res.json({ user: sanitize(user), token: generateToken(user._id, user.tokenVersion) });
 }
 
 // GET /api/auth/verify-email/:token — DEPRECATED: the app uses OTP-based
@@ -714,6 +714,7 @@ export async function resetPassword(req, res) {
   user.resetPasswordToken = undefined;
   user.resetPasswordExpires = undefined;
   user.mustChangePassword = false; // a fresh password clears the forced-change flag
+  user.tokenVersion = (user.tokenVersion || 0) + 1; // revoke every existing session/token
   await user.save();
   res.json({ message: "Password reset successful" });
 }
@@ -721,6 +722,18 @@ export async function resetPassword(req, res) {
 // GET /api/auth/me
 export async function getMe(req, res) {
   res.json({ user: { ...sanitize(req.user), tenant: await tenantInfo(req.user.tenantId) } });
+}
+
+// POST /api/auth/logout — server-side revocation. Bumping tokenVersion makes the
+// user's current JWT (and any other still-valid token they hold) fail the auth
+// middleware's `tv` check immediately, so the token can't be replayed after
+// logout even though it hasn't expired yet. Safe to call unauthenticated (no-op).
+export async function logout(req, res) {
+  const user = req.user;
+  if (user) {
+    await runUnscoped(() => User.updateOne({ _id: user._id }, { $inc: { tokenVersion: 1 } }));
+  }
+  res.json({ message: "Logged out" });
 }
 
 // PUT /api/auth/profile — let the signed-in user update their own name / photo
