@@ -131,6 +131,32 @@ export default function RecycleBinModal({ open, onClose, onChange }) {
   const restoreSelected = () => restoreMany(items.filter((it) => selected.has(keyOf(it))));
   const restoreAll = () => restoreMany(items.slice());
 
+  // Permanently delete several items in sequence (no bulk API — loop the single
+  // remove). Deleting a parent cascades, so deleting a child afterwards is a
+  // harmless no-op.
+  const deleteMany = async (list) => {
+    if (!list.length || bulkBusy) return;
+    if (!window.confirm(`Permanently delete ${list.length} item${list.length === 1 ? "" : "s"} (and everything inside them)?\n\nThis CANNOT be undone.`)) return;
+    setError("");
+    setBulkBusy({ done: 0, total: list.length, mode: "delete" });
+    const failed = new Set();
+    for (const it of list) {
+      try {
+        await recycleService.remove(it.type, it._id);
+      } catch {
+        failed.add(keyOf(it));
+      }
+      setBulkBusy((p) => (p ? { ...p, done: p.done + 1 } : p));
+    }
+    const removed = new Set(list.map(keyOf).filter((k) => !failed.has(k)));
+    setItems((cur) => cur.filter((x) => !removed.has(keyOf(x))));
+    setSelected(new Set());
+    setBulkBusy(null);
+    if (failed.size) setError(`Couldn't delete ${failed.size} item${failed.size === 1 ? "" : "s"}.`);
+    onChange?.();
+  };
+  const deleteSelected = () => deleteMany(items.filter((it) => selected.has(keyOf(it))));
+
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-0 sm:p-4" onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} className="min-h-full w-full max-w-3xl animate-scale-in card m-0 rounded-none p-4 sm:rounded-2xl sm:p-6">
@@ -170,11 +196,16 @@ export default function RecycleBinModal({ open, onClose, onChange }) {
               <div className="ml-auto flex items-center gap-2">
                 {selected.size > 0 && (
                   <button onClick={restoreSelected} disabled={!!bulkBusy} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-600 transition hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-900/50 dark:hover:bg-emerald-900/20">
-                    {bulkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Undo2 className="h-3.5 w-3.5" />} Restore selected ({selected.size})
+                    {bulkBusy && bulkBusy.mode !== "delete" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Undo2 className="h-3.5 w-3.5" />} Restore selected ({selected.size})
+                  </button>
+                )}
+                {selected.size > 0 && (
+                  <button onClick={deleteSelected} disabled={!!bulkBusy} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:opacity-50 dark:border-rose-900/50 dark:hover:bg-rose-900/20">
+                    {bulkBusy?.mode === "delete" ? (<><Loader2 className="h-3.5 w-3.5 animate-spin" /> Deleting {bulkBusy.done}/{bulkBusy.total}</>) : (<><Trash2 className="h-3.5 w-3.5" /> Delete selected ({selected.size})</>)}
                   </button>
                 )}
                 <button onClick={restoreAll} disabled={!!bulkBusy} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-600 transition hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-900/50 dark:hover:bg-emerald-900/20">
-                  {bulkBusy ? (<><Loader2 className="h-3.5 w-3.5 animate-spin" /> Restoring {bulkBusy.done}/{bulkBusy.total}</>) : (<><Undo2 className="h-3.5 w-3.5" /> Restore all</>)}
+                  {bulkBusy && bulkBusy.mode !== "delete" ? (<><Loader2 className="h-3.5 w-3.5 animate-spin" /> Restoring {bulkBusy.done}/{bulkBusy.total}</>) : (<><Undo2 className="h-3.5 w-3.5" /> Restore all</>)}
                 </button>
               </div>
             </div>
