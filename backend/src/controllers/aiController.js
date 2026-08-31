@@ -2,6 +2,7 @@
 import AiKey from "../models/AiKey.js";
 import { encryptSecret, decryptSecret, keyFingerprint } from "../utils/keyCrypto.js";
 import { isSafeProviderUrl, isSafePublicUrl } from "../utils/urlGuard.js";
+import { dedupeExact, salvageObjects as salvageConceptObjects } from "../utils/conceptDedupe.js";
 import Question from "../models/Question.js";
 import User from "../models/User.js";
 import { ownerFilter } from "../utils/ownership.js";
@@ -2563,10 +2564,87 @@ export async function outlineUnits(req, res) {
   res.json({ units });
 }
 
+// Parse a model reply into a clean [{ name, description }] list. Tolerates a
+// JSON array of objects, a bare string array, and — crucially — a TRUNCATED
+// reply (cut off mid-array), from which we salvage every COMPLETE object so the
+// tail of a long list isn't lost. Names shorter than 2 chars are dropped.
+function parseConceptArray(content) {
+  const t = String(content || "").trim();
+  let parsed = null;
+  const s = t.indexOf("[");
+  const e = t.lastIndexOf("]");
+  if (s !== -1 && e !== -1 && e > s) {
+    try { parsed = JSON.parse(t.slice(s, e + 1)); } catch { /* likely truncated — salvage below */ }
+  }
+  if (!Array.isArray(parsed)) {
+    const salvaged = salvageConceptObjects(t);
+    if (salvaged.length) parsed = salvaged;
+  }
+  const out = [];
+  if (Array.isArray(parsed)) {
+    for (const item of parsed) {
+      if (typeof item === "string") out.push({ name: item, description: "" });
+      else if (item && typeof item === "object") out.push({ name: item.name || item.title || item.subject || item.topic || "", description: item.description || item.desc || "" });
+    }
+  } else {
+    for (const n of parseStringArray(content)) out.push({ name: n, description: "" });
+  }
+  return out
+    .map((x) => ({ name: String(x.name || "").replace(/\s+/g, " ").trim(), description: String(x.description || "").replace(/\s+/g, " ").trim().slice(0, 160) }))
+    .filter((x) => x.name.length >= 2);
+}
+
+// AI clean-up pass. Given a DRAFT list of subject/topic names, ask the model to
+// return a de-duplicated CANONICAL list: it merges exact/synonym/near-duplicate
+// and overlapping entries (which plain string matching can't safely catch)
+// while KEEPING genuinely-distinct specializations, and excludes anything
+// already present. Returns [{ name, description }] on success, or null on any
+// failure so the caller can fall back to the (still exact-deduped) draft — the
+// feature must never break just because the extra pass hiccuped.
+async function canonicalizeConcepts({ chosen, owner, kind, parentName, items, existingNames }) {
+  if (!Array.isArray(items) || items.length < 2) return items || [];
+  const label = kind === "topic" ? "topics" : "subjects";
+  const parentLabel = kind === "topic" ? "subject" : "stream / course";
+  const already = (existingNames || []).slice(0, 200).join(", ");
+  const userPrompt = [
+    `Below is a DRAFT list of ${label} for the ${parentLabel} "${parentName}". Clean it into a final list.`,
+    "Rules:",
+    `- Remove exact duplicates, synonyms and NEAR-duplicates. If two entries mean the same ${kind}, OR one entry is just a broader/combined wording that overlaps others, keep only ONE canonical entry. Examples of what to collapse: "Renaissance and Reformation" listed alongside "The Renaissance" and "The Reformation"; "Contemporary History" alongside "Contemporary Global History"; "The Enlightenment" alongside "Enlightenment Philosophy"; "Age of Revolutions" alongside "Atlantic Revolutions".`,
+    `- BUT keep genuinely DISTINCT items separate — never merge a broad ${kind} with a real specialization of it (e.g. "Algebra" vs "Linear Algebra", "Physics" vs "Modern Physics" must BOTH stay).`,
+    already ? `- Do NOT include any entry that duplicates (or is a near-duplicate of) these ALREADY-ADDED ${label}: ${already}.` : "",
+    `- Preserve COMPLETE coverage: every genuinely-distinct ${kind} from the draft must appear exactly once. Do not drop distinct items.`,
+    "- Order most important / foundational first; keep each description to one short line.",
+    kind === "topic"
+      ? 'Return ONLY a JSON array like: [{"name":"Mechanics","description":"..."}] — no markdown, no commentary.'
+      : 'Return ONLY a JSON array like: [{"name":"Circuit Theory","description":"..."}] — no markdown, no commentary.',
+    "",
+    "DRAFT:",
+    items.map((it) => `- ${it.name}`).join("\n"),
+  ].filter(Boolean).join("\n");
+  try {
+    const r = await callWithFallback({
+      endpoints: chosen.endpoints,
+      model: chosen.model,
+      userPrompt,
+      maxTokens: 4000,
+      owner,
+      systemPrompt: "You output ONLY a JSON array of {name, description} objects — no markdown, no commentary.",
+      failOnEmpty: true,
+    });
+    if (!r.ok) return null;
+    const parsed = parseConceptArray(r.content);
+    return parsed.length ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 // POST /api/ai/suggest-subjects — given a STREAM / course / category NAME,
 // return the academic subjects that typically belong to it, so the admin can
 // tick and bulk-add them. Works for ANY stream (e.g. "Electrical Engineering",
-// "JKSSB"), unlike the static front-end catalog. Returns
+// "JKSSB"), unlike the static front-end catalog. Accepts an optional `existing`
+// array of subject names already under the stream, which are excluded from the
+// result (so re-running never re-suggests what's already there). Returns
 //   { subjects: [ { name, description } ] }.
 export async function suggestSubjects(req, res) {
   const scope = resolveScope(req.user, req.body?.mode);
@@ -2578,24 +2656,28 @@ export async function suggestSubjects(req, res) {
   const stream = String(req.body?.stream || "").trim().slice(0, 160);
   if (!stream) return res.status(400).json({ message: "Provide the stream name to find subjects for." });
 
+  const existing = Array.isArray(req.body?.existing) ? req.body.existing.map((x) => String(x || "").trim()).filter(Boolean) : [];
+  const alreadyList = existing.slice(0, 200).join(", ");
+
   const userPrompt = [
     `List the academic SUBJECTS that belong to the stream / course / category named "${stream}".`,
     "Rules:",
     "- BE EXHAUSTIVE: aim to cover the FULL, COMPLETE breadth of the stream so you BARELY MISS ANY subject a student in this stream studies. Include the core subjects AND the allied / optional / commonly-paired ones (e.g. for Electrical Engineering: Circuit Theory, Power Systems, Control Systems, Electrical Machines, Signals & Systems, Power Electronics, Measurements & Instrumentation, Electromagnetics …). Do NOT stop early or return only the few obvious ones.",
     "- Each subject has a short name (2-5 words) and a one-line description (max ~14 words).",
     "- List as MANY subjects as GENUINELY belong to the stream (typically 8–40), most important first. Never pad with filler that does not truly belong.",
-    "- NO DUPLICATES AND NO NEAR-DUPLICATES / SYNONYMS: never list the SAME subject twice under different names or wordings — if two names mean the same field, include ONLY ONE using its single most standard/canonical name. For example list ONLY \"Radiobiology\" OR \"Radiation Biology\" (they are the same) — never both; likewise \"Maths\" vs \"Mathematics\", \"Bio\" vs \"Biology\", \"PolSci\" vs \"Political Science\", \"Comp Sci\" vs \"Computer Science\". Also avoid a broad subject AND its own sub-field as two separate subjects when the sub-field is normally taught inside it.",
+    "- NO DUPLICATES, NO NEAR-DUPLICATES / SYNONYMS, AND NO OVERLAPS: never list the SAME subject twice under different names or wordings, and never list a broader COMBINED wording alongside its parts. Include ONLY ONE canonical entry per subject. For example: list ONLY \"Radiobiology\" OR \"Radiation Biology\" (never both); never list \"Renaissance and Reformation\" together with \"The Renaissance\" and/or \"The Reformation\"; never list \"Contemporary History\" and \"Contemporary Global History\"; never \"The Enlightenment\" and \"Enlightenment Philosophy\"; never \"Age of Revolutions\" and \"Atlantic Revolutions\". Also avoid a broad subject AND its own sub-field as two separate subjects when the sub-field is normally taught inside it. (But DO keep genuinely distinct specializations, e.g. \"Algebra\" vs \"Linear Algebra\".)",
     "- If the stream is an exam (e.g. JKSSB, UPSC), list its main papers / subjects instead.",
+    alreadyList ? `- These subjects ALREADY EXIST — do NOT list them again or any near-duplicate/overlap of them: ${alreadyList}.` : "",
     "",
     'Return ONLY a JSON array like: [{"name":"Circuit Theory","description":"Network analysis, theorems and AC/DC circuits."}]',
     "No markdown, no commentary.",
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 
   const r = await callWithFallback({
     endpoints: chosen.endpoints,
     model: chosen.model,
     userPrompt,
-    maxTokens: 2200,
+    maxTokens: 4000,
     owner: scope.owner,
     systemPrompt: "You output ONLY a JSON array of {name, description} objects — no markdown, no commentary.",
     failOnEmpty: true,
@@ -2604,34 +2686,13 @@ export async function suggestSubjects(req, res) {
     return res.status(502).json({ message: r.status === 429 ? quota429Message(r.detail) : `AI provider error (${r.status}). ${(r.detail || "").slice(0, 160)}` });
   }
 
-  // Parse a JSON array of {name, description} objects; tolerate a bare string
-  // array (some models return just names) too. De-dupe case-insensitively.
-  const subjects = [];
-  const seen = new Set();
-  const push = (name, description) => {
-    const n = String(name || "").replace(/\s+/g, " ").trim();
-    if (n.length < 2) return;
-    const k = n.toLowerCase();
-    if (seen.has(k)) return;
-    seen.add(k);
-    subjects.push({ name: n, description: String(description || "").replace(/\s+/g, " ").trim().slice(0, 160) });
-  };
-  let parsed = null;
-  try {
-    const t = String(r.content || "").trim();
-    const s = t.indexOf("[");
-    const e = t.lastIndexOf("]");
-    if (s !== -1 && e !== -1 && e > s) parsed = JSON.parse(t.slice(s, e + 1));
-  } catch { /* fall through to string parsing */ }
-  if (Array.isArray(parsed)) {
-    for (const item of parsed) {
-      if (typeof item === "string") push(item, "");
-      else if (item && typeof item === "object") push(item.name || item.subject || item.title, item.description || item.desc);
-      if (subjects.length >= 40) break;
-    }
-  } else {
-    for (const n of parseStringArray(r.content)) { push(n, ""); if (subjects.length >= 40) break; }
-  }
+  // Parse (tolerating a truncated reply), drop exact/case/article duplicates and
+  // anything that already exists, then run the AI clean-up pass to remove the
+  // semantic near-duplicates / overlaps that plain string matching can't catch.
+  let list = dedupeExact(parseConceptArray(r.content), (x) => x.name, existing);
+  const canon = await canonicalizeConcepts({ chosen, owner: scope.owner, kind: "subject", parentName: stream, items: list, existingNames: existing });
+  if (canon && canon.length) list = dedupeExact(canon, (x) => x.name, existing);
+  const subjects = list.slice(0, 60);
   if (!subjects.length) return res.status(502).json({ message: "The AI didn't return any subjects. Try again." });
   res.json({ subjects });
 }
@@ -2653,6 +2714,9 @@ export async function suggestTopics(req, res) {
   if (!subject) return res.status(400).json({ message: "Provide the subject name to find topics for." });
   const stream = String(req.body?.stream || "").trim().slice(0, 160);
 
+  const existing = Array.isArray(req.body?.existing) ? req.body.existing.map((x) => String(x || "").trim()).filter(Boolean) : [];
+  const alreadyList = existing.slice(0, 200).join(", ");
+
   const context = stream ? ` (part of the "${stream}" stream / course)` : "";
   const userPrompt = [
     `List the TOPICS / chapters that make up the subject "${subject}"${context}.`,
@@ -2660,18 +2724,19 @@ export async function suggestTopics(req, res) {
     "- BE EXHAUSTIVE: cover the FULL, COMPLETE syllabus of the subject so you BARELY MISS ANY topic a student actually studies within it (e.g. for Physics: Mechanics, Thermodynamics, Optics, Modern Physics, Electrostatics, Current Electricity, Magnetism, Waves & Oscillations, Electromagnetic Induction, Semiconductors …). Include foundational, core AND the less-obvious/advanced chapters. Do NOT stop early or return only the few headline topics.",
     "- Each topic has a short title (2-6 words) and a one-line description (max ~14 words).",
     "- List as MANY topics as the subject GENUINELY contains (typically 8–50), ordered the way they are usually taught (foundational first). Never pad with filler that isn't really part of the subject.",
-    "- NO DUPLICATES AND NO NEAR-DUPLICATES / SYNONYMS: never list the SAME topic twice under different names or wordings — if two titles mean the same thing, include ONLY ONE using its single most standard/canonical name (e.g. list ONLY \"Radiobiology\" OR \"Radiation Biology\", never both; likewise \"Kinematics\" said two ways, or an abbreviation and its full form). Do NOT split one topic into two near-identical items.",
+    "- NO DUPLICATES, NO NEAR-DUPLICATES / SYNONYMS, AND NO OVERLAPS: never list the SAME topic twice under different names or wordings, never a synonym, and never a broader COMBINED wording alongside its parts. Include ONLY ONE canonical entry per topic (e.g. list ONLY \"Radiobiology\" OR \"Radiation Biology\", never both; never \"Kinematics\" said two ways; never a combined \"Work and Energy\" alongside separate \"Work\" and \"Energy\" when they mean the same coverage). Do NOT split one topic into two near-identical items. (But DO keep genuinely distinct topics separate.)",
     "- Stay STRICTLY inside the scope of this subject — do NOT drift into other subjects or list the subject itself as a topic.",
+    alreadyList ? `- These topics ALREADY EXIST — do NOT list them again or any near-duplicate/overlap of them: ${alreadyList}.` : "",
     "",
     'Return ONLY a JSON array like: [{"title":"Mechanics","description":"Kinematics, laws of motion, work and energy."}]',
     "No markdown, no commentary.",
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 
   const r = await callWithFallback({
     endpoints: chosen.endpoints,
     model: chosen.model,
     userPrompt,
-    maxTokens: 2400,
+    maxTokens: 4500,
     owner: scope.owner,
     systemPrompt: "You output ONLY a JSON array of {title, description} objects — no markdown, no commentary.",
     failOnEmpty: true,
@@ -2680,34 +2745,13 @@ export async function suggestTopics(req, res) {
     return res.status(502).json({ message: r.status === 429 ? quota429Message(r.detail) : `AI provider error (${r.status}). ${(r.detail || "").slice(0, 160)}` });
   }
 
-  // Parse a JSON array of {title, description} objects; tolerate a bare string
-  // array (some models return just titles) too. De-dupe case-insensitively.
-  const topics = [];
-  const seen = new Set();
-  const push = (title, description) => {
-    const n = String(title || "").replace(/\s+/g, " ").trim();
-    if (n.length < 2) return;
-    const k = n.toLowerCase();
-    if (seen.has(k)) return;
-    seen.add(k);
-    topics.push({ title: n, description: String(description || "").replace(/\s+/g, " ").trim().slice(0, 160) });
-  };
-  let parsed = null;
-  try {
-    const t = String(r.content || "").trim();
-    const s = t.indexOf("[");
-    const e = t.lastIndexOf("]");
-    if (s !== -1 && e !== -1 && e > s) parsed = JSON.parse(t.slice(s, e + 1));
-  } catch { /* fall through to string parsing */ }
-  if (Array.isArray(parsed)) {
-    for (const item of parsed) {
-      if (typeof item === "string") push(item, "");
-      else if (item && typeof item === "object") push(item.title || item.name || item.topic, item.description || item.desc);
-      if (topics.length >= 60) break;
-    }
-  } else {
-    for (const n of parseStringArray(r.content)) { push(n, ""); if (topics.length >= 60) break; }
-  }
+  // Parse (tolerating a truncated reply), drop exact/case/article duplicates and
+  // anything that already exists, then run the AI clean-up pass to remove the
+  // semantic near-duplicates / overlaps that plain string matching can't catch.
+  let list = dedupeExact(parseConceptArray(r.content), (x) => x.name, existing);
+  const canon = await canonicalizeConcepts({ chosen, owner: scope.owner, kind: "topic", parentName: subject, items: list, existingNames: existing });
+  if (canon && canon.length) list = dedupeExact(canon, (x) => x.name, existing);
+  const topics = list.slice(0, 80).map((x) => ({ title: x.name, description: x.description }));
   if (!topics.length) return res.status(502).json({ message: "The AI didn't return any topics. Try again." });
   res.json({ topics });
 }

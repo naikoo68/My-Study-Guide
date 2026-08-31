@@ -1409,8 +1409,8 @@ export default function AdminContent() {
           onSave={save}
           onBulkSave={bulkSaveSubjects}
           onBulkSaveTopics={bulkSaveTopics}
-          onAiSuggest={(name) => aiService.suggestSubjects({ stream: name }).then((r) => r.subjects || [])}
-          onAiSuggestTopics={(name) => aiService.suggestTopics({ subject: name, stream: stream?.name }).then((r) => r.topics || [])}
+          onAiSuggest={(name) => aiService.suggestSubjects({ stream: name, existing: items.map((it) => it.name || it.title).filter(Boolean) }).then((r) => r.subjects || [])}
+          onAiSuggestTopics={(name) => aiService.suggestTopics({ subject: name, stream: stream?.name, existing: items.map((it) => it.name || it.title).filter(Boolean) }).then((r) => r.topics || [])}
         />
       ))}
 
@@ -1422,8 +1422,8 @@ export default function AdminContent() {
           existing={items.map((it) => it.name || it.title).filter(Boolean)}
           fetchSuggestions={() =>
             missingLevel === "topic"
-              ? aiService.suggestTopics({ subject: subject?.name, stream: stream?.name }).then((r) => r.topics || [])
-              : aiService.suggestSubjects({ stream: stream?.name }).then((r) => r.subjects || [])
+              ? aiService.suggestTopics({ subject: subject?.name, stream: stream?.name, existing: items.map((it) => it.name || it.title).filter(Boolean) }).then((r) => r.topics || [])
+              : aiService.suggestSubjects({ stream: stream?.name, existing: items.map((it) => it.name || it.title).filter(Boolean) }).then((r) => r.subjects || [])
           }
           onAdd={async (picked) => {
             await (missingLevel === "topic" ? bulkSaveTopics : bulkSaveSubjects)(picked);

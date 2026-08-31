@@ -11,6 +11,7 @@ import { duplicateQuestions } from "../utils/duplicateQuestions.js";
 import { byNatural } from "../utils/naturalSort.js";
 import { NOT_DELETED, softDeletePatch } from "../utils/softDelete.js";
 import { sanitizeBody, ALLOW } from "../utils/sanitizeBody.js";
+import { normName } from "../utils/conceptDedupe.js";
 
 const slugify = (s) =>
   String(s || "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -260,6 +261,18 @@ export async function topicSession(req, res) {
 }
 
 export async function createTopic(req, res) {
+  const subjectId = req.body.subject;
+  const title = String(req.body.title || "").trim();
+  // Skip creating a duplicate topic (same normalised title) under this subject,
+  // so re-running "suggest topics" / bulk-add can never pile up duplicates.
+  // (Topics have no DB-level uniqueness, so this app-level guard is the control.)
+  if (subjectId && title) {
+    const siblings = await Topic.find({ subject: subjectId, ...NOT_DELETED }).select("title").lean();
+    const key = normName(title);
+    if (siblings.some((t) => normName(t.title) === key)) {
+      return res.status(409).json({ message: `A topic named "${title}" already exists in this subject.` });
+    }
+  }
   // Append at the end: index = current number of topics in this subject.
   const index = req.body.index ?? (await Topic.countDocuments({ subject: req.body.subject }));
   const topic = await Topic.create({ ...sanitizeBody(req.body, { allow: ALLOW.TOPIC }), index });
