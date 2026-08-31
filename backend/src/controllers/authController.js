@@ -7,6 +7,7 @@ import { trialClaimed, recordTrialUsed } from "../utils/trialLedger.js";
 import EmailOtp from "../models/EmailOtp.js";
 import Coupon, { redeemCoupon } from "../models/Coupon.js";
 import generateToken from "../utils/generateToken.js";
+import { passwordProblem } from "../utils/passwordPolicy.js";
 import { razorpayConfigured, verifyPaymentSignature, verifyPaidOrder } from "../config/razorpay.js";
 import { sendMail } from "../config/mailer.js";
 import { clientBaseFromReq } from "../config/clientUrl.js";
@@ -306,6 +307,9 @@ export async function register(req, res) {
   if (!name || !email || !password) {
     return res.status(400).json({ message: "All fields are required" });
   }
+  // Enforce the shared password policy (length + basic complexity) at registration.
+  const pwProblem = passwordProblem(password);
+  if (pwProblem) return res.status(400).json({ message: pwProblem });
   const exists = await runUnscoped(() => User.findOne({ email }));
   if (exists) return res.status(409).json({ message: "Email already registered" });
 

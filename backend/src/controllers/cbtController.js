@@ -6,6 +6,7 @@ import CbtRegistration from "../models/CbtRegistration.js";
 import { gradeSubmission } from "./testController.js";
 import { softDeletePatch } from "../utils/softDelete.js";
 import { sendMail, isMailConfigured } from "../config/mailer.js";
+import { passwordProblem } from "../utils/passwordPolicy.js";
 
 /* ============================ helpers ============================ */
 
@@ -259,7 +260,7 @@ export async function registerPortal(req, res) {
   const cleanEmail = String(email).trim().toLowerCase();
   if (!cleanName) return res.status(400).json({ message: "Please enter your name." });
   if (!EMAIL_RE.test(cleanEmail)) return res.status(400).json({ message: "Please enter a valid email address." });
-  if (String(password).length < 6) return res.status(400).json({ message: "Password must be at least 6 characters." });
+  { const p = passwordProblem(password); if (p) return res.status(400).json({ message: p }); } // shared password policy (length + complexity)
   if (!isMailConfigured()) return res.status(503).json({ message: "Email isn't configured on the server, so a code can't be sent. Please contact the organiser." });
 
   // If a verified account with a password already exists, ask them to log in.
@@ -361,7 +362,7 @@ export async function resetPasswordPortal(req, res) {
   const cleanEmail = String(email).trim().toLowerCase();
   const cleanCode = String(code).trim();
   if (!EMAIL_RE.test(cleanEmail)) return res.status(400).json({ message: "Please enter a valid email address." });
-  if (String(password).length < 6) return res.status(400).json({ message: "Password must be at least 6 characters." });
+  { const p = passwordProblem(password); if (p) return res.status(400).json({ message: p }); } // shared password policy (length + complexity)
 
   const reg = await CbtRegistration.findOne({ email: cleanEmail });
   if (!reg || !reg.code) return res.status(400).json({ message: "Please request a reset code first." });
@@ -391,7 +392,7 @@ export async function changePasswordPortal(req, res) {
   const cleanEmail = String(email).trim().toLowerCase();
   const reg = await findPortalSession(cleanEmail, sessionToken);
   if (!reg) return res.status(401).json({ message: "Please sign in again." });
-  if (String(newPassword).length < 6) return res.status(400).json({ message: "New password must be at least 6 characters." });
+  { const p = passwordProblem(newPassword); if (p) return res.status(400).json({ message: p }); } // shared password policy (length + complexity)
   if (!reg.passwordHash || !(await bcrypt.compare(String(currentPassword), reg.passwordHash))) {
     return res.status(401).json({ message: "Your current password is incorrect." });
   }

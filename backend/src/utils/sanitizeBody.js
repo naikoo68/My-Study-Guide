@@ -29,11 +29,39 @@ const PROTECTED_FIELDS = [
   "publicViews",
 ];
 
-// Return a shallow copy of `body` with protected fields removed. Pass `extra`
-// to strip additional handler-specific fields.
-export function sanitizeBody(body, extra = []) {
-  const out = { ...(body || {}) };
-  for (const field of PROTECTED_FIELDS) delete out[field];
-  for (const field of extra) delete out[field];
-  return out;
+// Per-model ALLOWLISTS for the tenant/owner-scoped content nodes. Only these
+// fields may be set via the generic create/update body; anything else (including
+// slug, owner, tenantId, public* and timestamps) is dropped. This is stricter
+// than the denylist: new sensitive fields are excluded by DEFAULT until added
+// here on purpose. (`slug` is always server-generated, so it's never allowed.)
+export const ALLOW = {
+  STREAM: ["name", "icon", "color", "description", "order", "isActive", "disabled"],
+  SUBJECT: ["stream", "name", "icon", "color", "image", "description", "isActive", "disabled"],
+  TOPIC: ["subject", "title", "index", "description", "isActive", "disabled"],
+  SESSION: ["subject", "topic", "title", "index", "difficulty", "isActive"],
+  QUIZ: ["subject", "session", "title", "index", "difficulty", "isActive", "disabled", "aiTopic", "aiSubtopics"],
+  P_STREAM: ["kind", "name", "icon", "color", "description", "order", "isActive", "disabled"],
+  P_EXAM: ["stream", "name", "icon", "color", "image", "description", "order", "isActive", "disabled"],
+  P_SUBJECT: ["stream", "exam", "name", "icon", "color", "image", "description", "order", "isActive", "disabled"],
+  P_TOPIC: ["subject", "name", "icon", "color", "description", "order", "isActive", "disabled"],
+};
+
+// Sanitize a request body before spreading it into a model.
+//   sanitizeBody(body)                      → legacy denylist (strip PROTECTED_FIELDS)
+//   sanitizeBody(body, ["field"])           → denylist + extra fields stripped
+//   sanitizeBody(body, { allow: [...] })    → ALLOWLIST: keep ONLY listed fields
+// In allowlist mode, protected fields and `slug` are NEVER kept even if listed.
+export function sanitizeBody(body, opts = []) {
+  const src = { ...(body || {}) };
+  if (opts && !Array.isArray(opts) && Array.isArray(opts.allow)) {
+    const out = {};
+    for (const field of opts.allow) {
+      if (PROTECTED_FIELDS.includes(field) || field === "slug") continue; // never client-set
+      if (Object.prototype.hasOwnProperty.call(src, field)) out[field] = src[field];
+    }
+    return out;
+  }
+  for (const field of PROTECTED_FIELDS) delete src[field];
+  if (Array.isArray(opts)) for (const field of opts) delete src[field];
+  return src;
 }
