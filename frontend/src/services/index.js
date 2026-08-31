@@ -76,7 +76,39 @@ export const contentService = {
   updateQuestion: (id, data) => api.put(`/questions/${id}`, data),
   deleteQuestion: (id) => api.del(`/questions/${id}`),
   // bulk upload: context merged into each question (subject/session/quiz/testSeries)
-  bulkQuestions: (questions, context) => api.post("/questions/bulk", { questions, context }),
+  // Insert questions in SMALL BATCHES rather than one huge request. A single
+  // POST of ~1000 rich questions is megabytes and slow, so it often fails to
+  // reach a sleeping/free-tier server (timeout / payload limit) — the whole
+  // insert then fails. Sending ~100 at a time keeps each request small and
+  // fast, wakes a cold server on the first batch, and each batch retries a few
+  // times on a transient network error. Results are aggregated to the same
+  // { inserted, requested, skipped, errors } shape callers already expect.
+  bulkQuestions: async (questions, context) => {
+    const CHUNK = 100;
+    const postOne = (part) => api.post("/questions/bulk", { questions: part, context });
+    if (!Array.isArray(questions) || questions.length <= CHUNK) return postOne(questions);
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const agg = { inserted: 0, requested: 0, skipped: 0, errors: [] };
+    for (let i = 0; i < questions.length; i += CHUNK) {
+      const part = questions.slice(i, i + CHUNK);
+      let r = null, lastErr = null;
+      for (let attempt = 0; attempt < 3 && !r; attempt++) {
+        try { r = await postOne(part); }
+        catch (e) { lastErr = e; if (attempt < 2) await sleep(1500 * (attempt + 1)); } // wait out a cold start / blip
+      }
+      if (!r) {
+        const done = agg.inserted;
+        const err = new Error(`Saved ${done} question(s), but the connection dropped on the next batch. ${done ? "The saved ones are kept — " : ""}please wait a moment and click Insert again to add the rest. (${lastErr?.message || "network error"})`);
+        err.insertedCount = done; // let the caller drop the saved ones so a retry doesn't duplicate them
+        throw err;
+      }
+      agg.inserted += r?.inserted || 0;
+      agg.requested += r?.requested || part.length;
+      agg.skipped += r?.skipped || 0;
+      if (Array.isArray(r?.errors)) agg.errors.push(...r.errors);
+    }
+    return agg;
+  },
   // scan questions for full-question duplicates. Accepts a subjectId string
   // (quiz subject) OR a params object { subject | practiceSubject | testSeries }.
   duplicates: (params) => {

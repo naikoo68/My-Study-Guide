@@ -786,6 +786,20 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
       // generate the next batch — no duplicates. The modal never closes by
       // itself after inserting; use the Close button when you're finished.
     } catch (e) {
+      // Partial insert: drop the questions already saved so clicking Insert again
+      // adds only the remainder (no duplicates). The checkpoint is re-saved with
+      // the trimmed preview so a refresh keeps the same remaining set.
+      const done = Number(e?.insertedCount) || 0;
+      if (done > 0) {
+        setPreview((prev) => {
+          const rest = prev.slice(done);
+          try { if (rest.length) saveCk({ preview: rest }); else { clearCk(); } } catch { /* ignore */ }
+          return rest;
+        });
+        // A new quiz was created and already holds the saved questions, so the
+        // retry must APPEND the rest to it — not create a second quiz.
+        if (makingNew) setDestChoice("current");
+      }
       setMsg(e.message || "Insert failed.");
     } finally {
       setInserting(false);
