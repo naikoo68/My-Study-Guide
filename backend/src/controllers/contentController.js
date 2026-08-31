@@ -188,6 +188,40 @@ export async function deleteSubject(req, res) {
   res.json({ message: "Subject moved to Recycle Bin", softDeleted: true });
 }
 
+// POST /api/subjects/:id/link — MANUALLY reuse an existing subject in another
+// stream: add the given stream to its `streams[]` (no duplicate, content stays
+// shared). No-op if it's already the home stream or already linked here.
+export async function linkSubjectToStream(req, res) {
+  const streamId = req.body?.stream ? String(req.body.stream) : "";
+  if (!streamId) return res.status(400).json({ message: "A stream is required to link." });
+  const subject = await Subject.findById(req.params.id);
+  if (!subject) return res.status(404).json({ message: "Subject not found" });
+  const home = String(subject.stream || "");
+  const linkedTo = (subject.streams || []).map((s) => String(s));
+  if (home !== streamId && !linkedTo.includes(streamId)) {
+    subject.streams = [...linkedTo, streamId];
+    await subject.save();
+  }
+  const obj = typeof subject.toObject === "function" ? subject.toObject() : { ...subject };
+  res.json({ ...obj, linked: true });
+}
+
+// POST /api/subjects/:id/unlink — remove this subject from a LINKED (secondary)
+// stream WITHOUT deleting it: its home stream and shared topics/quizzes/questions
+// stay intact. Refuses to unlink the HOME stream (delete it from there instead).
+export async function unlinkSubjectFromStream(req, res) {
+  const streamId = req.body?.stream ? String(req.body.stream) : "";
+  if (!streamId) return res.status(400).json({ message: "A stream is required to unlink." });
+  const subject = await Subject.findById(req.params.id);
+  if (!subject) return res.status(404).json({ message: "Subject not found" });
+  if (String(subject.stream || "") === streamId) {
+    return res.status(400).json({ message: "This is the subject's home stream — delete it from here instead of unlinking." });
+  }
+  subject.streams = (subject.streams || []).map((s) => String(s)).filter((s) => s !== streamId);
+  await subject.save();
+  res.json({ message: "Subject removed from this stream", unlinked: true });
+}
+
 /* ---------------- Topics ---------------- */
 
 // GET /api/subjects/:subjectId/topics — includes session count per topic
