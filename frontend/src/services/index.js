@@ -57,6 +57,8 @@ export const contentService = {
   createSubject: (data) => api.post("/subjects", data),
   updateSubject: (id, data) => api.put(`/subjects/${id}`, data),
   deleteSubject: (id) => api.del(`/subjects/${id}`),
+  linkSubject: (id, stream) => api.post(`/subjects/${id}/link`, { stream }), // reuse an existing subject in another stream
+  unlinkSubject: (id, stream) => api.post(`/subjects/${id}/unlink`, { stream }), // remove a shared subject from one stream (keeps its home)
   // topics (admin)
   createTopic: (data) => api.post("/topics", data),
   updateTopic: (id, data) => api.put(`/topics/${id}`, data),

@@ -24,7 +24,8 @@ import RegenerateOneModal from "../../components/admin/RegenerateOneModal";
 import ScheduleQuestionModal from "../../components/admin/ScheduleQuestionModal";
 import RecycleBinModal from "../../components/admin/RecycleBinModal";
 import MissingItemsModal from "../../components/admin/MissingItemsModal";
-import { Sparkles, Files, Globe, Wand2, Loader2, ClipboardList, RefreshCw, Scissors, GitMerge, CheckCircle2, Maximize2, Minimize2, Archive, ArrowRightLeft, ScanSearch, Save } from "lucide-react";
+import LinkExistingSubjectModal from "../../components/admin/LinkExistingSubjectModal";
+import { Sparkles, Files, Globe, Wand2, Loader2, ClipboardList, RefreshCw, Scissors, GitMerge, CheckCircle2, Maximize2, Minimize2, Archive, ArrowRightLeft, ScanSearch, Save, Link2 } from "lucide-react";
 
 const COLORS = [
   "from-blue-500 to-indigo-600",
@@ -147,6 +148,7 @@ export default function AdminContent() {
   const [delProgress, setDelProgress] = useState(null); // real-time bulk-delete progress: { total, done, finished? }
   const [bulkAddBusy, setBulkAddBusy] = useState(null); // live auto-add progress: { done, total, added, kind: "subject"|"topic" }
   const [missingLevel, setMissingLevel] = useState(null); // "subject" | "topic" — open "Search Missing Subjects/Topics" scan
+  const [linkOpen, setLinkOpen] = useState(false); // "Add existing subject" (reuse from another stream) modal
   const [search, setSearch] = useState(""); // question search query
 
   const toggleSelect = (id) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
@@ -170,7 +172,12 @@ export default function AdminContent() {
       let done = 0;
       for (const id of selNodes) {
         if (type === "stream") await contentService.deleteStream(id);
-        else if (type === "subject") await contentService.deleteSubject(id);
+        else if (type === "subject") {
+          // Shared (linked) subjects are unlinked from this stream, not deleted.
+          const it = items.find((x) => x._id === id);
+          if (it?.stream && sid && String(it.stream) !== sid) await contentService.unlinkSubject(id, sid);
+          else await contentService.deleteSubject(id);
+        }
         else if (type === "topic") await contentService.deleteTopic(id);
         else if (type === "session") await contentService.deleteSession(id);
         else if (type === "quiz") await contentService.deleteQuiz(id);
@@ -964,6 +971,18 @@ export default function AdminContent() {
   };
 
   const remove = async (type, id, label) => {
+    // A SHARED subject (linked from another stream — its home `stream` differs
+    // from the one we're browsing) is UNLINKED from this stream rather than
+    // deleted, so its home stream and shared content stay intact.
+    if (type === "subject") {
+      const it = items.find((x) => x._id === id);
+      const isLinked = it?.stream && sid && String(it.stream) !== sid;
+      if (isLinked) {
+        if (!window.confirm(`Remove the shared subject "${label}" from this stream? It stays in its home stream with all its content.`)) return;
+        try { await contentService.unlinkSubject(id, sid); load(view); } catch (e) { setError(e.message); }
+        return;
+      }
+    }
     if (!window.confirm(`Delete "${label}"? This also removes everything inside it.`)) return;
     try {
       if (type === "stream") await contentService.deleteStream(id);
@@ -1125,9 +1144,14 @@ export default function AdminContent() {
             </>
           )}
           {view === "subjects" && (
-            <button onClick={() => setMissingLevel("subject")} className="btn-outline text-brand-600" title="Ask AI which subjects belong to this stream, then add the ones you're missing">
-              <ScanSearch className="h-4 w-4" /> Search Missing Subjects
-            </button>
+            <>
+              <button onClick={() => setMissingLevel("subject")} className="btn-outline text-brand-600" title="Ask AI which subjects belong to this stream, then add the ones you're missing">
+                <ScanSearch className="h-4 w-4" /> Search Missing Subjects
+              </button>
+              <button onClick={() => setLinkOpen(true)} className="btn-outline" title="Reuse a subject that already exists in another stream (no duplicate — content stays shared)">
+                <Link2 className="h-4 w-4" /> Add Existing Subject
+              </button>
+            </>
           )}
           {view === "topics" && (
             <button onClick={() => setMissingLevel("topic")} className="btn-outline text-brand-600" title="Ask AI which topics make up this subject, then add the ones you're missing">
@@ -1407,6 +1431,16 @@ export default function AdminContent() {
           }}
           bulkProgress={bulkAddBusy}
           onClose={() => setMissingLevel(null)}
+        />
+      )}
+
+      {linkOpen && (
+        <LinkExistingSubjectModal
+          streamId={stream?._id}
+          streamName={stream?.name}
+          existingIds={items.map((it) => it._id)}
+          onClose={() => setLinkOpen(false)}
+          onLinked={() => { setLinkOpen(false); load(view); }}
         />
       )}
 
