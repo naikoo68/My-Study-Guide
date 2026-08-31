@@ -69,11 +69,11 @@ npm install
 npm run dev        # http://localhost:5173
 ```
 
-The frontend runs fully standalone using local sample data, so you can explore every screen immediately.
+The frontend talks to the backend API (set `VITE_API_URL`). Authentication is real — accounts are created and validated against the API, and a signed JWT is issued on login.
 
-**Try it:**
-- Student: log in at `/login` with any email/password → redirected to the dashboard
-- Admin: go to `/admin/login` (any password) → full admin panel
+**Try it (with the backend running):**
+- Student / Client: register at `/register`, verify the emailed OTP, then log in at `/login`.
+- Admin: sign in at `/admin/login` using the admin account created during backend setup (see below).
 
 ## 🔌 Run the backend (optional, for real data)
 
@@ -81,7 +81,7 @@ The frontend runs fully standalone using local sample data, so you can explore e
 cd backend
 npm install
 cp .env.example .env     # fill MONGO_URI, JWT_SECRET, Cloudinary keys
-npm run seed             # sample data + admin@mystudyguide.com / admin123
+npm run seed             # sample content (admin login uses ADMIN_PASSWORD from .env)
 npm run dev              # http://localhost:5000
 ```
 
@@ -97,4 +97,4 @@ See [`backend/README.md`](backend/README.md) for the full API reference.
 
 ## 🔗 Connecting frontend to backend
 
-The frontend currently uses local sample data (`src/data/*`) and a demo auth context so it works without a server. To go live, replace those reads with `fetch`/axios calls to the API base URL (e.g. `VITE_API_URL=http://localhost:5000/api`) and store the returned JWT — the endpoints already exist in the backend.
+The frontend talks to the backend through a small API layer (`src/lib/api.js`) using the base URL in `VITE_API_URL` (e.g. `http://localhost:5000/api`). Authentication is real: the JWT returned by the API is stored and sent as a Bearer token on later requests. A few `src/data/*` files remain only as default/fallback content.

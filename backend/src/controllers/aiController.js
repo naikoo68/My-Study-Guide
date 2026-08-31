@@ -1,7 +1,7 @@
 // AI Question Generator — talks to any OpenAI-compatible provider
 import AiKey from "../models/AiKey.js";
 import { encryptSecret, decryptSecret, keyFingerprint } from "../utils/keyCrypto.js";
-import { isSafeProviderUrl } from "../utils/urlGuard.js";
+import { isSafeProviderUrl, isSafePublicUrl } from "../utils/urlGuard.js";
 import Question from "../models/Question.js";
 import User from "../models/User.js";
 import { ownerFilter } from "../utils/ownership.js";
@@ -1652,6 +1652,9 @@ export async function generateQuestions(req, res) {
     if (!/^https?:\/\//i.test(genUrl)) {
       return res.status(400).json({ message: "Enter a valid http(s) URL, or paste the text instead." });
     }
+    if (!isSafePublicUrl(genUrl)) {
+      return res.status(400).json({ message: "That URL isn't allowed. Enter a public web page, or paste the text instead." }); // SSRF guard: block internal/loopback/metadata hosts
+    }
     const page = await fetchPageText(genUrl);
     if (!page.ok) {
       return res.status(502).json({ message: sourceReadError(genUrl, page) });
@@ -2185,19 +2188,36 @@ async function fetchPageText(url) {
     if (yt.ok) return yt;
     return { ok: false, status: yt.status, error: yt.error || "Couldn't read the video's transcript. Copy the transcript text and paste it instead." };
   }
+  // SSRF guard: never fetch an internal/loopback/metadata address.
+  if (!isSafePublicUrl(url)) {
+    return { ok: false, error: "That URL isn't allowed (internal/loopback address)." };
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20000);
   try {
-    const resp = await fetch(url, {
-      redirect: "follow",
-      signal: controller.signal,
-      headers: {
-        // A normal browser UA — some sites reject unknown clients.
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-        Accept: "text/html,application/xhtml+xml",
-      },
-    });
+    // Follow redirects MANUALLY so we can re-validate every hop — otherwise a
+    // public URL could 30x-redirect the server into an internal/metadata host.
+    let current = url;
+    let resp;
+    for (let hop = 0; hop < 5; hop++) {
+      resp = await fetch(current, {
+        redirect: "manual",
+        signal: controller.signal,
+        headers: {
+          // A normal browser UA — some sites reject unknown clients.
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+          Accept: "text/html,application/xhtml+xml",
+        },
+      });
+      const location = resp.status >= 300 && resp.status < 400 ? resp.headers.get("location") : null;
+      if (!location) break;
+      const next = new URL(location, current).toString();
+      if (!isSafePublicUrl(next)) {
+        return { ok: false, error: "That URL redirected to a blocked address." };
+      }
+      current = next;
+    }
     if (!resp.ok) return { ok: false, status: resp.status };
     const html = await resp.text();
     const text = html
@@ -2388,6 +2408,9 @@ export async function extractQuestions(req, res) {
   if (url) {
     if (!/^https?:\/\//i.test(url)) {
       return res.status(400).json({ message: "Enter a valid http(s) URL, or paste the text instead." });
+    }
+    if (!isSafePublicUrl(url)) {
+      return res.status(400).json({ message: "That URL isn't allowed. Enter a public web page, or paste the text instead." }); // SSRF guard: block internal/loopback/metadata hosts
     }
     const page = await fetchPageText(url);
     if (!page.ok) {

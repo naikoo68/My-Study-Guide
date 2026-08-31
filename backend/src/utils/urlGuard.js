@@ -82,3 +82,31 @@ export function assertSafeProviderUrl(raw) {
 export function isSafeProviderUrl(raw) {
   try { assertSafeProviderUrl(raw); return true; } catch { return false; }
 }
+
+// SSRF guard for USER-SUPPLIED web-page URLs (the "Import from Web" feature,
+// where the server fetches an arbitrary page/video the user names). Unlike a
+// provider base URL this may be http OR https (public article sites), but it
+// must still never point at an internal/loopback/link-local/metadata address —
+// otherwise a user could make the server fetch http://169.254.169.254/… (cloud
+// metadata) or an internal service. Re-run this on every redirect hop too, so a
+// public URL can't 30x-redirect into an internal one.
+export function assertSafePublicUrl(raw) {
+  let u;
+  try { u = new URL(String(raw)); } catch { throw new Error("Invalid URL."); }
+  if (u.protocol !== "https:" && u.protocol !== "http:") {
+    throw new Error("URL must use http:// or https://.");
+  }
+  const host = u.hostname.toLowerCase();
+  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".internal") || host.endsWith(".local")) {
+    throw new Error("URL points to an internal/loopback host.");
+  }
+  const bare = host.startsWith("[") ? host.slice(1, -1) : host;
+  if (net.isIP(bare) && ipBlocked(bare)) {
+    throw new Error("URL points to a private/loopback/metadata address.");
+  }
+  return u;
+}
+
+export function isSafePublicUrl(raw) {
+  try { assertSafePublicUrl(raw); return true; } catch { return false; }
+}

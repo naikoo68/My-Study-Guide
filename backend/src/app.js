@@ -80,6 +80,7 @@ import { isCloudinaryConfigured } from "./config/cloudinary.js";
 
 import { protect, authorize } from "./middleware/auth.js";
 import { resolveTenant } from "./middleware/tenant.js";
+import { sanitizeRequest } from "./middleware/sanitizeRequest.js";
 
 const app = express();
 
@@ -180,6 +181,10 @@ app.use((req, res, next) => {
   return globalJson(req, res, next);
 });
 app.use(express.urlencoded({ extended: true }));
+// Defence-in-depth NoSQL-injection guard: strip "$"-operator and "."-path keys
+// from all parsed input right after the body is parsed and before any route or
+// tenant logic runs, so a crafted payload can never reach a Mongo query.
+app.use(sanitizeRequest);
 if (process.env.NODE_ENV !== "test") app.use(morgan("dev"));
 
 // Multi-tenancy: resolve the current institute (from X-Tenant header / custom
