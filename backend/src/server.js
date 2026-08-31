@@ -218,8 +218,9 @@ async function start() {
   // plaintext keys or broken decryption. (Fresh installs with no keys boot fine.)
   const aiKeyCount = await AiKey.countDocuments({}).catch(() => 0);
   if (aiKeyCount > 0 && !process.env.AI_KEY_ENC_SECRET) {
-    console.error("✖ AI provider keys exist but AI_KEY_ENC_SECRET is not set. Refusing to start — set AI_KEY_ENC_SECRET to a strong random secret.");
-    process.exit(1);
+    // WARN, don't crash: keep serving with keys readable as before so a missing
+    // secret can never take the site down. Set AI_KEY_ENC_SECRET to encrypt them.
+    console.error("⚠ AI provider keys exist but AI_KEY_ENC_SECRET is not set — running WITHOUT key encryption. Set AI_KEY_ENC_SECRET to encrypt them at rest.");
   }
   // One-time, idempotent: encrypt any legacy plaintext AI keys + backfill keyHash.
   if (process.env.AI_KEY_ENC_SECRET) {
