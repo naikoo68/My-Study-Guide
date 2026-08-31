@@ -2548,11 +2548,12 @@ export async function suggestSubjects(req, res) {
   if (!stream) return res.status(400).json({ message: "Provide the stream name to find subjects for." });
 
   const userPrompt = [
-    `List the academic SUBJECTS that typically belong to the stream / course / category named "${stream}".`,
+    `List the academic SUBJECTS that belong to the stream / course / category named "${stream}".`,
     "Rules:",
-    "- Return the core subjects a student in this stream studies (e.g. for Electrical Engineering: Circuit Theory, Power Systems, Control Systems …).",
+    "- BE EXHAUSTIVE: aim to cover the FULL, COMPLETE breadth of the stream so you BARELY MISS ANY subject a student in this stream studies. Include the core subjects AND the allied / optional / commonly-paired ones (e.g. for Electrical Engineering: Circuit Theory, Power Systems, Control Systems, Electrical Machines, Signals & Systems, Power Electronics, Measurements & Instrumentation, Electromagnetics …). Do NOT stop early or return only the few obvious ones.",
     "- Each subject has a short name (2-5 words) and a one-line description (max ~14 words).",
-    "- Between 5 and 30 subjects, most important first. No duplicates, no numbering.",
+    "- List as MANY subjects as GENUINELY belong to the stream (typically 8–40), most important first. Never pad with filler that does not truly belong.",
+    "- NO DUPLICATES AND NO NEAR-DUPLICATES / SYNONYMS: never list the SAME subject twice under different names or wordings — if two names mean the same field, include ONLY ONE using its single most standard/canonical name. For example list ONLY \"Radiobiology\" OR \"Radiation Biology\" (they are the same) — never both; likewise \"Maths\" vs \"Mathematics\", \"Bio\" vs \"Biology\", \"PolSci\" vs \"Political Science\", \"Comp Sci\" vs \"Computer Science\". Also avoid a broad subject AND its own sub-field as two separate subjects when the sub-field is normally taught inside it.",
     "- If the stream is an exam (e.g. JKSSB, UPSC), list its main papers / subjects instead.",
     "",
     'Return ONLY a JSON array like: [{"name":"Circuit Theory","description":"Network analysis, theorems and AC/DC circuits."}]',
@@ -2563,7 +2564,7 @@ export async function suggestSubjects(req, res) {
     endpoints: chosen.endpoints,
     model: chosen.model,
     userPrompt,
-    maxTokens: 1500,
+    maxTokens: 2200,
     owner: scope.owner,
     systemPrompt: "You output ONLY a JSON array of {name, description} objects — no markdown, no commentary.",
     failOnEmpty: true,
@@ -2595,10 +2596,10 @@ export async function suggestSubjects(req, res) {
     for (const item of parsed) {
       if (typeof item === "string") push(item, "");
       else if (item && typeof item === "object") push(item.name || item.subject || item.title, item.description || item.desc);
-      if (subjects.length >= 30) break;
+      if (subjects.length >= 40) break;
     }
   } else {
-    for (const n of parseStringArray(r.content)) { push(n, ""); if (subjects.length >= 30) break; }
+    for (const n of parseStringArray(r.content)) { push(n, ""); if (subjects.length >= 40) break; }
   }
   if (!subjects.length) return res.status(502).json({ message: "The AI didn't return any subjects. Try again." });
   res.json({ subjects });
@@ -2625,9 +2626,10 @@ export async function suggestTopics(req, res) {
   const userPrompt = [
     `List the TOPICS / chapters that make up the subject "${subject}"${context}.`,
     "Rules:",
-    "- Return the standard topics a student actually studies WITHIN this subject (e.g. for Physics: Mechanics, Thermodynamics, Optics, Modern Physics …).",
+    "- BE EXHAUSTIVE: cover the FULL, COMPLETE syllabus of the subject so you BARELY MISS ANY topic a student actually studies within it (e.g. for Physics: Mechanics, Thermodynamics, Optics, Modern Physics, Electrostatics, Current Electricity, Magnetism, Waves & Oscillations, Electromagnetic Induction, Semiconductors …). Include foundational, core AND the less-obvious/advanced chapters. Do NOT stop early or return only the few headline topics.",
     "- Each topic has a short title (2-6 words) and a one-line description (max ~14 words).",
-    "- Between 5 and 40 topics, ordered the way they are usually taught (foundational first). No duplicates, no numbering.",
+    "- List as MANY topics as the subject GENUINELY contains (typically 8–50), ordered the way they are usually taught (foundational first). Never pad with filler that isn't really part of the subject.",
+    "- NO DUPLICATES AND NO NEAR-DUPLICATES / SYNONYMS: never list the SAME topic twice under different names or wordings — if two titles mean the same thing, include ONLY ONE using its single most standard/canonical name (e.g. list ONLY \"Radiobiology\" OR \"Radiation Biology\", never both; likewise \"Kinematics\" said two ways, or an abbreviation and its full form). Do NOT split one topic into two near-identical items.",
     "- Stay STRICTLY inside the scope of this subject — do NOT drift into other subjects or list the subject itself as a topic.",
     "",
     'Return ONLY a JSON array like: [{"title":"Mechanics","description":"Kinematics, laws of motion, work and energy."}]',
@@ -2638,7 +2640,7 @@ export async function suggestTopics(req, res) {
     endpoints: chosen.endpoints,
     model: chosen.model,
     userPrompt,
-    maxTokens: 1800,
+    maxTokens: 2400,
     owner: scope.owner,
     systemPrompt: "You output ONLY a JSON array of {title, description} objects — no markdown, no commentary.",
     failOnEmpty: true,
@@ -2670,10 +2672,10 @@ export async function suggestTopics(req, res) {
     for (const item of parsed) {
       if (typeof item === "string") push(item, "");
       else if (item && typeof item === "object") push(item.title || item.name || item.topic, item.description || item.desc);
-      if (topics.length >= 40) break;
+      if (topics.length >= 60) break;
     }
   } else {
-    for (const n of parseStringArray(r.content)) { push(n, ""); if (topics.length >= 40) break; }
+    for (const n of parseStringArray(r.content)) { push(n, ""); if (topics.length >= 60) break; }
   }
   if (!topics.length) return res.status(502).json({ message: "The AI didn't return any topics. Try again." });
   res.json({ topics });
