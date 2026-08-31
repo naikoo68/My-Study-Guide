@@ -10,6 +10,7 @@ const emailOtpSchema = new mongoose.Schema(
     email: { type: String, required: true, lowercase: true, trim: true, unique: true },
     otpHash: { type: String },
     otpExpires: { type: Date },
+    otpAttempts: { type: Number, default: 0 }, // wrong-code guesses; invalidated after 5 (anti-brute-force)
     verified: { type: Boolean, default: false },
     verifiedAt: { type: Date },
   },

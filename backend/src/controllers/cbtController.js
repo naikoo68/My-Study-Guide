@@ -275,7 +275,7 @@ export async function registerPortal(req, res) {
     { email: cleanEmail },
     {
       email: cleanEmail, name: cleanName, passwordHash,
-      code, codeExpiresAt: new Date(now + 10 * 60 * 1000),
+      code, codeExpiresAt: new Date(now + 10 * 60 * 1000), codeAttempts: 0, // fresh code → reset the wrong-guess counter
       verified: false, sessionToken: null,
       // Revive a soft-deleted registration (an admin may have moved a prior
       // sign-up to the Recycle Bin) so re-registering with the same email works.
@@ -318,9 +318,16 @@ export async function verifyPortal(req, res) {
   const reg = await CbtRegistration.findOne({ email: cleanEmail });
   if (!reg || !reg.code) return res.status(400).json({ message: "Please request a code first." });
   if (!reg.codeExpiresAt || reg.codeExpiresAt.getTime() < Date.now()) return res.status(400).json({ message: "This code has expired. Please request a new one." });
-  if (reg.code !== cleanCode) return res.status(400).json({ message: "Incorrect code. Please check and try again." });
+  if (reg.code !== cleanCode) {
+    // Cap wrong guesses so a 6-digit code can't be brute-forced within its window.
+    reg.codeAttempts = (reg.codeAttempts || 0) + 1;
+    if (reg.codeAttempts >= 5) { reg.code = null; await reg.save(); return res.status(429).json({ message: "Too many incorrect codes. Please request a new code." }); }
+    await reg.save();
+    return res.status(400).json({ message: "Incorrect code. Please check and try again." });
+  }
 
   reg.verified = true;
+  reg.codeAttempts = 0;
   reg.sessionToken = crypto.randomBytes(24).toString("hex");
   reg.expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // refresh TTL
   await reg.save();
@@ -339,6 +346,7 @@ export async function forgotPasswordPortal(req, res) {
   const code = genOtp();
   reg.code = code;
   reg.codeExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+  reg.codeAttempts = 0; // fresh reset code → reset the wrong-guess counter
   reg.expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
   await reg.save();
   const sent = await emailOtp(cleanEmail, code, "your password reset");
@@ -358,8 +366,15 @@ export async function resetPasswordPortal(req, res) {
   const reg = await CbtRegistration.findOne({ email: cleanEmail });
   if (!reg || !reg.code) return res.status(400).json({ message: "Please request a reset code first." });
   if (!reg.codeExpiresAt || reg.codeExpiresAt.getTime() < Date.now()) return res.status(400).json({ message: "This code has expired. Please request a new one." });
-  if (reg.code !== cleanCode) return res.status(400).json({ message: "Incorrect code. Please check and try again." });
+  if (reg.code !== cleanCode) {
+    // Cap wrong guesses so the reset code can't be brute-forced within its window.
+    reg.codeAttempts = (reg.codeAttempts || 0) + 1;
+    if (reg.codeAttempts >= 5) { reg.code = null; await reg.save(); return res.status(429).json({ message: "Too many incorrect codes. Please request a new code." }); }
+    await reg.save();
+    return res.status(400).json({ message: "Incorrect code. Please check and try again." });
+  }
 
+  reg.codeAttempts = 0;
   reg.passwordHash = await bcrypt.hash(String(password), 10);
   reg.verified = true;
   reg.code = null;

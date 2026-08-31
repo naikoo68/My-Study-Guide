@@ -8,6 +8,10 @@ const userSchema = new mongoose.Schema(
     // Optional contact phone number, editable by the user from their Account page.
     phone: { type: String, trim: true, default: "" },
     password: { type: String, minlength: 6, select: false },
+    // Force a password change on next login (set when an account is created with
+    // an auto-generated bootstrap password, so a known/default password is never
+    // usable long-term). Cleared the moment the user changes their password.
+    mustChangePassword: { type: Boolean, default: false },
     googleId: { type: String },
     avatar: { type: String },
     // "client" = a self-service account that can ONLY use the My Practice
@@ -73,6 +77,7 @@ const userSchema = new mongoose.Schema(
     emailVerificationToken: String,
     otpHash: { type: String, select: false },
     otpExpires: { type: Date, select: false },
+    otpAttempts: { type: Number, default: 0, select: false }, // wrong-OTP guesses; invalidated after 5 (anti-brute-force)
     resetPasswordToken: String,
     resetPasswordExpires: Date,
     enrolledTests: [{ type: mongoose.Schema.Types.ObjectId, ref: "TestSeries" }],

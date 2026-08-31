@@ -13,7 +13,10 @@ const aiKeySchema = new mongoose.Schema(
     label: { type: String, trim: true, default: "" }, // friendly name, e.g. "Gemini account 1"
     baseUrl: { type: String, trim: true, default: "https://generativelanguage.googleapis.com/v1beta/openai" },
     models: { type: String, trim: true, default: "gemini-2.5-flash" }, // comma-separated model ids
-    key: { type: String, trim: true, required: true }, // the secret API key
+    key: { type: String, trim: true, required: true }, // the secret API key — stored AES-256-GCM ENCRYPTED at rest (see utils/keyCrypto.js)
+    // Deterministic HMAC fingerprint of the plaintext key, so usage counters and
+    // de-duplication can look a key up without querying the (encrypted) `key`.
+    keyHash: { type: String, default: "", index: true },
     enabled: { type: Boolean, default: true },
     order: { type: Number, default: 0 },
     // Result of the last "Test" — so the admin can see active/inactive.

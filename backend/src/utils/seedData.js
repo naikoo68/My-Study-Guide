@@ -2,6 +2,7 @@
 // the server's auto-seed (runs once when the database is empty — handy on
 // hosts like Render's free tier where shell access isn't available).
 import User from "../models/User.js";
+import { isStrongPassword, generateStrongPassword } from "./passwordPolicy.js";
 import Subject from "../models/Subject.js";
 import Topic from "../models/Topic.js";
 import Session from "../models/Session.js";
@@ -101,8 +102,16 @@ export async function seedDatabase({ reset = false } = {}) {
   }
 
   const adminEmail = (process.env.ADMIN_EMAIL || "admin@mystudyguide.com").toLowerCase().trim();
-  const adminPassword = process.env.ADMIN_PASSWORD || "admin123";
-  await User.create({ name: "Admin", email: adminEmail, password: adminPassword, role: "admin", isEmailVerified: true });
+  // Never seed a KNOWN default admin password. Use ADMIN_PASSWORD only if it's
+  // strong; otherwise generate a random one-time password and force a change on
+  // first login, so no deployment ends up with a guessable default.
+  const envAdminPw = process.env.ADMIN_PASSWORD || "";
+  const useEnvPw = isStrongPassword(envAdminPw);
+  const adminPassword = useEnvPw ? envAdminPw : generateStrongPassword();
+  await User.create({ name: "Admin", email: adminEmail, password: adminPassword, role: "admin", isEmailVerified: true, mustChangePassword: !useEnvPw });
+  if (!useEnvPw) {
+    console.log(`🔑 No strong ADMIN_PASSWORD set — generated a one-time admin password: ${adminPassword}  (change it on first login)`);
+  }
   const student = await User.create({ name: "Demo Student", email: "student@mystudyguide.com", password: "student123", isEmailVerified: true, streak: 7, plan: "Premium" });
 
   const extraNames = ["Aarav Sharma", "Diya Patel", "Vihaan Gupta", "Ananya Reddy", "Kabir Singh"];
@@ -192,7 +201,10 @@ export async function seedDatabase({ reset = false } = {}) {
     day += 3;
   }
 
-  return { admin: `${adminEmail} / ${adminPassword}`, student: "student@mystudyguide.com / student123" };
+  return {
+    admin: useEnvPw ? `${adminEmail} / (your ADMIN_PASSWORD)` : `${adminEmail} / ${adminPassword} (one-time — change on first login)`,
+    student: "student@mystudyguide.com / student123",
+  };
 }
 
 // Seeds only if the database has no users yet (safe to call on every boot).

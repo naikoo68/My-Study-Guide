@@ -1,5 +1,6 @@
 // AI Question Generator — talks to any OpenAI-compatible provider
 import AiKey from "../models/AiKey.js";
+import { encryptSecret, decryptSecret, keyFingerprint } from "../utils/keyCrypto.js";
 import Question from "../models/Question.js";
 import User from "../models/User.js";
 import { ownerFilter } from "../utils/ownership.js";
@@ -69,7 +70,7 @@ async function providers(scope = SYSTEM_SCOPE) {
     .map((k) => {
       const models = (k.models || "").split(",").map((m) => m.trim()).filter(Boolean);
       return {
-        key: k.key.trim(),
+        key: decryptSecret(k.key).trim(), // decrypt the at-rest key only in memory for provider calls
         baseUrl: (k.baseUrl || DEFAULT_BASE).replace(/\/$/, ""),
         models: models.length ? models : ["gemini-2.5-flash"],
         label: (k.label || "").trim(),
@@ -148,7 +149,7 @@ export async function callWithFallback({ endpoints, model, userPrompt, maxTokens
       // Record app-side usage on the matching DB key (env-only keys aren't in
       // the DB, so this is a no-op for them). Scoped by owner so a client key
       // and a platform key that share a value never cross-update. Fire-and-forget.
-      AiKey.updateOne({ key: ep.key, owner: owner ?? null }, { $inc: { usedRequests: 1, usedTokens: r.tokens || 0 } }).catch(() => {});
+      AiKey.updateOne({ keyHash: keyFingerprint(ep.key), owner: owner ?? null }, { $inc: { usedRequests: 1, usedTokens: r.tokens || 0 } }).catch(() => {}); // match by key fingerprint, not the encrypted value
       return r;
     }
     if (r.status === 429) {
@@ -1449,7 +1450,7 @@ async function runGenerationJob(id, ctx) {
       release(res); // free the reservation — any shortfall gets re-targeted next round
       if (r.ok) {
         _ks.ok += 1;
-        AiKey.updateOne({ key: ep.key, owner: ep.owner ?? owner ?? null }, { $inc: { usedRequests: 1, usedTokens: r.tokens || 0 } }).catch(() => {});
+        AiKey.updateOne({ keyHash: keyFingerprint(ep.key), owner: ep.owner ?? owner ?? null }, { $inc: { usedRequests: 1, usedTokens: r.tokens || 0 } }).catch(() => {}); // match by key fingerprint, not the encrypted value
         const beforeLen = collected.length;
         // In plan mode each chunk is ONE bucket (type + difficulty). Accept only
         // questions of the requested TYPE (reject the model's off-type replies so
@@ -1502,7 +1503,7 @@ async function runGenerationJob(id, ctx) {
           const picked = pickPreferredModel(await fetchModels(ep.key, ep.baseUrl));
           if (picked && picked !== ep.model) {
             ep.model = picked;
-            AiKey.updateOne({ key: ep.key }, { models: picked }).catch(() => {});
+            AiKey.updateOne({ keyHash: keyFingerprint(ep.key) }, { models: picked }).catch(() => {}); // match by key fingerprint, not the encrypted value
             continue; // retry this chunk with the valid model
           }
         }
@@ -3577,7 +3578,7 @@ async function runExtendJob(id, { endpoints, model, questions, owner = null, not
       await Question.updateOne({ _id: q._id }, { $set: set }).catch(() => {});
       updated += 1;
       ks.ok += 1; ks.questions += 1;
-      AiKey.updateOne({ key: ep.key, owner: owner ?? null }, { $inc: { usedRequests: 1, usedTokens: r.tokens || 0 } }).catch(() => {});
+      AiKey.updateOne({ keyHash: keyFingerprint(ep.key), owner: owner ?? null }, { $inc: { usedRequests: 1, usedTokens: r.tokens || 0 } }).catch(() => {}); // match by key fingerprint, not the encrypted value
       job.questions.push(1); // progress = actual successes (jobStatus reports count)
       save({});
       return "ok";
@@ -4235,7 +4236,7 @@ async function runRegenAllJob(id, { endpoints, model, questions, owner = null, n
       await Question.updateOne({ _id: q._id }, { $set: set }).catch(() => {});
       updated += 1;
       ks.ok += 1; ks.questions += 1;
-      AiKey.updateOne({ key: ep.key, owner: owner ?? null }, { $inc: { usedRequests: 1, usedTokens: r.tokens || 0 } }).catch(() => {});
+      AiKey.updateOne({ keyHash: keyFingerprint(ep.key), owner: owner ?? null }, { $inc: { usedRequests: 1, usedTokens: r.tokens || 0 } }).catch(() => {}); // match by key fingerprint, not the encrypted value
       job.questions.push(1);
       save({});
       return "ok";
@@ -4460,7 +4461,7 @@ function keyToClient(k) {
     models: k.models,
     enabled: k.enabled,
     order: k.order,
-    keyMask: maskKey(k.key),
+    keyMask: maskKey(decryptSecret(k.key)), // mask from the decrypted value, never the stored ciphertext
     lastStatus: k.lastStatus || "",
     lastError: k.lastError || "",
     lastCheckedAt: k.lastCheckedAt || null,
@@ -4486,7 +4487,7 @@ export async function listKeys(req, res) {
   const dbList = db.map((k) => ({ ...keyToClient(k), source: "db" }));
 
   // Env-var keys are part of the PLATFORM pool only — never shown to clients.
-  const dbKeyValues = new Set(db.map((k) => (k.key || "").trim()));
+  const dbKeyValues = new Set(db.map((k) => decryptSecret(k.key).trim())); // compare against decrypted values so env dupes are still hidden
   const envList = (isAdmin ? envProviders() : [])
     .map((p, i) => ({
       _id: `env-${i + 1}`,
@@ -4539,12 +4540,14 @@ export async function createKey(req, res) {
   if (!key || !String(key).trim()) return res.status(400).json({ message: "API key is required." });
   const owner = keyOwner(req);
   const order = await AiKey.countDocuments({ owner: owner ?? null });
+  const plainKey = String(key).trim();
   const doc = await AiKey.create({
     owner,
     label: String(label || "").trim(),
     baseUrl: String(baseUrl || "").trim() || "https://generativelanguage.googleapis.com/v1beta/openai",
     models: String(models || "").trim() || "gemini-2.5-flash",
-    key: String(key).trim(),
+    key: encryptSecret(plainKey), // encrypt the provider key at rest
+    keyHash: keyFingerprint(plainKey),
     creditLimit: Math.max(0, parseInt(creditLimit, 10) || 0),
     enabled: true,
     order,
@@ -4573,7 +4576,10 @@ export async function bulkCreateKeys(req, res) {
 
   const owner = keyOwner(req);
   // De-dupe within THIS pool only (a client's key list, or the platform's).
-  const existing = new Set((await AiKey.find({ owner: owner ?? null }).select("key").lean()).map((k) => (k.key || "").trim()));
+  const existing = new Set(
+    (await AiKey.find({ owner: owner ?? null }).select("keyHash key").lean())
+      .map((k) => k.keyHash || keyFingerprint(decryptSecret(k.key)))
+  ); // compare by fingerprint since stored keys are encrypted
   const baseUrlClean =
     String(baseUrl || "").trim() || "https://generativelanguage.googleapis.com/v1beta/openai";
   const modelsClean = String(models || "").trim() || "gemini-2.5-flash";
@@ -4584,18 +4590,20 @@ export async function bulkCreateKeys(req, res) {
   const created = [];
   let skipped = 0;
   for (const key of cleaned) {
-    if (existing.has(key)) { skipped += 1; continue; }
+    const fp = keyFingerprint(key);
+    if (existing.has(fp)) { skipped += 1; continue; }
     const doc = await AiKey.create({
       owner,
       label: labelBase ? `${labelBase} ${created.length + 1}` : "",
       baseUrl: baseUrlClean,
       models: modelsClean,
-      key,
+      key: encryptSecret(key), // encrypt the provider key at rest
+      keyHash: fp,
       creditLimit: limitClean,
       enabled: true,
       order: order++,
     });
-    existing.add(key);
+    existing.add(fp);
     created.push(keyToClient(doc));
   }
   res.status(201).json({ created: created.length, skipped, keys: created });
@@ -4610,7 +4618,7 @@ export async function updateKey(req, res) {
   if (models !== undefined) patch.models = String(models).trim();
   if (enabled !== undefined) patch.enabled = !!enabled;
   if (order !== undefined) patch.order = parseInt(order, 10) || 0;
-  if (key !== undefined && String(key).trim()) patch.key = String(key).trim();
+  if (key !== undefined && String(key).trim()) { const p = String(key).trim(); patch.key = encryptSecret(p); patch.keyHash = keyFingerprint(p); } // encrypt on replace + refresh fingerprint
   if (creditLimit !== undefined) patch.creditLimit = Math.max(0, parseInt(creditLimit, 10) || 0);
   // Let the admin zero the app-tracked usage counters (e.g. after a quota reset).
   if (resetUsage) { patch.usedRequests = 0; patch.usedTokens = 0; }
@@ -4628,7 +4636,7 @@ export async function updateKey(req, res) {
 export async function revealKey(req, res) {
   const doc = await AiKey.findOne({ _id: req.params.id, owner: keyOwner(req) ?? null }).lean();
   if (!doc) return res.status(404).json({ message: "Key not found" });
-  res.json({ key: (doc.key || "").trim() });
+  res.json({ key: decryptSecret(doc.key).trim() }); // owner-scoped reveal returns the decrypted key
 }
 
 // DELETE /api/ai/keys/:id — scoped to the caller's own pool.
@@ -4695,14 +4703,15 @@ function explainKeyError(status, detail) {
 async function runKeyTest(doc) {
   let model = (doc.models || "").split(",").map((m) => m.trim()).filter(Boolean)[0] || "gpt-4o-mini";
   const baseUrl = (doc.baseUrl || DEFAULT_BASE).replace(/\/$/, "");
-  let r = await callProvider({ key: doc.key, baseUrl, model, userPrompt: "Reply with the word ok.", maxTokens: 5, timeoutMs: 20000 });
+  const plainKey = decryptSecret(doc.key); // decrypt only in memory for the live test
+  let r = await callProvider({ key: plainKey, baseUrl, model, userPrompt: "Reply with the word ok.", maxTokens: 5, timeoutMs: 20000 });
 
   if (!r.ok && r.status === 404) {
-    const picked = pickPreferredModel(await fetchModels(doc.key, baseUrl));
+    const picked = pickPreferredModel(await fetchModels(plainKey, baseUrl));
     if (picked && picked !== model) {
       doc.models = picked; // remember the working model on this key
       model = picked;
-      r = await callProvider({ key: doc.key, baseUrl, model, userPrompt: "Reply with the word ok.", maxTokens: 5, timeoutMs: 20000 });
+      r = await callProvider({ key: plainKey, baseUrl, model, userPrompt: "Reply with the word ok.", maxTokens: 5, timeoutMs: 20000 });
     }
   }
 
@@ -4762,7 +4771,8 @@ function orderForDetection(models) {
 // as a fallback if nothing replies ok. Returns { ok, model, tried, limited }.
 async function autoDetectModel(doc) {
   const baseUrl = (doc.baseUrl || DEFAULT_BASE).replace(/\/$/, "");
-  let candidates = await fetchModels(doc.key, baseUrl);
+  const plainKey = decryptSecret(doc.key); // decrypt only in memory for detection probes
+  let candidates = await fetchModels(plainKey, baseUrl);
   if (!candidates.length) {
     // Provider didn't list models → try the configured one(s), then common ids.
     candidates = (doc.models || "").split(",").map((m) => m.trim()).filter(Boolean);
@@ -4782,7 +4792,7 @@ async function autoDetectModel(doc) {
   for (const model of ordered.slice(0, 6)) {
     tried += 1;
     // eslint-disable-next-line no-await-in-loop
-    let r = await callProvider({ key: doc.key, baseUrl, model, userPrompt: "Reply with the word ok.", maxTokens: 5, timeoutMs: 20000 });
+    let r = await callProvider({ key: plainKey, baseUrl, model, userPrompt: "Reply with the word ok.", maxTokens: 5, timeoutMs: 20000 });
     // A per-minute 429 clears in seconds. Retry the SAME model ONCE per key (short
     // wait) so a fresh, healthy key isn't wrongly flagged rate-limited — but only
     // once, so a genuinely spent key doesn't stall the whole run.
@@ -4791,7 +4801,7 @@ async function autoDetectModel(doc) {
       // eslint-disable-next-line no-await-in-loop
       await sleep(Math.min(retryWaitMs(null, r.detail) || 3000, 5000));
       // eslint-disable-next-line no-await-in-loop
-      r = await callProvider({ key: doc.key, baseUrl, model, userPrompt: "Reply with the word ok.", maxTokens: 5, timeoutMs: 20000 });
+      r = await callProvider({ key: plainKey, baseUrl, model, userPrompt: "Reply with the word ok.", maxTokens: 5, timeoutMs: 20000 });
     }
     if (r.ok) {
       doc.models = model;
@@ -4846,20 +4856,26 @@ export async function autoDetectKeyModel(req, res) {
 export async function importEnvKeys(req, res) {
   // Env keys belong to the PLATFORM pool (owner null) and this route is
   // admin-only, so scope the de-dupe/order to platform keys.
-  const existing = new Set((await AiKey.find({ owner: null }).select("key").lean()).map((k) => (k.key || "").trim()));
+  const existing = new Set(
+    (await AiKey.find({ owner: null }).select("keyHash key").lean())
+      .map((k) => k.keyHash || keyFingerprint(decryptSecret(k.key)))
+  ); // compare by fingerprint since stored keys are encrypted
   let order = await AiKey.countDocuments({ owner: null });
   let imported = 0;
   for (const p of envProviders()) {
-    if (existing.has(p.key)) continue;
+    const fp = keyFingerprint(p.key);
+    if (existing.has(fp)) continue;
     await AiKey.create({
       owner: null,
       label: "Imported from server",
       baseUrl: p.baseUrl,
       models: p.models.join(", "),
-      key: p.key,
+      key: encryptSecret(p.key), // encrypt the provider key at rest
+      keyHash: fp,
       enabled: true,
       order: order++,
     });
+    existing.add(fp);
     imported += 1;
   }
   res.json({ imported });
@@ -4943,7 +4959,7 @@ export async function listKeyModels(req, res) {
   if (!doc) return res.status(404).json({ message: "Key not found" });
   const baseUrl = (doc.baseUrl || DEFAULT_BASE).replace(/\/$/, "");
   try {
-    const resp = await fetch(`${baseUrl}/models`, { headers: { Authorization: `Bearer ${doc.key}` } });
+    const resp = await fetch(`${baseUrl}/models`, { headers: { Authorization: `Bearer ${decryptSecret(doc.key)}` } }); // decrypt only in memory
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) return res.status(resp.status).json({ message: data?.error?.message || `HTTP ${resp.status}` });
     const models = (Array.isArray(data?.data) ? data.data : [])

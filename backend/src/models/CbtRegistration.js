@@ -16,6 +16,7 @@ const cbtRegistrationSchema = new mongoose.Schema(
     passwordHash: { type: String }, // set at registration; lets a student log in later without OTP
     code: { type: String }, // 6-digit OTP
     codeExpiresAt: { type: Date }, // OTP validity (~10 min)
+    codeAttempts: { type: Number, default: 0 }, // wrong-code guesses; the code is invalidated after 5 (anti-brute-force)
     verified: { type: Boolean, default: false },
     sessionToken: { type: String, index: true }, // issued on verify; presented on start/submit
     // The whole registration auto-deletes after this time (TTL). Refreshed on

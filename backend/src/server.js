@@ -15,6 +15,8 @@ import Settings from "./models/Settings.js";
 import TestSeries from "./models/TestSeries.js";
 import User from "./models/User.js";
 import Tenant from "./models/Tenant.js";
+import AiKey from "./models/AiKey.js";
+import { encryptAiKeys } from "./utils/encryptAiKeys.js";
 
 const PORT = process.env.PORT || 5000;
 
@@ -210,6 +212,21 @@ async function cleanTenantCustomDomains() {
 
 async function start() {
   await connectDB();
+
+  // Security: AI provider keys are encrypted at rest. If any keys already exist
+  // but the encryption secret is missing, refuse to boot rather than run with
+  // plaintext keys or broken decryption. (Fresh installs with no keys boot fine.)
+  const aiKeyCount = await AiKey.countDocuments({}).catch(() => 0);
+  if (aiKeyCount > 0 && !process.env.AI_KEY_ENC_SECRET) {
+    console.error("✖ AI provider keys exist but AI_KEY_ENC_SECRET is not set. Refusing to start — set AI_KEY_ENC_SECRET to a strong random secret.");
+    process.exit(1);
+  }
+  // One-time, idempotent: encrypt any legacy plaintext AI keys + backfill keyHash.
+  if (process.env.AI_KEY_ENC_SECRET) {
+    encryptAiKeys()
+      .then(({ migrated }) => { if (migrated) console.log(`🔐 Encrypted ${migrated} AI provider key(s) at rest (one-time).`); })
+      .catch((e) => console.error("AI key encryption migration skipped:", e.message));
+  }
 
   // Start listening immediately so the host detects an open port quickly.
   app.listen(PORT, () => {
