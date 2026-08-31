@@ -24,7 +24,7 @@ import RegenerateOneModal from "../../components/admin/RegenerateOneModal";
 import ScheduleQuestionModal from "../../components/admin/ScheduleQuestionModal";
 import RecycleBinModal from "../../components/admin/RecycleBinModal";
 import MissingItemsModal from "../../components/admin/MissingItemsModal";
-import DuplicatesModal from "../../components/admin/DuplicatesModal";
+import SubjectTopicDuplicatesModal from "../../components/admin/SubjectTopicDuplicatesModal";
 import LinkExistingSubjectModal from "../../components/admin/LinkExistingSubjectModal";
 import { Sparkles, Files, Globe, Wand2, Loader2, ClipboardList, RefreshCw, Scissors, GitMerge, CheckCircle2, Maximize2, Minimize2, Archive, ArrowRightLeft, ScanSearch, Save, Link2 } from "lucide-react";
 
@@ -1475,7 +1475,7 @@ export default function AdminContent() {
       )}
 
       {dupLevel && (
-        <DuplicatesModal
+        <SubjectTopicDuplicatesModal
           level={dupLevel}
           parentName={dupLevel === "topic" ? subject?.name : stream?.name}
           fetchGroups={() =>
