@@ -3,7 +3,7 @@ import express from "express";
 import {
   listStreams, createStream, updateStream, deleteStream,
   listExams, createExam, updateExam, deleteExam, listExamSubjects,
-  listSubjects, createSubject, updateSubject, deleteSubject,
+  listSubjects, createSubject, updateSubject, deleteSubject, linkSubjectToExam, unlinkSubjectFromExam,
   listTopics, createTopic, updateTopic, deleteTopic, moveTopic, listTopicItems,
   listItems, createItem,
   browseStreams, browseExams, browseExamSubjects, browseSubjects, browseTopics, browseItems, browseTopicItems, browseStreamItems,
@@ -86,6 +86,8 @@ router.get("/exams/:examId/subjects", ...admin, listExamSubjects); // subjects u
 // Admin — subjects
 router.post("/subjects", ...admin, createSubject);
 router.put("/subjects/:id", ...admin, updateSubject);
+router.post("/subjects/:id/link-exam", ...admin, linkSubjectToExam);
+router.post("/subjects/:id/unlink-exam", ...admin, unlinkSubjectFromExam);
 router.delete("/subjects/:id", ...admin, deleteSubject);
 router.patch("/subjects/:id/public-link", ...admin, toggleSubjectPublicLink); // public share link for a whole subject
 router.get("/subjects/:subjectId/items", ...admin, listItems); // My Test Series items

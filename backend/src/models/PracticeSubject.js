@@ -9,6 +9,12 @@ const practiceSubjectSchema = new mongoose.Schema(
     // leave this null (they stay Stream → Subject → …). `stream` is always kept
     // in sync with the exam's stream so existing stream-scoped queries still work.
     exam: { type: mongoose.Schema.Types.ObjectId, ref: "PracticeExam", default: null },
+    // Additional Exams this SAME subject is ALSO listed under (My Quiz only).
+    // A subject is never duplicated across exams — the other exams are linked
+    // here so its topics/quizzes stay shared. `exam` above is the HOME exam
+    // (where it was first added); opening a linked subject shows the same shared
+    // content. See linkSubjectToExam / unlinkSubjectFromExam / listExamSubjects.
+    exams: [{ type: mongoose.Schema.Types.ObjectId, ref: "PracticeExam" }],
     // Owner (client) — null/absent for platform content. See PracticeStream.
     owner: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     name: { type: String, required: true, trim: true },
