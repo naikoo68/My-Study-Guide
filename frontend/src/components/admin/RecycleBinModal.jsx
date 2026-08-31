@@ -33,6 +33,8 @@ export default function RecycleBinModal({ open, onClose, onChange }) {
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState(""); // `${type}:${id}` currently acting on
   const [emptying, setEmptying] = useState(false);
+  const [selected, setSelected] = useState(() => new Set()); // `${type}:${id}` ticked
+  const [bulkBusy, setBulkBusy] = useState(null); // { done, total } while restoring many
 
   const load = () => {
     setLoading(true);
@@ -91,6 +93,44 @@ export default function RecycleBinModal({ open, onClose, onChange }) {
     }
   };
 
+  const keyOf = (it) => `${it.type}:${it._id}`;
+  const toggle = (it) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      const k = keyOf(it);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+  const allSelected = items.length > 0 && items.every((it) => selected.has(keyOf(it)));
+  const toggleAll = () => setSelected(() => (allSelected ? new Set() : new Set(items.map(keyOf))));
+
+  // Restore several items in sequence (there's no bulk API — we loop the single
+  // restore). Restoring a parent brings its whole subtree back, so restoring a
+  // child afterwards is a harmless no-op.
+  const restoreMany = async (list) => {
+    if (!list.length || bulkBusy) return;
+    setError("");
+    setBulkBusy({ done: 0, total: list.length });
+    const failed = new Set();
+    for (const it of list) {
+      try {
+        await recycleService.restore(it.type, it._id);
+      } catch {
+        failed.add(keyOf(it));
+      }
+      setBulkBusy((p) => (p ? { ...p, done: p.done + 1 } : p));
+    }
+    const restored = new Set(list.map(keyOf).filter((k) => !failed.has(k)));
+    setItems((cur) => cur.filter((x) => !restored.has(keyOf(x))));
+    setSelected(new Set());
+    setBulkBusy(null);
+    if (failed.size) setError(`Couldn't restore ${failed.size} item${failed.size === 1 ? "" : "s"}.`);
+    onChange?.();
+  };
+  const restoreSelected = () => restoreMany(items.filter((it) => selected.has(keyOf(it))));
+  const restoreAll = () => restoreMany(items.slice());
+
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-0 sm:p-4" onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} className="min-h-full w-full max-w-3xl animate-scale-in card m-0 rounded-none p-4 sm:rounded-2xl sm:p-6">
@@ -121,12 +161,30 @@ export default function RecycleBinModal({ open, onClose, onChange }) {
         ) : items.length === 0 ? (
           <EmptyState message="The Recycle Bin is empty. Deleted items will appear here." />
         ) : (
-          <div className="max-h-[65vh] space-y-2 overflow-y-auto pr-1">
+          <>
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
+                <input type="checkbox" className="h-4 w-4 rounded border-slate-300" checked={allSelected} onChange={toggleAll} />
+                Select all ({items.length})
+              </label>
+              <div className="ml-auto flex items-center gap-2">
+                {selected.size > 0 && (
+                  <button onClick={restoreSelected} disabled={!!bulkBusy} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-600 transition hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-900/50 dark:hover:bg-emerald-900/20">
+                    {bulkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Undo2 className="h-3.5 w-3.5" />} Restore selected ({selected.size})
+                  </button>
+                )}
+                <button onClick={restoreAll} disabled={!!bulkBusy} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-600 transition hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-900/50 dark:hover:bg-emerald-900/20">
+                  {bulkBusy ? (<><Loader2 className="h-3.5 w-3.5 animate-spin" /> Restoring {bulkBusy.done}/{bulkBusy.total}</>) : (<><Undo2 className="h-3.5 w-3.5" /> Restore all</>)}
+                </button>
+              </div>
+            </div>
+            <div className="max-h-[65vh] space-y-2 overflow-y-auto pr-1">
             {items.map((it) => {
               const busy = busyId === `${it.type}:${it._id}`;
               return (
-                <div key={`${it.type}:${it._id}`} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-                  <div className="min-w-0">
+                <div key={`${it.type}:${it._id}`} className="flex items-center gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                  <input type="checkbox" className="h-4 w-4 flex-shrink-0 rounded border-slate-300" checked={selected.has(`${it.type}:${it._id}`)} onChange={() => toggle(it)} />
+                  <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <Badge>{TYPE_LABEL[it.type] || it.type}</Badge>
                       <span className="truncate text-sm font-medium">{it.title}</span>
@@ -144,7 +202,8 @@ export default function RecycleBinModal({ open, onClose, onChange }) {
                 </div>
               );
             })}
-          </div>
+            </div>
+          </>
         )}
 
         <div className="mt-6 flex justify-end">

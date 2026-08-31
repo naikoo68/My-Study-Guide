@@ -12,6 +12,8 @@ export default function AdminRecycleBin() {
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState("");
   const [msg, setMsg] = useState("");
+  const [selected, setSelected] = useState(() => new Set()); // `${type}:${id}` ticked
+  const [bulkBusy, setBulkBusy] = useState(null); // { done, total } while restoring many
 
   const load = useCallback(() => {
     setLoading(true);
@@ -57,6 +59,39 @@ export default function AdminRecycleBin() {
     finally { setBusyId(""); }
   };
 
+  const keyOf = (it) => `${it.type}:${it._id}`;
+  const items = data?.items || [];
+  const allSelected = items.length > 0 && items.every((it) => selected.has(keyOf(it)));
+  const toggle = (it) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      const k = keyOf(it);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+  const toggleAll = () => setSelected(() => (allSelected ? new Set() : new Set(items.map(keyOf))));
+
+  // Restore several items in sequence (no bulk API — loop the single restore).
+  // Restoring a parent brings its subtree back, so a child restore after is a
+  // harmless no-op.
+  const restoreMany = async (list) => {
+    if (!list.length || bulkBusy) return;
+    setMsg("");
+    setBulkBusy({ done: 0, total: list.length });
+    let failed = 0;
+    for (const it of list) {
+      try { await recycleService.restore(it.type, it._id); } catch { failed++; }
+      setBulkBusy((p) => (p ? { ...p, done: p.done + 1 } : p));
+    }
+    setBulkBusy(null);
+    setSelected(new Set());
+    setMsg(failed ? `Restored ${list.length - failed} of ${list.length}; ${failed} failed.` : `Restored ${list.length} item${list.length === 1 ? "" : "s"}.`);
+    load();
+  };
+  const restoreSelected = () => restoreMany(items.filter((it) => selected.has(keyOf(it))));
+  const restoreAll = () => restoreMany(items.slice());
+
   const fmtWhen = (d) => {
     if (!d) return "";
     const diff = Date.now() - new Date(d).getTime();
@@ -79,6 +114,16 @@ export default function AdminRecycleBin() {
           <button onClick={load} className="btn-outline" disabled={loading}>
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
           </button>
+          {selected.size > 0 && (
+            <button onClick={restoreSelected} disabled={!!bulkBusy} className="btn-outline text-emerald-600 disabled:opacity-50">
+              {bulkBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Restore selected ({selected.size})
+            </button>
+          )}
+          {data?.total > 0 && (
+            <button onClick={restoreAll} disabled={!!bulkBusy} className="btn-outline text-emerald-600 disabled:opacity-50">
+              {bulkBusy ? (<><Loader2 className="h-4 w-4 animate-spin" /> Restoring {bulkBusy.done}/{bulkBusy.total}</>) : (<><RotateCcw className="h-4 w-4" /> Restore all</>)}
+            </button>
+          )}
           {data?.total > 0 && (
             <button onClick={emptyBin} disabled={busyId === "__all__"} className="btn-primary bg-rose-600 hover:bg-rose-700 disabled:opacity-50">
               {busyId === "__all__" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />} Empty bin
@@ -106,9 +151,15 @@ export default function AdminRecycleBin() {
             <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" /> "Restore" brings an item back to where it was. "Delete permanently" removes it for good and cannot be undone.
           </p>
 
+          <label className="flex w-fit cursor-pointer items-center gap-2 px-1 text-sm font-medium">
+            <input type="checkbox" className="h-4 w-4 rounded border-slate-300" checked={allSelected} onChange={toggleAll} />
+            Select all ({items.length})
+          </label>
+
           <div className="card divide-y divide-slate-100 p-0 dark:divide-slate-800">
             {data.items.map((it) => (
               <div key={`${it.type}-${it._id}`} className="flex flex-wrap items-center gap-3 p-4">
+                <input type="checkbox" className="h-4 w-4 flex-shrink-0 rounded border-slate-300" checked={selected.has(`${it.type}:${it._id}`)} onChange={() => toggle(it)} />
                 <span className="inline-flex flex-shrink-0 items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                   {it.label}
                 </span>
