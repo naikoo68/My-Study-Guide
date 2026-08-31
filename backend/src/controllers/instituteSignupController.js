@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import Tenant from "../models/Tenant.js";
 import User from "../models/User.js";
+import { isDev } from "../utils/env.js";
 import Settings from "../models/Settings.js";
 import EmailOtp from "../models/EmailOtp.js";
 import generateToken from "../utils/generateToken.js";
@@ -128,7 +129,7 @@ export async function sendSignupOtp(req, res) {
 
   const emailSent = await sendSignupOtpEmail(email, otp).catch(() => false);
   // Only reveal the code on-screen in non-production when email can't be sent.
-  const exposeDevOtp = !emailSent && process.env.NODE_ENV !== "production";
+  const exposeDevOtp = !emailSent && isDev(); // expose devOtp only in explicit development (secure default)
   res.json({ emailSent, ...(exposeDevOtp ? { devOtp: otp } : {}) });
 }
 
