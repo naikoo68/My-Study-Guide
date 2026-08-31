@@ -198,6 +198,8 @@ export const practiceService = {
   createSubject: (data) => api.post("/practice/subjects", data),
   updateSubject: (id, data) => api.put(`/practice/subjects/${id}`, data),
   deleteSubject: (id) => api.del(`/practice/subjects/${id}`),
+  linkSubjectToExam: (id, exam) => api.post(`/practice/subjects/${id}/link-exam`, { exam }), // reuse an existing subject under another exam (My Quiz)
+  unlinkSubjectFromExam: (id, exam) => api.post(`/practice/subjects/${id}/unlink-exam`, { exam }), // remove a shared subject from one exam (keeps its home)
   // admin — topics (My Quiz)
   adminTopics: (subjectId) => api.get(`/practice/subjects/${subjectId}/topics`),
   createTopic: (data) => api.post("/practice/topics", data),

@@ -150,7 +150,10 @@ export async function deleteExam(req, res) {
 }
 // GET /api/practice/exams/:examId/subjects — subjects under an exam (My Quiz).
 export async function listExamSubjects(req, res) {
-  const subjects = await PracticeSubject.find({ exam: req.params.examId, isActive: true, ...ownerFilter(req) }).sort("order name").lean();
+  const examId = req.params.examId;
+  // Include subjects whose HOME exam is this one OR that are LINKED here via
+  // `exams[]` (reused from another exam). Linked subjects show a "Shared" badge.
+  const subjects = await PracticeSubject.find({ $or: [{ exam: examId }, { exams: examId }], isActive: true, ...ownerFilter(req) }).sort("order name").lean();
   const subjectIds = subjects.map((s) => s._id);
   const items = await TestSeries.aggregate([
     { $match: { practice: true, practiceSubject: { $in: subjectIds } } },
@@ -195,8 +198,11 @@ export async function allSubjects(req, res) {
     subs.map((s) => ({
       _id: s._id,
       name: s.name,
+      description: s.description || "",
       stream: s.stream?.name || "",
       kind: s.stream?.kind || "",
+      exam: s.exam || null, // home exam (My Quiz) — used by the "Add existing subject" picker
+      exams: (s.exams || []).map((e) => String(e)), // exams it's already linked to
     }))
   );
 }
@@ -214,6 +220,42 @@ export async function deleteSubject(req, res) {
   // Soft delete → Recycle Bin. Only the subject node is flagged.
   await PracticeSubject.findByIdAndUpdate(id, softDeletePatch());
   res.json({ message: "Practice subject and all its items deleted" });
+}
+
+// POST /api/practice/subjects/:id/link-exam — MANUALLY reuse an existing subject
+// under another Exam (My Quiz): add the exam to its `exams[]` (no duplicate,
+// topics/quizzes stay shared). No-op if it's already the home exam or linked.
+export async function linkSubjectToExam(req, res) {
+  const examId = req.body?.exam ? String(req.body.exam) : "";
+  if (!examId) return res.status(400).json({ message: "Choose an exam to add the subject to." });
+  const exam = await PracticeExam.findOne({ _id: examId, ...ownerFilter(req) }).lean();
+  if (!exam) return res.status(400).json({ message: "Choose a valid exam." });
+  const subject = await PracticeSubject.findOne({ _id: req.params.id, ...ownerFilter(req) });
+  if (!subject) return res.status(404).json({ message: "Subject not found" });
+  const home = String(subject.exam || "");
+  const linkedTo = (subject.exams || []).map((e) => String(e));
+  if (home !== examId && !linkedTo.includes(examId)) {
+    subject.exams = [...linkedTo, examId];
+    await subject.save();
+  }
+  const obj = typeof subject.toObject === "function" ? subject.toObject() : { ...subject };
+  res.json({ ...obj, linked: true });
+}
+
+// POST /api/practice/subjects/:id/unlink-exam — remove a shared subject from a
+// LINKED (secondary) exam WITHOUT deleting it. Refuses the HOME exam (delete it
+// from there instead). Its home exam and shared content stay intact.
+export async function unlinkSubjectFromExam(req, res) {
+  const examId = req.body?.exam ? String(req.body.exam) : "";
+  if (!examId) return res.status(400).json({ message: "An exam is required to unlink." });
+  const subject = await PracticeSubject.findOne({ _id: req.params.id, ...ownerFilter(req) });
+  if (!subject) return res.status(404).json({ message: "Subject not found" });
+  if (String(subject.exam || "") === examId) {
+    return res.status(400).json({ message: "This is the subject's home exam — delete it from here instead of unlinking." });
+  }
+  subject.exams = (subject.exams || []).map((e) => String(e)).filter((e) => e !== examId);
+  await subject.save();
+  res.json({ message: "Subject removed from this exam", unlinked: true });
 }
 
 /* ---------------- Topics (admin) — My Quiz only ---------------- */

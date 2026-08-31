@@ -32,7 +32,8 @@ import ScheduleQuestionModal from "../../components/admin/ScheduleQuestionModal"
 import MigrateQuizModal from "../../components/admin/MigrateQuizModal";
 import MigrateTopicsModal from "../../components/admin/MigrateTopicsModal";
 import MoveQuestionsModal from "../../components/admin/MoveQuestionsModal";
-import { Files, ScanSearch, Loader2, Sparkles, Scissors, GitMerge, Maximize2, Minimize2, Save, CheckCircle2 } from "lucide-react";
+import { Files, ScanSearch, Loader2, Sparkles, Scissors, GitMerge, Maximize2, Minimize2, Save, CheckCircle2, Link2 } from "lucide-react";
+import PracticeLinkExistingSubjectModal from "../../components/admin/PracticeLinkExistingSubjectModal";
 
 // Question types offered per subtopic in the "Missing areas" sequential generator.
 const GEN_TYPES = [
@@ -117,6 +118,7 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [modal, setModal] = useState(null); // { type, mode, data }
+  const [linkOpen, setLinkOpen] = useState(false); // "Add existing subject" (reuse under another exam) modal — My Quiz
   const [saving, setSaving] = useState(false);
   const [togglingId, setTogglingId] = useState(null); // node currently being enabled/disabled
   // Split a My-Quiz item / topic into quizzes of N. { kind:"quiz"|"topic", id, name, count }
@@ -312,6 +314,17 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
     } catch (e) { setError(e.message); } finally { setSaving(false); }
   };
   const remove = async (type, id, label) => {
+    // A SHARED subject (linked from another exam — its home `exam` differs from
+    // the one we're browsing) is UNLINKED from this exam, not deleted, so its
+    // home exam and shared topics/quizzes stay intact.
+    if (type === "subject" && hasExams && exam?._id) {
+      const it = items.find((x) => x._id === id);
+      if (it?.exam && String(it.exam) !== String(exam._id)) {
+        if (!window.confirm(`Remove the shared subject ${label} from this exam? It stays in its home exam with all its content.`)) return;
+        try { await practiceService.unlinkSubjectFromExam(id, exam._id); load(view); } catch (e) { setError(e.message); }
+        return;
+      }
+    }
     if (!window.confirm(`Delete ${label}? This also deletes everything inside it. This cannot be undone.`)) return;
     try {
       if (type === "stream") await practiceService.deleteStream(id);
@@ -1046,6 +1059,11 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
               <Sparkles className="h-4 w-4" /> Other question types
             </button>
           )}
+          {view === "subjects" && hasExams && exam && (
+            <button onClick={() => setLinkOpen(true)} className="btn-outline" title="Reuse a subject that already exists under another exam (no duplicate — topics & quizzes stay shared)">
+              <Link2 className="h-4 w-4" /> Add Existing Subject
+            </button>
+          )}
           <button onClick={() => setModal({ type: addType, mode: "add", data: {} })} className="btn-primary" data-tour={clientMode ? `add-${view}` : undefined}>
             <Plus className="h-4 w-4" /> {H.add}
           </button>
@@ -1101,6 +1119,9 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
                   <p className="flex items-center gap-2 font-bold">
                     {item.name}
                     {item.disabled && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">Disabled</span>}
+                    {view === "subjects" && hasExams && exam?._id && item.exam && String(item.exam) !== String(exam._id) && (
+                      <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 dark:bg-sky-900/40 dark:text-sky-300" title="This subject also lives under another exam — its content is shared">Shared</span>
+                    )}
                   </p>
                   <p className="mt-0.5 text-xs text-slate-400">
                     {view === "streams" && `${item.subjects ?? 0} ${(hasExams ? L.examPl : L.subjectPl).toLowerCase()}`}
@@ -1696,6 +1717,17 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
           clientMode={clientMode}
           onClose={() => setMigrateItem(null)}
           onDone={() => load("items")}
+        />
+      )}
+
+      {/* Add existing subject (reuse under another exam — My Quiz) */}
+      {linkOpen && (
+        <PracticeLinkExistingSubjectModal
+          examId={exam?._id}
+          examName={exam?.name}
+          existingIds={items.map((it) => it._id)}
+          onClose={() => setLinkOpen(false)}
+          onLinked={() => { setLinkOpen(false); load(view); }}
         />
       )}
 
