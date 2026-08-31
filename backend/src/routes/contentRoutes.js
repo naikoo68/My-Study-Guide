@@ -9,6 +9,8 @@ import {
   createSubject,
   updateSubject,
   deleteSubject,
+  linkSubjectToStream,
+  unlinkSubjectFromStream,
   listTopics,
   createTopic,
   updateTopic,
@@ -57,6 +59,8 @@ router.get("/streams/:streamId/subjects", optionalAuth, listStreamSubjects);
 router.get("/subjects", optionalAuth, listSubjects);
 router.post("/subjects", ...admin, createSubject);
 router.put("/subjects/:id", ...admin, updateSubject);
+router.post("/subjects/:id/link", ...admin, linkSubjectToStream);
+router.post("/subjects/:id/unlink", ...admin, unlinkSubjectFromStream);
 router.delete("/subjects/:id", ...admin, deleteSubject);
 
 // Topics (within a subject)
