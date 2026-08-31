@@ -30,12 +30,18 @@ jobs:
     steps:
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.0
+        env:
+          # Encryption secret for AI provider keys at rest. Add it as a repo
+          # secret (Settings → Secrets and variables → Actions). If it's left
+          # unset, the app still runs fine with keys unencrypted (see #718).
+          AI_KEY_ENC_SECRET: ${{ secrets.AI_KEY_ENC_SECRET }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           command_timeout: 20m
           script_stop: true
+          envs: AI_KEY_ENC_SECRET
           script: |
             set -e
             cd ~/My-Study-Guide
@@ -47,7 +53,9 @@ jobs:
             sudo docker build -t msg-backend .
             sudo docker rm -f msg-backend || true
             sudo docker run -d --name msg-backend --restart always \
-              --env-file msg.env -p 127.0.0.1:5000:5000 msg-backend
+              --env-file msg.env \
+              -e AI_KEY_ENC_SECRET="$AI_KEY_ENC_SECRET" \
+              -p 127.0.0.1:5000:5000 msg-backend
             sudo docker image prune -f
             # Give it a moment to boot, then verify it's healthy.
             sleep 6
