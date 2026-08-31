@@ -759,7 +759,15 @@ export default function AdminContent() {
   // all work with no manual history juggling. We also set the object we already
   // hold so the breadcrumb name shows instantly without waiting for a refetch.
   const openStream = (s) => { setStream(s); setSearchParams({ s: s._id }); };
-  const openSubject = (s) => { setSubject(s); setSearchParams({ s: sid, sub: s._id }); };
+  const openSubject = (s) => {
+    // A subject REUSED from another stream (its home `stream` differs from the
+    // one we're browsing) opens in ITS ORIGINAL/home stream, where its topics
+    // live — so shared content is never duplicated. Otherwise open normally.
+    const home = s?.stream ? String(s.stream) : sid;
+    if (home && sid && home !== sid) { setSubject(s); setSearchParams({ s: home, sub: s._id }); return; }
+    setSubject(s);
+    setSearchParams({ s: sid, sub: s._id });
+  };
   const openTopic = (t) => { setTopic(t); setSearchParams({ s: sid, sub: subId, t: t._id }); };
   const openSession = (s) => { setSession(s); setSearchParams({ s: sid, sub: subId, t: tid, se: s._id }); };
   const openQuiz = (q) => { setQuiz(q); setSearchParams({ s: sid, sub: subId, t: tid, se: seid, qz: q._id }); };
@@ -1262,6 +1270,9 @@ export default function AdminContent() {
                       <H.icon className="h-5 w-5 flex-shrink-0 text-brand-500" />
                       <p className="truncate font-semibold">{item.name || item.title}</p>
                       {item.disabled && <span className="flex-shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">Disabled</span>}
+                      {view === "subjects" && item.stream && sid && String(item.stream) !== sid && (
+                        <span className="flex-shrink-0 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-700 dark:bg-sky-900/40 dark:text-sky-300" title="This subject also lives in another stream — opening it goes to where it was first added">Shared</span>
+                      )}
                     </div>
                     <p className="mt-0.5 text-xs text-slate-400">
                       {view === "streams" && `${item.subjects ?? 0} subjects`}
