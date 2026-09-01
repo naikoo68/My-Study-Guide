@@ -468,15 +468,25 @@ export async function moveQuestions(req, res) {
   const target = await Quiz.findById(targetId);
   if (!target) return res.status(404).json({ message: "Destination quiz not found." });
 
-  // Only questions that ACTUALLY live in this quiz (and aren't in the bin).
+  // Defense-in-depth: never move questions between institutes (tenants). The
+  // tenantId plugin already scopes every read/write per-tenant when enforcement
+  // is on, but this explicit same-tenant check keeps the flow safe even if that
+  // global switch is ever off — moving is only ever within one institute.
+  if (String(source.tenantId || "") !== String(target.tenantId || "")) {
+    return res.status(403).json({ message: "You can't move questions between different institutes." });
+  }
+
+  // Only questions that ACTUALLY live in this quiz (and aren't in the bin), and
+  // that belong to the caller's own space (ownerFilter) — matching
+  // updateQuestion/deleteQuestion so move can't touch content it can't edit.
   const wanted = (Array.isArray(req.body?.questionIds) ? req.body.questionIds : []).map(String);
   if (!wanted.length) return res.status(400).json({ message: "Select at least one question to move." });
-  const owned = await Question.find({ _id: { $in: wanted }, quiz: source._id, ...NOT_DELETED }).select("_id").lean();
+  const owned = await Question.find({ _id: { $in: wanted }, quiz: source._id, ...ownerFilter(req), ...NOT_DELETED }).select("_id").lean();
   const ids = owned.map((q) => q._id);
   if (!ids.length) return res.status(400).json({ message: "None of the selected questions belong to this quiz." });
 
   const r = await Question.updateMany(
-    { _id: { $in: ids } },
+    { _id: { $in: ids }, ...ownerFilter(req) },
     { $set: { quiz: target._id, session: target.session, subject: target.subject } },
     { timestamps: false }
   );
@@ -502,14 +512,20 @@ export async function copyQuestions(req, res) {
   const target = await Quiz.findById(targetId);
   if (!target) return res.status(404).json({ message: "Destination quiz not found." });
 
+  // Defense-in-depth: never copy questions between institutes (tenants) — safe
+  // even if the tenantId enforcement switch is ever off. See moveQuestions.
+  if (String(source.tenantId || "") !== String(target.tenantId || "")) {
+    return res.status(403).json({ message: "You can't copy questions between different institutes." });
+  }
+
   const wanted = (Array.isArray(req.body?.questionIds) ? req.body.questionIds : []).map(String);
   if (!wanted.length) return res.status(400).json({ message: "Select at least one question to copy." });
-  const owned = await Question.find({ _id: { $in: wanted }, quiz: source._id, ...NOT_DELETED }).select("_id").lean();
+  const owned = await Question.find({ _id: { $in: wanted }, quiz: source._id, ...ownerFilter(req), ...NOT_DELETED }).select("_id").lean();
   const ids = owned.map((q) => q._id);
   if (!ids.length) return res.status(400).json({ message: "None of the selected questions belong to this quiz." });
 
   const created = await duplicateQuestions(
-    { _id: { $in: ids } },
+    { _id: { $in: ids }, ...ownerFilter(req) },
     { quiz: target._id, session: target.session, subject: target.subject }
   );
   const sourceTotal = await Question.countDocuments({ quiz: source._id, ...NOT_DELETED });
