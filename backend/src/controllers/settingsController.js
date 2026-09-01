@@ -107,7 +107,13 @@ function safeSettings(s) {
 
 // GET /api/settings — public (frontend reads this to brand/theme itself)
 export async function getSettings(req, res) {
-  res.json(safeSettings(await getOrCreate()));
+  const s = safeSettings(await getOrCreate());
+  // Tell the frontend whether this is the platform (default) site or an
+  // institute's own site. Used to hide the "Institute" sign-up/login option on
+  // an institute site (registering a NEW institute belongs only on the platform
+  // site; Student and Creator still belong on an institute site).
+  s.isDefaultTenant = !req.tenant || req.tenant.isDefault === true;
+  res.json(s);
 }
 
 // PUT /api/settings — admin only

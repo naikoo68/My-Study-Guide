@@ -13,7 +13,11 @@ const GRID_COLS = { 1: "grid-cols-1", 2: "grid-cols-2", 3: "grid-cols-3" };
 export default function AccountTypeTabs({ active, onSelect, withInstitute = false }) {
   const { settings } = useSettings();
   const showClient = settings?.publicClientEnabled !== false;
-  const showInstitute = withInstitute && settings?.publicInstituteEnabled !== false;
+  // The "Institute" option is ONLY for the platform (default) site — registering
+  // a NEW institute doesn't belong on an existing institute's own site. Student
+  // and Creator still show there.
+  const isInstituteSite = settings?.isDefaultTenant === false;
+  const showInstitute = withInstitute && !isInstituteSite && settings?.publicInstituteEnabled !== false;
   const tabs = [
     { key: "student", label: "Student", Icon: GraduationCap },
     ...(showClient ? [{ key: "client", label: "Creator", Icon: Store }] : []),
