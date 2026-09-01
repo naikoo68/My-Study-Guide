@@ -340,21 +340,22 @@ export default function Home() {
       </section>
     ) : null,
 
-    // Study-content library totals (platform + "My Practice" combined), computed
-    // live on every visit — Streams → Subjects → Topics → Exams across the whole
-    // catalogue. Same card style as the strips above.
+    // Public content-library totals, computed live on every visit — the Streams
+    // → Subjects → Topics → Exams a visitor can actually browse (excludes
+    // disabled/deleted and all private practice content). Same card style as
+    // the strips above.
     contentStats: realStats ? (
       <section className="container-page pt-6">
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <p className="mb-5 text-center text-sm font-semibold uppercase tracking-wide text-slate-400">
-            Across the whole content library — updated live
+            Public content library — updated live
           </p>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             {[
-              { v: realStats.streams, l: "Total Streams", Icon: Layers },
-              { v: realStats.subjects, l: "Total Subjects", Icon: BookMarked },
-              { v: realStats.topics, l: "Total Topics", Icon: FileText },
-              { v: realStats.exams, l: "Total Exams", Icon: Trophy },
+              { v: realStats.publicStreams, l: "Total Streams", Icon: Layers },
+              { v: realStats.publicSubjects, l: "Total Subjects", Icon: BookMarked },
+              { v: realStats.publicTopics, l: "Total Topics", Icon: FileText },
+              { v: realStats.publicExams, l: "Total Exams", Icon: Trophy },
             ].map((s) => (
               <div key={s.l} className="flex flex-col items-center gap-2 rounded-2xl bg-slate-50 p-5 text-center dark:bg-slate-800/60">
                 <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-100 text-brand-600 dark:bg-brand-900/40 dark:text-brand-300">

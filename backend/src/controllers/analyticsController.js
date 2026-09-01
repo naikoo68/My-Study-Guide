@@ -65,6 +65,10 @@ export async function publicStats(req, res) {
   const clientDocs = await User.find({ role: "client", deleted: { $ne: true } }).select("_id").lean();
   const clientIds = clientDocs.map((u) => u._id);
 
+  // "Public" = platform content a visitor can actually see: live, not disabled,
+  // not in the Recycle Bin. (Practice / "My Quiz" content is private per user.)
+  const PUBLIC_CONTENT = { isActive: true, disabled: { $ne: true }, deleted: { $ne: true } };
+
   const [
     students, users,
     contentQuizzes, practiceQuizzes,
@@ -74,6 +78,7 @@ export async function publicStats(req, res) {
     contentTopics, practiceTopics,
     contentStreams, practiceStreams,
     contentExams, practiceExams,
+    publicStreams, publicSubjects, publicTopics,
     attempts,
     clientQuizzes, clientTests, clientQuestions,
   ] = await Promise.all([
@@ -97,6 +102,12 @@ export async function publicStats(req, res) {
     // Exams = platform exams (Exam) + "My Quiz" practice exams (PracticeExam).
     Exam.countDocuments(),
     PracticeExam.countDocuments(),
+    // Public-only counts for the "public content library" card — platform
+    // content that's actually visible to visitors (excludes disabled/deleted
+    // and all private practice content).
+    Stream.countDocuments(PUBLIC_CONTENT),
+    Subject.countDocuments(PUBLIC_CONTENT),
+    Topic.countDocuments(PUBLIC_CONTENT),
     Attempt.countDocuments(),
     // The separate "all clients combined" block — client-owned only (admin).
     TestSeries.countDocuments({ owner: { $in: clientIds }, practiceKind: "quiz" }),
@@ -111,11 +122,14 @@ export async function publicStats(req, res) {
   const topics = contentTopics + practiceTopics;
   const streams = contentStreams + practiceStreams;
   const exams = contentExams + practiceExams;
+  // Exam has no disabled/deleted flag, so every exam is public.
+  const publicExams = contentExams;
   const clients = clientIds.length;
   // Never cache — always reflect the current counts.
   res.set("Cache-Control", "no-store");
   res.json({
     students, users, clients, quizzes, tests, questions, subjects, topics, streams, exams, attempts,
+    publicStreams, publicSubjects, publicTopics, publicExams,
     clientQuizzes, clientTests, clientQuestions,
   });
 }
