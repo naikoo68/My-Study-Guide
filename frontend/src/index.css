@@ -48,12 +48,11 @@
 
 @layer components {
   .container-page {
-    /* Wide, near-full-screen layout (navbar + all public pages use this). The
-       large cap keeps content filling normal laptops/monitors edge-to-edge with
-       comfortable side padding, while still preventing absurdly long lines on
-       ultrawide displays. Was max-w-7xl (1280px) — bumped so the site fills the
-       screen instead of sitting in a narrow centered column. */
-    @apply mx-auto w-full max-w-[1600px] px-4 sm:px-6 lg:px-8;
+    /* Fully fluid, full-width layout (navbar + all public pages use this): the
+       content adapts to WHATEVER the screen size is — no fixed max-width cap —
+       so it fills small laptops and large monitors alike. Side padding grows a
+       little on bigger screens for breathing room. */
+    @apply mx-auto w-full px-4 sm:px-6 lg:px-8 2xl:px-12;
   }
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60;
