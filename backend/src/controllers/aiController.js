@@ -6,6 +6,7 @@ import { dedupeExact, salvageObjects as salvageConceptObjects } from "../utils/c
 import Question from "../models/Question.js";
 import User from "../models/User.js";
 import { ownerFilter } from "../utils/ownership.js";
+import { getShareAiKeys } from "../utils/tenantContext.js";
 import { softDeletePatch } from "../utils/softDelete.js";
 import { getClientPlans, findSiteSettings } from "../utils/plans.js";
 import { webResearch } from "../utils/webResearch.js";
@@ -82,7 +83,13 @@ async function providers(scope = SYSTEM_SCOPE) {
   // the same key isn't used twice if it's both imported and still set in Render.
   const seen = new Set();
   const deduped = [];
-  const pool = scope.includeEnv ? [...dbProviders, ...envProviders()] : dbProviders;
+  // Env-var slots are the PLATFORM (super-admin) keys. An institute may only use
+  // them when its AI-sharing switch is on — otherwise it's limited to its own
+  // DB keys. (Platform DB keys are already hidden by the tenantId plugin's AiKey
+  // gating.) getShareAiKeys() is true for the platform/default tenant and for
+  // unscoped super-admin work, so their behaviour is unchanged.
+  const useEnv = scope.includeEnv && getShareAiKeys();
+  const pool = useEnv ? [...dbProviders, ...envProviders()] : dbProviders;
   for (const p of pool) {
     if (seen.has(p.key)) continue;
     seen.add(p.key);

@@ -38,6 +38,12 @@ export default function AdminInstitutes() {
   const [featuresAll, setFeaturesAll] = useState(false); // true = editing access for ALL institutes at once
   const [featuresForm, setFeaturesForm] = useState({}); // { featureKey: boolean }
   const [savingFeatures, setSavingFeatures] = useState(false);
+  // Platform-sharing switches (default OFF): whether an institute may use the
+  // super-admin's shared content library and/or AI-key pool.
+  const [sharingBusy, setSharingBusy] = useState(""); // `${id}:${field}` currently toggling
+  const [sharingAllOpen, setSharingAllOpen] = useState(false);
+  const [sharingAllForm, setSharingAllForm] = useState({ shareContent: false, shareAiKeys: false });
+  const [savingSharingAll, setSavingSharingAll] = useState(false);
 
   const flash = (m) => { setToast(m); setTimeout(() => setToast(""), 2800); };
 
@@ -223,6 +229,52 @@ export default function AdminInstitutes() {
     }
   };
 
+  // Toggle ONE sharing switch for ONE institute (optimistic).
+  const toggleSharing = async (t, field) => {
+    const next = !t[field];
+    setSharingBusy(`${t.id}:${field}`);
+    try {
+      const res = await tenantService.setSharing(t.id, { [field]: next });
+      setTenants((list) => list.map((x) => (x.id === t.id ? { ...x, shareContent: res.shareContent, shareAiKeys: res.shareAiKeys } : x)));
+      flash(
+        field === "shareContent"
+          ? next ? "This institute can now use your content library." : "This institute no longer sees your content."
+          : next ? "This institute can now generate with your AI keys." : "This institute can no longer use your AI keys."
+      );
+    } catch (e) {
+      flash(e.message || "Could not update sharing.");
+    } finally {
+      setSharingBusy("");
+    }
+  };
+
+  // Open the GLOBAL sharing modal, seeded from the current institutes (a switch
+  // shows ON only if EVERY non-default institute has it on).
+  const openSharingAll = () => {
+    const others = tenants.filter((t) => !t.isDefault);
+    setSharingAllForm({
+      shareContent: others.length > 0 && others.every((t) => t.shareContent),
+      shareAiKeys: others.length > 0 && others.every((t) => t.shareAiKeys),
+    });
+    setSharingAllOpen(true);
+    setError("");
+  };
+  const saveSharingAll = async (e) => {
+    e.preventDefault();
+    setSavingSharingAll(true);
+    setError("");
+    try {
+      await tenantService.setAllSharing(sharingAllForm);
+      setSharingAllOpen(false);
+      flash("Platform sharing updated for all institutes.");
+      load();
+    } catch (err) {
+      flash(err.message || "Could not update sharing.");
+    } finally {
+      setSavingSharingAll(false);
+    }
+  };
+
   // Permanently delete an institute and ALL its data. Guarded by requiring the
   // super-admin to type the institute's exact subdomain (slug) first.
   const deleteTenant = async (e) => {
@@ -256,6 +308,9 @@ export default function AdminInstitutes() {
           </button>
           <button onClick={openFeaturesAll} className="btn-outline">
             <ListChecks className="h-4 w-4" /> Manage access (all)
+          </button>
+          <button onClick={openSharingAll} title="Control whether institutes may use YOUR platform content library and AI keys. Default is OFF." className="btn-outline">
+            <ShieldCheck className="h-4 w-4" /> Platform sharing (all)
           </button>
           <button onClick={() => { setForm(blankTenant); setError(""); setCreateOpen(true); }} className="btn-primary">
             <Plus className="h-4 w-4" /> New Institute
@@ -316,6 +371,29 @@ export default function AdminInstitutes() {
                   </button>
                 )}
               </div>
+
+              {/* Platform-sharing switches (default OFF). Off = this institute uses
+                  only its OWN content / AI keys; On = it may use yours. */}
+              {!t.isDefault && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <button
+                    onClick={() => toggleSharing(t, "shareContent")}
+                    disabled={sharingBusy === `${t.id}:shareContent`}
+                    title={t.shareContent ? "This institute can use your content library. Click to stop sharing." : "This institute only sees its own content. Click to share your library with it."}
+                    className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold disabled:opacity-50 ${t.shareContent ? "border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-300" : "border-slate-300 text-slate-500 dark:border-slate-600 dark:text-slate-400"}`}
+                  >
+                    {t.shareContent ? <CheckCircle2 className="h-3 w-3" /> : <Ban className="h-3 w-3" />} My content: {t.shareContent ? "On" : "Off"}
+                  </button>
+                  <button
+                    onClick={() => toggleSharing(t, "shareAiKeys")}
+                    disabled={sharingBusy === `${t.id}:shareAiKeys`}
+                    title={t.shareAiKeys ? "This institute can generate with your AI keys. Click to stop sharing." : "This institute uses only its own AI keys. Click to share yours with it."}
+                    className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold disabled:opacity-50 ${t.shareAiKeys ? "border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-300" : "border-slate-300 text-slate-500 dark:border-slate-600 dark:text-slate-400"}`}
+                  >
+                    {t.shareAiKeys ? <CheckCircle2 className="h-3 w-3" /> : <Ban className="h-3 w-3" />} My APIs: {t.shareAiKeys ? "On" : "Off"}
+                  </button>
+                </div>
+              )}
 
               <div className="mt-4 flex gap-2">
                 <button onClick={() => { setAdminFor(t); setAdminForm(blankAdmin); setError(""); }} className="btn-outline flex-1 py-2 text-xs"><UserPlus className="h-3.5 w-3.5" /> Add admin</button>
@@ -464,6 +542,42 @@ export default function AdminInstitutes() {
             <div className="mt-5 flex justify-end gap-3">
               <button type="button" onClick={closeFeatures} className="btn-outline">Cancel</button>
               <button type="submit" disabled={savingFeatures} className="btn-primary">{savingFeatures ? "Saving..." : featuresAll ? "Apply to all institutes" : "Save access"}</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Platform sharing — all institutes modal */}
+      {sharingAllOpen && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4">
+          <form onSubmit={saveSharingAll} className="my-8 w-full max-w-lg animate-scale-in card p-6">
+            <div className="mb-1 flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-lg font-bold"><ShieldCheck className="h-5 w-5 text-brand-600" /> Platform sharing — all institutes</h3>
+              <button type="button" onClick={() => setSharingAllOpen(false)}><X className="h-5 w-5" /></button>
+            </div>
+            <p className="mb-3 text-sm text-slate-500 dark:text-slate-400">
+              Control whether <b>every institute</b> may use <b>your</b> platform content and AI keys. Default is <b>OFF</b> — each institute starts with only its own. This <b>overwrites all institutes</b> (your default/platform space is unaffected). You can still override any single institute from its card.
+            </p>
+            {error && <div className="mb-3 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">{error}</div>}
+            <div className="space-y-2">
+              <label className="flex cursor-pointer items-start justify-between gap-3 rounded-xl border border-slate-200 px-3 py-2.5 dark:border-slate-700">
+                <span>
+                  <span className="block text-sm font-medium">Share my content library</span>
+                  <span className="block text-xs text-slate-500 dark:text-slate-400">Streams, subjects, topics, quizzes, questions, test series, notices, reviews & coupons you created.</span>
+                </span>
+                <input type="checkbox" className="mt-0.5 h-4 w-4 flex-shrink-0 accent-brand-600" checked={sharingAllForm.shareContent} onChange={(e) => setSharingAllForm((s) => ({ ...s, shareContent: e.target.checked }))} />
+              </label>
+              <label className="flex cursor-pointer items-start justify-between gap-3 rounded-xl border border-slate-200 px-3 py-2.5 dark:border-slate-700">
+                <span>
+                  <span className="block text-sm font-medium">Share my AI keys (APIs)</span>
+                  <span className="block text-xs text-slate-500 dark:text-slate-400">Institutes can generate questions using your platform AI key pool instead of adding their own.</span>
+                </span>
+                <input type="checkbox" className="mt-0.5 h-4 w-4 flex-shrink-0 accent-brand-600" checked={sharingAllForm.shareAiKeys} onChange={(e) => setSharingAllForm((s) => ({ ...s, shareAiKeys: e.target.checked }))} />
+              </label>
+            </div>
+            <div className="mt-5 flex justify-end gap-3">
+              <button type="button" onClick={() => setSharingAllOpen(false)} className="btn-outline">Cancel</button>
+              <button type="submit" disabled={savingSharingAll} className="btn-primary">{savingSharingAll ? "Applying..." : "Apply to all institutes"}</button>
             </div>
           </form>
         </div>

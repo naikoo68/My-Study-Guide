@@ -64,7 +64,15 @@ export async function resolveTenant(req, res, next) {
     }
     req.tenant = tenant || null;
     req.tenantId = tenant?._id || null;
-    ctx = { tenantId: req.tenantId, tenant: req.tenant, bypass: false };
+    // Platform-sharing flags for this request. The default/platform tenant owns
+    // the shared library, so it always "shares" (its own site shows everything).
+    // Every other institute only sees/uses the platform pool when the super-admin
+    // has turned its switch ON (both default OFF). No public/no-tenant request →
+    // treat as shared (the public apex site must show the platform content).
+    const share = !tenant || tenant.isDefault
+      ? { shareContent: true, shareAiKeys: true }
+      : { shareContent: tenant.shareContent === true, shareAiKeys: tenant.shareAiKeys === true };
+    ctx = { tenantId: req.tenantId, tenant: req.tenant, bypass: false, ...share };
   } catch {
     req.tenant = null;
     req.tenantId = null;
