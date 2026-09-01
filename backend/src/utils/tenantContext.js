@@ -25,6 +25,23 @@ export function setCurrentTenantId(tenantId) {
   }
 }
 
+// Platform-sharing flags for the current request. resolveTenant computes these
+// from the resolved institute (the default/platform tenant is always "true";
+// other institutes default to their own shareContent/shareAiKeys, which default
+// OFF). Read by the tenantId plugin to decide whether an institute's reads may
+// ALSO see shared/platform (null-tenant) content, and by the AI key resolver.
+//
+// Default TRUE when unset — so unscoped work (super-admin, background jobs) and
+// any context that didn't set them behave exactly as before (see shared data).
+export function getShareContent() {
+  const s = tenantStore.getStore();
+  return s && s.shareContent !== undefined ? s.shareContent : true;
+}
+export function getShareAiKeys() {
+  const s = tenantStore.getStore();
+  return s && s.shareAiKeys !== undefined ? s.shareAiKeys : true;
+}
+
 // Mark the current request as cross-tenant (unscoped) — used for a super-admin
 // who legitimately operates across all institutes.
 export function setUnscoped() {

@@ -63,6 +63,17 @@ const tenantSchema = new mongoose.Schema(
     // false, so an empty/missing map means "everything on" (safe default for
     // existing institutes). The institute admin's sidebar & routes respect this.
     features: { type: mongoose.Schema.Types.Mixed, default: {} },
+
+    // Platform-sharing switches (super-admin controlled), DEFAULT OFF. When off,
+    // this institute sees ONLY its own content and uses ONLY its own AI keys —
+    // it does NOT inherit the platform (super-admin) library or API keys. Turn
+    // ON to grant this institute access to the shared platform pool. The default
+    // (platform) tenant always behaves as "on" (it owns the shared content).
+    //   • shareContent — platform Streams/Subjects/Topics/Quizzes/Questions/
+    //     TestSeries/Exams/Notices/Reviews/Coupons become visible to this institute.
+    //   • shareAiKeys — this institute may generate using the platform AI key pool.
+    shareContent: { type: Boolean, default: false },
+    shareAiKeys: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

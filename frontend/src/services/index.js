@@ -556,6 +556,8 @@ export const tenantService = {
   setDomain: (id, customDomain) => api.patch(`/tenants/${id}/domain`, { customDomain }), // set/clear custom domain
   setFeatures: (id, features) => api.patch(`/tenants/${id}/features`, { features }), // which features this institute can access
   setAllFeatures: (features) => api.patch(`/tenants/features`, { features }), // apply the same access to EVERY institute at once
+  setSharing: (id, sharing) => api.patch(`/tenants/${id}/sharing`, sharing), // { shareContent?, shareAiKeys? } — platform sharing for ONE institute (default OFF)
+  setAllSharing: (sharing) => api.patch(`/tenants/sharing`, sharing), // apply the same platform-sharing switches to EVERY institute at once
   remove: (id) => api.del(`/tenants/${id}`), // permanently delete an institute + all its data
 };
 

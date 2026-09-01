@@ -35,6 +35,10 @@ const sanitize = (t, stats) => ({
   expiresAt: t.expiresAt,
   createdAt: t.createdAt,
   features: t.features || {},
+  // Platform-sharing switches (default OFF). The default/platform institute is
+  // reported as ON since it owns the shared library.
+  shareContent: t.isDefault ? true : t.shareContent === true,
+  shareAiKeys: t.isDefault ? true : t.shareAiKeys === true,
   ...(stats ? { stats } : {}),
 });
 
@@ -163,6 +167,48 @@ export async function updateAllTenantsFeatures(req, res) {
   );
   clearTenantCache();
   res.json({ ok: true, updated: result?.modifiedCount ?? 0, features });
+}
+
+// Pull the sharing flags out of a request body, ignoring anything not provided
+// so a caller can toggle just one switch. Returns a $set-ready object.
+function sharingPatch(body) {
+  const patch = {};
+  if (typeof body?.shareContent === "boolean") patch.shareContent = body.shareContent;
+  if (typeof body?.shareAiKeys === "boolean") patch.shareAiKeys = body.shareAiKeys;
+  return patch;
+}
+
+// PATCH /api/tenants/:id/sharing — turn platform sharing on/off for ONE institute.
+// Body: { shareContent?: boolean, shareAiKeys?: boolean }. Super-admin only.
+// OFF (default) = the institute sees only its own content / uses only its own AI
+// keys. ON = it may use the shared platform library / AI key pool.
+export async function updateTenantSharing(req, res) {
+  const patch = sharingPatch(req.body);
+  if (!Object.keys(patch).length) {
+    return res.status(400).json({ message: "Provide shareContent and/or shareAiKeys (booleans)." });
+  }
+  const t = await runUnscoped(() => Tenant.findById(req.params.id));
+  if (!t || t.deleted) return res.status(404).json({ message: "Tenant not found" });
+  if (t.isDefault) return res.status(400).json({ message: "The default (platform) institute always owns the shared library — its sharing can't be changed." });
+  Object.assign(t, patch);
+  await t.save();
+  clearTenantCache(); // institutes pick up the change on their next request
+  res.json(sanitize(t));
+}
+
+// PATCH /api/tenants/sharing — set the SAME sharing switches on EVERY institute
+// at once (all non-default, non-deleted tenants). This is the "global" switch.
+// Body: { shareContent?: boolean, shareAiKeys?: boolean }. Super-admin only.
+export async function updateAllTenantsSharing(req, res) {
+  const patch = sharingPatch(req.body);
+  if (!Object.keys(patch).length) {
+    return res.status(400).json({ message: "Provide shareContent and/or shareAiKeys (booleans)." });
+  }
+  const result = await runUnscoped(() =>
+    Tenant.updateMany({ isDefault: { $ne: true }, deleted: { $ne: true } }, { $set: patch })
+  );
+  clearTenantCache();
+  res.json({ ok: true, updated: result?.modifiedCount ?? 0, ...patch });
 }
 
 // Basic hostname validation (a registrable domain, e.g. exam.brightfuture.com).

@@ -1,5 +1,22 @@
 import mongoose from "../../db/odm.js";
-import { getCurrentTenantId, isUnscoped } from "../../utils/tenantContext.js";
+import { getCurrentTenantId, isUnscoped, getShareContent, getShareAiKeys } from "../../utils/tenantContext.js";
+
+// Models whose SHARED (null-tenant) platform rows are only visible to an
+// institute when the super-admin has turned that institute's sharing switch ON.
+// Everything else keeps the default behaviour (shared rows visible to all).
+const CONTENT_SHARE_MODELS = new Set([
+  "Stream", "Subject", "Topic", "Session", "Quiz", "Question",
+  "TestSeries", "Exam", "ExamPost", "Notice", "Review", "Coupon",
+]);
+
+// Whether the current request may ALSO read shared/platform (null-tenant) rows
+// of `modelName`, honouring the per-institute sharing switches. Content models
+// follow shareContent; AiKey follows shareAiKeys; all others stay shared.
+function includesShared(modelName) {
+  if (modelName === "AiKey") return getShareAiKeys();
+  if (CONTENT_SHARE_MODELS.has(modelName)) return getShareContent();
+  return true;
+}
 
 // Global Mongoose plugin. Adds an optional `tenantId` to every model schema so
 // records can be scoped to an institute (tenant). Applied globally in
@@ -63,11 +80,14 @@ export default function tenantIdPlugin(schema) {
   // keeps per-institute isolation while sharing platform content.
   schema.pre(READ_OPS, function scopeRead() {
     if (isUnscoped()) return;
-    if (modelNameOfQuery(this) === "Tenant") return;
+    const model = modelNameOfQuery(this);
+    if (model === "Tenant") return;
     const tid = getCurrentTenantId();
     if (!tid) return; // no request context → don't scope (internal jobs)
     const q = this.getQuery();
-    if (q.tenantId === undefined) q.tenantId = { $in: [tid, null] };
+    // Include shared/platform (null-tenant) rows only when this institute is
+    // allowed to (see includesShared); otherwise restrict strictly to its own.
+    if (q.tenantId === undefined) q.tenantId = includesShared(model) ? { $in: [tid, null] } : tid;
   });
 
   // Auto-scope WRITES/DELETES strictly to the current institute. Shared/platform
@@ -86,15 +106,17 @@ export default function tenantIdPlugin(schema) {
   // Auto-scope aggregations by prepending a $match on tenantId.
   schema.pre("aggregate", function scopeAggregate() {
     if (isUnscoped()) return;
-    if (modelNameOfAggregate(this) === "Tenant") return;
+    const model = modelNameOfAggregate(this);
+    if (model === "Tenant") return;
     const tid = getCurrentTenantId();
     if (!tid) return;
     const pipeline = this.pipeline();
     // Don't double-add if the caller already matches tenantId first.
     const first = pipeline[0];
     if (first && first.$match && "tenantId" in first.$match) return;
-    // Include shared/platform (null-tenant) content — see scopeQuery above.
-    pipeline.unshift({ $match: { tenantId: { $in: [tid, null] } } });
+    // Include shared/platform (null-tenant) rows only when allowed (see scopeRead).
+    const match = includesShared(model) ? { tenantId: { $in: [tid, null] } } : { tenantId: tid };
+    pipeline.unshift({ $match: match });
   });
 
   // Stamp new documents with the current tenant on save().
