@@ -1,7 +1,8 @@
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 import Tenant from "../models/Tenant.js";
-import { runUnscoped, setCurrentTenantId, setUnscoped } from "../utils/tenantContext.js";
+import { runUnscoped, setCurrentTenantId, setUnscoped, setShareFlags } from "../utils/tenantContext.js";
+import { tenantShareFlags } from "../utils/tenantShare.js";
 import { planFlagsSync } from "../utils/siteFlags.js";
 
 // True when a client (creator) account's plans have been disabled site-wide —
@@ -29,14 +30,22 @@ export async function tenantSuspended(user) {
 //     on ONE institute by sending an X-Admin-Tenant: <tenantId> header.
 //   - everyone else (institute_admin / client / student): locked to their OWN
 //     tenant — a trusted source that overrides any client-sent X-Tenant-Host.
-function applyUserTenantScope(req, user) {
+async function applyUserTenantScope(req, user) {
   if (user.role === "admin") {
     const target = String(req.headers["x-admin-tenant"] || "").trim();
     if (/^[a-f0-9]{24}$/i.test(target)) setCurrentTenantId(target);
     else setUnscoped();
     return;
   }
-  if (user.tenantId) setCurrentTenantId(user.tenantId);
+  if (user.tenantId) {
+    setCurrentTenantId(user.tenantId);
+    // Refresh the platform-sharing flags for the user's OWN tenant. resolveTenant
+    // derived them from the host (the default tenant on the shared apex domain),
+    // so without this an institute with sharing OFF would still see the shared
+    // platform content when its admin uses the apex domain.
+    const flags = await tenantShareFlags(user.tenantId);
+    setShareFlags(flags.shareContent, flags.shareAiKeys);
+  }
 }
 
 // Verifies the JWT from the Authorization header and attaches req.user.
@@ -70,7 +79,7 @@ export async function protect(req, res, next) {
     if (await tenantSuspended(user)) {
       return res.status(403).json({ message: SUSPENDED_INSTITUTE_MESSAGE });
     }
-    applyUserTenantScope(req, user); // super-admin cross-tenant; others locked to own tenant
+    await applyUserTenantScope(req, user); // super-admin cross-tenant; others locked to own tenant
     req.user = user;
     next();
   } catch {
@@ -97,7 +106,7 @@ export async function attachUser(req, res, next) {
     if (user.status === "blocked") return res.status(403).json({ message: "Your account has been blocked" });
     if (user.deleted) return res.status(403).json({ message: "This account has been deleted" });
     if (await tenantSuspended(user)) return res.status(403).json({ message: SUSPENDED_INSTITUTE_MESSAGE });
-    applyUserTenantScope(req, user);
+    await applyUserTenantScope(req, user);
     req.user = user;
     next();
   } catch {
@@ -183,7 +192,7 @@ export async function optionalAuth(req, res, next) {
       const revoked = user && (decoded.tv || 0) !== (user.tokenVersion || 0); // stale token version → ignore
       if (user && !revoked && user.status !== "blocked" && !user.deleted && !expired && !suspended) {
         req.user = user;
-        applyUserTenantScope(req, user);
+        await applyUserTenantScope(req, user);
       }
     } catch {
       /* ignore invalid token for optional auth */
