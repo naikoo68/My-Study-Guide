@@ -54,8 +54,11 @@ export default function AdminInstitutes() {
   // Build the institute's best base URL: custom domain > subdomain > ?t=slug
   const instituteBaseUrl = (t) => {
     if (t.customDomain) return `https://${t.customDomain}`;
-    // ROOT_DOMAIN is set in the env — if subdomains are configured, use them.
-    // Otherwise fall back to the ?t=slug shareable link on the main domain.
+    // When subdomains are configured (ROOT_DOMAIN set, surfaced via settings),
+    // use the clean slug subdomain. Otherwise fall back to the ?t=slug shareable
+    // link on the main domain (still works before DNS is set up).
+    const root = settings?.rootDomain;
+    if (root) return `https://${t.slug}.${root}`;
     return `${window.location.origin}/?t=${t.slug}`;
   };
 
