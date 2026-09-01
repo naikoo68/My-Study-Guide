@@ -66,3 +66,9 @@ jobs:
           set -e
           for f in $(find src -name "*.js"); do node --check "$f"; done
           echo "All backend files passed syntax check."
+      # Security & correctness gate: runs the tenant-isolation tests (and any
+      # others) against an in-memory MongoDB. This is a HARD gate — a failure
+      # here blocks the merge/deploy, because a tenant-isolation regression is a
+      # data-leak between customers.
+      - name: Tests (tenant isolation & security)
+        run: npm test
