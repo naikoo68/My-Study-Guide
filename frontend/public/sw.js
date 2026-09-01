@@ -1,11 +1,20 @@
 /* Simple, dependency-free service worker for the installable PWA.
-   - Precaches the app shell (index.html) so the app opens offline.
-   - Same-origin static assets: stale-while-revalidate.
-   - Navigations: network-first, fall back to the cached shell when offline.
-   - Cross-origin requests (the API on Render, any CDN) are NEVER intercepted,
-     so live data always comes fresh from the network.
+
+   Update strategy (fixes "stale app after a deploy"):
+   - HTML / navigations: NETWORK-FIRST with `cache: "no-store"`, so every load
+     fetches the freshest index.html. Because Vite emits content-hashed asset
+     filenames, fresh HTML always points at the new bundle — so a new release is
+     picked up on the very next load instead of after a second reload. Falls back
+     to the cached shell only when offline.
+   - Static assets (content-hashed JS/CSS/images/fonts): CACHE-FIRST. Their
+     filenames change every build, so cached copies are immutable and safe to
+     serve instantly; a cache miss (i.e. a new build's files) goes to the network
+     and is then cached for offline use.
+   - Cross-origin requests (the API, any CDN) are NEVER intercepted, so live data
+     always comes fresh from the network.
+
    Bump CACHE when you want every client to drop old cached assets. */
-const CACHE = "msg-pwa-v4";
+const CACHE = "msg-pwa-v5";
 const SHELL = "/index.html";
 
 self.addEventListener("install", (event) => {
@@ -37,25 +46,41 @@ self.addEventListener("fetch", (event) => {
   // Only handle our own origin — never touch the API or third-party CDNs.
   if (url.origin !== self.location.origin) return;
 
-  // App navigations (page loads/refreshes): try the network, fall back to the
-  // cached shell so the app still opens offline (HashRouter handles the route).
-  if (req.mode === "navigate") {
-    event.respondWith(fetch(req).catch(() => caches.match(SHELL)));
+  // App navigations / HTML documents: always try the freshest copy from the
+  // network (bypassing the HTTP cache) so a new deploy's asset references are
+  // used immediately. Cache the shell for offline, and fall back to it when the
+  // network is unavailable (HashRouter handles the in-app route).
+  const isHTML = req.mode === "navigate" || req.destination === "document";
+  if (isHTML) {
+    event.respondWith(
+      (async () => {
+        try {
+          const res = await fetch(req, { cache: "no-store" });
+          const cache = await caches.open(CACHE);
+          cache.put(SHELL, res.clone()).catch(() => {});
+          return res;
+        } catch {
+          return (await caches.match(SHELL)) || new Response("", { status: 504, statusText: "Offline" });
+        }
+      })()
+    );
     return;
   }
 
-  // Static assets (JS/CSS/images/fonts): serve cached instantly, refresh in bg.
+  // Content-hashed static assets: serve cached instantly (immutable), otherwise
+  // fetch from the network and cache for next time / offline use.
   event.respondWith(
     (async () => {
       const cache = await caches.open(CACHE);
       const cached = await cache.match(req);
-      const network = fetch(req)
-        .then((res) => {
-          if (res && res.status === 200 && res.type === "basic") cache.put(req, res.clone());
-          return res;
-        })
-        .catch(() => cached);
-      return cached || network;
+      if (cached) return cached;
+      try {
+        const res = await fetch(req);
+        if (res && res.status === 200 && res.type === "basic") cache.put(req, res.clone());
+        return res;
+      } catch {
+        return cached || new Response("", { status: 504, statusText: "Offline" });
+      }
     })()
   );
 });
