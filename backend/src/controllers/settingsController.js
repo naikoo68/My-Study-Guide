@@ -64,6 +64,34 @@ async function getOrCreate() {
   return Settings.create({ key: "site" });
 }
 
+// The settings doc that WRITES must target: strictly the CURRENT tenant's OWN
+// doc. findSite()/getOrCreate() fall back to the default/legacy doc for READS
+// (so a public visitor still sees platform branding), but a write must never
+// land on — or be scoped away from — another tenant's doc.
+//
+// Why this matters: PUT /settings used to capture getOrCreate() (which could
+// return the DEFAULT tenant's doc for an institute with no doc yet) and then
+// findByIdAndUpdate(that._id, …). The tenantId plugin forces tenantId=current
+// on writes, so the _id matched but the tenant didn't → the update silently
+// hit 0 rows and was LOST. That's why an institute admin's onboardingCompleted
+// (and other saves) never stuck and the setup wizard kept returning. We now
+// resolve/create the caller's OWN doc and save() it, which the plugin stamps to
+// the right tenant instead of filtering away.
+async function getOrCreateOwn() {
+  const tenantId = getCurrentTenantId();
+  if (tenantId) {
+    const mine = await Settings.findOne({ key: "site", tenantId });
+    if (mine) return mine;
+    const t = await Tenant.findById(tenantId).select("name isDefault").lean();
+    // A real institute starts from a clean seed; the platform/default tenant
+    // keeps the full schema defaults.
+    return Settings.create(t && !t.isDefault ? cleanTenantSeed(t.name) : { key: "site" });
+  }
+  // No tenant context (super-admin unscoped / single-tenant): use the normal
+  // resolver, creating a default doc if needed.
+  return getOrCreate();
+}
+
 // Never send the Facebook access token to the browser. Replace it with a
 // boolean (fbTokenSet) so the admin UI can show "saved" without exposing it.
 function safeSettings(s) {
@@ -84,12 +112,11 @@ export async function getSettings(req, res) {
 
 // PUT /api/settings — admin only
 export async function updateSettings(req, res) {
-  // Ensure the settings doc already exists (clean-seeded for institutes) BEFORE
-  // the update below, so a first-save by an institute admin can't trigger the
-  // upsert's setDefaultsOnInsert and re-introduce the platform demo content.
-  // Capture it so the write below targets THIS site's exact doc (not an
-  // arbitrary {key:"site"} match, which could be another tenant on Oracle).
-  const site = await getOrCreate();
+  // Resolve THIS caller's OWN settings doc (created clean-seeded if it doesn't
+  // exist yet). Using getOrCreateOwn — NOT getOrCreate — is what makes an
+  // institute admin's save land on their own doc instead of silently hitting 0
+  // rows on the default tenant's doc (see getOrCreateOwn's note).
+  const site = await getOrCreateOwn();
 
   const allowed = [
     "siteName", "tagline", "logoUrl", "primaryColor", "accentColor",
@@ -125,8 +152,7 @@ export async function updateSettings(req, res) {
   // Extra cross-post Pages: keep each page's saved token when the UI submits a
   // blank one (tokens are never sent to the browser, so blank = "unchanged").
   if (Array.isArray(update.fbExtraTargets)) {
-    const current = await getOrCreate();
-    const savedTokens = new Map((current.fbExtraTargets || []).map((t) => [String(t.pageId), t.token]));
+    const savedTokens = new Map((site.fbExtraTargets || []).map((t) => [String(t.pageId), t.token]));
     update.fbExtraTargets = update.fbExtraTargets
       .map((t) => {
         const pageId = String(t?.pageId || "").trim();
@@ -275,7 +301,12 @@ export async function updateSettings(req, res) {
       });
   }
 
-  const s = await Settings.findByIdAndUpdate(site._id, update, { new: true });
+  // Write via the resolved document itself (site is the CURRENT tenant's own
+  // doc). Using .save() means the tenantId plugin keeps/stamps the correct
+  // tenant, instead of a findByIdAndUpdate whose write-scoping could filter the
+  // row out and silently drop the update (the bug that stopped saves sticking).
+  site.set(update);
+  const s = await site.save();
   res.json(safeSettings(s));
 }
 
