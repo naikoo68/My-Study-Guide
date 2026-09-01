@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { School, Plus, UserPlus, X, Search, CheckCircle2, Ban, Users, FileStack, HelpCircle, Store, ShieldCheck, Globe, Copy, Trash2, AlertTriangle, ListChecks, Eye, EyeOff } from "lucide-react";
+import { School, Plus, UserPlus, X, Search, CheckCircle2, Ban, Users, FileStack, HelpCircle, Store, ShieldCheck, Globe, Copy, Trash2, AlertTriangle, ListChecks, Eye, EyeOff, ExternalLink } from "lucide-react";
 import { tenantService } from "../../services";
 import { INSTITUTE_FEATURES } from "../../lib/instituteFeatures";
 import { useAuth } from "../../context/AuthContext";
@@ -47,19 +47,22 @@ export default function AdminInstitutes() {
 
   const flash = (m) => { setToast(m); setTimeout(() => setToast(""), 2800); };
 
-  // Build & copy the shareable public portal link for an institute. Until each
-  // institute has its own custom domain, students reach it via ?t=<slug> on the
-  // main site (the API layer sends that slug so the visitor sees this
-  // institute's branding & data). Falls back to a hidden textarea on older /
-  // non-secure mobile browsers where navigator.clipboard is unavailable.
-  const copyLink = async (t) => {
-    const link = `${window.location.origin}/?t=${t.slug}`;
+  // Build the institute's best base URL: custom domain > subdomain > ?t=slug
+  const instituteBaseUrl = (t) => {
+    if (t.customDomain) return `https://${t.customDomain}`;
+    // ROOT_DOMAIN is set in the env — if subdomains are configured, use them.
+    // Otherwise fall back to the ?t=slug shareable link on the main domain.
+    return `${window.location.origin}/?t=${t.slug}`;
+  };
+
+  // Copy any text to clipboard, with a fallback for older/mobile browsers.
+  const copyToClipboard = async (text) => {
     try {
       if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(link);
+        await navigator.clipboard.writeText(text);
       } else {
         const ta = document.createElement("textarea");
-        ta.value = link;
+        ta.value = text;
         ta.style.position = "fixed";
         ta.style.opacity = "0";
         document.body.appendChild(ta);
@@ -68,9 +71,8 @@ export default function AdminInstitutes() {
         document.execCommand("copy");
         document.body.removeChild(ta);
       }
-      flash("Public link copied.");
     } catch {
-      flash(link); // clipboard blocked — at least show the link so it can be copied by hand
+      flash(text); // clipboard blocked — show the text so it can be copied manually
     }
   };
 
@@ -359,11 +361,36 @@ export default function AdminInstitutes() {
               </div>
 
               <div className="mt-2 flex flex-col gap-1.5">
+                {/* Institute URLs — the public site and admin panel for THIS institute */}
+                {!t.isDefault && (() => {
+                  const base = instituteBaseUrl(t);
+                  const pub = base;
+                  const admin = base.includes("?t=") ? `${base.split("?")[0]}admin?t=${t.slug}` : `${base}/admin`;
+                  return (
+                    <>
+                      <div className="flex items-center gap-1.5">
+                        <a href={pub} target="_blank" rel="noopener noreferrer" className="inline-flex min-w-0 items-center gap-1 truncate text-xs font-medium text-brand-600 hover:underline dark:text-brand-400" title={pub}>
+                          <Globe className="h-3.5 w-3.5 flex-shrink-0" /> Public website
+                        </a>
+                        <button onClick={() => { copyToClipboard(pub); flash("Public site URL copied."); }} title="Copy public site URL" className="flex-shrink-0 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800">
+                          <Copy className="h-3 w-3" />
+                        </button>
+                        <span className="min-w-0 truncate text-[10px] text-slate-400">{pub.replace(/^https?:\/\//, "")}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <a href={admin} target="_blank" rel="noopener noreferrer" className="inline-flex min-w-0 items-center gap-1 truncate text-xs font-medium text-brand-600 hover:underline dark:text-brand-400" title={admin}>
+                          <ExternalLink className="h-3.5 w-3.5 flex-shrink-0" /> Admin panel
+                        </a>
+                        <button onClick={() => { copyToClipboard(admin); flash("Admin panel URL copied."); }} title="Copy admin panel URL" className="flex-shrink-0 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800">
+                          <Copy className="h-3 w-3" />
+                        </button>
+                        <span className="min-w-0 truncate text-[10px] text-slate-400">{admin.replace(/^https?:\/\//, "")}</span>
+                      </div>
+                    </>
+                  );
+                })()}
                 <button onClick={() => openDomain(t)} className="inline-flex max-w-full items-center gap-1 truncate text-xs font-medium text-brand-600 hover:underline dark:text-brand-400">
-                  <Globe className="h-3.5 w-3.5 flex-shrink-0" /> {t.customDomain ? t.customDomain : "Add custom domain"}
-                </button>
-                <button onClick={() => copyLink(t)} className="inline-flex max-w-full items-center gap-1 truncate text-xs font-medium text-slate-500 hover:underline dark:text-slate-400">
-                  <Copy className="h-3.5 w-3.5 flex-shrink-0" /> Copy public link
+                  <Globe className="h-3.5 w-3.5 flex-shrink-0" /> {t.customDomain ? `Domain: ${t.customDomain}` : "Add custom domain"}
                 </button>
                 {!t.isDefault && (
                   <button onClick={() => openFeatures(t)} className="inline-flex max-w-full items-center gap-1 truncate text-xs font-medium text-brand-600 hover:underline dark:text-brand-400">
