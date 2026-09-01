@@ -88,6 +88,12 @@ export function SettingsProvider({ children }) {
     const cached = localStorage.getItem("msg-settings");
     return withDefaults(cached ? JSON.parse(cached) : {});
   });
+  // Whether we've refreshed settings from the SERVER yet. The cached copy in
+  // localStorage is shared across sessions on one browser (e.g. a super-admin's
+  // then an institute admin's), so decisions that depend on the CURRENT user's
+  // settings — like the first-run wizard — should wait for the server refresh
+  // instead of trusting a possibly-stale cross-account cache.
+  const [loaded, setLoaded] = useState(false);
 
   const apply = useCallback((s) => {
     setSettings(s);
@@ -103,7 +109,8 @@ export function SettingsProvider({ children }) {
     settingsService
       .get()
       .then((s) => apply(withDefaults(s)))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setLoaded(true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -115,7 +122,7 @@ export function SettingsProvider({ children }) {
   };
 
   return (
-    <SettingsContext.Provider value={{ settings, save }}>
+    <SettingsContext.Provider value={{ settings, save, loaded }}>
       {children}
     </SettingsContext.Provider>
   );

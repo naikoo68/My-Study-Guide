@@ -103,11 +103,12 @@ export default function AdminLayout() {
   }, [open]);
   const { theme, toggleTheme } = useTheme();
   const { user, logout } = useAuth();
-  const { settings } = useSettings();
+  const { settings, loaded: settingsLoaded } = useSettings();
   // First-run setup wizard: auto-opens for a fresh institute admin until they
   // finish it. Never shown to the platform super-admin (role "admin").
   const [wizardDone, setWizardDone] = useState(false);
   const showOnboarding =
+    settingsLoaded && // wait for the server refresh so we don't act on a stale cross-account cache
     user?.role === "institute_admin" &&
     settings?.onboardingCompleted !== true &&
     settings?.onboardingDismissed !== true && // closing it once ("finish later") won't nag on every reload
