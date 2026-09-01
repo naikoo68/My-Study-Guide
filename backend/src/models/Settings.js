@@ -130,6 +130,11 @@ const settingsSchema = new mongoose.Schema(
     // company/contact and policy setup right after signup. Set true once they
     // finish (or skip the optional final step) so it won't auto-open again.
     onboardingCompleted: { type: Boolean, default: false },
+    // Set when the institute admin CLOSES the setup wizard ("finish later").
+    // Like onboardingCompleted it stops the wizard auto-opening again, but keeps
+    // the two states distinct: completed = went through the steps; dismissed =
+    // chose to close it. Either one suppresses the auto-open.
+    onboardingDismissed: { type: Boolean, default: false },
     // Per-institute legal/resource page content. When set, the Privacy / Terms /
     // Refund pages render this text instead of the generic default copy.
     privacyPolicy: { type: String, default: "" },

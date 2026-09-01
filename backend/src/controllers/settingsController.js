@@ -102,7 +102,7 @@ export async function updateSettings(req, res) {
     "featureFlags", "publicFeatureFlags",
     "homeSections",
     "clientAnnouncement",
-    "onboardingCompleted",
+    "onboardingCompleted", "onboardingDismissed",
     "privacyPolicy", "termsOfService", "refundPolicy",
     "aboutHeading", "aboutIntro", "aboutValues", "aboutStats", "testimonials", "faqs",
     "aiMaxPerBatch", "clientPlans", "studentPlans", "tenantPlans",

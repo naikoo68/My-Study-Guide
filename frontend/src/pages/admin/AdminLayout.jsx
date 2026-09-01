@@ -107,7 +107,11 @@ export default function AdminLayout() {
   // First-run setup wizard: auto-opens for a fresh institute admin until they
   // finish it. Never shown to the platform super-admin (role "admin").
   const [wizardDone, setWizardDone] = useState(false);
-  const showOnboarding = user?.role === "institute_admin" && settings?.onboardingCompleted !== true && !wizardDone;
+  const showOnboarding =
+    user?.role === "institute_admin" &&
+    settings?.onboardingCompleted !== true &&
+    settings?.onboardingDismissed !== true && // closing it once ("finish later") won't nag on every reload
+    !wizardDone;
   const navigate = useNavigate();
   const location = useLocation();
 

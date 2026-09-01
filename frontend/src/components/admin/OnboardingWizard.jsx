@@ -152,6 +152,15 @@ export default function OnboardingWizard({ onDone, onClose }) {
     else { setError(""); setStep(5); }
   };
 
+  // Close for now ("finish later"). Persist a dismissed flag so the wizard does
+  // NOT auto-open again on every reload/login (it used to, which was naggy). The
+  // institute can still finish branding anytime from Customization. Best-effort:
+  // even if the save fails we still close so the admin is never stuck.
+  const dismiss = async () => {
+    try { await save({ onboardingDismissed: true }); } catch { /* still close */ }
+    onClose?.();
+  };
+
   // Mark the wizard finished (called on step 5). Optionally jump to a build page.
   const finish = async (goTo) => {
     setSaving(true); setError("");
@@ -185,15 +194,16 @@ export default function OnboardingWizard({ onDone, onClose }) {
   return (
     <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/60 p-3 sm:p-6">
       <div className="relative my-4 w-full max-w-2xl animate-scale-in card p-5 sm:p-7">
-        {/* Close — dismisses the wizard for now WITHOUT marking setup finished,
-            so it reappears next time the institute admin opens the panel (until
-            they actually complete it). */}
+        {/* Close — dismisses the wizard and REMEMBERS it (onboardingDismissed),
+            so it won't auto-open again on every reload/login. Setup can still be
+            finished later from Customization. */}
         {onClose && (
           <button
             type="button"
-            onClick={onClose}
+            onClick={dismiss}
+            disabled={saving}
             aria-label="Close for now"
-            title="Close for now — you can finish this later"
+            title="Close — you can finish setup later from Customization"
             className="absolute right-3 top-3 rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
           >
             <X className="h-5 w-5" />
