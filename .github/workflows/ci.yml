@@ -54,7 +54,15 @@ jobs:
       # on the runner after the MongoDB->DynamoDB dependency change. Run
       # `npm install` locally once and commit backend/package-lock.json for
       # fully reproducible installs.
-      - run: npm install
+      #
+      # --legacy-peer-deps: the AWS SDK v3 packages (@aws-sdk/client-dynamodb and
+      # @aws-sdk/lib-dynamodb) are released in lockstep and only pinned here to a
+      # floating `^3.658.0`. When the registry briefly serves a newer lib-dynamodb
+      # than the resolved client-dynamodb, lib-dynamodb's strict peer range
+      # (^3.<newer>) makes a default install fail with ERESOLVE even though the two
+      # work together. Skipping strict peer resolution keeps the install (and the
+      # security tests below) reliable.
+      - run: npm install --legacy-peer-deps
       # Security: flag known-vulnerable dependencies. Advisory — prints findings
       # to the log but NEVER blocks the build (continue-on-error). Review and fix
       # highs/criticals when convenient (e.g. `npm audit fix`).
