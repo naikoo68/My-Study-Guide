@@ -105,7 +105,7 @@ export default function AdminDashboard() {
             </div>
             <div className="rounded-xl bg-slate-50 p-5 dark:bg-slate-800/60">
               <p className="text-sm text-slate-500">Published Tests</p>
-              <p className="mt-1 text-3xl font-extrabold text-violet-600">{data.totalTests}</p>
+              <p className="mt-1 text-3xl font-extrabold text-violet-600">{data.publishedTests ?? 0}</p>
             </div>
           </div>
         </div>
