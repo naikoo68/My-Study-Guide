@@ -69,13 +69,27 @@ async function request(path, { method = "GET", body, auth = true, headers = {}, 
   // host, so the visitor sees that institute's branding & data. For logged-in
   // users the server still binds scope to their OWN tenant, so this can't leak
   // another institute's private data.
+  // STICKY for the browser tab (sessionStorage): the ?t= query param only lives
+  // on the landing URL, but SPA navigation (e.g. to /practice or /public-quizzes)
+  // drops it — which would then fall back to the HOST (the apex = your default/
+  // platform institute) and wrongly show YOUR content on an institute's public
+  // site. Persisting the slug keeps every request scoped to that institute for
+  // the whole visit. Authenticated requests ignore this (the server binds scope
+  // to the logged-in user's OWN tenant), so it only affects public reads.
   try {
-    if (typeof window !== "undefined" && window.location?.search) {
-      const slug = new URLSearchParams(window.location.search).get("t");
-      if (slug && slug.trim()) finalHeaders["X-Tenant"] = slug.trim().toLowerCase();
+    if (typeof window !== "undefined") {
+      const fromUrl = window.location?.search ? new URLSearchParams(window.location.search).get("t") : null;
+      let slug = "";
+      if (fromUrl && fromUrl.trim()) {
+        slug = fromUrl.trim().toLowerCase();
+        try { sessionStorage.setItem("mpm-tenant-slug", slug); } catch { /* storage blocked */ }
+      } else {
+        try { slug = sessionStorage.getItem("mpm-tenant-slug") || ""; } catch { /* storage blocked */ }
+      }
+      if (slug) finalHeaders["X-Tenant"] = slug;
     }
   } catch {
-    /* ignore — no query param available */
+    /* ignore — no query param / storage available */
   }
 
   // If the caller passed an already-aborted signal, bail immediately.
