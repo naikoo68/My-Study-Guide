@@ -568,6 +568,17 @@ export const tenantService = {
   remove: (id) => api.del(`/tenants/${id}`), // permanently delete an institute + all its data
 };
 
+// ---- Share platform content INTO institutes (super-admin only) ----
+// Copies a whole content node (a Stream, or an Exam for Public Test Series) and
+// everything under it into the chosen institute account(s) as their own
+// editable copy — it appears automatically (no accept step). Runs as a
+// background job the caller polls for progress.
+export const instituteShareService = {
+  // { area: "my-quiz"|"my-test"|"public-quiz"|"public-test", id, all?, tenantIds? }
+  share: (data) => api.post("/institute-share", data),
+  job: (id) => api.get(`/institute-share/job/${id}`),
+};
+
 // ---- Public institute self-signup (Phase 5) ----
 export const instituteSignupService = {
   config: () => api.get("/institute-signup/config", { auth: false }), // { enabled, payEnabled, keyId, plans }
