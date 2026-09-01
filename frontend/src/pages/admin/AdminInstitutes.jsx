@@ -40,6 +40,10 @@ export default function AdminInstitutes() {
   const [savingFeatures, setSavingFeatures] = useState(false);
   // Platform-sharing switches (default OFF): whether an institute may use the
   // super-admin's shared content library and/or AI-key pool.
+  // HIDDEN FOR NOW: we've moved to copy-based "Share to institutes". The legacy
+  // live-sharing UI (global dialog + per-card My content / My APIs toggles) is
+  // kept in the code but hidden. Flip this to true to bring it back later.
+  const SHOW_PLATFORM_SHARING = false;
   const [sharingBusy, setSharingBusy] = useState(""); // `${id}:${field}` currently toggling
   const [sharingAllOpen, setSharingAllOpen] = useState(false);
   const [sharingAllForm, setSharingAllForm] = useState({ shareContent: false, shareAiKeys: false });
@@ -311,9 +315,11 @@ export default function AdminInstitutes() {
           <button onClick={openFeaturesAll} className="btn-outline">
             <ListChecks className="h-4 w-4" /> Manage access (all)
           </button>
-          <button onClick={openSharingAll} title="Control whether institutes may use YOUR platform content library and AI keys. Default is OFF." className="btn-outline">
-            <ShieldCheck className="h-4 w-4" /> Platform sharing (all)
-          </button>
+          {SHOW_PLATFORM_SHARING && (
+            <button onClick={openSharingAll} title="Control whether institutes may use YOUR platform content library and AI keys. Default is OFF." className="btn-outline">
+              <ShieldCheck className="h-4 w-4" /> Platform sharing (all)
+            </button>
+          )}
           <button onClick={() => { setForm(blankTenant); setError(""); setCreateOpen(true); }} className="btn-primary">
             <Plus className="h-4 w-4" /> New Institute
           </button>
@@ -400,8 +406,9 @@ export default function AdminInstitutes() {
               </div>
 
               {/* Platform-sharing switches (default OFF). Off = this institute uses
-                  only its OWN content / AI keys; On = it may use yours. */}
-              {!t.isDefault && (
+                  only its OWN content / AI keys; On = it may use yours.
+                  Hidden for now (see SHOW_PLATFORM_SHARING) — kept for later. */}
+              {SHOW_PLATFORM_SHARING && !t.isDefault && (
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   <button
                     onClick={() => toggleSharing(t, "shareContent")}
