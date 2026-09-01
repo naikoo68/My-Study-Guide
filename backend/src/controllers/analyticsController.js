@@ -78,7 +78,7 @@ export async function publicStats(req, res) {
     contentTopics, practiceTopics,
     contentStreams, practiceStreams,
     contentExams, practiceExams,
-    publicStreams, publicSubjects, publicTopics,
+    publicStreams, publicSubjects, publicTopics, publicQuizzes, publicQuestions,
     attempts,
     clientQuizzes, clientTests, clientQuestions,
   ] = await Promise.all([
@@ -108,6 +108,10 @@ export async function publicStats(req, res) {
     Stream.countDocuments(PUBLIC_CONTENT),
     Subject.countDocuments(PUBLIC_CONTENT),
     Topic.countDocuments(PUBLIC_CONTENT),
+    Quiz.countDocuments(PUBLIC_CONTENT),
+    // Public questions = platform-owned (owner null), published, not deleted —
+    // excludes drafts and private client questions.
+    Question.countDocuments({ owner: null, status: "published", deleted: { $ne: true } }),
     Attempt.countDocuments(),
     // The separate "all clients combined" block — client-owned only (admin).
     TestSeries.countDocuments({ owner: { $in: clientIds }, practiceKind: "quiz" }),
@@ -129,7 +133,7 @@ export async function publicStats(req, res) {
   res.set("Cache-Control", "no-store");
   res.json({
     students, users, clients, quizzes, tests, questions, subjects, topics, streams, exams, attempts,
-    publicStreams, publicSubjects, publicTopics, publicExams,
+    publicStreams, publicSubjects, publicTopics, publicExams, publicQuizzes, publicQuestions,
     clientQuizzes, clientTests, clientQuestions,
   });
 }
