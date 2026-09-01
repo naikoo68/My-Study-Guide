@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { School, User, Mail, Lock, Globe, Eye, EyeOff, Loader2, AlertCircle, Check, Tag, Gift, ShieldCheck, ArrowRight } from "lucide-react";
+import { School, User, Mail, Lock, Globe, Eye, EyeOff, Loader2, AlertCircle, Check, Tag, Gift, ShieldCheck, ArrowRight, Copy, ExternalLink } from "lucide-react";
 import AuthShell from "../../components/auth/AuthShell";
 import AccountTypeTabs from "../../components/auth/AccountTypeTabs";
 import PlanPicker from "../../components/client/PlanPicker";
@@ -243,19 +243,54 @@ export default function InstituteRegister() {
   }
 
   if (done) {
+    // Build the institute's own URLs from its slug on the platform's root domain
+    // (strip a leading "www."). Public site + admin, e.g.:
+    //   https://my-abc-academy.mystudyguide.in        (public)
+    //   https://my-abc-academy.mystudyguide.in/admin  (admin)
+    // Prefer the clean slug subdomain when subdomains are configured
+    // (settings.rootDomain); otherwise use the ?t=slug link that works today.
+    const root = (settings?.rootDomain || "").trim();
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const usingSubdomain = !!(root && done.slug);
+    const publicUrl = usingSubdomain
+      ? `https://${done.slug}.${root}`
+      : (done.slug ? `${origin}/?t=${done.slug}` : "");
+    const adminUrl = !publicUrl
+      ? ""
+      : (usingSubdomain ? `${publicUrl}/admin` : `${origin}/admin?t=${done.slug}`);
+    const copy = (t) => { try { navigator.clipboard?.writeText(t); } catch { /* clipboard blocked */ } };
+    const UrlRow = ({ label, url }) => (
+      <div className="rounded-xl border border-slate-200 p-3 text-left dark:border-slate-700">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</p>
+        <div className="mt-1 flex items-center gap-2">
+          <a href={url} target="_blank" rel="noreferrer" className="flex-1 truncate text-sm font-medium text-brand-600 hover:underline dark:text-brand-400">{url}</a>
+          <a href={url} target="_blank" rel="noreferrer" className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" title="Open"><ExternalLink className="h-4 w-4" /></a>
+          <button type="button" onClick={() => copy(url)} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" title="Copy link"><Copy className="h-4 w-4" /></button>
+        </div>
+      </div>
+    );
     return (
       <AuthShell title="Your institute is ready! 🎉">
-        <div className="card p-6 text-center">
-          <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-300">
-            <Check className="h-8 w-8" />
-          </span>
-          <h2 className="mt-4 text-lg font-extrabold">{form.name} is set up</h2>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Your space{done.slug ? <> (<b>{done.slug}</b>)</> : null} is live and you're signed in as its admin.
-          </p>
+        <div className="card p-6">
+          <div className="text-center">
+            <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-300">
+              <Check className="h-8 w-8" />
+            </span>
+            <h2 className="mt-4 text-lg font-extrabold">{form.name} is set up</h2>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">You're signed in as its admin. These are your institute's links:</p>
+          </div>
+          {publicUrl && (
+            <div className="mt-5 space-y-3">
+              <UrlRow label="Public website (share with students)" url={publicUrl} />
+              <UrlRow label="Admin panel (for you)" url={adminUrl} />
+            </div>
+          )}
           <button onClick={() => navigate("/admin")} className="btn-primary mt-5 w-full">
             Go to your admin panel <ArrowRight className="h-4 w-4" />
           </button>
+          <p className="mt-3 text-center text-xs text-slate-400">
+            Bookmark your admin link, and share the public link with your students.{usingSubdomain ? " Your subdomain activates within a few minutes." : ""}
+          </p>
         </div>
       </AuthShell>
     );

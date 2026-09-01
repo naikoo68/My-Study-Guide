@@ -113,6 +113,9 @@ export async function getSettings(req, res) {
   // an institute site (registering a NEW institute belongs only on the platform
   // site; Student and Creator still belong on an institute site).
   s.isDefaultTenant = !req.tenant || req.tenant.isDefault === true;
+  // The platform root domain (when subdomains are configured), so the frontend
+  // can build clean per-institute URLs (slug.rootDomain) instead of ?t=slug.
+  s.rootDomain = (process.env.ROOT_DOMAIN || "").replace(/^\./, "").toLowerCase();
   res.json(s);
 }
 
