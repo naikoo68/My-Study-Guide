@@ -4,6 +4,7 @@ import TestSeries from "../models/TestSeries.js";
 import PracticeExam from "../models/PracticeExam.js";
 import PracticeStream from "../models/PracticeStream.js";
 import { softDeletePatch } from "../utils/softDelete.js";
+import { platformContentFilter } from "../utils/platformScope.js";
 
 // Count documents grouped by a reference field, returned as { id: count }.
 async function countBy(Model, ids, field) {
@@ -25,13 +26,16 @@ async function countBy(Model, ids, field) {
 //     published quizzes → link to the practice browser.
 // So a practice exam the admin adds shows up here too, not only under My Quiz.
 export async function listExams(req, res) {
-  const exams = await Exam.find().sort("order name").lean();
+  // Super-admin browses unscoped; restrict to the platform's OWN exams so
+  // institutes' shared copies don't leak into the admin's Test Series list.
+  const platform = await platformContentFilter(req);
+  const exams = await Exam.find({ ...platform }).sort("order name").lean();
   const map = await countBy(ExamPost, exams.map((e) => e._id), "exam");
   const mainExams = exams.map((e) => ({ ...e, posts: map[String(e._id)] || 0 }));
 
   // Platform (owner:null) practice exams that are live and hold ≥1 published,
   // non-disabled quiz — and whose parent stream isn't disabled.
-  const pExams = await PracticeExam.find({ owner: null, isActive: true, disabled: { $ne: true } }).sort("order name").lean();
+  const pExams = await PracticeExam.find({ owner: null, isActive: true, disabled: { $ne: true }, ...platform }).sort("order name").lean();
   let practiceExams = [];
   if (pExams.length) {
     const streamIds = [...new Set(pExams.map((e) => String(e.stream)).filter(Boolean))];
