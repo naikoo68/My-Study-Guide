@@ -236,10 +236,18 @@ export async function platformAnalytics(req, res) {
     const since = Date.now() - 24 * 60 * 60 * 1000;
 
     // One scan per table, in parallel.
-    const [users, attempts, totalTests] = await Promise.all([
+    const [users, attempts, totalTests, publishedTests] = await Promise.all([
       User.find({}).select("plan").lean(), // Users ×1
       Attempt.find({}).select("user percentage createdAt").lean(), // Attempts ×1
-      TestSeries.countDocuments(), // TestSeries ×1
+      // "Tests" here means REAL test series only. My-Practice items (Quizzes /
+      // Tests / Papers, practice=true) are counted separately by the
+      // content-overview endpoint and shown under "My Practice". Counting them
+      // here wrongly inflated "Total Tests"/"Published Tests" (e.g. an institute
+      // with 0 real tests showed 355 because it had 355 shared practice quizzes).
+      TestSeries.countDocuments({ practice: { $ne: true } }),
+      // "Published Tests" must actually be published — the dashboard previously
+      // reused the raw total for this label, so drafts/scheduled were counted.
+      TestSeries.countDocuments({ practice: { $ne: true }, status: "published" }),
     ]);
 
     // Plan distribution (mirrors the old $group by "$plan").
@@ -267,6 +275,7 @@ export async function platformAnalytics(req, res) {
       totalUsers: users.length,
       activeUsers: activeUsers.size,
       totalTests,
+      publishedTests,
       totalAttempts: attempts.length,
       planDistribution,
       avgScore: Math.round(pctCount ? pctSum / pctCount : 0),
