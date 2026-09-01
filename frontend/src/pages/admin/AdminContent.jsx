@@ -513,6 +513,41 @@ export default function AdminContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scanOpen, scanMissing, scanCounts, scanTypes, globalMix, seqProgress]);
 
+  // ── Resume a saved AI session ───────────────────────────────────────────
+  // The AI generator checkpoints its work to localStorage keyed by the target
+  // (the quiz title, else the topic). Surface it HERE on the content page so you
+  // can SEE a session is waiting and jump straight back into it — instead of
+  // only discovering it after opening the generator. Uses the SAME key the
+  // generator restores from, so "Resume" lands on the same saved questions.
+  const [savedSession, setSavedSession] = useState(null); // { key, done, target, label } | null
+  const readSavedSession = useCallback(() => {
+    try {
+      const name = (quiz?.title || "") || (quiz?.aiTopic || topic?.title || "");
+      if (!name) return null;
+      const key = `mstg.genJob:${name}`;
+      const ck = JSON.parse(localStorage.getItem(key) || "null");
+      if (!ck || !Array.isArray(ck.preview) || !ck.preview.length) return null;
+      if (!ck.updatedAt || Date.now() - ck.updatedAt > 7 * 24 * 3600 * 1000) return null; // 7-day window (matches the generator)
+      const target = ck.matrix
+        ? Object.values(ck.matrix).reduce((s, dm) => s + Object.values(dm || {}).reduce((a, v) => a + (Number(v) || 0), 0), 0)
+        : ck.preview.length;
+      return { key, done: ck.preview.length, target, label: name };
+    } catch { return null; }
+  }, [quiz?.title, quiz?.aiTopic, topic?.title]);
+  useEffect(() => {
+    const refresh = () => setSavedSession(readSavedSession());
+    refresh();
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => { window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", refresh); };
+  }, [readSavedSession]);
+  const discardSavedSession = () => {
+    if (!savedSession) return;
+    if (!window.confirm("Discard the saved AI session for this topic? The generated questions kept in your browser will be removed.")) return;
+    try { localStorage.removeItem(savedSession.key); } catch { /* ignore */ }
+    setSavedSession(null);
+  };
+
   // Open the APP-LEVEL AI generator (hosted by AiModalProvider) so a minimized
   // generation keeps running and its pill stays visible even after navigating to
   // another admin section. Props are captured here at open time; the onUpload /
@@ -542,6 +577,7 @@ export default function AdminContent() {
       subjectName: subject?.name || "",
       onGenerationStart: () => ({ subjectId: subject?._id, sessionId: session?._id, quizId: aiTarget?.id || quiz?._id }),
       onUpload: (questions, opts = {}) => saveAiBatch(questions, opts),
+      onClose: () => setSavedSession(readSavedSession()), // refresh the page banner after insert/discard
     });
   };
   const openContentImport = () => {
@@ -1215,6 +1251,22 @@ export default function AdminContent() {
       </div>
 
       <div className="card px-4 py-3"><Crumb /></div>
+
+      {savedSession && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 dark:border-brand-900/50 dark:bg-brand-900/20">
+          <Sparkles className="h-5 w-5 flex-shrink-0 text-brand-600 dark:text-brand-300" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-brand-700 dark:text-brand-300">Resume your previous AI session</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {savedSession.done}{savedSession.target > savedSession.done ? ` of ${savedSession.target}` : ""} question(s) saved for “{savedSession.label}”. Pick up where you left off — no duplicates.
+            </p>
+          </div>
+          <button onClick={() => openContentGenerate()} className="btn-primary py-1.5 text-sm">
+            <Wand2 className="h-4 w-4" /> Resume previous session
+          </button>
+          <button onClick={discardSavedSession} className="btn-outline py-1.5 text-sm">Discard</button>
+        </div>
+      )}
 
       {loading ? (
         <Loading label={`Loading ${view}...`} />
