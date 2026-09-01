@@ -125,11 +125,16 @@ export default function ShareToInstitutesModal({ area, target, targets, onClose 
         {done ? (
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-300">
             <CheckCircle2 className="mr-1 inline h-4 w-4" />
-            Shared to <b>{done.results?.filter((r) => !r.error).length || done.targetsDone}</b> institute(s): copied <b>{done.itemsCopied}</b> quiz/test item(s) and <b>{done.questionsCopied}</b> question(s).
+            Copied <b>{done.itemsCopied}</b> quiz/test item(s) and <b>{done.questionsCopied}</b> question(s) across <b>{done.targetsDone}</b> institute(s).
             {done.results?.some((r) => r.error) ? (
-              <p className="mt-2 text-rose-600 dark:text-rose-300">
-                Some failed: {done.results.filter((r) => r.error).map((r) => r.name).join(", ")}.
-              </p>
+              <div className="mt-2 rounded-lg bg-rose-50 p-2 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">
+                <p className="font-semibold">Some items couldn't be copied:</p>
+                <ul className="mt-1 list-disc pl-5">
+                  {done.results.filter((r) => r.error).map((r) => (
+                    <li key={r.tenant}><b>{r.name}</b>: {r.error}</li>
+                  ))}
+                </ul>
+              </div>
             ) : null}
             <div className="mt-3 text-right"><button onClick={onClose} className="btn-outline py-1.5 text-xs">Done</button></div>
           </div>

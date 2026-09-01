@@ -69,8 +69,10 @@ async function runShareJob(jobId, { area, ids, targets }) {
         questions += r.questions;
         job.itemsCopied += r.items;
         job.questionsCopied += r.questions;
+        if (r.errors?.length) errors.push(...r.errors);
       } catch (e) {
         errors.push(e?.message || "Failed");
+        console.error("[instituteShare] source copy threw:", e?.stack || e);
       }
       job.updatedAt = Date.now();
     }
