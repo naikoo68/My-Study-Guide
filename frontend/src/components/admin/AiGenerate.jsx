@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { X, Minus, Sparkles, Wand2, CheckCircle2, AlertTriangle, Loader2, Server, KeyRound, ListChecks, Circle, Square, Bookmark, Trash2, Globe } from "lucide-react";
+import { X, Minus, Sparkles, Wand2, CheckCircle2, AlertTriangle, Loader2, Server, KeyRound, ListChecks, Circle, Square, Bookmark, Trash2, Globe, PictureInPicture2 } from "lucide-react";
 import { aiService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
+import { setActiveGenJob, patchActiveGenJob, clearActiveGenJob, getActiveGenJob } from "../../lib/activeGenJob";
+import { isPipSupported, startProgressPip, updateProgressPip, closeProgressPip } from "../../lib/pipProgress";
 import GraphView from "../ui/GraphView";
 import VizView from "../ui/VizView";
 import LanguageSelect from "./LanguageSelect";
@@ -85,6 +87,8 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
   const pendingDoneRef = useRef([]); // subtopics queued (via "Use selected") to hide after the next Generate
   const [inserting, setInserting] = useState(false);
   const [minimized, setMinimized] = useState(false); // collapsed to a floating pill — keeps generating in the background
+  const [pipOn, setPipOn] = useState(false); // progress popped out into a floating Picture-in-Picture window
+  const pipSupported = isPipSupported();
   const destSnapRef = useRef(null); // { subjectId, sessionId, quizId } captured at generation start, so a later Insert lands in the RIGHT place even after browsing away
   const wasBusyRef = useRef(false); // to detect the busy→idle transition (generation finished) for the completion notice
   const [msg, setMsg] = useState("");
@@ -305,6 +309,24 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  // Keep the floating PiP window (if popped out) in sync with live progress.
+  // Counts come from the global job pointer (updated by the poll loop); fall
+  // back to the preview length so it still reads sensibly before the first poll.
+  useEffect(() => {
+    if (!pipOn) return;
+    const rec = getActiveGenJob();
+    updateProgressPip({
+      count: rec?.count ?? preview.length,
+      requested: rec?.requested ?? 0,
+      done: !busy && preview.length > 0,
+      label: topic.trim() || currentTargetName || defaultTopic || "",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pipOn, busy, preview.length, msg]);
+
+  // Close the PiP window when the generator unmounts (it's fully closed).
+  useEffect(() => () => { closeProgressPip(); }, []);
+
   if (!open) return null;
 
   // Effective per-batch cap for THIS account — the admin's global limit or the
@@ -514,6 +536,20 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
       if (!jobId) { setMsg("Could not start generation."); return { produced: 0, errored: true }; }
       jobIdRef.current = jobId;
       saveCk({ jobId }); // remember the running job so a resume can cancel the orphan
+      // Publish a GLOBAL pointer to this job so the floating pill can re-attach
+      // and keep showing progress even after a full page reload (e.g. a mobile
+      // browser evicting the tab while you're in another app).
+      setActiveGenJob({
+        jobId,
+        ckKey,
+        targetName: currentTargetName || defaultTopic || "global",
+        label: topic.trim() || currentTargetName || defaultTopic || "AI generation",
+        requested: target || requested || 0,
+        count: priorTotal,
+        status: "running",
+        dest: destSnapRef.current || null,
+        source: isClient ? source : null,
+      });
       let done = false, result = { produced: 0, timedOut: true };
       for (let i = 0; i < 300 && !done; i++) {
         await sleep(2000);
@@ -542,6 +578,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
             producedByBucket[k] = (producedByBucket[k] || 0) + 1;
           }
           setLiveWave({});
+          patchActiveGenJob({ count: priorTotal + qs.length }); // reflect this wave's kept questions in the pill
           const batchStems = qs.map((q) => q.text).filter(Boolean);
           avoidLocal = Array.from(new Set([...avoidLocal, ...batchStems]));
           setAvoidStems(avoidLocal);
@@ -555,6 +592,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
           // this wave's live count), so it climbs 71 → … → target instead of
           // resetting to "0 of 500" each wave.
           const soFar = priorTotal + (s.count || 0);
+          patchActiveGenJob({ count: soFar, requested: target || requested || 0, status: "running" }); // keep the reload-surviving pill's progress current
           setMsg(stopRef.current ? `Stopping… keeping the ${soFar} generated so far` : `Generating… ${soFar} of ${target || requested} ready (${Math.max(0, (target || requested) - soFar)} to go)`);
         }
       }
@@ -665,6 +703,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
       setStopping(false);
       stopRef.current = false;
       jobIdRef.current = null;
+      patchActiveGenJob({ status: "done" }); // the run has ended — the pill flips to "ready" (questions are checkpointed)
     }
   };
 
@@ -756,7 +795,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
   // is seeded from the restored preview).
   const resumeGenerate = () => { setResumeAvail(null); generate(true, null, { resume: true }); };
   // Throw away a restored session (nothing was inserted).
-  const discardResume = () => { setPreview([]); clearCk(); setResumeAvail(null); setMsg(""); };
+  const discardResume = () => { setPreview([]); clearCk(); clearActiveGenJob(); setResumeAvail(null); setMsg(""); };
 
   const insert = async () => {
     if (!preview.length) return;
@@ -777,6 +816,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
       setMsg(`✓ Inserted ${res?.inserted ?? preview.length} question(s)${where}. Generate the next batch, or click Close when you're done.`);
       setPreview([]);
       clearCk(); // inserted → the checkpoint is no longer needed
+      clearActiveGenJob(); // inserted → the reload-surviving pill has nothing left to offer
       setResumeAvail(null);
       setNewName("");
       // Keep the chosen destination so the next batch appends to the same place.
@@ -810,6 +850,27 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
   // (the component stays mounted) while the rest of the page stays usable.
   // Restore to review/insert — Insert still targets the snapshotted destination.
   // (Placed here — after stop() is defined — to avoid a const TDZ reference.)
+  // Pop the progress out into a floating Picture-in-Picture window that stays on
+  // top of other apps / the home screen. Must run from this tap (PiP needs a
+  // user gesture). On desktop the PiP window's own Open/Stop buttons are wired;
+  // on mobile it's a view-only overlay (the OS provides the close control).
+  const togglePip = async () => {
+    if (pipOn) { await closeProgressPip(); setPipOn(false); return; }
+    try {
+      const rec = getActiveGenJob();
+      await startProgressPip(
+        {
+          count: rec?.count ?? preview.length,
+          requested: rec?.requested ?? 0,
+          done: !busy && preview.length > 0,
+          label: topic.trim() || currentTargetName || defaultTopic || "",
+        },
+        { onStop: stop, onOpen: () => setMinimized(false), onClose: () => setPipOn(false) }
+      );
+      setPipOn(true);
+    } catch { setPipOn(false); }
+  };
+
   if (minimized) {
     const done = !busy && preview.length > 0;
     return (
@@ -825,6 +886,11 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
         </div>
         <div className="mt-2.5 flex gap-2">
           <button onClick={() => setMinimized(false)} className="btn-primary flex-1 py-1 text-xs">{done ? "Open to insert" : "Open"}</button>
+          {pipSupported && (
+            <button onClick={togglePip} title={pipOn ? "Close the floating window" : "Pop out — keep this visible on top of other apps"} className={`btn-outline py-1 text-xs ${pipOn ? "!text-brand-600 dark:!text-brand-300" : ""}`}>
+              <PictureInPicture2 className="h-3.5 w-3.5" /> {pipOn ? "Close" : "Pop out"}
+            </button>
+          )}
           {busy && <button onClick={stop} className="btn-outline py-1 text-xs !text-rose-600 dark:!text-rose-400"><Square className="h-3.5 w-3.5" /> Stop</button>}
         </div>
       </div>
