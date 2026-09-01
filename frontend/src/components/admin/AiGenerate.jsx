@@ -608,7 +608,14 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
       // have so the user can still insert it.
       if ((res?.errored || res?.timedOut) && producedTotal === 0) return;
       const model = res?.model ? ` with ${res.model}` : "";
-      if (stopRef.current || res?.cancelled) { setMsg(`⏹ Stopped. Kept ${producedTotal} question(s) so far${model} — review & Insert below, or Generate more.`); return; }
+      if (stopRef.current || res?.cancelled) {
+        // A deliberate Stop is just an early finish — offer the SAME Resume /
+        // Save-session options as a quota/stall stop, so you can continue toward
+        // the original target now or later (no duplicates).
+        if (producedTotal > 0 && producedTotal < target) setResumeAvail({ done: producedTotal, target, restored: false });
+        setMsg(`⏹ Stopped at ${producedTotal}${target > producedTotal ? ` of ${target}` : ""} question(s)${model}. Insert these below, Resume to finish the rest (no duplicates), or Save session to come back to this topic later.`);
+        return;
+      }
       const short = producedTotal < target;
       if (append && !autoContinue) {
         setMsg(`✓ Added ${producedTotal} more question(s)${model}.` + (short ? " (Some couldn't be generated — click “Generate more” to top up.)" : " No duplicates of the earlier questions. Review & Insert."));
@@ -617,7 +624,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
       // A wave errored/timed out but earlier waves DID produce questions — report
       // the partial success instead of the failure.
       if (res?.errored || res?.timedOut) {
-        setMsg(`✓ Generated ${producedTotal} of ${target} question(s)${model}. The AI stopped before finishing the rest — Insert these now, then use “Generate more” to top up (it often works on another try or with a fuller model).`);
+        setMsg(`✓ Generated ${producedTotal} of ${target} question(s)${model}. The AI stopped before finishing the rest — Insert these now, or Resume to make the rest (no duplicates; it often works on another try or with a fuller model). You can also Save session to come back later.`);
         return;
       }
       let tail;
@@ -670,9 +677,9 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
                   .filter((b) => (producedByBucket[`${b.type}|${b.difficulty}`] || 0) < b.count)
                   .map((b) => TYPE_OPTIONS.find((t) => t.id === b.type)?.label || b.type)
               )];
-              setMsg(`⏸ Auto-continue stopped at ${producedTotal} of ${target}. The AI couldn't generate more ${shortTypes.join(", ")} on this topic (these types are the hardest for it). Insert these ${producedTotal} now, then use “Generate more” to retry the rest — it often succeeds on another try or with a fuller model.`);
+              setMsg(`⏸ Auto-continue stopped at ${producedTotal} of ${target}. The AI couldn't generate more ${shortTypes.join(", ")} on this topic (these types are the hardest for it). Insert these ${producedTotal} now, or Resume to retry the rest — it often succeeds on another try or with a fuller model. Save session to come back later.`);
             } else {
-              setMsg(`⏸ Auto-continue stopped at ${producedTotal} of ${target}. The free-tier quota looks exhausted right now (many empty tries in a row) — Insert these, then Generate more later (the daily quota resets), or add keys from other Google accounts for more.`);
+              setMsg(`⏸ Auto-continue stopped at ${producedTotal} of ${target}. The free-tier quota looks exhausted right now (many empty tries in a row) — Insert these, or Resume once the quota resets (add keys from other Google accounts for more). Save session to come back to this topic later.`);
             }
           } else {
             finalize(last, producedTotal, target);
