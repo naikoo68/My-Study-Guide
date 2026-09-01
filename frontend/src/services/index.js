@@ -316,7 +316,14 @@ export const storageService = {
 
 // ---- Site settings (branding & theme) ----
 export const settingsService = {
-  get: () => api.get("/settings", { auth: false }),
+  // Send the JWT when the user is logged in. GET /settings uses optionalAuth on
+  // the backend: with a token it binds the read to the user's OWN institute
+  // (the SAME doc PUT /settings writes to), so flags like onboardingCompleted
+  // are read back correctly and the setup wizard stops reappearing on the shared
+  // apex domain. Anonymous visitors have no token and still resolve public
+  // branding by hostname, unchanged. (api.js only attaches the header when a
+  // token exists, and optionalAuth never returns 401, so this is safe.)
+  get: () => api.get("/settings"),
   update: (data) => api.put("/settings", data),
   testFacebook: (data) => api.post("/settings/facebook/test", data || {}), // verify/send a test Page post (admin)
   testInstagram: (data) => api.post("/settings/instagram/test", data || {}), // verify/send a test Instagram post (admin)
