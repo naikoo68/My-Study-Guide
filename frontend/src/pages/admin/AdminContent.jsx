@@ -1138,7 +1138,7 @@ export default function AdminContent() {
             className="btn-outline"
             title={subject ? `Scan duplicates in ${subject.name}` : "Scan all questions for duplicates"}
           >
-            <Files className="h-4 w-4" /> Find Duplicates{subject ? ` — ${subject.name}` : ""}
+            <Files className="h-4 w-4" /> Find Duplicate Questions{subject ? ` — ${subject.name}` : ""}
           </button>
           <button
             onClick={() => setRecycleOpen(true)}
@@ -1181,7 +1181,7 @@ export default function AdminContent() {
                 <ScanSearch className="h-4 w-4" /> Search Missing Subjects
               </button>
               <button onClick={() => setDupLevel("subject")} className="btn-outline text-brand-600" title="Find duplicate or overlapping subjects in this stream and remove the extras">
-                <Copy className="h-4 w-4" /> Find Duplicates
+                <Copy className="h-4 w-4" /> Find Duplicate Subjects
               </button>
               <button onClick={() => setLinkOpen(true)} className="btn-outline" title="Reuse a subject that already exists in another stream (no duplicate — content stays shared)">
                 <Link2 className="h-4 w-4" /> Add Existing Subject
@@ -1194,7 +1194,7 @@ export default function AdminContent() {
                 <ScanSearch className="h-4 w-4" /> Search Missing Topics
               </button>
               <button onClick={() => setDupLevel("topic")} className="btn-outline text-brand-600" title="Find duplicate or overlapping topics in this subject and remove the extras">
-                <Copy className="h-4 w-4" /> Find Duplicates
+                <Copy className="h-4 w-4" /> Find Duplicate Topics
               </button>
             </>
           )}
