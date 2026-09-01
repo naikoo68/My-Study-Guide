@@ -10,6 +10,7 @@ import ContentShare from "../models/ContentShare.js";
 import { isTestVisibleToUser, isSharedWithUser, hasActiveSubscription } from "../utils/accessControl.js";
 import { ownerFilter, ownerValue } from "../utils/ownership.js";
 import { runUnscoped } from "../utils/tenantContext.js";
+import { platformContentFilter } from "../utils/platformScope.js";
 import { sanitizeBody, ALLOW } from "../utils/sanitizeBody.js";
 import { sendMail, isMailConfigured } from "../config/mailer.js";
 import { clientBaseFromReq } from "../config/clientUrl.js";
@@ -33,7 +34,9 @@ const slugify = (s) => String(s || "").toLowerCase().trim().replace(/[^a-z0-9]+/
 
 /* ---------------- Streams (admin) ---------------- */
 export async function listStreams(req, res) {
-  const filter = { isActive: true, ...ownerFilter(req) };
+  // Super-admin browses unscoped; restrict to the platform's OWN practice
+  // streams so institutes' shared copies don't leak into the admin's lists.
+  const filter = { isActive: true, ...ownerFilter(req), ...(await platformContentFilter(req)) };
   if (req.query.kind) filter.kind = req.query.kind;
   const streams = await PracticeStream.find(filter).sort("order name").lean();
   const streamIds = streams.map((s) => s._id);

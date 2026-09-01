@@ -12,6 +12,7 @@ import { byNatural } from "../utils/naturalSort.js";
 import { NOT_DELETED, softDeletePatch } from "../utils/softDelete.js";
 import { sanitizeBody, ALLOW } from "../utils/sanitizeBody.js";
 import { normName } from "../utils/conceptDedupe.js";
+import { platformContentFilter } from "../utils/platformScope.js";
 
 const slugify = (s) =>
   String(s || "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -71,7 +72,9 @@ async function nameTaken(Model, name, label, excludeId = null) {
 
 // GET /api/streams — includes subject count per stream
 export async function listStreams(req, res) {
-  const streams = await Stream.find({ isActive: true, ...NOT_DELETED, ...visFilter(req) }).sort("order name").lean();
+  // Super-admin browses unscoped; restrict to the platform's OWN streams so
+  // institutes' shared copies don't leak into the admin's content library.
+  const streams = await Stream.find({ isActive: true, ...NOT_DELETED, ...visFilter(req), ...(await platformContentFilter(req)) }).sort("order name").lean();
   const subs = await Subject.aggregate([
     { $match: { stream: { $ne: null }, deleted: { $ne: true } } },
     { $group: { _id: "$stream", count: { $sum: 1 } } },
@@ -135,7 +138,7 @@ async function countMap(Model, matchIds, field) {
 
 // GET /api/subjects — includes topic count per subject
 export async function listSubjects(req, res) {
-  const subjects = await Subject.find({ isActive: true, ...NOT_DELETED, ...visFilter(req) }).sort("name").lean();
+  const subjects = await Subject.find({ isActive: true, ...NOT_DELETED, ...visFilter(req), ...(await platformContentFilter(req)) }).sort("name").lean();
   const topics = await Topic.aggregate([{ $match: { deleted: { $ne: true } } }, { $group: { _id: "$subject", count: { $sum: 1 } } }]);
   const tMap = Object.fromEntries(topics.map((t) => [String(t._id), t.count]));
   res.json(subjects.map((s) => ({ ...s, topics: tMap[String(s._id)] || 0 })));
