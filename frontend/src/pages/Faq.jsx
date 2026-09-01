@@ -71,7 +71,15 @@ export default function Faq() {
   // turns off publicClientEnabled / publicInstituteEnabled (same rule as the
   // Pricing page), so we never advertise an audience that isn't open.
   const showCreator = settings?.publicClientEnabled !== false;
-  const showInstitute = settings?.publicInstituteEnabled !== false;
+  // "For Institutes" is only for the platform (default) site — an institute's
+  // own site never advertises registering a NEW institute.
+  const isInstituteSite = settings?.isDefaultTenant === false;
+  const showInstitute = !isInstituteSite && settings?.publicInstituteEnabled !== false;
+  // Show the CURRENT site's name (e.g. "My ABC Academy") instead of the hardcoded
+  // platform name in the built-in copy. Admin-customised FAQ text is left as the
+  // admin wrote it.
+  const siteName = settings?.siteName || "My Study Guide";
+  const sub = (t) => String(t || "").split("My Study Guide").join(siteName);
 
   const tabs = [
     { key: "student", label: GROUPS.student.label, Icon: GraduationCap },
@@ -87,7 +95,9 @@ export default function Faq() {
   // Prefer the admin-customised FAQs for this audience; fall back to the
   // built-in defaults when that audience hasn't been customised.
   const custom = settings?.faqs?.[active];
-  const faqs = Array.isArray(custom) && custom.length ? custom : FAQ_DEFAULTS[active];
+  const faqs = Array.isArray(custom) && custom.length
+    ? custom
+    : (FAQ_DEFAULTS[active] || []).map((f) => ({ q: sub(f.q), a: sub(f.a) }));
 
   const crumbs = [{ label: "Home", to: "/" }, { label: "FAQ" }];
   const jsonLd = {
@@ -109,7 +119,7 @@ export default function Faq() {
 
   useSeo(
     "Frequently Asked Questions (FAQ)",
-    "Answers to common questions about My Study Guide for students, creators and institutes — what each account includes, how to get started, pricing, results and more.",
+    sub("Answers to common questions about My Study Guide for students, creators and institutes — what each account includes, how to get started, pricing, results and more."),
     undefined,
     jsonLd
   );
@@ -121,7 +131,7 @@ export default function Faq() {
       <div className="mx-auto max-w-3xl text-center">
         <span className="badge bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">FAQ</span>
         <h1 className="mt-4 text-4xl font-extrabold">Frequently Asked Questions</h1>
-        <p className="mt-4 text-lg text-slate-600 dark:text-slate-300">{group.intro}</p>
+        <p className="mt-4 text-lg text-slate-600 dark:text-slate-300">{sub(group.intro)}</p>
       </div>
 
       {/* Audience toggle — Students / Creators / Institutes */}
@@ -163,7 +173,7 @@ export default function Faq() {
       </div>
 
       <div className="mx-auto mt-12 max-w-3xl">
-        <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Explore My Study Guide</h2>
+        <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Explore {siteName}</h2>
         <div className="mt-4 flex flex-wrap gap-3">
           {exploreLinks.map((l) => (
             <Link
