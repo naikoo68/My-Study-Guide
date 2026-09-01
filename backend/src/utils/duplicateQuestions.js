@@ -5,6 +5,10 @@ const FIELDS = [
   "text", "type", "options", "correct", "difficulty", "explanation",
   "optionExplanations", "columnA", "columnB", "tableRows", "assertion",
   "reason", "image", "topic", "section", "status",
+  // Diagram / graph specs (Mixed on the Question model). Without these, copying
+  // a diagram ("viz") or graph question — via account-to-account share accept,
+  // content copy, move-quiz, or test-bank copy — silently dropped its visual.
+  "graph", "viz",
 ];
 
 // Duplicate every question matching `filter` into a new container described by
