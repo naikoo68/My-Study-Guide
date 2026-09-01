@@ -350,12 +350,14 @@ export default function Home() {
           <p className="mb-5 text-center text-sm font-semibold uppercase tracking-wide text-slate-400">
             Public content library — updated live
           </p>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
             {[
               { v: realStats.publicStreams, l: "Total Streams", Icon: Layers },
               { v: realStats.publicSubjects, l: "Total Subjects", Icon: BookMarked },
               { v: realStats.publicTopics, l: "Total Topics", Icon: FileText },
               { v: realStats.publicExams, l: "Total Exams", Icon: Trophy },
+              { v: realStats.publicQuizzes, l: "Total Quizzes", Icon: ListChecks },
+              { v: realStats.publicQuestions, l: "Total Questions", Icon: HelpCircle },
             ].map((s) => (
               <div key={s.l} className="flex flex-col items-center gap-2 rounded-2xl bg-slate-50 p-5 text-center dark:bg-slate-800/60">
                 <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-100 text-brand-600 dark:bg-brand-900/40 dark:text-brand-300">
