@@ -192,6 +192,18 @@ export default function AdminLayout() {
     </NavLink>
   );
 
+  // Where "View my student portal" points for an institute admin. The ?t=<slug>
+  // tenant selector is only needed on the platform apex (where the host would
+  // otherwise resolve to the platform's DEFAULT tenant). When the admin is
+  // already on their institute's OWN subdomain (slug.rootDomain), the host
+  // scopes the tenant, so appending ?t=slug is redundant — and looked buggy:
+  // e.g. bansalacademy.mystudyguide.in/?t=bansalacademy. In that case link to "/".
+  const tenantSlug = user?.tenant?.slug || "";
+  const rootDomain = String(settings?.rootDomain || "").toLowerCase().replace(/^\./, "");
+  const currentHost = (typeof window !== "undefined" ? window.location.hostname : "").toLowerCase();
+  const onOwnSubdomain = !!rootDomain && !!tenantSlug && currentHost === `${tenantSlug}.${rootDomain}`;
+  const studentPortalHref = onOwnSubdomain ? "/" : `/?t=${tenantSlug}`;
+
   const SidebarContent = () => (
     <div className="flex h-full flex-col">
       <Link to="/admin" className="flex items-center gap-2 px-6 py-5">
@@ -214,10 +226,10 @@ export default function AdminLayout() {
 
       <div className="space-y-1 border-t border-slate-200 p-3 dark:border-slate-800">
         {user?.role === "institute_admin" && user?.tenant?.slug ? (
-          // Institute admins get sent to THEIR OWN public portal (?t=<slug>),
-          // not the platform site. A full-page load is required so the tenant
-          // query param is applied by the API layer for every request.
-          <a href={`/?t=${user.tenant.slug}`} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800">
+          // Institute admins get sent to THEIR OWN public portal. A full-page
+          // load is required so the tenant is applied by the API layer for every
+          // request (via ?t=<slug> on the apex, or the subdomain host itself).
+          <a href={studentPortalHref} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800">
             <Home className="h-5 w-5" /> View my student portal
           </a>
         ) : (
