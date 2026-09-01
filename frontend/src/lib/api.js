@@ -13,6 +13,39 @@ export const getToken = () => localStorage.getItem(TOKEN_KEY);
 export const setToken = (t) => localStorage.setItem(TOKEN_KEY, t);
 export const clearToken = () => localStorage.removeItem(TOKEN_KEY);
 
+// One-time cross-subdomain session handoff.
+//
+// The JWT lives in localStorage, which is per-ORIGIN. So when an institute admin
+// is sent from the platform apex (e.g. mystudyguide.in, where they just signed
+// up) to their OWN subdomain admin (e.g. acme.mystudyguide.in/admin), the token
+// can't follow them and they'd land on a login screen. To keep them signed in,
+// the sender appends the token once in the URL hash (#session=<jwt>). We read it
+// here on boot, store it, and immediately strip it from the URL so it doesn't
+// linger in history or get copied/shared.
+//
+// SAFETY: the hash fragment is never sent to the server (so it won't appear in
+// access logs), and the token isn't trusted blindly — the app still revalidates
+// it via /auth/me on load, so a forged/expired token simply fails and is cleared.
+export function consumeSessionFromUrl() {
+  try {
+    if (typeof window === "undefined") return;
+    const hash = window.location.hash || "";
+    const m = hash.match(/(?:^#|&)session=([^&]+)/);
+    if (!m) return;
+    const token = decodeURIComponent(m[1]);
+    if (token) setToken(token);
+    // Remove ONLY the session param, preserving any other hash content, then
+    // rewrite the URL in place (no reload, no extra history entry).
+    let cleanHash = hash.replace(/(?:^#|&)session=[^&]+/, "");
+    if (cleanHash === "#") cleanHash = "";
+    else if (cleanHash.startsWith("#&")) cleanHash = "#" + cleanHash.slice(2);
+    const url = window.location.pathname + window.location.search + cleanHash;
+    window.history.replaceState(null, "", url);
+  } catch {
+    /* malformed handoff — ignore and continue as a normal (logged-out) load */
+  }
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Retry on network failures and gateway errors (502/503/504) — these happen

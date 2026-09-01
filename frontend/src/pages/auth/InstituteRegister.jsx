@@ -7,6 +7,7 @@ import PlanPicker from "../../components/client/PlanPicker";
 import { useAuth } from "../../context/AuthContext";
 import { useSettings } from "../../context/SettingsContext";
 import { authService, instituteSignupService } from "../../services";
+import { getToken } from "../../lib/api";
 
 function loadRazorpay() {
   return new Promise((resolve) => {
@@ -259,6 +260,20 @@ export default function InstituteRegister() {
       ? ""
       : (usingSubdomain ? `${publicUrl}/admin` : `${origin}/admin?t=${done.slug}`);
     const copy = (t) => { try { navigator.clipboard?.writeText(t); } catch { /* clipboard blocked */ } };
+    // "Go to your admin panel": when the institute has its own subdomain, take
+    // the admin to THEIR branded admin URL (acme.rootDomain/admin) rather than
+    // staying on the platform apex. Since the JWT lives in per-origin storage, we
+    // hand it over once via the URL hash (#session=…), which the target origin
+    // consumes on boot and strips — so they land already signed in. Without a
+    // subdomain we just navigate within the current origin as before.
+    const goToAdmin = () => {
+      if (usingSubdomain && adminUrl) {
+        const tok = getToken();
+        window.location.assign(tok ? `${adminUrl}#session=${encodeURIComponent(tok)}` : adminUrl);
+      } else {
+        navigate("/admin");
+      }
+    };
     const UrlRow = ({ label, url }) => (
       <div className="rounded-xl border border-slate-200 p-3 text-left dark:border-slate-700">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</p>
@@ -285,7 +300,7 @@ export default function InstituteRegister() {
               <UrlRow label="Admin panel (for you)" url={adminUrl} />
             </div>
           )}
-          <button onClick={() => navigate("/admin")} className="btn-primary mt-5 w-full">
+          <button onClick={goToAdmin} className="btn-primary mt-5 w-full">
             Go to your admin panel <ArrowRight className="h-4 w-4" />
           </button>
           <p className="mt-3 text-center text-xs text-slate-400">

@@ -2,6 +2,13 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
+import { consumeSessionFromUrl } from './lib/api'
+
+// Cross-subdomain session handoff: if we were sent here with #session=<jwt> in
+// the URL (e.g. an institute admin jumping from the platform apex to their own
+// subdomain admin right after signup), adopt that token BEFORE React renders so
+// the app boots already signed in instead of flashing the login screen.
+consumeSessionFromUrl()
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
