@@ -22,7 +22,7 @@ const asInstitute = (share, fn) =>
 const factories = {
   PracticeStream: () => ({ name: `PS ${uniq()}`, slug: `ps-${uniq()}` }),
   PracticeSubject: () => ({ name: `PSub ${uniq()}`, stream: new mongoose.Types.ObjectId() }),
-  PracticeTopic: () => ({ title: `PT ${uniq()}`, subject: new mongoose.Types.ObjectId() }),
+  PracticeTopic: () => ({ name: `PT ${uniq()}`, subject: new mongoose.Types.ObjectId() }),
 };
 
 beforeAll(async () => {
