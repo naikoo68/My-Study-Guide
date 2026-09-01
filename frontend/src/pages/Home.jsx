@@ -340,6 +340,35 @@ export default function Home() {
       </section>
     ) : null,
 
+    // Study-content library totals (platform + "My Practice" combined), computed
+    // live on every visit — Streams → Subjects → Topics → Exams across the whole
+    // catalogue. Same card style as the strips above.
+    contentStats: realStats ? (
+      <section className="container-page pt-6">
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <p className="mb-5 text-center text-sm font-semibold uppercase tracking-wide text-slate-400">
+            Across the whole content library — updated live
+          </p>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            {[
+              { v: realStats.streams, l: "Total Streams", Icon: Layers },
+              { v: realStats.subjects, l: "Total Subjects", Icon: BookMarked },
+              { v: realStats.topics, l: "Total Topics", Icon: FileText },
+              { v: realStats.exams, l: "Total Exams", Icon: Trophy },
+            ].map((s) => (
+              <div key={s.l} className="flex flex-col items-center gap-2 rounded-2xl bg-slate-50 p-5 text-center dark:bg-slate-800/60">
+                <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-100 text-brand-600 dark:bg-brand-900/40 dark:text-brand-300">
+                  <s.Icon className="h-6 w-6" />
+                </span>
+                <p className="text-2xl font-extrabold sm:text-3xl">{fmt(s.v)}</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">{s.l}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+    ) : null,
+
 
     features: (
       <section className="container-page py-20">
@@ -476,8 +505,10 @@ export default function Home() {
         .map((s) => (
           <Fragment key={s.key}>
             {blocks[s.key]}
-            {/* Live client-combined totals appear right after the stats strip. */}
+            {/* Live client-combined totals, then the content-library totals,
+                appear right after the stats strip. */}
             {s.key === "stats" && blocks.clientStats}
+            {s.key === "stats" && blocks.contentStats}
           </Fragment>
         ))}
     </div>

@@ -9,6 +9,8 @@ import Stream from "../models/Stream.js";
 import PracticeStream from "../models/PracticeStream.js";
 import PracticeSubject from "../models/PracticeSubject.js";
 import PracticeTopic from "../models/PracticeTopic.js";
+import Exam from "../models/Exam.js";
+import PracticeExam from "../models/PracticeExam.js";
 
 // ---------------------------------------------------------------------------
 // Tiny in-process TTL cache for the expensive admin-dashboard endpoints.
@@ -71,6 +73,7 @@ export async function publicStats(req, res) {
     contentSubjects, practiceSubjects,
     contentTopics, practiceTopics,
     contentStreams, practiceStreams,
+    contentExams, practiceExams,
     attempts,
     clientQuizzes, clientTests, clientQuestions,
   ] = await Promise.all([
@@ -91,6 +94,9 @@ export async function publicStats(req, res) {
     PracticeTopic.countDocuments(),
     Stream.countDocuments(),
     PracticeStream.countDocuments(),
+    // Exams = platform exams (Exam) + "My Quiz" practice exams (PracticeExam).
+    Exam.countDocuments(),
+    PracticeExam.countDocuments(),
     Attempt.countDocuments(),
     // The separate "all clients combined" block — client-owned only (admin).
     TestSeries.countDocuments({ owner: { $in: clientIds }, practiceKind: "quiz" }),
@@ -104,11 +110,12 @@ export async function publicStats(req, res) {
   const subjects = contentSubjects + practiceSubjects;
   const topics = contentTopics + practiceTopics;
   const streams = contentStreams + practiceStreams;
+  const exams = contentExams + practiceExams;
   const clients = clientIds.length;
   // Never cache — always reflect the current counts.
   res.set("Cache-Control", "no-store");
   res.json({
-    students, users, clients, quizzes, tests, questions, subjects, topics, streams, attempts,
+    students, users, clients, quizzes, tests, questions, subjects, topics, streams, exams, attempts,
     clientQuizzes, clientTests, clientQuestions,
   });
 }
