@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { X, Minus, Sparkles, Wand2, CheckCircle2, AlertTriangle, Loader2, Server, KeyRound, ListChecks, Circle, Square, Bookmark, Trash2, Globe } from "lucide-react";
+import { X, Minus, Sparkles, Wand2, CheckCircle2, AlertTriangle, Loader2, Server, KeyRound, ListChecks, Circle, Square, Bookmark, Trash2, Globe, PictureInPicture2 } from "lucide-react";
 import { aiService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
-import { setActiveGenJob, patchActiveGenJob, clearActiveGenJob } from "../../lib/activeGenJob";
+import { setActiveGenJob, patchActiveGenJob, clearActiveGenJob, getActiveGenJob } from "../../lib/activeGenJob";
+import { isPipSupported, startProgressPip, updateProgressPip, closeProgressPip } from "../../lib/pipProgress";
 import GraphView from "../ui/GraphView";
 import VizView from "../ui/VizView";
 import LanguageSelect from "./LanguageSelect";
@@ -86,6 +87,8 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
   const pendingDoneRef = useRef([]); // subtopics queued (via "Use selected") to hide after the next Generate
   const [inserting, setInserting] = useState(false);
   const [minimized, setMinimized] = useState(false); // collapsed to a floating pill — keeps generating in the background
+  const [pipOn, setPipOn] = useState(false); // progress popped out into a floating Picture-in-Picture window
+  const pipSupported = isPipSupported();
   const destSnapRef = useRef(null); // { subjectId, sessionId, quizId } captured at generation start, so a later Insert lands in the RIGHT place even after browsing away
   const wasBusyRef = useRef(false); // to detect the busy→idle transition (generation finished) for the completion notice
   const [msg, setMsg] = useState("");
@@ -305,6 +308,24 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
     setMsg(`Restored ${restored.length} generated question(s)${target > restored.length ? ` of ${target}` : ""} from your last session — nothing was lost. Insert them, or Resume to continue.`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // Keep the floating PiP window (if popped out) in sync with live progress.
+  // Counts come from the global job pointer (updated by the poll loop); fall
+  // back to the preview length so it still reads sensibly before the first poll.
+  useEffect(() => {
+    if (!pipOn) return;
+    const rec = getActiveGenJob();
+    updateProgressPip({
+      count: rec?.count ?? preview.length,
+      requested: rec?.requested ?? 0,
+      done: !busy && preview.length > 0,
+      label: topic.trim() || currentTargetName || defaultTopic || "",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pipOn, busy, preview.length, msg]);
+
+  // Close the PiP window when the generator unmounts (it's fully closed).
+  useEffect(() => () => { closeProgressPip(); }, []);
 
   if (!open) return null;
 
@@ -829,6 +850,27 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
   // (the component stays mounted) while the rest of the page stays usable.
   // Restore to review/insert — Insert still targets the snapshotted destination.
   // (Placed here — after stop() is defined — to avoid a const TDZ reference.)
+  // Pop the progress out into a floating Picture-in-Picture window that stays on
+  // top of other apps / the home screen. Must run from this tap (PiP needs a
+  // user gesture). On desktop the PiP window's own Open/Stop buttons are wired;
+  // on mobile it's a view-only overlay (the OS provides the close control).
+  const togglePip = async () => {
+    if (pipOn) { await closeProgressPip(); setPipOn(false); return; }
+    try {
+      const rec = getActiveGenJob();
+      await startProgressPip(
+        {
+          count: rec?.count ?? preview.length,
+          requested: rec?.requested ?? 0,
+          done: !busy && preview.length > 0,
+          label: topic.trim() || currentTargetName || defaultTopic || "",
+        },
+        { onStop: stop, onOpen: () => setMinimized(false), onClose: () => setPipOn(false) }
+      );
+      setPipOn(true);
+    } catch { setPipOn(false); }
+  };
+
   if (minimized) {
     const done = !busy && preview.length > 0;
     return (
@@ -844,6 +886,11 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
         </div>
         <div className="mt-2.5 flex gap-2">
           <button onClick={() => setMinimized(false)} className="btn-primary flex-1 py-1 text-xs">{done ? "Open to insert" : "Open"}</button>
+          {pipSupported && (
+            <button onClick={togglePip} title={pipOn ? "Close the floating window" : "Pop out — keep this visible on top of other apps"} className={`btn-outline py-1 text-xs ${pipOn ? "!text-brand-600 dark:!text-brand-300" : ""}`}>
+              <PictureInPicture2 className="h-3.5 w-3.5" /> {pipOn ? "Close" : "Pop out"}
+            </button>
+          )}
           {busy && <button onClick={stop} className="btn-outline py-1 text-xs !text-rose-600 dark:!text-rose-400"><Square className="h-3.5 w-3.5" /> Stop</button>}
         </div>
       </div>

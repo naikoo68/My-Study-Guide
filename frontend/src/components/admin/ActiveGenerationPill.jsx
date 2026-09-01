@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2, CheckCircle2, Sparkles, Square, X } from "lucide-react";
+import { Loader2, CheckCircle2, Sparkles, Square, X, PictureInPicture2 } from "lucide-react";
 import { aiService } from "../../services";
 import { getActiveGenJob, patchActiveGenJob, clearActiveGenJob } from "../../lib/activeGenJob";
+import { isPipSupported, startProgressPip, updateProgressPip, closeProgressPip } from "../../lib/pipProgress";
 
 // Merge freshly-finished questions into the AiGenerate checkpoint (keyed by
 // ckKey) so reopening the generator on the original target restores them for
@@ -44,7 +45,9 @@ export default function ActiveGenerationPill({ onOpen }) {
   const [requested, setRequested] = useState(job?.requested || 0);
   const [stopping, setStopping] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  const [pipOn, setPipOn] = useState(false);
   const timerRef = useRef(null);
+  const pipSupported = isPipSupported();
 
   // Re-read the pointer on mount and whenever the tab regains focus (returning
   // from another app / reopening the browser), so the pill reappears after a
@@ -128,6 +131,15 @@ export default function ActiveGenerationPill({ onOpen }) {
     };
   }, [job?.jobId, dismissed, status]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Push live progress into the PiP window whenever it's open.
+  useEffect(() => {
+    if (!pipOn) return;
+    updateProgressPip({ count, requested, done: status === "done", label: job?.label });
+  }, [pipOn, count, requested, status, job?.label]);
+
+  // Tear down the PiP window if this pill unmounts (e.g. the generator opens).
+  useEffect(() => () => { closeProgressPip(); }, []);
+
   if (!job?.jobId || dismissed) return null;
 
   const done = status === "done";
@@ -158,7 +170,28 @@ export default function ActiveGenerationPill({ onOpen }) {
 
   const dismiss = () => {
     clearActiveGenJob();
+    closeProgressPip();
     setDismissed(true);
+  };
+
+  // Pop the progress out into a floating Picture-in-Picture window that stays on
+  // top of other apps / the home screen (so you can watch it while you're away
+  // from the browser). Must run from this tap — PiP needs a user gesture.
+  const togglePip = async () => {
+    if (pipOn) {
+      await closeProgressPip();
+      setPipOn(false);
+      return;
+    }
+    try {
+      await startProgressPip(
+        { count, requested, done, label: hasLabel ? job.label : "" },
+        { onStop: stop, onOpen: open, onClose: () => setPipOn(false) }
+      );
+      setPipOn(true);
+    } catch {
+      setPipOn(false);
+    }
   };
 
   return (
@@ -195,6 +228,15 @@ export default function ActiveGenerationPill({ onOpen }) {
         <button onClick={open} className="btn-primary flex-1 py-1 text-xs">
           {done ? "Open to insert" : "Open"}
         </button>
+        {pipSupported && (
+          <button
+            onClick={togglePip}
+            title={pipOn ? "Close the floating window" : "Pop out — keep this visible on top of other apps"}
+            className={`btn-outline py-1 text-xs ${pipOn ? "!text-brand-600 dark:!text-brand-300" : ""}`}
+          >
+            <PictureInPicture2 className="h-3.5 w-3.5" /> {pipOn ? "Close" : "Pop out"}
+          </button>
+        )}
         {!done && !errored && (
           <button onClick={stop} disabled={stopping} className="btn-outline py-1 text-xs !text-rose-600 disabled:opacity-50 dark:!text-rose-400">
             <Square className="h-3.5 w-3.5" /> Stop
