@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { X, Minus, Sparkles, Wand2, CheckCircle2, AlertTriangle, Loader2, Server, KeyRound, ListChecks, Circle, Square, Bookmark, Trash2, Globe } from "lucide-react";
 import { aiService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
+import { setActiveGenJob, patchActiveGenJob, clearActiveGenJob } from "../../lib/activeGenJob";
 import GraphView from "../ui/GraphView";
 import VizView from "../ui/VizView";
 import LanguageSelect from "./LanguageSelect";
@@ -514,6 +515,20 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
       if (!jobId) { setMsg("Could not start generation."); return { produced: 0, errored: true }; }
       jobIdRef.current = jobId;
       saveCk({ jobId }); // remember the running job so a resume can cancel the orphan
+      // Publish a GLOBAL pointer to this job so the floating pill can re-attach
+      // and keep showing progress even after a full page reload (e.g. a mobile
+      // browser evicting the tab while you're in another app).
+      setActiveGenJob({
+        jobId,
+        ckKey,
+        targetName: currentTargetName || defaultTopic || "global",
+        label: topic.trim() || currentTargetName || defaultTopic || "AI generation",
+        requested: target || requested || 0,
+        count: priorTotal,
+        status: "running",
+        dest: destSnapRef.current || null,
+        source: isClient ? source : null,
+      });
       let done = false, result = { produced: 0, timedOut: true };
       for (let i = 0; i < 300 && !done; i++) {
         await sleep(2000);
@@ -542,6 +557,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
             producedByBucket[k] = (producedByBucket[k] || 0) + 1;
           }
           setLiveWave({});
+          patchActiveGenJob({ count: priorTotal + qs.length }); // reflect this wave's kept questions in the pill
           const batchStems = qs.map((q) => q.text).filter(Boolean);
           avoidLocal = Array.from(new Set([...avoidLocal, ...batchStems]));
           setAvoidStems(avoidLocal);
@@ -555,6 +571,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
           // this wave's live count), so it climbs 71 → … → target instead of
           // resetting to "0 of 500" each wave.
           const soFar = priorTotal + (s.count || 0);
+          patchActiveGenJob({ count: soFar, requested: target || requested || 0, status: "running" }); // keep the reload-surviving pill's progress current
           setMsg(stopRef.current ? `Stopping… keeping the ${soFar} generated so far` : `Generating… ${soFar} of ${target || requested} ready (${Math.max(0, (target || requested) - soFar)} to go)`);
         }
       }
@@ -665,6 +682,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
       setStopping(false);
       stopRef.current = false;
       jobIdRef.current = null;
+      patchActiveGenJob({ status: "done" }); // the run has ended — the pill flips to "ready" (questions are checkpointed)
     }
   };
 
@@ -756,7 +774,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
   // is seeded from the restored preview).
   const resumeGenerate = () => { setResumeAvail(null); generate(true, null, { resume: true }); };
   // Throw away a restored session (nothing was inserted).
-  const discardResume = () => { setPreview([]); clearCk(); setResumeAvail(null); setMsg(""); };
+  const discardResume = () => { setPreview([]); clearCk(); clearActiveGenJob(); setResumeAvail(null); setMsg(""); };
 
   const insert = async () => {
     if (!preview.length) return;
@@ -777,6 +795,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
       setMsg(`✓ Inserted ${res?.inserted ?? preview.length} question(s)${where}. Generate the next batch, or click Close when you're done.`);
       setPreview([]);
       clearCk(); // inserted → the checkpoint is no longer needed
+      clearActiveGenJob(); // inserted → the reload-surviving pill has nothing left to offer
       setResumeAvail(null);
       setNewName("");
       // Keep the chosen destination so the next batch appends to the same place.
