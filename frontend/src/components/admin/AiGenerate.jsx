@@ -293,7 +293,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
     let ck = null;
     try { ck = JSON.parse(localStorage.getItem(ckKey) || "null"); } catch { ck = null; }
     if (!ck) return;
-    const fresh = ck.updatedAt && Date.now() - ck.updatedAt < 12 * 3600 * 1000; // 12h window
+    const fresh = ck.updatedAt && Date.now() - ck.updatedAt < 7 * 24 * 3600 * 1000; // 7-day window — resume a saved session days later
     const restored = dedupeByText([...(ck.preview || []), ...(ck.partial || [])]);
     if (!fresh || !restored.length) { clearCk(); return; }
     setPreview(restored);
@@ -304,8 +304,8 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
     if (ck.dest) destSnapRef.current = ck.dest;
     setAvoidStems(restored.map((q) => q?.text).filter(Boolean));
     const target = ck.matrix ? sumMatrix(ck.matrix) : restored.length;
-    setResumeAvail({ done: restored.length, target });
-    setMsg(`Restored ${restored.length} generated question(s)${target > restored.length ? ` of ${target}` : ""} from your last session — nothing was lost. Insert them, or Resume to continue.`);
+    setResumeAvail({ done: restored.length, target, restored: true });
+    setMsg(`Restored ${restored.length} generated question(s)${target > restored.length ? ` of ${target}` : ""} from your previous session — nothing was lost. Insert them, or Resume to continue.`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -696,6 +696,9 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
         else if (!append && pendingDoneRef.current.length) { markSubtopicsDone(pendingDoneRef.current); pendingDoneRef.current = []; }
       }
       runProducedRef.current = producedTotal; // expose this run's count for per-subtopic tallying
+      // Ended short of the target? Surface the Resume banner right away so the
+      // user can continue toward the ORIGINAL count now or later (no duplicates).
+      if (producedTotal > 0 && producedTotal < target) setResumeAvail({ done: producedTotal, target, restored: false });
     } catch (e) {
       setMsg(e.message || "Generation failed.");
     } finally {
@@ -796,6 +799,19 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
   const resumeGenerate = () => { setResumeAvail(null); generate(true, null, { resume: true }); };
   // Throw away a restored session (nothing was inserted).
   const discardResume = () => { setPreview([]); clearCk(); clearActiveGenJob(); setResumeAvail(null); setMsg(""); };
+
+  // Explicitly save the current session (generated questions + this run's
+  // settings) so you can close now and resume later from this topic. The run
+  // also auto-saves as it goes, but a visible "Save session" button is
+  // reassuring and confirms exactly what's kept. Reopening the generator for
+  // the same topic/quiz shows a "Resume your previous session" banner.
+  const saveSession = () => {
+    if (!preview.length) { setMsg("Nothing to save yet — generate some questions first."); return; }
+    const tgt = total || preview.length;
+    saveCk({ preview, matrix, topic, section, subtopics, dest: destSnapRef.current || null });
+    setResumeAvail({ done: preview.length, target: tgt, restored: false });
+    setMsg(`✓ Session saved (${preview.length}${tgt > preview.length ? ` of ${tgt}` : ""}). Reopen this topic's generator anytime within 7 days to resume — nothing will be lost.`);
+  };
 
   const insert = async () => {
     if (!preview.length) return;
@@ -1333,10 +1349,14 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
             {resumeAvail && !busy && preview.length > 0 && (
               <div className="mt-2 rounded-lg border border-brand-200 bg-brand-50 p-3 dark:border-brand-900/50 dark:bg-brand-900/20">
                 <p className="text-sm font-semibold text-brand-700 dark:text-brand-300">
-                  Resumed {resumeAvail.done} generated question(s){resumeAvail.target > resumeAvail.done ? ` of ${resumeAvail.target}` : ""} from your last session.
+                  {resumeAvail.restored
+                    ? `Resumed ${resumeAvail.done}${resumeAvail.target > resumeAvail.done ? ` of ${resumeAvail.target}` : ""} question(s) from your previous session.`
+                    : `${resumeAvail.done}${resumeAvail.target > resumeAvail.done ? ` of ${resumeAvail.target}` : ""} question(s) generated so far.`}
                 </p>
                 <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                  Nothing was lost. Insert them below, or continue generating the rest from where it stopped — no duplicates.
+                  {resumeAvail.target > resumeAvail.done
+                    ? "The AI stopped before finishing. Insert these below, or Resume to make the remaining ones now — no duplicates. You can also Save the session and come back to this topic later."
+                    : "Nothing was lost. Insert them below, or Save the session to come back to this topic later."}
                 </p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {resumeAvail.target > resumeAvail.done && (
@@ -1344,6 +1364,9 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
                       <Wand2 className="h-3.5 w-3.5" /> Resume generating ({resumeAvail.target - resumeAvail.done} to go)
                     </button>
                   )}
+                  <button type="button" onClick={saveSession} className="inline-flex items-center gap-1.5 rounded-lg border border-brand-300 px-3 py-1.5 text-xs font-semibold text-brand-700 transition hover:bg-brand-100 dark:border-brand-800 dark:text-brand-300 dark:hover:bg-brand-900/40">
+                    <Bookmark className="h-3.5 w-3.5" /> Save session
+                  </button>
                   <button type="button" onClick={discardResume} className="btn-outline text-xs">Discard</button>
                 </div>
               </div>
@@ -1549,8 +1572,13 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
           </div>
         )}
 
-        <div className="mt-6 flex justify-end gap-3">
+        <div className="mt-6 flex flex-wrap justify-end gap-3">
           <button type="button" onClick={onClose} className="btn-outline">Close</button>
+          {preview.length > 0 && !busy && (
+            <button type="button" onClick={saveSession} className="btn-outline" title="Save these questions and settings so you can close now and resume later from this topic">
+              <Bookmark className="h-4 w-4" /> Save session
+            </button>
+          )}
           {status?.enabled && preview.length > 0 && (
             <button type="button" onClick={insert} disabled={inserting} className="btn-primary">
               {inserting ? <><Loader2 className="h-4 w-4 animate-spin" /> Inserting…</> : `Insert ${preview.length} Question(s)`}
