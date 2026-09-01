@@ -6,9 +6,10 @@ import { tenantService, instituteShareService } from "../../services";
 // appears automatically in each institute's account (no accept step) as their
 // own editable content.
 //
-// Props:
-//  - area:   "my-quiz" | "my-test" | "public-quiz" | "public-test"
-//  - target: { id, name }   — the Stream (or Exam for public-test) to share
+// Props (pass ONE of these):
+//  - area:    "my-quiz" | "my-test" | "public-quiz" | "public-test"
+//  - target:  { id, name }        — a single Stream (or Exam for public-test)
+//  - targets: [ { id, name }, … ] — bulk "Share selected"
 //  - onClose()
 const AREA_LABEL = {
   "my-quiz": "My Quiz stream",
@@ -16,8 +17,17 @@ const AREA_LABEL = {
   "public-quiz": "Public Quizzes stream",
   "public-test": "Public Test Series exam",
 };
+const AREA_PLURAL = {
+  "my-quiz": "My Quiz streams",
+  "my-test": "My Test streams",
+  "public-quiz": "Public Quizzes streams",
+  "public-test": "Public Test Series exams",
+};
 
-export default function ShareToInstitutesModal({ area, target, onClose }) {
+export default function ShareToInstitutesModal({ area, target, targets, onClose }) {
+  // Normalise single + bulk into one list so both share one code path.
+  const sources = (Array.isArray(targets) && targets.length) ? targets : (target ? [target] : []);
+  const bulk = sources.length > 1;
   const [institutes, setInstitutes] = useState(null); // null = loading
   const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
@@ -87,7 +97,7 @@ export default function ShareToInstitutesModal({ area, target, onClose }) {
     try {
       const res = await instituteShareService.share({
         area,
-        id: target.id,
+        ids: sources.map((s) => s.id),
         ...(all ? { all: true } : { tenantIds: [...selected] }),
       });
       setProgress({ targetsTotal: res.targets, targetsDone: 0, itemsCopied: 0, questionsCopied: 0 });
@@ -106,8 +116,10 @@ export default function ShareToInstitutesModal({ area, target, onClose }) {
           {!busy && <button onClick={onClose}><X className="h-5 w-5" /></button>}
         </div>
         <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
-          Copying {AREA_LABEL[area] || "content"}: <b className="text-slate-700 dark:text-slate-200">{target?.name}</b>.
-          Each chosen institute gets their own editable copy — it appears in their account automatically.
+          {bulk
+            ? <>Copying <b className="text-slate-700 dark:text-slate-200">{sources.length} {AREA_PLURAL[area] || "items"}</b>.</>
+            : <>Copying {AREA_LABEL[area] || "content"}: <b className="text-slate-700 dark:text-slate-200">{sources[0]?.name}</b>.</>}
+          {" "}Each chosen institute gets their own editable copy — it appears in their account automatically.
         </p>
 
         {done ? (

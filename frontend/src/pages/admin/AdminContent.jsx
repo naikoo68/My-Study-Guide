@@ -1338,6 +1338,14 @@ export default function AdminContent() {
                 ) : (
                   <>
                     <span className="text-sm text-slate-500">{selNodes.length} selected</span>
+                    {view === "streams" && isSuperAdmin && (
+                      <button
+                        onClick={() => setShareInstitutesTarget({ targets: items.filter((it) => selNodes.includes(it._id)).map((it) => ({ id: it._id, name: it.name || it.title })) })}
+                        className="btn-outline py-1.5 text-indigo-600"
+                      >
+                        <Building2 className="h-4 w-4" /> Share to institutes
+                      </button>
+                    )}
                     <button onClick={deleteSelectedNodes} className="btn-outline py-1.5 text-rose-600"><Trash2 className="h-4 w-4" /> Delete selected</button>
                     <button onClick={() => setSelNodes([])} className="text-sm text-slate-500 hover:underline">Clear</button>
                   </>
@@ -1878,7 +1886,8 @@ export default function AdminContent() {
       {shareInstitutesTarget && (
         <ShareToInstitutesModal
           area="public-quiz"
-          target={shareInstitutesTarget}
+          target={shareInstitutesTarget.targets ? undefined : shareInstitutesTarget}
+          targets={shareInstitutesTarget.targets}
           onClose={() => setShareInstitutesTarget(null)}
         />
       )}

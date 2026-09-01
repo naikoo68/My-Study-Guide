@@ -1093,6 +1093,11 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
               <button onClick={() => setSendSelectedOpen(true)} disabled={!!delSelBusy} className="btn-outline py-1.5 text-xs text-emerald-600 disabled:opacity-50">
                 <Send className="h-3.5 w-3.5" /> Send selected
               </button>
+              {view === "streams" && isSuperAdmin && (
+                <button onClick={() => setShareInstitutesTarget({ targets: selectedNodes().map((n) => ({ id: n.id, name: n.name })) })} disabled={!!delSelBusy} className="btn-outline py-1.5 text-xs text-indigo-600 disabled:opacity-50">
+                  <Building2 className="h-3.5 w-3.5" /> Share to institutes
+                </button>
+              )}
               <button onClick={deleteSelectedNodes} disabled={!!delSelBusy} className="btn-outline py-1.5 text-xs text-rose-600 disabled:opacity-50">
                 <Trash2 className="h-3.5 w-3.5" /> {delSelBusy ? `Deleting ${delSelBusy.done}/${delSelBusy.total}…` : "Delete selected"}
               </button>
@@ -1763,7 +1768,8 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
       {shareInstitutesTarget && (
         <ShareToInstitutesModal
           area={fixedKind === "test" ? "my-test" : "my-quiz"}
-          target={shareInstitutesTarget}
+          target={shareInstitutesTarget.targets ? undefined : shareInstitutesTarget}
+          targets={shareInstitutesTarget.targets}
           onClose={() => setShareInstitutesTarget(null)}
         />
       )}
