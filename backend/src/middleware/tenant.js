@@ -1,5 +1,5 @@
 import Tenant from "../models/Tenant.js";
-import { tenantStore } from "../utils/tenantContext.js";
+import { tenantStore, setDefaultTenantId } from "../utils/tenantContext.js";
 
 // Resolves the current institute (tenant) for a request and annotates it as
 // req.tenant / req.tenantId. Resolution order:
@@ -64,6 +64,9 @@ export async function resolveTenant(req, res, next) {
     }
     req.tenant = tenant || null;
     req.tenantId = tenant?._id || null;
+    // Remember the platform/default tenant's id so the tenantId scoping hook can
+    // share its library with sharing-ON institutes (see plugins/tenantId.js).
+    if (tenant?.isDefault) setDefaultTenantId(tenant._id);
     // Platform-sharing flags for this request. The default/platform tenant owns
     // the shared library, so it always "shares" (its own site shows everything).
     // Every other institute only sees/uses the platform pool when the super-admin

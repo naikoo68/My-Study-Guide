@@ -1,6 +1,7 @@
 import mongoose from "../db/odm.js";
 import Tenant from "../models/Tenant.js";
 import Settings from "../models/Settings.js";
+import { setDefaultTenantId } from "./tenantContext.js";
 
 // Shared Phase-2 backfill logic, used by BOTH the auto-run on server startup
 // (server.js) and the manual CLI script (scripts/migrateTenants.js):
@@ -48,6 +49,9 @@ export async function ensureDefaultTenant() {
     tenant.isDefault = true;
     await tenant.save();
   }
+  // Cache the default tenant's id so the (synchronous) tenantId scoping hook can
+  // share the default-tenant platform library with sharing-ON institutes.
+  setDefaultTenantId(tenant._id);
   return tenant;
 }
 

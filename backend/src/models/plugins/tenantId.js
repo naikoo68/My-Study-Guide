@@ -1,5 +1,5 @@
 import mongoose from "../../db/odm.js";
-import { getCurrentTenantId, isUnscoped, getShareContent, getShareAiKeys } from "../../utils/tenantContext.js";
+import { getCurrentTenantId, isUnscoped, getShareContent, getShareAiKeys, getDefaultTenantId } from "../../utils/tenantContext.js";
 
 // Models whose SHARED (null-tenant) platform rows are only visible to an
 // institute when the super-admin has turned that institute's sharing switch ON.
@@ -13,13 +13,36 @@ const CONTENT_SHARE_MODELS = new Set([
   "PracticeStream", "PracticeSubject", "PracticeTopic", "PracticeExam",
 ]);
 
-// Whether the current request may ALSO read shared/platform (null-tenant) rows
-// of `modelName`, honouring the per-institute sharing switches. Content models
-// follow shareContent; AiKey follows shareAiKeys; all others stay shared.
-function includesShared(modelName) {
-  if (modelName === "AiKey") return getShareAiKeys();
-  if (CONTENT_SHARE_MODELS.has(modelName)) return getShareContent();
-  return true;
+// The EXTRA tenant buckets a READ/aggregate of `modelName` may see, in addition
+// to the current institute (tid). Returns either:
+//   • an array of extra values to append to `$in` (e.g. [null] or
+//     [null, <defaultTenantId>]), or
+//   • null, meaning "strictly this institute — no shared rows".
+//
+// Platform-shareable models (the content library + AI keys) are GATED by the
+// per-institute switch:
+//   - switch OFF → null (own institute only).
+//   - switch ON  → the institute may ALSO read the platform library, which
+//     lives EITHER as null (content the super-admin created while unscoped) OR
+//     under the DEFAULT tenant (content the one-time backfill migrated there).
+//     Both are included so the whole library is shared, not just the null slice.
+//
+// Every OTHER model keeps the original behaviour (own + shared/global null rows)
+// and NEVER includes the default tenant id — otherwise the default institute's
+// PRIVATE data (students, attempts, messages, settings) would leak to every
+// institute. This is the critical isolation guarantee of platform sharing.
+function sharedBucketsFor(modelName) {
+  const isAiKey = modelName === "AiKey";
+  const isContent = CONTENT_SHARE_MODELS.has(modelName);
+  if (isAiKey || isContent) {
+    const on = isAiKey ? getShareAiKeys() : getShareContent();
+    if (!on) return null; // switch OFF → strictly the institute's own
+    const def = getDefaultTenantId();
+    return def ? [null, def] : [null];
+  }
+  // Non-gated models: own + shared/global null rows, exactly as before. The
+  // default tenant id is deliberately NOT added here.
+  return [null];
 }
 
 // Global Mongoose plugin. Adds an optional `tenantId` to every model schema so
@@ -89,9 +112,12 @@ export default function tenantIdPlugin(schema) {
     const tid = getCurrentTenantId();
     if (!tid) return; // no request context → don't scope (internal jobs)
     const q = this.getQuery();
-    // Include shared/platform (null-tenant) rows only when this institute is
-    // allowed to (see includesShared); otherwise restrict strictly to its own.
-    if (q.tenantId === undefined) q.tenantId = includesShared(model) ? { $in: [tid, null] } : tid;
+    // Include shared/platform rows only when this institute is allowed to (see
+    // sharedBucketsFor); otherwise restrict strictly to its own.
+    if (q.tenantId === undefined) {
+      const extra = sharedBucketsFor(model);
+      q.tenantId = extra ? { $in: [tid, ...extra] } : tid;
+    }
   });
 
   // Auto-scope WRITES/DELETES strictly to the current institute. Shared/platform
@@ -118,8 +144,9 @@ export default function tenantIdPlugin(schema) {
     // Don't double-add if the caller already matches tenantId first.
     const first = pipeline[0];
     if (first && first.$match && "tenantId" in first.$match) return;
-    // Include shared/platform (null-tenant) rows only when allowed (see scopeRead).
-    const match = includesShared(model) ? { tenantId: { $in: [tid, null] } } : { tenantId: tid };
+    // Include shared/platform rows only when allowed (see scopeRead / sharedBucketsFor).
+    const extra = sharedBucketsFor(model);
+    const match = extra ? { tenantId: { $in: [tid, ...extra] } } : { tenantId: tid };
     pipeline.unshift({ $match: match });
   });
 

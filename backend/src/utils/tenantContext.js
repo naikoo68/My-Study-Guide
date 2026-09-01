@@ -67,6 +67,27 @@ export function isUnscoped() {
   return !!(s && s.bypass);
 }
 
+// ---------------------------------------------------------------------------
+// The platform / default tenant's id, cached in-process.
+//
+// The tenantId model plugin scopes queries inside a SYNCHRONOUS pre-hook, so it
+// can't do an async Tenant lookup. We cache the default tenant's id here so that
+// hook can widen a sharing-ON institute's reads to ALSO include the platform
+// library that lives under the default tenant (content the one-time backfill
+// migrated off `null` onto the default tenant). Populated at startup
+// (ensureDefaultTenant) and whenever resolveTenant resolves the default tenant.
+//
+// Null until known → the plugin simply falls back to the pre-existing
+// { own institute, null } behaviour, which is safe (it just doesn't surface the
+// default-tenant library yet).
+let _defaultTenantId = null;
+export function setDefaultTenantId(id) {
+  _defaultTenantId = id ? String(id) : null;
+}
+export function getDefaultTenantId() {
+  return _defaultTenantId;
+}
+
 // Run `fn` within a given tenant context.
 export function runWithTenant(ctx, fn) {
   return tenantStore.run(ctx || { tenantId: null, bypass: false }, fn);
