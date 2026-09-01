@@ -49,6 +49,17 @@ export function setUnscoped() {
   if (s) s.bypass = true;
 }
 
+// Set the platform-sharing flags on the current context. Used by auth to refresh
+// them for the LOGGED-IN user's own tenant (resolveTenant initially derives them
+// from the host, which is wrong for an institute admin on the shared apex domain).
+export function setShareFlags(shareContent, shareAiKeys) {
+  const s = tenantStore.getStore();
+  if (s) {
+    s.shareContent = shareContent;
+    s.shareAiKeys = shareAiKeys;
+  }
+}
+
 // True when the current context has explicitly opted OUT of tenant scoping
 // (super-admin cross-tenant work, auth lookups, internal maintenance).
 export function isUnscoped() {

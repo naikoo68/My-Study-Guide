@@ -5,6 +5,7 @@ import Question from "../models/Question.js";
 import TestSeries from "../models/TestSeries.js";
 import { runUnscoped } from "../utils/tenantContext.js";
 import { clearTenantCache } from "../middleware/tenant.js";
+import { clearTenantShareCache } from "../utils/tenantShare.js";
 
 // Super-admin management of tenants (institutes) + the super-admin console data
 // (per-institute stats, create an institute admin). All routes run behind
@@ -193,6 +194,7 @@ export async function updateTenantSharing(req, res) {
   Object.assign(t, patch);
   await t.save();
   clearTenantCache(); // institutes pick up the change on their next request
+  clearTenantShareCache(); // and the sharing-flags cache used by auth
   res.json(sanitize(t));
 }
 
@@ -208,6 +210,7 @@ export async function updateAllTenantsSharing(req, res) {
     Tenant.updateMany({ isDefault: { $ne: true }, deleted: { $ne: true } }, { $set: patch })
   );
   clearTenantCache();
+  clearTenantShareCache();
   res.json({ ok: true, updated: result?.modifiedCount ?? 0, ...patch });
 }
 
