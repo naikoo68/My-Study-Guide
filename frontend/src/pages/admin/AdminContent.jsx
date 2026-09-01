@@ -1,7 +1,9 @@
 import { useEffect, useState, useCallback, useRef, Fragment } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Plus, Pencil, Trash2, X, ChevronRight, FolderOpen, Layers, BookOpen, HelpCircle, ListChecks, Upload, Eye, EyeOff, Copy, Download, GraduationCap, Search, Clock, Share2 } from "lucide-react";
+import { Plus, Pencil, Trash2, X, ChevronRight, FolderOpen, Layers, BookOpen, HelpCircle, ListChecks, Upload, Eye, EyeOff, Copy, Download, GraduationCap, Search, Clock, Share2, Building2 } from "lucide-react";
 import { contentService, aiService } from "../../services";
+import ShareToInstitutesModal from "../../components/admin/ShareToInstitutesModal";
+import { useAuth } from "../../context/AuthContext";
 import { suggestSubjects } from "../../data/streamSubjects";
 import { loadNav, saveNav } from "../../lib/navState";
 import Badge from "../../components/ui/Badge";
@@ -126,6 +128,9 @@ export default function AdminContent() {
   const [selected, setSelected] = useState([]); // bulk-selected question ids
   const [moveQ, setMoveQ] = useState(null); // { mode: "move" | "copy" } — move/copy selected questions to another quiz
   const [migrateQuiz, setMigrateQuiz] = useState(null); // quiz being moved/copied to another session (Migrate)
+  const [shareInstitutesTarget, setShareInstitutesTarget] = useState(null); // super-admin: copy a whole stream into institute(s)
+  const { user: authUser } = useAuth();
+  const isSuperAdmin = authUser?.role === "admin"; // platform super-admin (not an institute_admin)
   // "Scan missing areas": analyse all quizzes in this topic for uncovered syllabus.
   const [scanOpen, setScanOpen] = useState(false);
   const [scanFull, setScanFull] = useState(false); // full-screen the Missing areas modal
@@ -1451,6 +1456,15 @@ export default function AdminContent() {
                     <ArrowRightLeft className="h-4 w-4" />
                   </button>
                 )}
+                {view === "streams" && isSuperAdmin && (
+                  <button
+                    onClick={() => setShareInstitutesTarget({ id: item._id, name: item.name })}
+                    title="Share a copy of this whole stream to institutes (appears in their account automatically)"
+                    className="rounded-lg p-2 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30"
+                  >
+                    <Building2 className="h-4 w-4" />
+                  </button>
+                )}
                 {view !== "questions" && (
                   <button
                     onClick={() => shareLink(item)}
@@ -1860,6 +1874,14 @@ export default function AdminContent() {
         defaultSubject={dupScope.id}
         defaultSubjectName={dupScope.name}
       />
+
+      {shareInstitutesTarget && (
+        <ShareToInstitutesModal
+          area="public-quiz"
+          target={shareInstitutesTarget}
+          onClose={() => setShareInstitutesTarget(null)}
+        />
+      )}
 
       <RecycleBinModal
         open={recycleOpen}

@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, Fragment } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Plus, Pencil, Trash2, X, ChevronRight, GraduationCap, FolderOpen, ListChecks, FileStack, HelpCircle, Users, Search, Share2, ClipboardList, ArrowRightLeft, Send, Copy as CopyIcon, Upload, BookOpen, Eye, EyeOff } from "lucide-react";
+import { Plus, Pencil, Trash2, X, ChevronRight, GraduationCap, FolderOpen, ListChecks, FileStack, HelpCircle, Users, Search, Share2, ClipboardList, ArrowRightLeft, Send, Copy as CopyIcon, Upload, BookOpen, Eye, EyeOff, Building2 } from "lucide-react";
 import { practiceService, testService, contentService, aiService } from "../../services";
 import { loadNav, saveNav } from "../../lib/navState";
 import Badge from "../../components/ui/Badge";
@@ -23,7 +23,9 @@ import SubjectPlanEditor from "../../components/admin/SubjectPlanEditor";
 import ShareTestModal from "../../components/admin/ShareTestModal";
 import ShareNodeModal from "../../components/admin/ShareNodeModal";
 import ShareByEmailModal from "../../components/client/ShareByEmailModal";
+import ShareToInstitutesModal from "../../components/admin/ShareToInstitutesModal";
 import IncomingSharesInbox from "../../components/client/IncomingSharesInbox";
+import { useAuth } from "../../context/AuthContext";
 import ExtendExplanationsModal from "../../components/admin/ExtendExplanationsModal";
 import ExtendOneQuestionModal from "../../components/admin/ExtendOneQuestionModal";
 import RegenerateOneModal from "../../components/admin/RegenerateOneModal";
@@ -178,6 +180,9 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
   const [shareItem, setShareItem] = useState(null); // public share-link modal target (tests)
   const [shareNode, setShareNode] = useState(null); // public share-link modal target for a stream/subject/topic → { node, level }
   const [shareEmailTarget, setShareEmailTarget] = useState(null); // account-to-account share (stream/subject/topic/item)
+  const [shareInstitutesTarget, setShareInstitutesTarget] = useState(null); // super-admin: copy a whole stream into institute(s)
+  const { user: authUser } = useAuth();
+  const isSuperAdmin = authUser?.role === "admin"; // platform super-admin (not an institute_admin)
   const [migrateItem, setMigrateItem] = useState(null); // per-quiz migrate modal target (My Quiz)
   const [paperFilesItem, setPaperFilesItem] = useState(null); // Previous Papers: paper/answer-key PDF + info modal target
   const [selTopics, setSelTopics] = useState({}); // checkbox selection in the topics view (id -> true)
@@ -1156,6 +1161,9 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
                   {view !== "items" && (
                     <button onClick={() => setShareEmailTarget({ level: nodeLevel, id: item._id, name: item.name })} title="Send to another user by email (they must have an account)" className="rounded-lg p-2 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30"><Send className="h-4 w-4" /></button>
                   )}
+                  {nodeLevel === "stream" && isSuperAdmin && (
+                    <button onClick={() => setShareInstitutesTarget({ id: item._id, name: item.name })} title="Share a copy of this whole stream to institutes (appears in their account automatically)" className="rounded-lg p-2 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30"><Building2 className="h-4 w-4" /></button>
+                  )}
                   {view !== "items" && (
                     <button onClick={() => setModal({ type: nodeLevel, mode: "edit", data: item })} className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30"><Pencil className="h-4 w-4" /></button>
                   )}
@@ -1750,6 +1758,15 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
 
       {/* Public share-link modal (My Test / Client Test) */}
       {shareEmailTarget && <ShareByEmailModal target={shareEmailTarget} onClose={() => setShareEmailTarget(null)} />}
+
+      {/* Super-admin: copy a whole stream into institute account(s) */}
+      {shareInstitutesTarget && (
+        <ShareToInstitutesModal
+          area={fixedKind === "test" ? "my-test" : "my-quiz"}
+          target={shareInstitutesTarget}
+          onClose={() => setShareInstitutesTarget(null)}
+        />
+      )}
 
       {/* Bulk "Send selected": share all ticked streams/subjects/topics/items to another account */}
       {sendSelectedOpen && (

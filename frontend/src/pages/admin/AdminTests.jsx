@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, Eye, EyeOff, Ban, X, CalendarClock, Users, Search, Upload, HelpCircle, ChevronRight, GraduationCap, Briefcase, Copy, Download, Sparkles, Globe, Library, Scale, Share2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Eye, EyeOff, Ban, X, CalendarClock, Users, Search, Upload, HelpCircle, ChevronRight, GraduationCap, Briefcase, Copy, Download, Sparkles, Globe, Library, Scale, Share2, Building2 } from "lucide-react";
 import { testService, contentService, examService, aiService } from "../../services";
+import ShareToInstitutesModal from "../../components/admin/ShareToInstitutesModal";
+import { useAuth } from "../../context/AuthContext";
 import { loadNav, saveNav } from "../../lib/navState";
 import Badge from "../../components/ui/Badge";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
@@ -45,6 +47,9 @@ export default function AdminTests() {
   const [epModal, setEpModal] = useState(null); // { type: "exam"|"post", mode, data }
   const [epForm, setEpForm] = useState({ name: "", description: "", order: 1 });
   const [epSaving, setEpSaving] = useState(false);
+  const [shareInstitutesTarget, setShareInstitutesTarget] = useState(null); // super-admin: copy a whole exam into institute(s)
+  const { user: authUser } = useAuth();
+  const isSuperAdmin = authUser?.role === "admin"; // platform super-admin (not an institute_admin)
 
   const [tests, setTests] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -568,6 +573,9 @@ export default function AdminTests() {
                 </div>
                 <div className="flex flex-shrink-0 items-center gap-1" onClick={(e) => e.stopPropagation()}>
                   <button onClick={() => (view === "exams" ? openExam(item) : openPost(item))} className="btn-outline py-2">Manage <ChevronRight className="h-4 w-4" /></button>
+                  {view === "exams" && isSuperAdmin && (
+                    <button onClick={(e) => { e.stopPropagation(); setShareInstitutesTarget({ id: item._id, name: item.name }); }} title="Share a copy of this whole exam (all its test series) to institutes — appears in their account automatically" className="rounded-lg p-2 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30"><Building2 className="h-4 w-4" /></button>
+                  )}
                   <button onClick={() => openEpEdit(item)} title="Edit" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30"><Pencil className="h-4 w-4" /></button>
                   <button onClick={() => removeEp(item)} title="Delete" className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30"><Trash2 className="h-4 w-4" /></button>
                 </div>
@@ -681,6 +689,15 @@ export default function AdminTests() {
           </table>
           </div>
         </div>
+      )}
+
+      {/* Super-admin: copy a whole exam (all its test series) into institute account(s) */}
+      {shareInstitutesTarget && (
+        <ShareToInstitutesModal
+          area="public-test"
+          target={shareInstitutesTarget}
+          onClose={() => setShareInstitutesTarget(null)}
+        />
       )}
 
       {/* Add / edit Exam or Post */}
