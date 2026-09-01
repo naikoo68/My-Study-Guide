@@ -24,12 +24,15 @@ setInterval(() => {
 // Body: { area, id, all?:bool, tenantIds?:[] }
 export async function shareToInstitutes(req, res) {
   const area = String(req.body?.area || "").trim();
-  const id = String(req.body?.id || "").trim();
   const all = req.body?.all === true;
   const tenantIds = Array.isArray(req.body?.tenantIds) ? req.body.tenantIds : [];
+  // Accept a single `id` OR multiple `ids` (bulk "Share selected"). De-dupe and
+  // keep only valid ObjectIds.
+  const rawIds = [req.body?.id, ...(Array.isArray(req.body?.ids) ? req.body.ids : [])];
+  const ids = [...new Set(rawIds.map((x) => String(x || "").trim()).filter((x) => /^[a-f0-9]{24}$/i.test(x)))];
 
   if (!SHARE_AREAS.includes(area)) return res.status(400).json({ message: "Invalid content type to share." });
-  if (!/^[a-f0-9]{24}$/i.test(id)) return res.status(400).json({ message: "Nothing valid selected to share." });
+  if (!ids.length) return res.status(400).json({ message: "Nothing valid selected to share." });
   if (!all && !tenantIds.length) return res.status(400).json({ message: "Choose at least one institute, or Share to all." });
 
   const targets = await resolveTargetTenants({ all, tenantIds });
@@ -41,6 +44,7 @@ export async function shareToInstitutes(req, res) {
     status: "running",
     targetsTotal: targets.length,
     targetsDone: 0,
+    sourcesTotal: ids.length,
     itemsCopied: 0,
     questionsCopied: 0,
     results: [],
@@ -48,24 +52,29 @@ export async function shareToInstitutes(req, res) {
     updatedAt: Date.now(),
   });
 
-  guardJob(jobId, runShareJob(jobId, { area, id, targets }));
-  return res.status(202).json({ jobId, targets: targets.length });
+  guardJob(jobId, runShareJob(jobId, { area, ids, targets }));
+  return res.status(202).json({ jobId, targets: targets.length, sources: ids.length });
 }
 
-async function runShareJob(jobId, { area, id, targets }) {
+async function runShareJob(jobId, { area, ids, targets }) {
   const job = shareJobs.get(jobId);
   if (!job) return;
   for (const t of targets) {
-    try {
-      const { items, questions } = await shareNodeToTenant({ area, id, tenantId: t.id }, () => {
-        job.updatedAt = Date.now();
-      });
-      job.itemsCopied += items;
-      job.questionsCopied += questions;
-      job.results.push({ tenant: String(t.id), name: t.name, items, questions });
-    } catch (e) {
-      job.results.push({ tenant: String(t.id), name: t.name, error: e?.message || "Failed" });
+    let items = 0, questions = 0;
+    const errors = [];
+    for (const id of ids) {
+      try {
+        const r = await shareNodeToTenant({ area, id, tenantId: t.id }, () => { job.updatedAt = Date.now(); });
+        items += r.items;
+        questions += r.questions;
+        job.itemsCopied += r.items;
+        job.questionsCopied += r.questions;
+      } catch (e) {
+        errors.push(e?.message || "Failed");
+      }
+      job.updatedAt = Date.now();
     }
+    job.results.push({ tenant: String(t.id), name: t.name, items, questions, ...(errors.length ? { error: errors.join("; ") } : {}) });
     job.targetsDone += 1;
     job.updatedAt = Date.now();
   }

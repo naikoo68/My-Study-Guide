@@ -476,6 +476,14 @@ export default function AdminTests() {
         ) : (
           <>
             <span className="text-sm text-slate-500">{selRows.length} selected</span>
+            {view === "exams" && isSuperAdmin && (
+              <button
+                onClick={() => setShareInstitutesTarget({ targets: list.filter((i) => selRows.includes(i._id)).map((i) => ({ id: i._id, name: i.name })) })}
+                className="btn-outline py-1.5 text-indigo-600"
+              >
+                <Building2 className="h-4 w-4" /> Share to institutes
+              </button>
+            )}
             <button onClick={deleteSelectedRows} className="btn-outline py-1.5 text-rose-600"><Trash2 className="h-4 w-4" /> Delete selected</button>
             <button onClick={() => setSelRows([])} className="text-sm text-slate-500 hover:underline">Clear</button>
           </>
@@ -695,7 +703,8 @@ export default function AdminTests() {
       {shareInstitutesTarget && (
         <ShareToInstitutesModal
           area="public-test"
-          target={shareInstitutesTarget}
+          target={shareInstitutesTarget.targets ? undefined : shareInstitutesTarget}
+          targets={shareInstitutesTarget.targets}
           onClose={() => setShareInstitutesTarget(null)}
         />
       )}
