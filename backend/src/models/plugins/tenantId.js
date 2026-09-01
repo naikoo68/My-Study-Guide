@@ -7,6 +7,10 @@ import { getCurrentTenantId, isUnscoped, getShareContent, getShareAiKeys } from 
 const CONTENT_SHARE_MODELS = new Set([
   "Stream", "Subject", "Topic", "Session", "Quiz", "Question",
   "TestSeries", "Exam", "ExamPost", "Notice", "Review", "Coupon",
+  // "My Practice" / "My Quiz" hierarchy — platform (super-admin) practice
+  // content is also gated by the sharing switch, so an institute with sharing
+  // OFF doesn't see the platform's My-Quiz streams/subjects/topics/exams either.
+  "PracticeStream", "PracticeSubject", "PracticeTopic", "PracticeExam",
 ]);
 
 // Whether the current request may ALSO read shared/platform (null-tenant) rows
