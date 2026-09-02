@@ -17,13 +17,35 @@
 
 let session = null; // active session: { kind, update(state), close() }
 
+// Apple WebKit (Safari on iOS/iPadOS/macOS). iOS forces EVERY browser onto
+// WebKit, so this covers Chrome/Firefox/etc. on iPhone & iPad too. WebKit has no
+// working canvas.captureStream() (the method may exist but produces a blank/dead
+// stream) and no Document PiP, so NEITHER progress-PiP strategy can work there —
+// a "Pop out" button would just do nothing on tap. Detect it so we hide the
+// button instead of showing a dead one. (Android Chrome, the real target of the
+// canvas path, is intentionally NOT matched here and keeps working.)
+function isAppleWebkit() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  if (/iP(hone|ad|od)/.test(ua)) return true; // iOS / iPadOS (classic UA)
+  if (/Macintosh/.test(ua) && (navigator.maxTouchPoints || 0) > 1) return true; // iPadOS reports as "Macintosh"
+  // Desktop Safari: has a Safari token but none of the Chromium/other engines.
+  return /Safari\//.test(ua) && !/(Chrome|Chromium|CriOS|FxiOS|Edg|OPR|Android)/.test(ua);
+}
+
 // Is any form of PiP available in this browser?
 export function isPipSupported() {
   if (typeof window === "undefined" || typeof document === "undefined") return false;
-  if ("documentPictureInPicture" in window) return true;
+  if ("documentPictureInPicture" in window) return true; // desktop Chromium/Firefox — rich Document PiP
+  if (isAppleWebkit()) return false; // Safari/iOS/iPadOS: no working captureStream or standard video PiP
   try {
     const canCapture = typeof document.createElement("canvas").captureStream === "function";
-    return !!(document.pictureInPictureEnabled && canCapture);
+    // Standard video PiP must be a real method (present on Android Chrome; absent
+    // on iOS, which only has the non-standard webkitSetPresentationMode).
+    const hasVideoPip =
+      typeof HTMLVideoElement !== "undefined" &&
+      typeof HTMLVideoElement.prototype?.requestPictureInPicture === "function";
+    return !!(document.pictureInPictureEnabled && canCapture && hasVideoPip);
   } catch {
     return false;
   }
