@@ -52,10 +52,23 @@ jobs:
             cd backend
             sudo docker build -t msg-backend .
             sudo docker rm -f msg-backend || true
-            sudo docker run -d --name msg-backend --restart always \
-              --env-file msg.env \
-              -e AI_KEY_ENC_SECRET="$AI_KEY_ENC_SECRET" \
-              -p 127.0.0.1:5000:5000 msg-backend
+            # AI_KEY_ENC_SECRET encrypts stored AI provider keys at rest. Only
+            # pass -e when the CI secret is actually set: a command-line -e
+            # OVERRIDES --env-file, so a missing/blank repo secret would otherwise
+            # inject an empty value, wipe the real secret from msg.env, and make
+            # EVERY saved AI key undecryptable. When it's blank we skip the -e and
+            # fall back to whatever msg.env provides.
+            if [ -n "$AI_KEY_ENC_SECRET" ]; then
+              sudo docker run -d --name msg-backend --restart always \
+                --env-file msg.env \
+                -e AI_KEY_ENC_SECRET="$AI_KEY_ENC_SECRET" \
+                -p 127.0.0.1:5000:5000 msg-backend
+            else
+              echo "⚠️  AI_KEY_ENC_SECRET repo secret is empty — not overriding; using the value from msg.env (if any)."
+              sudo docker run -d --name msg-backend --restart always \
+                --env-file msg.env \
+                -p 127.0.0.1:5000:5000 msg-backend
+            fi
             sudo docker image prune -f
             # Give it a moment to boot, then verify it's healthy.
             sleep 6
