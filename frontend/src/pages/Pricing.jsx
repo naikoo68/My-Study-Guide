@@ -110,7 +110,11 @@ export default function Pricing() {
   // free, show a friendly "everything is free" note instead of empty cards).
   const showStudent = settings?.studentPlansEnabled !== false;
   const showClient = settings?.publicClientEnabled !== false && settings?.creatorPlansEnabled !== false;
-  const showInstitute = settings?.publicInstituteEnabled !== false && settings?.institutePlansEnabled !== false;
+  // "For Institutes" pricing is only for the platform (default) site — an
+  // institute's OWN public site must never advertise registering a NEW institute
+  // (same rule as the sign-up tabs and FAQ). Hide the tab on any tenant site.
+  const isInstituteSite = settings?.isDefaultTenant === false;
+  const showInstitute = !isInstituteSite && settings?.publicInstituteEnabled !== false && settings?.institutePlansEnabled !== false;
   const tabs = [
     ...(showStudent ? [{ key: "student", label: "For Students", Icon: GraduationCap }] : []),
     ...(showClient ? [{ key: "client", label: "For Creators", Icon: Store }] : []),
