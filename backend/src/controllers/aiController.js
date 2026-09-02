@@ -1,6 +1,6 @@
 // AI Question Generator — talks to any OpenAI-compatible provider
 import AiKey from "../models/AiKey.js";
-import { encryptSecret, decryptSecret, keyFingerprint } from "../utils/keyCrypto.js";
+import { encryptSecret, decryptSecret, keyFingerprint, isEncrypted } from "../utils/keyCrypto.js";
 import { isSafeProviderUrl, isSafePublicUrl } from "../utils/urlGuard.js";
 import { dedupeExact, salvageObjects as salvageConceptObjects } from "../utils/conceptDedupe.js";
 import Question from "../models/Question.js";
@@ -4909,6 +4909,23 @@ async function runKeyTest(doc) {
   let model = (doc.models || "").split(",").map((m) => m.trim()).filter(Boolean)[0] || "gpt-4o-mini";
   const baseUrl = (doc.baseUrl || DEFAULT_BASE).replace(/\/$/, "");
   const plainKey = decryptSecret(doc.key); // decrypt only in memory for the live test
+
+  // The stored value is present but decrypts to EMPTY — don't fire a doomed live
+  // call that returns the provider's misleading "invalid Authorization header".
+  // For an ENCRYPTED row this means AI_KEY_ENC_SECRET is missing or was CHANGED
+  // since the key was saved (a rotated/absent secret can't open old ciphertext);
+  // for a plain row it means the key itself is blank. Report the real cause so
+  // the fix is obvious (restore the previous secret, or re-enter the key).
+  if (!String(plainKey).trim()) {
+    doc.lastStatus = "error";
+    doc.lastError = isEncrypted(doc.key)
+      ? "This key can't be decrypted — the server's AI_KEY_ENC_SECRET is missing or was changed since the key was saved. Restore the previous secret to recover every stored key, or re-enter this key."
+      : "This key is empty — edit it and paste the API key again.";
+    doc.lastCheckedAt = new Date();
+    await doc.save();
+    return false;
+  }
+
   let r = await callProvider({ key: plainKey, baseUrl, model, userPrompt: "Reply with the word ok.", maxTokens: 5, timeoutMs: 20000 });
 
   if (!r.ok && r.status === 404) {
