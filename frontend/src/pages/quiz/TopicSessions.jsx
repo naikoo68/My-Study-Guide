@@ -83,6 +83,9 @@ export default function TopicSessions() {
         <p className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-slate-600 dark:text-slate-300">
           <span className="inline-flex items-center gap-1.5"><Layers className="h-4 w-4" /> {totalQuizzes} {totalQuizzes === 1 ? "quiz" : "quizzes"}</span>
           <span className="inline-flex items-center gap-1.5"><HelpCircle className="h-4 w-4" /> {plural(totalQuestions, "question")}</span>
+          {coveredTopics.length > 0 && (
+            <span className="inline-flex items-center gap-1.5"><ListChecks className="h-4 w-4" /> {coveredTopics.length} topics covered</span>
+          )}
         </p>
       </div>
 
