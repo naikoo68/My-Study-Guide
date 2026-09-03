@@ -1148,9 +1148,6 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
                   {view === "subjects" && (
                     <RowActionButton icon={Files} label="Duplicates" tone="brand" title={`Find duplicates in ${item.name}`} onClick={() => { setDupScope({ params: { practiceSubject: item._id }, name: item.name }); setDupOpen(true); }} />
                   )}
-                  {view === "topics" && (
-                    <RowActionButton icon={Scissors} label="Split" tone="indigo" title="Split this topic's questions into quizzes of N" onClick={() => { setSplitPer(50); setSplitTarget({ kind: "topic", id: item._id, name: item.name, count: null }); }} />
-                  )}
                   <RowActionButton icon={Share2} label="Share link" tone="emerald" title="Share a public link to this whole stream/exam/subject/topic (anyone can open & take everything under it — no login)" onClick={() => setShareNode({ node: item, level: nodeLevel })} />
                   <RowActionButton icon={Send} label="Send to user" tone="emerald" title="Send to another user by email (they must have an account)" onClick={() => setShareEmailTarget({ level: nodeLevel, id: item._id, name: item.name })} />
                   {nodeLevel === "stream" && isSuperAdmin && (
