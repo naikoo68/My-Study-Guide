@@ -21,15 +21,19 @@ export default function PracticeHome() {
       </div>
       <div className="mx-auto mt-10 grid max-w-3xl gap-5 sm:grid-cols-2">
         {cards.map((c) => (
-          <Link key={c.to} to={c.to} className="card-hover group p-8">
-            <span className={`flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br ${c.cls} text-white shadow-soft`}>
-              <c.Icon className="h-8 w-8" />
-            </span>
-            <h3 className="mt-5 text-xl font-bold">{c.label}</h3>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{c.desc}</p>
-            <span className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-brand-600 transition group-hover:gap-2 dark:text-brand-400">
-              Open <ArrowRight className="h-4 w-4" />
-            </span>
+          <Link key={c.to} to={c.to} className="card-hover group flex flex-col overflow-hidden p-0">
+            {/* Full-width banner with the category icon centred (matches the stream cards) */}
+            <div className={`relative flex h-28 items-center justify-center bg-gradient-to-br ${c.cls}`}>
+              <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_30%_25%,rgba(255,255,255,0.28),transparent_60%)]" />
+              <c.Icon className="relative h-12 w-12 text-white drop-shadow-md transition-transform duration-300 group-hover:scale-110" />
+            </div>
+            <div className="flex flex-1 flex-col p-6">
+              <h3 className="text-xl font-bold text-slate-900 dark:text-white">{c.label}</h3>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{c.desc}</p>
+              <span className="mt-auto inline-flex items-center gap-1 pt-5 text-sm font-semibold text-brand-600 transition group-hover:gap-2 dark:text-brand-400">
+                Open <ArrowRight className="h-4 w-4" />
+              </span>
+            </div>
           </Link>
         ))}
       </div>
