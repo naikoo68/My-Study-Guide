@@ -102,9 +102,9 @@ export default function QuizHome() {
                   className="card-hover group flex animate-fade-in-up flex-col overflow-hidden p-0 opacity-0"
                 >
                   {/* Full-width banner — the stream's uploaded/AI logo, else its icon over the gradient */}
-                  <div className={`relative flex aspect-[8/3] items-center justify-center overflow-hidden ${s.image ? "" : `bg-gradient-to-br ${s.color}`}`}>
+                  <div className={`relative flex h-40 items-center justify-center overflow-hidden ${s.image ? "" : `bg-gradient-to-br ${s.color}`}`}>
                     {s.image ? (
-                      <img src={s.image} alt="" className="absolute inset-0 h-full w-full object-contain transition-transform duration-300 group-hover:scale-105" />
+                      <img src={s.image} alt="" className="h-32 w-32 object-contain transition-transform duration-300 group-hover:scale-105" />
                     ) : (
                       <>
                         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_30%_25%,rgba(255,255,255,0.28),transparent_60%)]" />
