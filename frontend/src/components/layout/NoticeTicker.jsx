@@ -33,8 +33,18 @@ export default function NoticeTicker() {
     else navigate(link);
   };
 
-  const totalChars = notices.reduce((n, x) => n + (x.text?.length || 0), 0);
-  const duration = Math.min(80, Math.max(18, Math.round(totalChars / 3)));
+  // Rough width (px) of one pass over every notice: text + the mx-6 gaps.
+  const groupWidth = notices.reduce(
+    (w, x) => w + (x.text?.length || 0) * 7.5 + 48,
+    0,
+  );
+  // Repeat the notices enough times that a single copy always spans wider than
+  // any realistic viewport, so the banner is filled edge-to-edge (never bunched
+  // in the middle) even when there are only one or two short notices.
+  const repeats = Math.max(1, Math.ceil(1800 / Math.max(groupWidth, 1)));
+  const looped = Array.from({ length: repeats }).flatMap(() => notices);
+  // Keep the scroll speed constant (~pixels/sec) regardless of content length.
+  const duration = Math.min(120, Math.max(18, Math.round((groupWidth * repeats) / 60)));
 
   // A single scrolling notice. If it links somewhere, clicking navigates there;
   // otherwise it opens the panel.
@@ -50,10 +60,12 @@ export default function NoticeTicker() {
     </span>
   );
 
-  const Track = () => (
-    <div className="animate-marquee flex shrink-0 items-center whitespace-nowrap">
-      {notices.map((n) => (
-        <Item key={n._id} n={n} />
+  // One full copy of every (repeated) notice. Two identical copies sit inside
+  // the animated wrapper so translating by exactly -50% loops seamlessly.
+  const Group = ({ ariaHidden }) => (
+    <div className="flex shrink-0 items-center whitespace-nowrap" aria-hidden={ariaHidden}>
+      {looped.map((n, i) => (
+        <Item key={`${n._id}-${i}`} n={n} />
       ))}
     </div>
   );
@@ -75,8 +87,10 @@ export default function NoticeTicker() {
           style={{ "--marquee-duration": `${duration}s` }}
           onClick={() => setOpen(true)}
         >
-          <Track />
-          <Track aria-hidden="true" />
+          <div className="animate-marquee flex shrink-0 items-center whitespace-nowrap">
+            <Group />
+            <Group ariaHidden />
+          </div>
         </div>
       </div>
 
