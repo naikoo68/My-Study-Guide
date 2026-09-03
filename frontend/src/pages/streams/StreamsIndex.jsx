@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { ArrowRight } from "lucide-react";
 import { contentService } from "../../services";
 import { useSeo } from "../../lib/useSeo";
 import Breadcrumbs, { breadcrumbLd } from "../../components/ui/Breadcrumbs";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
+import StreamCard from "../../components/ui/StreamCard";
 
 // Public SEO hub listing every exam stream/course we offer, each linking to its
 // own /streams/:slug landing page — the top of the crawlable content hierarchy
@@ -48,20 +47,14 @@ export default function StreamsIndex() {
       ) : streams.length === 0 ? (
         <div className="mt-8"><EmptyState message="No streams available yet." /></div>
       ) : (
-        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {streams.map((s) => (
-            <Link
+            <StreamCard
               key={s._id}
+              stream={s}
               to={s.slug ? `/streams/${s.slug}` : "/public-quizzes"}
-              className="card p-5 transition hover:-translate-y-0.5 hover:shadow-lg"
-            >
-              <h2 className="font-bold">{s.name}</h2>
-              {s.description && <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{s.description}</p>}
-              <span className="mt-3 flex items-center gap-2 text-sm text-slate-400">
-                {typeof s.subjects === "number" && <span>{s.subjects} subject{s.subjects === 1 ? "" : "s"}</span>}
-                <span className="ml-auto inline-flex items-center gap-1 font-medium text-brand-600 dark:text-brand-400">Explore <ArrowRight className="h-3.5 w-3.5" /></span>
-              </span>
-            </Link>
+              footerLabel="Quizzes & mock tests"
+            />
           ))}
         </div>
       )}
