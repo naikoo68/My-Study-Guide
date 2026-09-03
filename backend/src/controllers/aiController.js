@@ -456,6 +456,108 @@ export async function generateLogo(req, res) {
   }
 }
 
+// Gather the subject names for a stream (or accept a passed-in list) so the
+// text prompts can reflect the mix of subjects the stream/subject covers.
+async function collectSubjectNames(body) {
+  const kind = String(body?.kind || "subject").toLowerCase() === "stream" ? "stream" : "subject";
+  if (kind === "stream" && body?.id) {
+    const subs = await Subject.find({ $or: [{ stream: body.id }, { streams: body.id }], deleted: { $ne: true } })
+      .select("name").limit(12).lean().catch(() => []);
+    return subs.map((s) => s.name).filter(Boolean);
+  }
+  if (Array.isArray(body?.subjects)) {
+    return body.subjects.map((s) => String(s || "").trim()).filter(Boolean).slice(0, 12);
+  }
+  return [];
+}
+
+// POST /api/ai/logo-emoji { kind, name, description, id?, subjects? }
+// → { emoji }. Uses the TEXT model only (no image generation / Cloudinary):
+// the client renders the emoji into a small square image itself. The prompt
+// considers the name, description and (for a stream) the subjects it covers.
+export async function generateLogoEmoji(req, res) {
+  const scope = resolveScope(req.user, req.body?.mode);
+  if (scope.denied) return res.status(403).json({ message: "AI access is not enabled for your account." });
+  const chosen = await resolveModel(String(req.body?.model || "").trim(), scope);
+  if (!chosen || !chosen.endpoints.length) {
+    return res.status(400).json({
+      message: scope.mode === "self" ? "No API keys added yet." : "AI is not configured. Add an API key in Admin → AI Keys.",
+    });
+  }
+  const kind = String(req.body?.kind || "subject").toLowerCase() === "stream" ? "stream" : "subject";
+  const name = String(req.body?.name || "").trim();
+  const description = String(req.body?.description || "").trim();
+  if (!name) return res.status(400).json({ message: "Enter a name first, then pick an emoji." });
+  const subjects = await collectSubjectNames(req.body);
+
+  const descLine = description ? ` Description: ${description}.` : "";
+  const subjectLine = subjects.length ? ` It covers these subjects: ${subjects.join(", ")}.` : "";
+  const userPrompt =
+    `Pick the SINGLE best emoji to represent a study ${kind} called "${name}".${descLine}${subjectLine}` +
+    ` Choose an emoji that clearly and tastefully symbolises the subject matter (prefer a widely-supported, standard emoji).` +
+    ` Return ONLY that one emoji character — no text, no explanation, no quotes.`;
+
+  const r = await callWithFallback({
+    endpoints: chosen.endpoints,
+    model: chosen.model,
+    userPrompt,
+    maxTokens: 12,
+    owner: scope.owner,
+    systemPrompt: "You output ONLY a single emoji character, nothing else.",
+  });
+  if (!r.ok) {
+    return res.status(502).json({ message: r.status === 429 ? quota429Message(r.detail) : `AI provider error (${r.status}). ${(r.detail || "").slice(0, 160)}` });
+  }
+  // Extract the first emoji (pictographic) glyph, keeping any variation selector.
+  const m = String(r.content || "").match(/\p{Extended_Pictographic}(?:\u200d\p{Extended_Pictographic})*\ufe0f?/u);
+  const emoji = m ? m[0] : "";
+  if (!emoji) return res.status(502).json({ message: "The model didn't return a usable emoji. Try again, or adjust the name/description." });
+  res.json({ emoji });
+}
+
+// POST /api/ai/describe { kind, name, subjects?, id? }
+// → { description }. Writes a short 1-2 sentence description for a stream or
+// subject using the TEXT model, considering its name and (for a stream) the
+// subjects it covers. The client fills this into the Description field.
+export async function generateDescription(req, res) {
+  const scope = resolveScope(req.user, req.body?.mode);
+  if (scope.denied) return res.status(403).json({ message: "AI access is not enabled for your account." });
+  const chosen = await resolveModel(String(req.body?.model || "").trim(), scope);
+  if (!chosen || !chosen.endpoints.length) {
+    return res.status(400).json({
+      message: scope.mode === "self" ? "No API keys added yet." : "AI is not configured. Add an API key in Admin → AI Keys.",
+    });
+  }
+  const kind = String(req.body?.kind || "subject").toLowerCase() === "stream" ? "stream" : "subject";
+  const name = String(req.body?.name || "").trim();
+  if (!name) return res.status(400).json({ message: "Enter a name first, then generate a description." });
+  const subjects = await collectSubjectNames(req.body);
+  const subjectLine = subjects.length ? ` It covers these subjects: ${subjects.join(", ")}.` : "";
+  const userPrompt =
+    `Write a concise, engaging description for a study ${kind} called "${name}".${subjectLine}` +
+    ` Keep it to 1-2 sentences (max ~240 characters), written for students browsing a study app.` +
+    ` Be specific about what learners will study. Return ONLY the description text — no title, no quotes, no markdown.`;
+
+  const r = await callWithFallback({
+    endpoints: chosen.endpoints,
+    model: chosen.model,
+    userPrompt,
+    maxTokens: 120,
+    owner: scope.owner,
+    systemPrompt: "You output ONLY a short plain-text description, nothing else.",
+  });
+  if (!r.ok) {
+    return res.status(502).json({ message: r.status === 429 ? quota429Message(r.detail) : `AI provider error (${r.status}). ${(r.detail || "").slice(0, 160)}` });
+  }
+  const description = String(r.content || "")
+    .replace(/^["'\s]+|["'\s]+$/g, "")
+    .replace(/\s+/g, " ")
+    .slice(0, 280)
+    .trim();
+  if (!description) return res.status(502).json({ message: "The model didn't return a description. Try again." });
+  res.json({ description });
+}
+
 // GET /api/ai/status — lets the admin UI show/hide the "Generate with AI"
 // button and populate the model dropdown.
 export async function aiStatus(req, res) {
