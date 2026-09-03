@@ -2070,15 +2070,15 @@ function FormModal({ modal, streamName, subjectName, saving, bulkProgress, onClo
 
   // Generate a logo image with AI (Gemini) from the name + description (+ the
   // stream's subjects). Returns a stored URL we drop straight into `form.image`.
-  const [logoBusy, setLogoBusy] = useState(false);
+  const [logoBusy, setLogoBusy] = useState(""); // "" | "icon" | "text" — which AI logo is generating
   const [logoErr, setLogoErr] = useState("");
-  const genLogo = () => {
+  const genLogo = (style = "icon") => {
     if (!form.name?.trim()) { setLogoErr("Enter a name first, then generate a logo."); return; }
-    setLogoBusy(true); setLogoErr("");
-    aiService.logo({ kind: type, name: form.name, description: form.description, id: data?._id })
+    setLogoBusy(style); setLogoErr("");
+    aiService.logo({ kind: type, name: form.name, description: form.description, id: data?._id, style })
       .then((r) => { if (r?.image) setForm((f) => ({ ...f, image: r.image })); else setLogoErr("No image was returned — try again."); })
       .catch((e) => setLogoErr(e?.message || "Could not generate the logo."))
-      .finally(() => setLogoBusy(false));
+      .finally(() => setLogoBusy(""));
   };
 
   // Upload a custom subject logo, downscaled to a 128×128 PNG data URI.
@@ -2190,8 +2190,11 @@ function FormModal({ modal, streamName, subjectName, saving, bulkProgress, onClo
                           {form.image ? <img src={form.image} alt="" className="h-full w-full object-cover" /> : <BookOpen className="h-6 w-6 text-slate-400" />}
                         </div>
                         <label className="btn-outline cursor-pointer"><Upload className="h-4 w-4" /> Upload<input type="file" accept="image/*" className="hidden" onChange={onPickImage} /></label>
-                        <button type="button" onClick={genLogo} disabled={logoBusy} className="btn-outline" title="Generate a logo with AI from the name & description">
-                          {logoBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} {logoBusy ? "Generating…" : "Generate with AI"}
+                        <button type="button" onClick={() => genLogo("icon")} disabled={!!logoBusy} className="btn-outline" title="Generate a symbol/icon logo with AI (no text)">
+                          {logoBusy === "icon" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} {logoBusy === "icon" ? "Generating…" : "Generate with AI"}
+                        </button>
+                        <button type="button" onClick={() => genLogo("text")} disabled={!!logoBusy} className="btn-outline" title="Generate a text / wordmark logo with AI (shows the name)">
+                          {logoBusy === "text" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} {logoBusy === "text" ? "Generating…" : "Text logo"}
                         </button>
                         {form.image && <button type="button" onClick={() => setForm({ ...form, image: "" })} className="text-sm font-medium text-rose-600 hover:underline">Remove</button>}
                       </div>

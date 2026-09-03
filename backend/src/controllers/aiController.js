@@ -426,12 +426,18 @@ export async function generateLogo(req, res) {
     subjects = req.body.subjects.map((s) => String(s || "").trim()).filter(Boolean).slice(0, 12);
   }
 
+  // "icon" = a symbolic mark with NO text; "text" = a wordmark/typographic logo
+  // that features the name itself.
+  const style = String(req.body?.style || "icon").toLowerCase() === "text" ? "text" : "icon";
   const descLine = description ? ` Description: ${description}.` : "";
   const subjectLine = subjects.length ? ` It covers these subjects: ${subjects.join(", ")}.` : "";
-  const prompt =
-    `Design a modern, minimal, FLAT VECTOR app icon / logo for a study ${kind} called "${name}".${descLine}${subjectLine}` +
-    ` Use simple bold symbolic shapes on a clean solid or subtle-gradient background, centered composition, high contrast, 1:1 square.` +
-    ` NO text, NO letters, NO words anywhere in the image. Friendly, professional, educational style.`;
+  const prompt = style === "text"
+    ? `Design a modern, clean WORDMARK / TEXT logo for a study ${kind} called "${name}".${descLine}${subjectLine}` +
+      ` The readable name "${name}" is the MAIN element, in bold professional typography, tastefully styled and centered on a simple solid or subtle-gradient background.` +
+      ` Spell the name EXACTLY as given. High contrast, balanced, 1:1 square. A small graphic accent is fine, but the legible text is the focus.`
+    : `Design a modern, minimal, FLAT VECTOR app icon / logo for a study ${kind} called "${name}".${descLine}${subjectLine}` +
+      ` Use simple bold symbolic shapes on a clean solid or subtle-gradient background, centered composition, high contrast, 1:1 square.` +
+      ` NO text, NO letters, NO words anywhere in the image. Friendly, professional, educational style.`;
 
   // Reuse the caller's key pool; pick a Google Gemini key (image gen is Gemini-hosted).
   const provs = await providers(resolveScope(req.user));
