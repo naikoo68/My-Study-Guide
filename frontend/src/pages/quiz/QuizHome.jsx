@@ -102,7 +102,7 @@ export default function QuizHome() {
                   className="card-hover group flex animate-fade-in-up flex-col overflow-hidden p-0 opacity-0"
                 >
                   {/* Full-width banner — the stream's uploaded/AI logo, else its icon over the gradient */}
-                  <div className={`relative flex aspect-[1546/423] w-full items-center justify-center overflow-hidden ${s.image ? "bg-slate-100 dark:bg-slate-800" : `bg-gradient-to-br ${s.color}`}`}>
+                  <div className={`relative flex aspect-video w-full items-center justify-center overflow-hidden ${s.image ? "bg-slate-100 dark:bg-slate-800" : `bg-gradient-to-br ${s.color}`}`}>
                     {s.image ? (
                       <>
                         {/* Blurred copy fills the banner edge-to-edge so there are no empty
@@ -113,15 +113,15 @@ export default function QuizHome() {
                           aria-hidden="true"
                           className="absolute inset-0 h-full w-full scale-125 object-cover blur-2xl"
                         />
-                        {/* object-contain shows the WHOLE image with no cropping, whatever
-                            its shape: a wide 1546x423 banner fills the slot exactly, while a
-                            square AI-generated emoji/logo is shown complete and centered. The
-                            blurred copy behind fills any leftover space so the banner is never
-                            empty on the sides. */}
+                        {/* The banner is 16:9, matching the images the app produces/expects
+                            (AI generator now outputs 16:9, and uploads should be 16:9). A
+                            matching-shape image fills the banner completely with object-cover —
+                            no shrinking, no cropping. The blurred copy behind covers any leftover
+                            space for legacy/off-ratio images so the banner is never empty. */}
                         <img
                           src={s.image}
                           alt=""
-                          className="absolute inset-0 h-full w-full object-contain transition-transform duration-300 group-hover:scale-105"
+                          className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                         />
                       </>
                     ) : (

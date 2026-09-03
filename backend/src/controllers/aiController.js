@@ -434,9 +434,9 @@ export async function generateLogo(req, res) {
   const prompt = style === "text"
     ? `Design a modern, clean WORDMARK / TEXT logo for a study ${kind} called "${name}".${descLine}${subjectLine}` +
       ` The readable name "${name}" is the MAIN element, in bold professional typography, tastefully styled and centered on a simple solid or subtle-gradient background.` +
-      ` Spell the name EXACTLY as given. High contrast, balanced, 1:1 square. A small graphic accent is fine, but the legible text is the focus.`
-    : `Design a modern, minimal, FLAT VECTOR app icon / logo for a study ${kind} called "${name}".${descLine}${subjectLine}` +
-      ` Use simple bold symbolic shapes on a clean solid or subtle-gradient background, centered composition, high contrast, 1:1 square.` +
+      ` Spell the name EXACTLY as given. High contrast, balanced. WIDE 16:9 LANDSCAPE BANNER (about 1280x720), the design filling the whole frame edge to edge. A small graphic accent is fine, but the legible text is the focus.`
+    : `Design a modern, minimal, FLAT VECTOR banner illustration for a study ${kind} called "${name}".${descLine}${subjectLine}` +
+      ` Use simple bold symbolic shapes on a clean solid or subtle-gradient background, arranged horizontally and centered, high contrast. WIDE 16:9 LANDSCAPE BANNER (about 1280x720), the artwork filling the whole frame edge to edge with important elements kept clear of the very top and bottom edges.` +
       ` NO text, NO letters, NO words anywhere in the image. Friendly, professional, educational style.`;
 
   // Reuse the caller's key pool; pick a Google Gemini key (image gen is Gemini-hosted).

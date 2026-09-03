@@ -1997,20 +1997,26 @@ export default function AdminContent() {
 // card/logo renderer) exactly like an uploaded/generated logo. No server or
 // Cloudinary needed — this is a pure client-side draw.
 function emojiToImage(emoji) {
-  const s = 128;
+  // 16:9 to match the stream banner exactly, so the result fills the banner
+  // edge-to-edge (no shrinking, no cropping) instead of sitting as a small
+  // square in the middle. The emoji is drawn large and centered on the gradient.
+  const w = 1280;
+  const h = 720;
   const canvas = document.createElement("canvas");
-  canvas.width = s;
-  canvas.height = s;
+  canvas.width = w;
+  canvas.height = h;
   const ctx = canvas.getContext("2d");
-  const g = ctx.createLinearGradient(0, 0, s, s);
+  const g = ctx.createLinearGradient(0, 0, w, h);
   g.addColorStop(0, "#eef2ff"); // indigo-50
   g.addColorStop(1, "#e0e7ff"); // indigo-100
   ctx.fillStyle = g;
-  ctx.fillRect(0, 0, s, s);
-  ctx.font = "84px 'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',sans-serif";
+  ctx.fillRect(0, 0, w, h);
+  // ~66% of the banner height — big and prominent, with margin so tall glyphs
+  // aren't clipped at the top/bottom.
+  ctx.font = "480px 'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(emoji, s / 2, s / 2 + 4);
+  ctx.fillText(emoji, w / 2, h / 2 + 10);
   return canvas.toDataURL("image/png");
 }
 
