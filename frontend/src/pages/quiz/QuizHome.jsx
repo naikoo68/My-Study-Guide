@@ -102,9 +102,25 @@ export default function QuizHome() {
                   className="card-hover group flex animate-fade-in-up flex-col overflow-hidden p-0 opacity-0"
                 >
                   {/* Full-width banner — the stream's uploaded/AI logo, else its icon over the gradient */}
-                  <div className={`relative flex h-40 items-center justify-center overflow-hidden ${s.image ? "" : `bg-gradient-to-br ${s.color}`}`}>
+                  <div className={`relative flex h-40 items-center justify-center overflow-hidden ${s.image ? "bg-slate-100 dark:bg-slate-800" : `bg-gradient-to-br ${s.color}`}`}>
                     {s.image ? (
-                      <img src={s.image} alt="" className="h-32 w-32 object-contain transition-transform duration-300 group-hover:scale-105" />
+                      <>
+                        {/* Blurred copy fills the banner edge-to-edge so there are no empty
+                            side bars, regardless of the artwork's own aspect/background. */}
+                        <img
+                          src={s.image}
+                          alt=""
+                          aria-hidden="true"
+                          className="absolute inset-0 h-full w-full scale-125 object-cover blur-2xl"
+                        />
+                        <div className="absolute inset-0 bg-white/25 dark:bg-black/25" />
+                        {/* The whole emoji/logo, sharp and as large as the banner allows. */}
+                        <img
+                          src={s.image}
+                          alt=""
+                          className="relative h-full w-full object-contain p-3 transition-transform duration-300 group-hover:scale-105"
+                        />
+                      </>
                     ) : (
                       <>
                         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_30%_25%,rgba(255,255,255,0.28),transparent_60%)]" />
