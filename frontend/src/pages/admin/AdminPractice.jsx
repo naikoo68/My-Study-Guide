@@ -1080,7 +1080,7 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
       {items.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700">
           <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
-            <input type="checkbox" checked={allTopicsSelected} onChange={toggleAllTopics} className="h-4 w-4 accent-brand-600" />
+            <input type="checkbox" checked={allTopicsSelected} onChange={toggleAllTopics} className="h-5 w-5 accent-brand-600" />
             Select all
           </label>
           {selectedTopicCount > 0 && (
@@ -1114,13 +1114,13 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {items.map((item) => (
-            <div key={item._id} className={`card p-4 ${item.disabled ? "opacity-60" : ""}`}>
+            <div key={item._id} className={`card p-5 ${item.disabled ? "opacity-60" : ""}`}>
               <div className="flex items-start justify-between gap-2">
                 <input
                   type="checkbox"
                   checked={!!selTopics[item._id]}
                   onChange={() => toggleTopicSel(item._id)}
-                  className="mt-1 h-4 w-4 flex-shrink-0 accent-brand-600"
+                  className="mt-1 h-5 w-5 flex-shrink-0 accent-brand-600"
                   title={view === "topics" ? "Select to send or move" : "Select to send"}
                 />
                 <button
