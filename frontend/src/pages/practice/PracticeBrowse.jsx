@@ -9,11 +9,15 @@ import SubjectLogo from "../../components/ui/SubjectLogo";
 
 const KIND_LABEL = { quiz: "My Quiz", test: "My Test", paper: "Previous Papers" };
 
-// One compact "N exams / subjects / …" chip on a browse node card.
+// Singularise a plural label when the count is 1 ("1 Quiz", "1 Topic").
+const singularLabel = (label, n) => (n === 1 ? (label === "Quizzes" ? "Quiz" : label.replace(/s$/, "")) : label);
+
+// One compact "N Exams / Subjects / …" chip on a browse node card — shows the
+// NAME next to the number (not just an icon) so it's clear what each count is.
 function CountChip({ icon: Ic, n, label }) {
   return (
     <span className="inline-flex items-center gap-1" title={`${n} ${label}`}>
-      <Ic className="h-3.5 w-3.5" /> {n}
+      <Ic className="h-3.5 w-3.5" /> {n} {singularLabel(label, n)}
     </span>
   );
 }
