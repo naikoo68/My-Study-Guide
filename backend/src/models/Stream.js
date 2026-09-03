@@ -9,6 +9,9 @@ const streamSchema = new mongoose.Schema(
     slug: { type: String, required: true, unique: true, lowercase: true },
     icon: { type: String, default: "GraduationCap" },
     color: { type: String, default: "from-blue-500 to-indigo-600" },
+    // Optional custom/AI-generated logo (image URL or data URI). When set it is
+    // shown as the stream's banner instead of the icon. Blank = icon + gradient.
+    image: { type: String, default: "" },
     description: { type: String },
     order: { type: Number, default: 0 },
     isActive: { type: Boolean, default: true },
