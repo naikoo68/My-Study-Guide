@@ -78,22 +78,27 @@ export default function StreamSubjects() {
                   key={s._id}
                   to={`/public-quizzes/${s._id}`}
                   style={{ animationDelay: `${i * 40}ms` }}
-                  className="card-hover group animate-fade-in-up p-6 opacity-0"
+                  className="card-hover group flex animate-fade-in-up flex-col overflow-hidden p-0 opacity-0"
                 >
-                  <SubjectLogo name={s.name} icon={s.icon} color={s.color} image={s.image} size={56} />
-                  <h3 className="mt-4 text-lg font-bold">{s.name}</h3>
-                  <p className="mt-1 line-clamp-2 text-sm text-slate-500 dark:text-slate-400">{s.description}</p>
-                  <NodeStats
-                    className="mt-4"
-                    items={[
-                      { icon: Layers, value: s.topics, label: "Topics" },
-                      { icon: ListChecks, value: s.quizzes, label: "Quizzes" },
-                      { icon: HelpCircle, value: s.questions, label: "Questions" },
-                    ]}
-                  />
-                  <span className="mt-3 flex items-center gap-1 text-sm font-semibold text-brand-600 transition group-hover:gap-2 dark:text-brand-400">
-                    Start Learning <ArrowRight className="h-4 w-4" />
-                  </span>
+                  {/* Full-bleed subject logo banner (uploaded image → auto emoji/colour) */}
+                  <div className="relative flex h-24 items-center justify-center overflow-hidden">
+                    <SubjectLogo fill name={s.name} icon={s.icon} color={s.color} image={s.image} className="transition-transform duration-300 group-hover:scale-105" />
+                  </div>
+                  <div className="flex flex-1 flex-col p-5">
+                    <h3 className="text-base font-bold leading-snug text-slate-900 dark:text-white">{s.name}</h3>
+                    {s.description && <p className="mt-1 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">{s.description}</p>}
+                    <NodeStats
+                      className="mt-4"
+                      items={[
+                        { icon: Layers, value: s.topics, label: "Topics" },
+                        { icon: ListChecks, value: s.quizzes, label: "Quizzes" },
+                        { icon: HelpCircle, value: s.questions, label: "Questions" },
+                      ]}
+                    />
+                    <span className="mt-auto inline-flex items-center gap-1 pt-4 text-sm font-semibold text-brand-600 transition group-hover:gap-2 dark:text-brand-400">
+                      Start Learning <ArrowRight className="h-4 w-4" />
+                    </span>
+                  </div>
                 </Link>
               );
             })}

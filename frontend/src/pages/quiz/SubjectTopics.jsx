@@ -69,25 +69,29 @@ export default function SubjectTopics() {
               key={t._id}
               to={`/public-quizzes/${subjectId}/${t._id}`}
               style={{ animationDelay: `${i * 50}ms` }}
-              className="card-hover group animate-fade-in-up flex flex-col p-6 opacity-0"
+              className="card-hover group flex animate-fade-in-up flex-col overflow-hidden p-0 opacity-0"
             >
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-100 text-accent-600 dark:bg-accent-900/40 dark:text-accent-300">
-                <Layers className="h-5 w-5" />
-              </span>
-              <h3 className="mt-3 text-lg font-bold">{t.title}</h3>
-              {t.description && (
-                <p className="mt-1 line-clamp-2 text-sm text-slate-500 dark:text-slate-400">{t.description}</p>
-              )}
-              <NodeStats
-                className="mt-3"
-                items={[
-                  { icon: ListChecks, value: t.quizzes, label: "Quizzes" },
-                  { icon: HelpCircle, value: t.questions, label: "Questions" },
-                ]}
-              />
-              <span className="mt-4 flex items-center gap-1 text-sm font-semibold text-brand-600 transition group-hover:gap-2 dark:text-brand-400">
-                View sessions <ArrowRight className="h-4 w-4" />
-              </span>
+              {/* Full-width banner with the topic icon centred */}
+              <div className="relative flex h-24 items-center justify-center overflow-hidden bg-gradient-to-br from-violet-500 to-fuchsia-600">
+                <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_30%_25%,rgba(255,255,255,0.28),transparent_60%)]" />
+                <Layers className="relative h-10 w-10 text-white drop-shadow-md transition-transform duration-300 group-hover:scale-110" />
+              </div>
+              <div className="flex flex-1 flex-col p-5">
+                <h3 className="text-base font-bold leading-snug text-slate-900 dark:text-white">{t.title}</h3>
+                {t.description && (
+                  <p className="mt-1 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">{t.description}</p>
+                )}
+                <NodeStats
+                  className="mt-4"
+                  items={[
+                    { icon: ListChecks, value: t.quizzes, label: "Quizzes" },
+                    { icon: HelpCircle, value: t.questions, label: "Questions" },
+                  ]}
+                />
+                <span className="mt-auto inline-flex items-center gap-1 pt-4 text-sm font-semibold text-brand-600 transition group-hover:gap-2 dark:text-brand-400">
+                  View sessions <ArrowRight className="h-4 w-4" />
+                </span>
+              </div>
             </Link>
           ))}
         </div>
