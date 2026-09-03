@@ -75,12 +75,49 @@ export async function listStreams(req, res) {
   // Super-admin browses unscoped; restrict to the platform's OWN streams so
   // institutes' shared copies don't leak into the admin's content library.
   const streams = await Stream.find({ isActive: true, ...NOT_DELETED, ...visFilter(req), ...(await platformContentFilter(req)) }).sort("order name").lean();
-  const subs = await Subject.aggregate([
-    { $match: { stream: { $ne: null }, deleted: { $ne: true } } },
-    { $group: { _id: "$stream", count: { $sum: 1 } } },
+
+  // Per-stream size, shown on each stream card: subjects / topics / quizzes /
+  // questions. We first map every subject to its HOME stream (a tenant-scoped
+  // find, so cross-tenant data can never leak in), then roll up the lower-level
+  // counts by that map — a subject id is globally unique, so only THIS request's
+  // subjects contribute, even though the aggregates group across the collection.
+  // Counts follow the same "home stream" rule as the subjects count.
+  const subjectDocs = await Subject.find({ stream: { $ne: null }, deleted: { $ne: true } }).select("_id stream").lean();
+  const subjectStream = new Map(subjectDocs.map((s) => [String(s._id), String(s.stream)]));
+
+  const [topicAgg, quizAgg, questionAgg] = await Promise.all([
+    Topic.aggregate([{ $match: { deleted: { $ne: true } } }, { $group: { _id: "$subject", count: { $sum: 1 } } }]),
+    Quiz.aggregate([{ $match: { deleted: { $ne: true } } }, { $group: { _id: "$subject", count: { $sum: 1 } } }]),
+    // Only questions that live inside a quiz (test-series questions have no quiz).
+    Question.aggregate([{ $match: { quiz: { $ne: null }, deleted: { $ne: true } } }, { $group: { _id: "$subject", count: { $sum: 1 } } }]),
   ]);
-  const map = Object.fromEntries(subs.map((s) => [String(s._id), s.count]));
-  res.json(streams.map((s) => ({ ...s, subjects: map[String(s._id)] || 0 })));
+
+  const subjects = {};
+  for (const streamId of subjectStream.values()) subjects[streamId] = (subjects[streamId] || 0) + 1;
+  const rollup = (agg) => {
+    const out = {};
+    for (const row of agg) {
+      const streamId = subjectStream.get(String(row._id));
+      if (streamId) out[streamId] = (out[streamId] || 0) + (row.count || 0);
+    }
+    return out;
+  };
+  const topics = rollup(topicAgg);
+  const quizzes = rollup(quizAgg);
+  const questions = rollup(questionAgg);
+
+  res.json(
+    streams.map((s) => {
+      const id = String(s._id);
+      return {
+        ...s,
+        subjects: subjects[id] || 0,
+        topics: topics[id] || 0,
+        quizzes: quizzes[id] || 0,
+        questions: questions[id] || 0,
+      };
+    })
+  );
 }
 
 export async function createStream(req, res) {
