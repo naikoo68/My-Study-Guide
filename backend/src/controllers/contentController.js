@@ -158,9 +158,18 @@ export async function listStreamSubjects(req, res) {
   // `streams[]` (reused from another stream). Linked subjects show under this
   // stream but open in their home stream.
   const subjects = await Subject.find({ $or: [{ stream: sid }, { streams: sid }], isActive: true, ...NOT_DELETED, ...visFilter(req) }).sort("name").lean();
-  const topics = await Topic.aggregate([{ $match: { deleted: { $ne: true } } }, { $group: { _id: "$subject", count: { $sum: 1 } } }]);
-  const tMap = Object.fromEntries(topics.map((t) => [String(t._id), t.count]));
-  res.json(subjects.map((s) => ({ ...s, topics: tMap[String(s._id)] || 0 })));
+  const ids = subjects.map((s) => s._id);
+  // subject/quiz are denormalised on their descendants, so each count is one
+  // grouped scan; questions are limited to quiz questions (test-series excluded),
+  // matching the stream-card counts.
+  const [topics, quizzes, questions] = await Promise.all([
+    Topic.aggregate([{ $match: { subject: { $in: ids }, deleted: { $ne: true } } }, { $group: { _id: "$subject", count: { $sum: 1 } } }]),
+    Quiz.aggregate([{ $match: { subject: { $in: ids }, deleted: { $ne: true } } }, { $group: { _id: "$subject", count: { $sum: 1 } } }]),
+    Question.aggregate([{ $match: { subject: { $in: ids }, quiz: { $ne: null }, deleted: { $ne: true } } }, { $group: { _id: "$subject", count: { $sum: 1 } } }]),
+  ]);
+  const toMap = (agg) => Object.fromEntries(agg.map((r) => [String(r._id), r.count]));
+  const tMap = toMap(topics), qzMap = toMap(quizzes), qMap = toMap(questions);
+  res.json(subjects.map((s) => ({ ...s, topics: tMap[String(s._id)] || 0, quizzes: qzMap[String(s._id)] || 0, questions: qMap[String(s._id)] || 0 })));
 }
 
 async function countMap(Model, matchIds, field) {
@@ -176,9 +185,14 @@ async function countMap(Model, matchIds, field) {
 // GET /api/subjects — includes topic count per subject
 export async function listSubjects(req, res) {
   const subjects = await Subject.find({ isActive: true, ...NOT_DELETED, ...visFilter(req), ...(await platformContentFilter(req)) }).sort("name").lean();
-  const topics = await Topic.aggregate([{ $match: { deleted: { $ne: true } } }, { $group: { _id: "$subject", count: { $sum: 1 } } }]);
-  const tMap = Object.fromEntries(topics.map((t) => [String(t._id), t.count]));
-  res.json(subjects.map((s) => ({ ...s, topics: tMap[String(s._id)] || 0 })));
+  const [topics, quizzes, questions] = await Promise.all([
+    Topic.aggregate([{ $match: { deleted: { $ne: true } } }, { $group: { _id: "$subject", count: { $sum: 1 } } }]),
+    Quiz.aggregate([{ $match: { deleted: { $ne: true } } }, { $group: { _id: "$subject", count: { $sum: 1 } } }]),
+    Question.aggregate([{ $match: { quiz: { $ne: null }, deleted: { $ne: true } } }, { $group: { _id: "$subject", count: { $sum: 1 } } }]),
+  ]);
+  const toMap = (agg) => Object.fromEntries(agg.map((r) => [String(r._id), r.count]));
+  const tMap = toMap(topics), qzMap = toMap(quizzes), qMap = toMap(questions);
+  res.json(subjects.map((s) => ({ ...s, topics: tMap[String(s._id)] || 0, quizzes: qzMap[String(s._id)] || 0, questions: qMap[String(s._id)] || 0 })));
 }
 
 export async function createSubject(req, res) {
@@ -274,18 +288,26 @@ export async function listTopics(req, res) {
   // roll up quiz counts per session back onto the owning topic.
   const sessions = await Session.find({ topic: { $in: topicIds }, ...NOT_DELETED }).select("_id topic").lean();
   const sessionToTopic = new Map(sessions.map((s) => [String(s._id), String(s.topic)]));
-  const qAgg = sessions.length
-    ? await Quiz.aggregate([
-        { $match: { session: { $in: sessions.map((s) => s._id) }, deleted: { $ne: true } } },
-        { $group: { _id: "$session", count: { $sum: 1 } } },
+  const sessionIds = sessions.map((s) => s._id);
+  // Quizzes + questions both live under the topic's session(s) (Question stores
+  // its session), so roll each up per session onto the owning topic.
+  const [qAgg, questionAgg] = sessions.length
+    ? await Promise.all([
+        Quiz.aggregate([{ $match: { session: { $in: sessionIds }, deleted: { $ne: true } } }, { $group: { _id: "$session", count: { $sum: 1 } } }]),
+        Question.aggregate([{ $match: { session: { $in: sessionIds }, deleted: { $ne: true } } }, { $group: { _id: "$session", count: { $sum: 1 } } }]),
       ])
-    : [];
-  const perTopic = {};
+    : [[], []];
+  const perTopicQuizzes = {};
   for (const row of qAgg) {
     const t = sessionToTopic.get(String(row._id));
-    if (t) perTopic[t] = (perTopic[t] || 0) + (row.count || 0);
+    if (t) perTopicQuizzes[t] = (perTopicQuizzes[t] || 0) + (row.count || 0);
   }
-  res.json(topics.map((t) => ({ ...t, quizzes: perTopic[String(t._id)] || 0 })));
+  const perTopicQuestions = {};
+  for (const row of questionAgg) {
+    const t = sessionToTopic.get(String(row._id));
+    if (t) perTopicQuestions[t] = (perTopicQuestions[t] || 0) + (row.count || 0);
+  }
+  res.json(topics.map((t) => ({ ...t, quizzes: perTopicQuizzes[String(t._id)] || 0, questions: perTopicQuestions[String(t._id)] || 0 })));
 }
 
 // POST /api/topics/:topicId/session — return the topic's single implicit

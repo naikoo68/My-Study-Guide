@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ChevronLeft, ArrowRight, Layers, FileQuestion } from "lucide-react";
+import { ChevronLeft, ArrowRight, Layers, FileQuestion, ListChecks, HelpCircle } from "lucide-react";
 import { contentService } from "../../services";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 import SubjectLogo from "../../components/ui/SubjectLogo";
+import NodeStats from "../../components/ui/NodeStats";
 
 export default function SubjectTopics() {
   const { subjectId } = useParams();
@@ -70,18 +71,20 @@ export default function SubjectTopics() {
               style={{ animationDelay: `${i * 50}ms` }}
               className="card-hover group animate-fade-in-up flex flex-col p-6 opacity-0"
             >
-              <div className="flex items-start justify-between">
-                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-100 text-accent-600 dark:bg-accent-900/40 dark:text-accent-300">
-                  <Layers className="h-5 w-5" />
-                </span>
-                <span className="badge bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                  {t.sessions} sessions
-                </span>
-              </div>
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-100 text-accent-600 dark:bg-accent-900/40 dark:text-accent-300">
+                <Layers className="h-5 w-5" />
+              </span>
               <h3 className="mt-3 text-lg font-bold">{t.title}</h3>
               {t.description && (
                 <p className="mt-1 line-clamp-2 text-sm text-slate-500 dark:text-slate-400">{t.description}</p>
               )}
+              <NodeStats
+                className="mt-3"
+                items={[
+                  { icon: ListChecks, value: t.quizzes, label: "Quizzes" },
+                  { icon: HelpCircle, value: t.questions, label: "Questions" },
+                ]}
+              />
               <span className="mt-4 flex items-center gap-1 text-sm font-semibold text-brand-600 transition group-hover:gap-2 dark:text-brand-400">
                 View sessions <ArrowRight className="h-4 w-4" />
               </span>
