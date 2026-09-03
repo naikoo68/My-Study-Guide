@@ -1,9 +1,10 @@
 import { Link, useParams } from "react-router-dom";
-import { ArrowRight, Search, ChevronLeft, FileQuestion } from "lucide-react";
+import { ArrowRight, Search, ChevronLeft, FileQuestion, Layers, ListChecks, HelpCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { contentService } from "../../services";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 import SubjectLogo from "../../components/ui/SubjectLogo";
+import NodeStats from "../../components/ui/NodeStats";
 
 // Subjects inside a chosen stream. Each subject links to its topics (unchanged).
 export default function StreamSubjects() {
@@ -82,14 +83,17 @@ export default function StreamSubjects() {
                   <SubjectLogo name={s.name} icon={s.icon} color={s.color} image={s.image} size={56} />
                   <h3 className="mt-4 text-lg font-bold">{s.name}</h3>
                   <p className="mt-1 line-clamp-2 text-sm text-slate-500 dark:text-slate-400">{s.description}</p>
-                  <div className="mt-4 flex items-center justify-between">
-                    <span className="badge bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                      {s.topics} topics
-                    </span>
-                    <span className="flex items-center gap-1 text-sm font-semibold text-brand-600 transition group-hover:gap-2 dark:text-brand-400">
-                      Start Learning <ArrowRight className="h-4 w-4" />
-                    </span>
-                  </div>
+                  <NodeStats
+                    className="mt-4"
+                    items={[
+                      { icon: Layers, value: s.topics, label: "Topics" },
+                      { icon: ListChecks, value: s.quizzes, label: "Quizzes" },
+                      { icon: HelpCircle, value: s.questions, label: "Questions" },
+                    ]}
+                  />
+                  <span className="mt-3 flex items-center gap-1 text-sm font-semibold text-brand-600 transition group-hover:gap-2 dark:text-brand-400">
+                    Start Learning <ArrowRight className="h-4 w-4" />
+                  </span>
                 </Link>
               );
             })}
