@@ -113,12 +113,14 @@ export default function QuizHome() {
                           aria-hidden="true"
                           className="absolute inset-0 h-full w-full scale-125 object-cover blur-2xl"
                         />
-                        <div className="absolute inset-0 bg-white/25 dark:bg-black/25" />
-                        {/* The whole emoji/logo, sharp and as large as the banner allows. */}
+                        {/* The image fills the whole banner edge-to-edge. object-cover
+                            fills the full width/height (trimming a little top/bottom of
+                            square artwork); the blurred copy behind shows through any
+                            transparent areas so the banner is always fully covered. */}
                         <img
                           src={s.image}
                           alt=""
-                          className="relative h-full w-full object-contain p-3 transition-transform duration-300 group-hover:scale-105"
+                          className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                         />
                       </>
                     ) : (
