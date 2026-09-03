@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { X, Minus, Globe, Download, CheckCircle2, AlertTriangle, Loader2, Server, KeyRound, FileText, Upload, Files, ScanText, Maximize2, Minimize2, Plus, Sparkles, ListChecks, Circle, Trash2 } from "lucide-react";
 import { aiService, documentService } from "../../services";
+import { notifyDone } from "../../lib/webNotify";
 import LanguageSelect from "./LanguageSelect";
 import { useAuth } from "../../context/AuthContext";
 import GraphView from "../ui/GraphView";
@@ -141,11 +142,8 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
     const justFinished = wasBusyRef.current && !working;
     wasBusyRef.current = working;
     if (justFinished && minimized && preview.length) {
-      try {
-        if ("Notification" in window && Notification.permission === "granted") {
-          new Notification("Questions ready", { body: `${preview.length} question(s) ready — open to insert.` });
-        }
-      } catch { /* notifications are best-effort */ }
+      // SW-aware notification so it also fires on installed iOS/iPadOS apps.
+      notifyDone("Questions ready", `${preview.length} question(s) ready — open to insert.`);
     }
   }, [busy, busyMore, minimized, preview.length]);
 

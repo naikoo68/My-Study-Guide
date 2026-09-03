@@ -3,6 +3,8 @@ import { Loader2, CheckCircle2, Sparkles, Square, X, PictureInPicture2 } from "l
 import { aiService } from "../../services";
 import { getActiveGenJob, patchActiveGenJob, clearActiveGenJob } from "../../lib/activeGenJob";
 import { isPipSupported, startProgressPip, updateProgressPip, closeProgressPip } from "../../lib/pipProgress";
+import { notifyDone } from "../../lib/webNotify";
+import NotifyWhenDoneButton from "./NotifyWhenDoneButton";
 
 // Merge freshly-finished questions into the AiGenerate checkpoint (keyed by
 // ckKey) so reopening the generator on the original target restores them for
@@ -106,15 +108,8 @@ export default function ActiveGenerationPill({ onOpen }) {
         setStatus("done");
         patchActiveGenJob({ status: "done", count: s.count ?? count });
         if (Array.isArray(s.questions)) saveQuestionsToCheckpoint(job.ckKey, s.questions);
-        try {
-          if ("Notification" in window && Notification.permission === "granted") {
-            new Notification("Questions ready", {
-              body: `${s.questions?.length ?? s.count ?? ""} question(s) generated — open to insert.`,
-            });
-          }
-        } catch {
-          /* notifications are best-effort */
-        }
+        // SW-aware notification so it also fires on installed iOS/iPadOS apps.
+        notifyDone("Questions ready", `${s.questions?.length ?? s.count ?? ""} question(s) generated — open to insert.`);
         return; // stop polling
       }
       if (s.status === "error") {
@@ -228,7 +223,7 @@ export default function ActiveGenerationPill({ onOpen }) {
         <button onClick={open} className="btn-primary flex-1 py-1 text-xs">
           {done ? "Open to insert" : "Open"}
         </button>
-        {pipSupported && (
+        {pipSupported ? (
           <button
             onClick={togglePip}
             title={pipOn ? "Close the floating window" : "Pop out — keep this visible on top of other apps"}
@@ -236,6 +231,9 @@ export default function ActiveGenerationPill({ onOpen }) {
           >
             <PictureInPicture2 className="h-3.5 w-3.5" /> {pipOn ? "Close" : "Pop out"}
           </button>
+        ) : (
+          // No PiP here (e.g. iPhone/iPad) — offer a completion notification instead.
+          <NotifyWhenDoneButton />
         )}
         {!done && !errored && (
           <button onClick={stop} disabled={stopping} className="btn-outline py-1 text-xs !text-rose-600 disabled:opacity-50 dark:!text-rose-400">
