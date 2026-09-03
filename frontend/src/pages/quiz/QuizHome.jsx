@@ -102,7 +102,7 @@ export default function QuizHome() {
                   className="card-hover group flex animate-fade-in-up flex-col overflow-hidden p-0 opacity-0"
                 >
                   {/* Full-width banner — the stream's uploaded/AI logo, else its icon over the gradient */}
-                  <div className={`relative flex aspect-video w-full items-center justify-center overflow-hidden ${s.image ? "bg-slate-100 dark:bg-slate-800" : `bg-gradient-to-br ${s.color}`}`}>
+                  <div className={`relative flex aspect-[1546/423] w-full items-center justify-center overflow-hidden ${s.image ? "bg-slate-100 dark:bg-slate-800" : `bg-gradient-to-br ${s.color}`}`}>
                     {s.image ? (
                       <>
                         {/* Blurred copy fills the banner edge-to-edge so there are no empty
