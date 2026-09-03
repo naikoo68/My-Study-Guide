@@ -36,6 +36,7 @@ import MigrateTopicsModal from "../../components/admin/MigrateTopicsModal";
 import MoveQuestionsModal from "../../components/admin/MoveQuestionsModal";
 import { Files, ScanSearch, Loader2, Sparkles, Scissors, GitMerge, Maximize2, Minimize2, Save, CheckCircle2, Link2 } from "lucide-react";
 import PracticeLinkExistingSubjectModal from "../../components/admin/PracticeLinkExistingSubjectModal";
+import RowActionButton from "../../components/admin/RowActionButton";
 
 // Question types offered per subtopic in the "Missing areas" sequential generator.
 const GEN_TYPES = [
@@ -1141,43 +1142,25 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
                     {view === "items" && `${item.questionCount ?? 0} questions · ${item.visibleToAll ? "Visible to all" : "Hidden by default"}`}
                   </p>
                 </button>
-                <div className="flex flex-shrink-0 gap-1">
+              </div>
+              {view !== "items" && (
+                <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
                   {view === "subjects" && (
-                    <button
-                      onClick={() => { setDupScope({ params: { practiceSubject: item._id }, name: item.name }); setDupOpen(true); }}
-                      title={`Find duplicates in ${item.name}`}
-                      className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30"
-                    >
-                      <Files className="h-4 w-4" />
-                    </button>
+                    <RowActionButton icon={Files} label="Duplicates" tone="brand" title={`Find duplicates in ${item.name}`} onClick={() => { setDupScope({ params: { practiceSubject: item._id }, name: item.name }); setDupOpen(true); }} />
                   )}
                   {view === "topics" && (
-                    <button
-                      onClick={() => { setSplitPer(50); setSplitTarget({ kind: "topic", id: item._id, name: item.name, count: null }); }}
-                      title="Split this topic's questions into quizzes of N"
-                      className="rounded-lg p-2 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30"
-                    >
-                      <Scissors className="h-4 w-4" />
-                    </button>
+                    <RowActionButton icon={Scissors} label="Split" tone="indigo" title="Split this topic's questions into quizzes of N" onClick={() => { setSplitPer(50); setSplitTarget({ kind: "topic", id: item._id, name: item.name, count: null }); }} />
                   )}
-                  {view !== "items" && (
-                    <button onClick={() => setShareNode({ node: item, level: nodeLevel })} title="Share a public link to this whole stream/exam/subject/topic (anyone can open & take everything under it — no login)" className={`rounded-lg p-2 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 ${item.publicShare ? "text-emerald-600" : "text-slate-500 hover:text-emerald-600 dark:text-slate-400"}`}><Share2 className="h-4 w-4" /></button>
-                  )}
-                  {view !== "items" && (
-                    <button onClick={() => setShareEmailTarget({ level: nodeLevel, id: item._id, name: item.name })} title="Send to another user by email (they must have an account)" className="rounded-lg p-2 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30"><Send className="h-4 w-4" /></button>
-                  )}
+                  <RowActionButton icon={Share2} label="Share link" tone="emerald" title="Share a public link to this whole stream/exam/subject/topic (anyone can open & take everything under it — no login)" onClick={() => setShareNode({ node: item, level: nodeLevel })} />
+                  <RowActionButton icon={Send} label="Send to user" tone="emerald" title="Send to another user by email (they must have an account)" onClick={() => setShareEmailTarget({ level: nodeLevel, id: item._id, name: item.name })} />
                   {nodeLevel === "stream" && isSuperAdmin && (
-                    <button onClick={() => setShareInstitutesTarget({ id: item._id, name: item.name })} title="Share a copy of this whole stream to institutes (appears in their account automatically)" className="rounded-lg p-2 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30"><Building2 className="h-4 w-4" /></button>
+                    <RowActionButton icon={Building2} label="Share to institutes" tone="indigo" title="Share a copy of this whole stream to institutes (appears in their account automatically)" onClick={() => setShareInstitutesTarget({ id: item._id, name: item.name })} />
                   )}
-                  {view !== "items" && (
-                    <button onClick={() => setModal({ type: nodeLevel, mode: "edit", data: item })} className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30"><Pencil className="h-4 w-4" /></button>
-                  )}
-                  {view !== "items" && (
-                    <button onClick={() => toggleDisabled(item)} disabled={togglingId === item._id} title={item.disabled ? "Enable — show to students again" : "Disable — hide from students (stays here in the manager)"} className={`rounded-lg p-2 hover:bg-amber-50 disabled:opacity-50 dark:hover:bg-amber-900/30 ${item.disabled ? "text-amber-600" : "text-slate-500 hover:text-amber-600 dark:text-slate-400"}`}>{item.disabled ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}</button>
-                  )}
-                  <button onClick={() => remove(nodeLevel, item._id, item.name)} className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30"><Trash2 className="h-4 w-4" /></button>
+                  <RowActionButton icon={item.disabled ? Eye : EyeOff} label={item.disabled ? "Enable" : "Disable"} tone={item.disabled ? "amber" : "slate"} disabled={togglingId === item._id} title={item.disabled ? "Enable — show to students again" : "Disable — hide from students (stays here in the manager)"} onClick={() => toggleDisabled(item)} />
+                  <RowActionButton icon={Pencil} label="Edit" tone="brand" onClick={() => setModal({ type: nodeLevel, mode: "edit", data: item })} />
+                  <RowActionButton icon={Trash2} label="Delete" tone="rose" onClick={() => remove(nodeLevel, item._id, item.name)} />
                 </div>
-              </div>
+              )}
               {view === "items" && (
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button onClick={() => openQuestions(item)} className="btn-outline py-1.5 text-xs"><HelpCircle className="h-3.5 w-3.5" /> Questions</button>
