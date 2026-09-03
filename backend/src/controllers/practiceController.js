@@ -1320,16 +1320,51 @@ async function topicHidden(topicId) {
   return subjectHidden(t.subject);
 }
 
+// Roll up per-parent content counts straight from the practice quiz ITEMS.
+// Every item is a TestSeries that denormalises its whole chain
+// (practiceStream/Exam/Subject/Topic) plus its questions[], so the number of
+// exams/subjects/topics/quizzes/questions beneath any level comes from the items
+// we've already fetched — no extra queries. `parentField` is the level we group
+// by (e.g. "practiceStream"). Returns Map<parentId, counts>.
+function tallyPracticeCounts(items, parentField) {
+  const m = new Map();
+  for (const t of items) {
+    const key = t[parentField] ? String(t[parentField]) : "";
+    if (!key) continue;
+    let e = m.get(key);
+    if (!e) { e = { exams: new Set(), subjects: new Set(), topics: new Set(), quizzes: 0, questions: 0 }; m.set(key, e); }
+    if (t.practiceExam) e.exams.add(String(t.practiceExam));
+    if (t.practiceSubject) e.subjects.add(String(t.practiceSubject));
+    if (t.practiceTopic) e.topics.add(String(t.practiceTopic));
+    e.quizzes += 1;
+    e.questions += Array.isArray(t.questions) ? t.questions.length : 0;
+  }
+  return m;
+}
+// Attach the requested count fields (from the tally) onto each node.
+function withPracticeCounts(nodes, tally, fields) {
+  return nodes.map((n) => {
+    const e = tally.get(String(n._id));
+    const counts = {};
+    for (const f of fields) counts[f] = !e ? 0 : (f === "quizzes" || f === "questions" ? e[f] : e[f].size);
+    return { ...n, ...counts };
+  });
+}
+
 export async function browseStreams(req, res) {
   const kind = req.params.kind;
   const freemium = true; // all practice kinds are publicly discoverable (freemium)
   const grantAll = kind === "test" ? req.user?.myTestAccess === true : req.user?.myQuizAccess === true;
   const items = await TestSeries.find({ practice: true, practiceKind: kind, status: "published", disabled: { $ne: true }, owner: null })
-    .select("practiceStream visibleToAll access")
+    .select("practiceStream practiceExam practiceSubject practiceTopic questions visibleToAll access")
     .lean();
-  const ok = new Set(items.filter((t) => freemium || grantAll || isTestVisibleToUser(t, req.user?._id)).map((t) => String(t.practiceStream)));
+  const visible = items.filter((t) => freemium || grantAll || isTestVisibleToUser(t, req.user?._id));
+  const ok = new Set(visible.map((t) => String(t.practiceStream)));
+  const tally = tallyPracticeCounts(visible, "practiceStream");
   const streams = await PracticeStream.find({ isActive: true, disabled: { $ne: true }, kind, owner: null }).sort("order name").lean();
-  res.json(streams.filter((s) => ok.has(String(s._id))));
+  // My Quiz has an Exams + Topics level; My Test/Papers don't (those counts stay 0).
+  const fields = kind === "quiz" ? ["exams", "subjects", "topics", "quizzes", "questions"] : ["subjects", "quizzes", "questions"];
+  res.json(withPracticeCounts(streams.filter((s) => ok.has(String(s._id))), tally, fields));
 }
 export async function browseSubjects(req, res) {
   const { kind, streamId } = req.params;
@@ -1337,11 +1372,13 @@ export async function browseSubjects(req, res) {
   const freemium = true; // all practice kinds are publicly discoverable (freemium)
   const grantAll = kind === "test" ? req.user?.myTestAccess === true : req.user?.myQuizAccess === true;
   const items = await TestSeries.find({ practice: true, practiceKind: kind, status: "published", disabled: { $ne: true }, practiceStream: streamId, owner: null })
-    .select("practiceSubject visibleToAll access")
+    .select("practiceSubject practiceTopic practiceExam questions visibleToAll access")
     .lean();
-  const ok = new Set(items.filter((t) => freemium || grantAll || isTestVisibleToUser(t, req.user?._id)).map((t) => String(t.practiceSubject)));
+  const visible = items.filter((t) => freemium || grantAll || isTestVisibleToUser(t, req.user?._id));
+  const ok = new Set(visible.map((t) => String(t.practiceSubject)));
+  const tally = tallyPracticeCounts(visible, "practiceSubject");
   const subjects = await PracticeSubject.find({ stream: streamId, isActive: true, disabled: { $ne: true }, owner: null }).sort("order name").lean();
-  res.json(subjects.filter((s) => ok.has(String(s._id))));
+  res.json(withPracticeCounts(subjects.filter((s) => ok.has(String(s._id))), tally, ["quizzes", "questions"]));
 }
 // My Quiz: exams under a stream that contain ANY published quiz (public — the
 // first quiz in each topic is free, so every non-empty exam is discoverable).
@@ -1350,22 +1387,24 @@ export async function browseExams(req, res) {
   if (await streamHidden(streamId)) return res.json([]); // disabled stream → hide all
   await adoptOrphanSubjects(streamId, null); // self-heal platform content not yet migrated
   const items = await TestSeries.find({ practice: true, practiceKind: "quiz", status: "published", disabled: { $ne: true }, practiceStream: streamId, owner: null })
-    .select("practiceExam")
+    .select("practiceExam practiceSubject practiceTopic questions")
     .lean();
   const has = new Set(items.map((t) => String(t.practiceExam)));
+  const tally = tallyPracticeCounts(items, "practiceExam");
   const exams = await PracticeExam.find({ stream: streamId, isActive: true, disabled: { $ne: true }, owner: null }).sort("order name").lean();
-  res.json(exams.filter((e) => has.has(String(e._id))));
+  res.json(withPracticeCounts(exams.filter((e) => has.has(String(e._id))), tally, ["subjects", "topics", "quizzes", "questions"]));
 }
 // My Quiz: subjects under an exam that contain ANY published quiz.
 export async function browseExamSubjects(req, res) {
   const { examId } = req.params;
   if (await examHidden(examId)) return res.json([]); // disabled exam/stream → hide all
   const items = await TestSeries.find({ practice: true, practiceKind: "quiz", status: "published", disabled: { $ne: true }, practiceExam: examId, owner: null })
-    .select("practiceSubject")
+    .select("practiceSubject practiceTopic questions")
     .lean();
   const has = new Set(items.map((t) => String(t.practiceSubject)));
+  const tally = tallyPracticeCounts(items, "practiceSubject");
   const subjects = await PracticeSubject.find({ exam: examId, isActive: true, disabled: { $ne: true }, owner: null }).sort("order name").lean();
-  res.json(subjects.filter((s) => has.has(String(s._id))));
+  res.json(withPracticeCounts(subjects.filter((s) => has.has(String(s._id))), tally, ["topics", "quizzes", "questions"]));
 }
 // My Test Series: items under a subject. PUBLIC list in natural order (Test 1,
 // Test 2, …). The FIRST test is a FREE preview anyone can attempt; the rest are
@@ -1396,11 +1435,12 @@ export async function browseTopics(req, res) {
   const { subjectId } = req.params;
   if (await subjectHidden(subjectId)) return res.json([]); // disabled subject/exam/stream → hide all
   const items = await TestSeries.find({ practice: true, practiceKind: "quiz", status: "published", disabled: { $ne: true }, practiceSubject: subjectId, owner: null })
-    .select("practiceTopic")
+    .select("practiceTopic questions")
     .lean();
   const has = new Set(items.map((t) => String(t.practiceTopic)));
+  const tally = tallyPracticeCounts(items, "practiceTopic");
   const topics = await PracticeTopic.find({ subject: subjectId, isActive: true, disabled: { $ne: true }, owner: null }).sort("order name").lean();
-  res.json(topics.filter((t) => has.has(String(t._id))));
+  res.json(withPracticeCounts(topics.filter((t) => has.has(String(t._id))), tally, ["quizzes", "questions"]));
 }
 // Previous Papers: items listed DIRECTLY under a stream (no subject drill-down).
 // PUBLIC list; each paper needs only LOGIN to open (no subscription) — a guest
