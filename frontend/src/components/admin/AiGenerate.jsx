@@ -4,6 +4,8 @@ import { aiService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
 import { setActiveGenJob, patchActiveGenJob, clearActiveGenJob, getActiveGenJob } from "../../lib/activeGenJob";
 import { isPipSupported, startProgressPip, updateProgressPip, closeProgressPip } from "../../lib/pipProgress";
+import { notifyDone } from "../../lib/webNotify";
+import NotifyWhenDoneButton from "./NotifyWhenDoneButton";
 import GraphView from "../ui/GraphView";
 import VizView from "../ui/VizView";
 import LanguageSelect from "./LanguageSelect";
@@ -268,11 +270,8 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
     const justFinished = wasBusyRef.current && !busy;
     wasBusyRef.current = busy;
     if (justFinished && minimized && preview.length) {
-      try {
-        if ("Notification" in window && Notification.permission === "granted") {
-          new Notification("Questions ready", { body: `${preview.length} question(s) generated — open to insert.` });
-        }
-      } catch { /* notifications are best-effort */ }
+      // Fire via the SW-aware helper so the ping also works on installed iOS apps.
+      notifyDone("Questions ready", `${preview.length} question(s) generated — open to insert.`);
     }
   }, [busy, minimized, preview.length]);
 
@@ -909,10 +908,13 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
         </div>
         <div className="mt-2.5 flex gap-2">
           <button onClick={() => setMinimized(false)} className="btn-primary flex-1 py-1 text-xs">{done ? "Open to insert" : "Open"}</button>
-          {pipSupported && (
+          {pipSupported ? (
             <button onClick={togglePip} title={pipOn ? "Close the floating window" : "Pop out — keep this visible on top of other apps"} className={`btn-outline py-1 text-xs ${pipOn ? "!text-brand-600 dark:!text-brand-300" : ""}`}>
               <PictureInPicture2 className="h-3.5 w-3.5" /> {pipOn ? "Close" : "Pop out"}
             </button>
+          ) : (
+            // No PiP here (e.g. iPhone/iPad) — offer a completion notification instead.
+            <NotifyWhenDoneButton />
           )}
           {busy && <button onClick={stop} className="btn-outline py-1 text-xs !text-rose-600 dark:!text-rose-400"><Square className="h-3.5 w-3.5" /> Stop</button>}
         </div>
