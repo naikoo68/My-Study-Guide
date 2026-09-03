@@ -117,38 +117,45 @@ export default function TopicSessions() {
               Subtopics appear here as questions are added — through “Scan Missing Areas” or by adding subtopics manually when generating.
             </p>
           )}
+
+          {/* Quizzes live INSIDE this same card now (one card, not two). */}
+          <div className="mt-6 border-t border-brand-100/70 pt-5 dark:border-brand-900/40">
+            <h3 className="mb-3 flex items-center gap-2 text-base font-bold">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-100 text-brand-600 dark:bg-brand-900/40 dark:text-brand-300"><Play className="h-4 w-4" /></span>
+              Quizzes
+            </h3>
+            {sessions.length === 0 ? (
+              <EmptyState message="No quizzes in this topic yet." />
+            ) : (
+              <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                {sessions.map((s, i) => (
+                  <Link
+                    key={s._id}
+                    to={`/public-quizzes/${subjectId}/${topicId}/${s._id}`}
+                    style={{ animationDelay: `${i * 50}ms` }}
+                    className="card-hover animate-fade-in-up flex flex-col bg-white p-5 opacity-0 dark:bg-slate-900"
+                  >
+                    <div className="flex items-start justify-between">
+                      <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-100 text-sm font-bold text-brand-600 dark:bg-brand-900/40 dark:text-brand-300">
+                        {s.index}
+                      </span>
+                      <Badge variant={s.difficulty}>{s.difficulty}</Badge>
+                    </div>
+                    <h3 className="mt-3 text-lg font-bold">{s.title}</h3>
+                    <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
+                      <span className="inline-flex items-center gap-1.5"><Layers className="h-4 w-4" /> {s.quizzes ?? 0} quizzes</span>
+                      <span className="inline-flex items-center gap-1.5"><HelpCircle className="h-4 w-4" /> {s.questionCount ?? 0} questions</span>
+                    </p>
+                    <span className="btn-primary mt-auto w-full">
+                      <Play className="h-4 w-4" /> View Quizzes
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
-
-      {sessions.length === 0 ? (
-        <EmptyState message="No quizzes in this topic yet." />
-      ) : (
-        <div className="mt-8 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-          {sessions.map((s, i) => (
-            <Link
-              key={s._id}
-              to={`/public-quizzes/${subjectId}/${topicId}/${s._id}`}
-              style={{ animationDelay: `${i * 50}ms` }}
-              className="card-hover animate-fade-in-up flex flex-col p-6 opacity-0"
-            >
-              <div className="flex items-start justify-between">
-                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-100 text-sm font-bold text-brand-600 dark:bg-brand-900/40 dark:text-brand-300">
-                  {s.index}
-                </span>
-                <Badge variant={s.difficulty}>{s.difficulty}</Badge>
-              </div>
-              <h3 className="mt-3 text-lg font-bold">{s.title}</h3>
-              <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
-                <span className="inline-flex items-center gap-1.5"><Layers className="h-4 w-4" /> {s.quizzes ?? 0} quizzes</span>
-                <span className="inline-flex items-center gap-1.5"><HelpCircle className="h-4 w-4" /> {s.questionCount ?? 0} questions</span>
-              </p>
-              <span className="btn-primary mt-auto w-full">
-                <Play className="h-4 w-4" /> View Quizzes
-              </span>
-            </Link>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
