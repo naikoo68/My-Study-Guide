@@ -5,7 +5,6 @@ import { ArrowRight, ChevronLeft, Clock, HelpCircle, Play, Lock, Unlock, Eye, Fi
 import { practiceService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
-import SubjectLogo from "../../components/ui/SubjectLogo";
 
 const KIND_LABEL = { quiz: "My Quiz", test: "My Test", paper: "Previous Papers" };
 
@@ -155,24 +154,29 @@ export default function PracticeBrowse() {
       ) : (
         <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {rows.map((s, i) => {
-            // Subjects use the shared, realistic SubjectLogo (image → emoji +
-            // colour by name). Streams/topics keep their line icon.
+            // Each node's banner icon (a subject with an uploaded image shows
+            // that image as the banner instead — handled in the card below).
             const Icon = Icons[s.icon] || (level === "streams" ? Icons.GraduationCap : level === "exams" ? Icons.ClipboardList : level === "topics" ? Icons.Layers : Icons.BookOpen);
             const to = level === "streams" ? `/practice/${kind}/${s._id}`
               : level === "exams" ? `/practice/${kind}/${streamId}/${s._id}`
               : level === "subjects" ? (hasExams ? `/practice/${kind}/${streamId}/${examId}/${s._id}` : `/practice/${kind}/${streamId}/${s._id}`)
               : `/practice/${kind}/${streamId}/${examId}/${subjectId}/${s._id}`;
             return (
-              <Link key={s._id} to={to} style={{ animationDelay: `${i * 40}ms` }} className="card-hover group animate-fade-in-up p-6 opacity-0">
-                {level === "subjects" ? (
-                  <SubjectLogo name={s.name} icon={s.icon} color={s.color} image={s.image} size={56} />
-                ) : (
-                  <div className={`flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br ${s.color || "from-violet-500 to-fuchsia-600"} text-white shadow-soft`}>
-                    <Icon className="h-7 w-7" />
-                  </div>
-                )}
-                <h3 className="mt-4 text-lg font-bold">{s.name}</h3>
-                {s.description && <p className="mt-1 line-clamp-2 text-sm text-slate-500 dark:text-slate-400">{s.description}</p>}
+              <Link key={s._id} to={to} style={{ animationDelay: `${i * 40}ms` }} className="card-hover group flex animate-fade-in-up flex-col overflow-hidden p-0 opacity-0">
+                {/* Full-width banner — the node's icon centred over its gradient (a subject's uploaded image fills the banner) */}
+                <div className={`relative flex h-24 items-center justify-center overflow-hidden bg-gradient-to-br ${s.color || "from-violet-500 to-fuchsia-600"}`}>
+                  {level === "subjects" && s.image ? (
+                    <img src={s.image} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                  ) : (
+                    <>
+                      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_30%_25%,rgba(255,255,255,0.28),transparent_60%)]" />
+                      <Icon className="relative h-11 w-11 text-white drop-shadow-md transition-transform duration-300 group-hover:scale-110" />
+                    </>
+                  )}
+                </div>
+                <div className="flex flex-1 flex-col p-5">
+                  <h3 className="text-base font-bold leading-snug text-slate-900 dark:text-white">{s.name}</h3>
+                  {s.description && <p className="mt-1 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">{s.description}</p>}
                 {(() => {
                   // What's inside this node — counts come from the browse API.
                   const quizWord = kind === "test" ? "Tests" : "Quizzes";
@@ -189,9 +193,10 @@ export default function PracticeBrowse() {
                     </div>
                   ) : null;
                 })()}
-                <span className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-brand-600 transition group-hover:gap-2 dark:text-brand-400">
-                  Open <ArrowRight className="h-4 w-4" />
-                </span>
+                  <span className="mt-auto inline-flex items-center gap-1 pt-4 text-sm font-semibold text-brand-600 transition group-hover:gap-2 dark:text-brand-400">
+                    Open <ArrowRight className="h-4 w-4" />
+                  </span>
+                </div>
               </Link>
             );
           })}
