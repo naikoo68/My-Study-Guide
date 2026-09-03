@@ -5,6 +5,7 @@ import { ArrowRight, ChevronLeft, Clock, HelpCircle, Play, Lock, Unlock, Eye, Fi
 import { practiceService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
+import SubjectLogo from "../../components/ui/SubjectLogo";
 
 const KIND_LABEL = { quiz: "My Quiz", test: "My Test", paper: "Previous Papers" };
 
@@ -164,9 +165,11 @@ export default function PracticeBrowse() {
             return (
               <Link key={s._id} to={to} style={{ animationDelay: `${i * 40}ms` }} className="card-hover group flex animate-fade-in-up flex-col overflow-hidden p-0 opacity-0">
                 {/* Full-width banner — the node's icon centred over its gradient (a subject's uploaded image fills the banner) */}
-                <div className={`relative flex h-24 items-center justify-center overflow-hidden bg-gradient-to-br ${s.color || "from-violet-500 to-fuchsia-600"}`}>
-                  {level === "subjects" && s.image ? (
-                    <img src={s.image} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                <div className={`relative flex h-24 items-center justify-center overflow-hidden ${level === "subjects" ? "bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-900" : `bg-gradient-to-br ${s.color || "from-violet-500 to-fuchsia-600"}`}`}>
+                  {level === "subjects" ? (
+                    // Subjects keep their rich logo: uploaded image → auto emoji +
+                    // colour picked from the name (SubjectLogo), centred on a soft banner.
+                    <SubjectLogo name={s.name} icon={s.icon} color={s.color} image={s.image} size={64} className="transition-transform duration-300 group-hover:scale-105" />
                   ) : (
                     <>
                       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_30%_25%,rgba(255,255,255,0.28),transparent_60%)]" />
