@@ -1992,6 +1992,28 @@ export default function AdminContent() {
   );
 }
 
+// Render a single emoji into a 128×128 PNG data URI on a soft gradient, so an
+// AI-picked emoji can be stored on the entity's `image` field (reused by every
+// card/logo renderer) exactly like an uploaded/generated logo. No server or
+// Cloudinary needed — this is a pure client-side draw.
+function emojiToImage(emoji) {
+  const s = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = s;
+  canvas.height = s;
+  const ctx = canvas.getContext("2d");
+  const g = ctx.createLinearGradient(0, 0, s, s);
+  g.addColorStop(0, "#eef2ff"); // indigo-50
+  g.addColorStop(1, "#e0e7ff"); // indigo-100
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, s, s);
+  ctx.font = "84px 'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(emoji, s / 2, s / 2 + 4);
+  return canvas.toDataURL("image/png");
+}
+
 /* ---------------- Form modal (adapts to subject/topic/session/question) ---------------- */
 function FormModal({ modal, streamName, subjectName, saving, bulkProgress, onClose, onSave, onBulkSave, onBulkSaveTopics, onAiSuggest, onAiSuggestTopics }) {
   const { type, mode, data } = modal;
@@ -2079,6 +2101,33 @@ function FormModal({ modal, streamName, subjectName, saving, bulkProgress, onClo
       .then((r) => { if (r?.image) setForm((f) => ({ ...f, image: r.image })); else setLogoErr("No image was returned — try again."); })
       .catch((e) => setLogoErr(e?.message || "Could not generate the logo."))
       .finally(() => setLogoBusy(""));
+  };
+
+  // "Emoji" logo: ask the TEXT model for the single best emoji (considering the
+  // name, description and the stream's subjects), then render it to an image
+  // client-side and store it on `form.image` — no image model / Cloudinary.
+  const genEmojiLogo = () => {
+    if (!form.name?.trim()) { setLogoErr("Enter a name first, then pick an emoji."); return; }
+    setLogoBusy("emoji"); setLogoErr("");
+    aiService.logoEmoji({ kind: type, name: form.name, description: form.description, id: data?._id })
+      .then((r) => {
+        if (r?.emoji) setForm((f) => ({ ...f, image: emojiToImage(r.emoji) }));
+        else setLogoErr("No emoji was returned — try again.");
+      })
+      .catch((e) => setLogoErr(e?.message || "Could not pick an emoji."))
+      .finally(() => setLogoBusy(""));
+  };
+
+  // "Auto" description: AI-write a short description from the name (+ subjects).
+  const [descBusy, setDescBusy] = useState(false);
+  const [descErr, setDescErr] = useState("");
+  const genDescription = () => {
+    if (!form.name?.trim()) { setDescErr("Enter a name first, then auto-write a description."); return; }
+    setDescBusy(true); setDescErr("");
+    aiService.describe({ kind: type, name: form.name, id: data?._id })
+      .then((r) => { if (r?.description) setForm((f) => ({ ...f, description: r.description })); else setDescErr("No description was returned — try again."); })
+      .catch((e) => setDescErr(e?.message || "Could not write a description."))
+      .finally(() => setDescBusy(false));
   };
 
   // Upload a custom subject logo, downscaled to a 128×128 PNG data URI.
@@ -2174,7 +2223,15 @@ function FormModal({ modal, streamName, subjectName, saving, bulkProgress, onClo
                 <>
                   {isSubjectAdd && <p className="-mb-1 text-xs font-medium text-slate-500">Or add a single custom subject:</p>}
                   <Field label="Name"><input required className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={type === "stream" ? "e.g. JKSSB" : "e.g. Physics"} /></Field>
-                  <Field label="Description"><textarea rows={2} className="input resize-none" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></Field>
+                  <Field label="Description">
+                    <textarea rows={2} className="input resize-none" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <button type="button" onClick={genDescription} disabled={descBusy} className="btn-outline" title={`Let AI write a short description from the name${type === "stream" ? " and this stream's subjects" : ""}`}>
+                        {descBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} {descBusy ? "Writing…" : "Auto (AI)"}
+                      </button>
+                      {descErr && <span className="text-xs font-medium text-rose-600">{descErr}</span>}
+                    </div>
+                  </Field>
                   <Field label="Icon name (lucide)"><input className="input" value={form.icon} onChange={(e) => setForm({ ...form, icon: e.target.value })} placeholder="e.g. Atom, FlaskConical, BookOpen" /></Field>
                   <Field label="Colour">
                     <div className="flex flex-wrap gap-2">
@@ -2196,12 +2253,15 @@ function FormModal({ modal, streamName, subjectName, saving, bulkProgress, onClo
                         <button type="button" onClick={() => genLogo("text")} disabled={!!logoBusy} className="btn-outline" title="Generate a text / wordmark logo with AI (shows the name)">
                           {logoBusy === "text" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} {logoBusy === "text" ? "Generating…" : "Text logo"}
                         </button>
+                        <button type="button" onClick={genEmojiLogo} disabled={!!logoBusy} className="btn-outline" title="Pick a fitting emoji with AI (text only — no image model needed)">
+                          {logoBusy === "emoji" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} {logoBusy === "emoji" ? "Picking…" : "Emoji"}
+                        </button>
                         {form.image && <button type="button" onClick={() => setForm({ ...form, image: "" })} className="text-sm font-medium text-rose-600 hover:underline">Remove</button>}
                       </div>
                       {logoErr && <p className="mt-1 text-xs font-medium text-rose-600">{logoErr}</p>}
                       <p className="mt-1 text-xs text-slate-400">
                         Overrides the icon. Leave empty to auto-pick {type === "stream" ? "an icon" : "an emoji"} from the name.
-                        {type === "stream" ? " AI uses the name, description and this stream's subjects." : ""}
+                        {type === "stream" ? " AI uses the name, description and this stream's subjects." : ""} “Emoji” needs no image model — it picks a fitting emoji using text only.
                       </p>
                     </Field>
                   )}
