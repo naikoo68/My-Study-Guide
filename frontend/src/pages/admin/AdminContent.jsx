@@ -1299,7 +1299,7 @@ export default function AdminContent() {
               </div>
               <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 px-4 py-2 dark:border-slate-700">
                 <label className="flex items-center gap-2 text-sm font-medium">
-                  <input type="checkbox" checked={allSelected} onChange={toggleAll} className="h-4 w-4 accent-brand-600" /> Select all
+                  <input type="checkbox" checked={allSelected} onChange={toggleAll} className="h-5 w-5 accent-brand-600" /> Select all
                 </label>
                 {questionResults && (
                   <span className="text-sm font-medium text-slate-500">{questionResults.length} match{questionResults.length === 1 ? "" : "es"} (40%+)</span>
@@ -1329,7 +1329,7 @@ export default function AdminContent() {
           {view !== "questions" && items.length > 0 && (
             <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 px-4 py-2 dark:border-slate-700">
               <label className="flex items-center gap-2 text-sm font-medium">
-                <input type="checkbox" checked={allNodesSelected} onChange={toggleAllNodes} className="h-4 w-4 accent-brand-600" /> Select all
+                <input type="checkbox" checked={allNodesSelected} onChange={toggleAllNodes} className="h-5 w-5 accent-brand-600" /> Select all
               </label>
               {(selNodes.length > 0 || delNodeBusy) && (
                 delNodeBusy ? (
@@ -1365,14 +1365,14 @@ export default function AdminContent() {
             <div
               key={item._id}
               onClick={view !== "questions" ? () => openItem(item) : undefined}
-              className={`card p-4 ${view !== "questions" ? "cursor-pointer transition hover:border-brand-300 dark:hover:border-brand-600" : ""}`}
+              className={`card p-5 ${view !== "questions" ? "cursor-pointer transition hover:border-brand-300 dark:hover:border-brand-600" : ""}`}
             >
               <div className="flex items-center gap-3">
               {view === "questions" && (
-                <input type="checkbox" checked={selected.includes(item._id)} onChange={() => toggleSelect(item._id)} className="h-4 w-4 flex-shrink-0 accent-brand-600" />
+                <input type="checkbox" checked={selected.includes(item._id)} onChange={() => toggleSelect(item._id)} className="h-5 w-5 flex-shrink-0 accent-brand-600" />
               )}
               {view !== "questions" && (
-                <input type="checkbox" checked={selNodes.includes(item._id)} onClick={(e) => e.stopPropagation()} onChange={() => toggleNode(item._id)} className="h-4 w-4 flex-shrink-0 accent-brand-600" title="Select to delete" />
+                <input type="checkbox" checked={selNodes.includes(item._id)} onClick={(e) => e.stopPropagation()} onChange={() => toggleNode(item._id)} className="h-5 w-5 flex-shrink-0 accent-brand-600" title="Select to delete" />
               )}
               <div className="min-w-0 flex-1">
                 {view === "questions" ? (
