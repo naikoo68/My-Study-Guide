@@ -35,12 +35,12 @@ const PROTECTED_FIELDS = [
 // than the denylist: new sensitive fields are excluded by DEFAULT until added
 // here on purpose. (`slug` is always server-generated, so it's never allowed.)
 export const ALLOW = {
-  STREAM: ["name", "icon", "color", "description", "order", "isActive", "disabled"],
+  STREAM: ["name", "icon", "color", "image", "description", "order", "isActive", "disabled"],
   SUBJECT: ["stream", "name", "icon", "color", "image", "description", "isActive", "disabled"],
   TOPIC: ["subject", "title", "index", "description", "isActive", "disabled"],
   SESSION: ["subject", "topic", "title", "index", "difficulty", "isActive"],
   QUIZ: ["subject", "session", "title", "index", "difficulty", "isActive", "disabled", "aiTopic", "aiSubtopics"],
-  P_STREAM: ["kind", "name", "icon", "color", "description", "order", "isActive", "disabled"],
+  P_STREAM: ["kind", "name", "icon", "color", "image", "description", "order", "isActive", "disabled"],
   P_EXAM: ["stream", "name", "icon", "color", "image", "description", "order", "isActive", "disabled"],
   P_SUBJECT: ["stream", "exam", "name", "icon", "color", "image", "description", "order", "isActive", "disabled"],
   P_TOPIC: ["subject", "name", "icon", "color", "description", "order", "isActive", "disabled"],

@@ -101,10 +101,16 @@ export default function QuizHome() {
                   style={{ animationDelay: `${i * 40}ms` }}
                   className="card-hover group flex animate-fade-in-up flex-col overflow-hidden p-0 opacity-0"
                 >
-                  {/* Full-width banner — the stream's icon centred over its gradient */}
-                  <div className={`relative flex h-24 items-center justify-center bg-gradient-to-br ${s.color}`}>
-                    <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_30%_25%,rgba(255,255,255,0.28),transparent_60%)]" />
-                    <Icon className="relative h-11 w-11 text-white drop-shadow-md transition-transform duration-300 group-hover:scale-110" />
+                  {/* Full-width banner — the stream's uploaded/AI logo, else its icon over the gradient */}
+                  <div className={`relative flex h-24 items-center justify-center overflow-hidden ${s.image ? "" : `bg-gradient-to-br ${s.color}`}`}>
+                    {s.image ? (
+                      <img src={s.image} alt="" className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                    ) : (
+                      <>
+                        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_30%_25%,rgba(255,255,255,0.28),transparent_60%)]" />
+                        <Icon className="relative h-11 w-11 text-white drop-shadow-md transition-transform duration-300 group-hover:scale-110" />
+                      </>
+                    )}
                   </div>
 
                   {/* Body */}

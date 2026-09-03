@@ -457,6 +457,7 @@ export const aiService = {
   suggestSubjects: (data) => api.post("/ai/suggest-subjects", data), // { stream, existing?:string[] } → { subjects:[{name,description}] } — auto-find subjects (excludes `existing`, de-duplicated)
   suggestTopics: (data) => api.post("/ai/suggest-topics", data), // { subject, stream?, existing?:string[] } → { topics:[{title,description}] } — auto-find topics (excludes `existing`, de-duplicated)
   findDuplicates: (data) => api.post("/ai/find-duplicates", data), // { level, parentName?, items:[{id,name}] } → { groups:[{keepId,keepName,duplicates:[{id,name}]}] } — find duplicate/overlapping subjects or topics
+  logo: (data) => api.post("/ai/logo", data, { timeout: 120000 }), // { kind:"stream"|"subject", name, description?, id? } → { image } — AI-generate a logo image (Gemini), stored on Cloudinary
   outlineUnits: (data) => api.post("/ai/outline-units", data), // detect units/chapters/topics in a PDF/source → { units: [...] }
   parseSyllabus: (data) => api.post("/ai/parse-syllabus", data, { timeout: 180000 }), // full syllabus → { subject, topics:[{title,subtopics}] }
   classifyUnits: (data) => api.post("/ai/classify-units", data), // file question stems under units → { assign: [...] }

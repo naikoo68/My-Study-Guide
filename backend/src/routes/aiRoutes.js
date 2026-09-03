@@ -3,7 +3,7 @@ import {
   aiStatus, generateQuestions, jobStatus, cancelJob, extractQuestions, generateNotes, visualizeSpec, extendExplanations, extendOneExplanation, regenerateQuestion, regenerateAll,
   listKeys, createKey, bulkCreateKeys, updateKey, deleteKey, revealKey, testKey, importEnvKeys, testAllKeys, listKeyModels, autoDetectKeyModel,
   getAiAccess, setAiMode, inferTopic, coverageGaps, outlineUnits, classifyUnits, parseSyllabus, autoDetectAllKeys, setAllKeysEnabled,
-  checkQuestionsSemantic, suggestSubjects, suggestTopics, findDuplicates,
+  checkQuestionsSemantic, suggestSubjects, suggestTopics, findDuplicates, generateLogo,
 } from "../controllers/aiController.js";
 import { protect, authorize, superAdminOnly } from "../middleware/auth.js";
 
@@ -28,6 +28,7 @@ router.post("/outline-units", ...manage, outlineUnits); // detect units/chapters
 router.post("/suggest-subjects", ...manage, suggestSubjects); // list the subjects that belong to a stream/course name
 router.post("/suggest-topics", ...manage, suggestTopics); // list the topics/chapters that make up a subject
 router.post("/find-duplicates", ...manage, findDuplicates); // group existing subjects/topics that are duplicates/overlaps
+router.post("/logo", ...manage, generateLogo); // generate a stream/subject logo image (Gemini image model) → Cloudinary URL
 router.post("/parse-syllabus", ...manage, parseSyllabus); // parse a full syllabus into { subject, topics:[{title,subtopics}] }
 router.post("/classify-units", ...manage, classifyUnits); // file question stems under the right unit
 router.post("/extend-explanations", ...manage, extendExplanations); // AI-enrich all explanations in a quiz/test

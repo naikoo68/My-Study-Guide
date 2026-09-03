@@ -11,6 +11,8 @@ import { softDeletePatch } from "../utils/softDelete.js";
 import { getClientPlans, findSiteSettings } from "../utils/plans.js";
 import { webResearch } from "../utils/webResearch.js";
 import { splitIntoStems, contentOfBlock, questionLocation } from "./contentController.js";
+import Subject from "../models/Subject.js";
+import { uploadImage, isCloudinaryConfigured } from "../config/cloudinary.js";
 
 // Works with any OpenAI-compatible provider (Gemini, TokenLab, OpenAI, Groq,
 // DeepSeek, …). Keys come from TWO places, both used together:
@@ -347,6 +349,105 @@ function splitCombinedIfNeeded(a, b) {
     return { columnA: la, columnB: lb };
   }
   return { columnA: a, columnB: b };
+}
+
+/* ------------------------------ AI logo images ------------------------------
+   Generate a logo/artwork for a Stream or Subject using Gemini's image model
+   (gemini-2.5-flash-image), then store it on Cloudinary. The admin content form
+   saves the returned URL on the entity's `image` field, which the cards render
+   as a full-bleed banner (overriding the auto emoji). Uses the caller's normal
+   AI key pool (platform keys for admin), so no new provider/key is needed. */
+const LOGO_IMAGE_MODEL = "gemini-2.5-flash-image";
+
+// Call Gemini's image model with a text prompt → return a data URI, or null if
+// the model produced no image. Retries once with TEXT+IMAGE modalities, which
+// some model versions require.
+async function generateGeminiImage({ apiKey, prompt, timeoutMs = 60000 }) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${LOGO_IMAGE_MODEL}:generateContent`;
+  const modalityTries = [["IMAGE"], ["TEXT", "IMAGE"]];
+  let lastErr = "";
+  for (const responseModalities of modalityTries) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let resp;
+    try {
+      resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          generationConfig: { responseModalities },
+        }),
+        signal: controller.signal,
+      });
+    } catch (e) {
+      clearTimeout(timer);
+      lastErr = e?.name === "AbortError" ? "The image request timed out." : (e?.message || "Network error.");
+      continue;
+    }
+    clearTimeout(timer);
+    const raw = await resp.text().catch(() => "");
+    if (!resp.ok) {
+      try { lastErr = JSON.parse(raw)?.error?.message || `HTTP ${resp.status}`; } catch { lastErr = `HTTP ${resp.status}`; }
+      // A modality error is worth retrying with the other config; otherwise stop.
+      if (!/modalit/i.test(lastErr)) break;
+      continue;
+    }
+    let data;
+    try { data = JSON.parse(raw); } catch { lastErr = "Non-JSON response from the image model."; continue; }
+    const parts = data?.candidates?.[0]?.content?.parts || [];
+    const img = parts.find((p) => p?.inlineData?.data || p?.inline_data?.data);
+    const inline = img?.inlineData || img?.inline_data;
+    if (inline?.data) return `data:${inline.mimeType || inline.mime_type || "image/png"};base64,${inline.data}`;
+    lastErr = "The image model returned no image.";
+  }
+  const err = new Error(lastErr || "Could not generate the image.");
+  throw err;
+}
+
+// POST /api/ai/logo { kind:"stream"|"subject", name, description, id?, subjects? }
+// → { image: <cloudinary url> }. The client saves it on the entity separately.
+export async function generateLogo(req, res) {
+  if (!isCloudinaryConfigured()) {
+    return res.status(400).json({ message: "Image storage (Cloudinary) isn't configured on the server, so AI logos can't be saved." });
+  }
+  const kind = String(req.body?.kind || "subject").toLowerCase() === "stream" ? "stream" : "subject";
+  const name = String(req.body?.name || "").trim();
+  const description = String(req.body?.description || "").trim();
+  if (!name) return res.status(400).json({ message: "Enter a name first, then generate a logo." });
+
+  // For a stream, fold in the subjects it contains so the logo reflects the mix.
+  let subjects = [];
+  if (kind === "stream" && req.body?.id) {
+    const subs = await Subject.find({ $or: [{ stream: req.body.id }, { streams: req.body.id }], deleted: { $ne: true } })
+      .select("name").limit(12).lean().catch(() => []);
+    subjects = subs.map((s) => s.name).filter(Boolean);
+  } else if (Array.isArray(req.body?.subjects)) {
+    subjects = req.body.subjects.map((s) => String(s || "").trim()).filter(Boolean).slice(0, 12);
+  }
+
+  const descLine = description ? ` Description: ${description}.` : "";
+  const subjectLine = subjects.length ? ` It covers these subjects: ${subjects.join(", ")}.` : "";
+  const prompt =
+    `Design a modern, minimal, FLAT VECTOR app icon / logo for a study ${kind} called "${name}".${descLine}${subjectLine}` +
+    ` Use simple bold symbolic shapes on a clean solid or subtle-gradient background, centered composition, high contrast, 1:1 square.` +
+    ` NO text, NO letters, NO words anywhere in the image. Friendly, professional, educational style.`;
+
+  // Reuse the caller's key pool; pick a Google Gemini key (image gen is Gemini-hosted).
+  const provs = await providers(resolveScope(req.user));
+  const gem = provs.find((p) => /generativelanguage\.googleapis\.com/i.test(p.baseUrl || "") && (p.key || "").trim());
+  if (!gem) {
+    return res.status(400).json({ message: "No Google Gemini API key is available for image generation. Add/enable a Gemini key in Admin → AI Keys." });
+  }
+
+  try {
+    const dataUri = await generateGeminiImage({ apiKey: gem.key, prompt });
+    if (!dataUri) return res.status(502).json({ message: "The image model didn't return an image. Try again, or adjust the name/description." });
+    const { url } = await uploadImage(dataUri, { folder: "mystudyguide/logos", format: "png" });
+    res.json({ image: url });
+  } catch (e) {
+    res.status(502).json({ message: e?.message || "Could not generate the logo." });
+  }
 }
 
 // GET /api/ai/status — lets the admin UI show/hide the "Generate with AI"
