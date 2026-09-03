@@ -9,6 +9,15 @@ import SubjectLogo from "../../components/ui/SubjectLogo";
 
 const KIND_LABEL = { quiz: "My Quiz", test: "My Test", paper: "Previous Papers" };
 
+// One compact "N exams / subjects / …" chip on a browse node card.
+function CountChip({ icon: Ic, n, label }) {
+  return (
+    <span className="inline-flex items-center gap-1" title={`${n} ${label}`}>
+      <Ic className="h-3.5 w-3.5" /> {n}
+    </span>
+  );
+}
+
 // Handles the practice browse levels from the URL. Path segments are positional
 // and mean different things per kind (a single set of routes serves all kinds):
 //   My Quiz : /practice/quiz/:stream/:exam/:subject/:topic
@@ -160,6 +169,22 @@ export default function PracticeBrowse() {
                 )}
                 <h3 className="mt-4 text-lg font-bold">{s.name}</h3>
                 {s.description && <p className="mt-1 line-clamp-2 text-sm text-slate-500 dark:text-slate-400">{s.description}</p>}
+                {(() => {
+                  // What's inside this node — counts come from the browse API.
+                  const quizWord = kind === "test" ? "Tests" : "Quizzes";
+                  const chips = [
+                    ["exams", Icons.ClipboardList, "Exams"],
+                    ["subjects", Icons.FolderOpen, "Subjects"],
+                    ["topics", Icons.Layers, "Topics"],
+                    ["quizzes", Icons.ListChecks, quizWord],
+                    ["questions", Icons.HelpCircle, "Questions"],
+                  ].filter(([k]) => typeof s[k] === "number" && s[k] > 0);
+                  return chips.length ? (
+                    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium text-slate-500 dark:text-slate-400">
+                      {chips.map(([k, Ic, label]) => <CountChip key={k} icon={Ic} n={s[k]} label={label} />)}
+                    </div>
+                  ) : null;
+                })()}
                 <span className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-brand-600 transition group-hover:gap-2 dark:text-brand-400">
                   Open <ArrowRight className="h-4 w-4" />
                 </span>
