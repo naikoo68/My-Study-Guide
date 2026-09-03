@@ -28,6 +28,7 @@ import RecycleBinModal from "../../components/admin/RecycleBinModal";
 import MissingItemsModal from "../../components/admin/MissingItemsModal";
 import SubjectTopicDuplicatesModal from "../../components/admin/SubjectTopicDuplicatesModal";
 import LinkExistingSubjectModal from "../../components/admin/LinkExistingSubjectModal";
+import RowActionButton from "../../components/admin/RowActionButton";
 import { Sparkles, Files, Globe, Wand2, Loader2, ClipboardList, RefreshCw, Scissors, GitMerge, CheckCircle2, Maximize2, Minimize2, Archive, ArrowRightLeft, ScanSearch, Save, Link2 } from "lucide-react";
 
 const COLORS = [
@@ -1364,8 +1365,9 @@ export default function AdminContent() {
             <div
               key={item._id}
               onClick={view !== "questions" ? () => openItem(item) : undefined}
-              className={`card flex items-center justify-between gap-3 p-4 ${view !== "questions" ? "cursor-pointer transition hover:border-brand-300 dark:hover:border-brand-600" : ""}`}
+              className={`card p-4 ${view !== "questions" ? "cursor-pointer transition hover:border-brand-300 dark:hover:border-brand-600" : ""}`}
             >
+              <div className="flex items-center gap-3">
               {view === "questions" && (
                 <input type="checkbox" checked={selected.includes(item._id)} onChange={() => toggleSelect(item._id)} className="h-4 w-4 flex-shrink-0 accent-brand-600" />
               )}
@@ -1412,91 +1414,40 @@ export default function AdminContent() {
                   </>
                 )}
               </div>
-              <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3 dark:border-slate-800" onClick={(e) => e.stopPropagation()}>
                 {view === "subjects" && (
-                  <button
-                    onClick={() => { setDupScope({ id: item._id, name: item.name }); setDupOpen(true); }}
-                    title={`Find duplicates in ${item.name}`}
-                    className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30"
-                  >
-                    <Files className="h-4 w-4" />
-                  </button>
+                  <RowActionButton icon={Files} label="Duplicates" tone="brand" title={`Find duplicates in ${item.name}`} onClick={() => { setDupScope({ id: item._id, name: item.name }); setDupOpen(true); }} />
                 )}
                 {view === "questions" && (
-                  <button onClick={() => setViewQ(item)} title="View" className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700">
-                    <Eye className="h-4 w-4" />
-                  </button>
+                  <RowActionButton icon={Eye} label="View" tone="slate" onClick={() => setViewQ(item)} />
                 )}
                 {view === "questions" && (
-                  <button onClick={() => extendOneQuestion(item)} disabled={extendingQId === item._id} title="Extend this explanation with AI" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 disabled:opacity-50 dark:hover:bg-brand-900/30">
-                    {extendingQId === item._id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
-                  </button>
+                  <RowActionButton icon={Wand2} label="Extend with AI" tone="brand" loading={extendingQId === item._id} title="Extend this explanation with AI" onClick={() => extendOneQuestion(item)} />
                 )}
                 {view === "questions" && (
-                  <button onClick={() => regenerateQ(item)} disabled={regenId === item._id} title="Regenerate options/answer to fit the question (reshuffles pair/matching columns)" className="rounded-lg p-2 text-violet-600 hover:bg-violet-50 disabled:opacity-50 dark:hover:bg-violet-900/30">
-                    {regenId === item._id ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                  </button>
+                  <RowActionButton icon={RefreshCw} label="Regenerate" tone="violet" loading={regenId === item._id} title="Regenerate options/answer to fit the question (reshuffles pair/matching columns)" onClick={() => regenerateQ(item)} />
                 )}
                 {(view === "quizzes" || view === "topics") && (
-                  <button
-                    onClick={() => { setSplitPer(50); setSplitTarget({ kind: view === "topics" ? "topic" : "quiz", id: item._id, name: item.title || item.name, count: item.questions ?? null }); }}
-                    title={view === "topics" ? "Split this topic's questions into quizzes of N" : "Split this quiz into quizzes of N"}
-                    className="rounded-lg p-2 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30"
-                  >
-                    <Scissors className="h-4 w-4" />
-                  </button>
+                  <RowActionButton icon={Scissors} label="Split" tone="indigo" title={view === "topics" ? "Split this topic's questions into quizzes of N" : "Split this quiz into quizzes of N"} onClick={() => { setSplitPer(50); setSplitTarget({ kind: view === "topics" ? "topic" : "quiz", id: item._id, name: item.title || item.name, count: item.questions ?? null }); }} />
                 )}
                 {view === "quizzes" && (
-                  <button
-                    onClick={() => { setMergeIds([]); setMergeTarget(item); }}
-                    title="Merge other quizzes in this topic into this one"
-                    className="rounded-lg p-2 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30"
-                  >
-                    <GitMerge className="h-4 w-4" />
-                  </button>
+                  <RowActionButton icon={GitMerge} label="Merge" tone="indigo" title="Merge other quizzes in this topic into this one" onClick={() => { setMergeIds([]); setMergeTarget(item); }} />
                 )}
                 {view === "quizzes" && (
-                  <button
-                    onClick={() => setMigrateQuiz(item)}
-                    title="Migrate: move or copy this whole quiz to another topic"
-                    className="rounded-lg p-2 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30"
-                  >
-                    <ArrowRightLeft className="h-4 w-4" />
-                  </button>
+                  <RowActionButton icon={ArrowRightLeft} label="Move / Copy" tone="emerald" title="Migrate: move or copy this whole quiz to another topic" onClick={() => setMigrateQuiz(item)} />
                 )}
                 {view === "streams" && isSuperAdmin && (
-                  <button
-                    onClick={() => setShareInstitutesTarget({ id: item._id, name: item.name })}
-                    title="Share a copy of this whole stream to institutes (appears in their account automatically)"
-                    className="rounded-lg p-2 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30"
-                  >
-                    <Building2 className="h-4 w-4" />
-                  </button>
+                  <RowActionButton icon={Building2} label="Share to institutes" tone="indigo" title="Share a copy of this whole stream to institutes (appears in their account automatically)" onClick={() => setShareInstitutesTarget({ id: item._id, name: item.name })} />
                 )}
                 {view !== "questions" && (
-                  <button
-                    onClick={() => shareLink(item)}
-                    title="Copy the public share link (the page students/visitors open)"
-                    className="rounded-lg p-2 text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-900/30"
-                  >
-                    <Share2 className="h-4 w-4" />
-                  </button>
+                  <RowActionButton icon={Share2} label="Share link" tone="sky" title="Copy the public share link (the page students/visitors open)" onClick={() => shareLink(item)} />
                 )}
                 {view !== "questions" && (
-                  <button
-                    onClick={() => toggleDisabled(item)}
-                    title={item.disabled ? "Enable — show to students" : "Disable — hide from students (stays here for you)"}
-                    className={`rounded-lg p-2 ${item.disabled ? "text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30" : "text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700"}`}
-                  >
-                    {item.disabled ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
+                  <RowActionButton icon={item.disabled ? EyeOff : Eye} label={item.disabled ? "Enable" : "Disable"} tone={item.disabled ? "amber" : "slate"} title={item.disabled ? "Enable — show to students" : "Disable — hide from students (stays here for you)"} onClick={() => toggleDisabled(item)} />
                 )}
-                <button onClick={() => openEdit(item)} title="Edit" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30">
-                  <Pencil className="h-4 w-4" />
-                </button>
-                <button onClick={() => remove(VIEW_TYPE[view], item._id, item.name || item.title || "this question")} title="Delete" className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30">
-                  <Trash2 className="h-4 w-4" />
-                </button>
+                <RowActionButton icon={Pencil} label="Edit" tone="brand" onClick={() => openEdit(item)} />
+                <RowActionButton icon={Trash2} label="Delete" tone="rose" onClick={() => remove(VIEW_TYPE[view], item._id, item.name || item.title || "this question")} />
               </div>
             </div>
           ))}
