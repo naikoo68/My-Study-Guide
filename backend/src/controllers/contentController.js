@@ -91,6 +91,13 @@ function makeImageHandler(Model, label) {
     const buf = m[2] ? Buffer.from(m[3], "base64") : Buffer.from(decodeURIComponent(m[3]));
     // The ?v=<updatedAt> query makes each URL content-stable, so cache hard.
     const etag = `"${label}-${req.params.id}-${doc.updatedAt ? new Date(doc.updatedAt).getTime() : buf.length}"`;
+    // Allow the banner to be embedded from the FRONTEND origin (e.g. www.*),
+    // which is cross-origin to this API (api.*). helmet() sets a global
+    // Cross-Origin-Resource-Policy: same-origin, which makes the browser BLOCK
+    // a cross-origin <img> and render a blank banner. These are public images
+    // meant to be shown anywhere, so override CORP to cross-origin. (Set before
+    // the 304 return so conditional responses carry it too.)
+    res.set("Cross-Origin-Resource-Policy", "cross-origin");
     if (req.headers["if-none-match"] === etag) return res.status(304).end();
     res.set("Cache-Control", "public, max-age=31536000, immutable");
     res.set("ETag", etag);
