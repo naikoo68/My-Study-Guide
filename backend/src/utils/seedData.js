@@ -1,6 +1,6 @@
 // Reusable seeding logic. Used by the CLI seed script (`npm run seed`) and by
 // the server's auto-seed (runs once when the database is empty — handy on
-// hosts like Render's free tier where shell access isn't available).
+// hosts where shell access isn't available).
 import User from "../models/User.js";
 import { isStrongPassword, generateStrongPassword } from "./passwordPolicy.js";
 import Subject from "../models/Subject.js";

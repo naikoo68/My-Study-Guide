@@ -15,14 +15,15 @@ roles, the content model, the API + page routes, and the main user journeys.
                         ▼
         ┌─────────────────────────────────────────────┐
         │  FRONTEND — React + Vite + Tailwind          │
-        │  Hosted on Vercel  (mystudyguideme.vercel.app)│
+        │  Hosted on Cloudflare  (www.mystudyguide.in)  │
         │  Hash routing (#/...) so refresh never 404s   │
         └───────────────┬─────────────────────────────┘
                         │  REST calls to /api/*  (fetch, see lib/api.js)
                         ▼
         ┌─────────────────────────────────────────────┐
         │  BACKEND — Node.js + Express                 │
-        │  Hosted on Render  (…onrender.com/api)        │
+        │  Self-hosted on an Oracle Cloud VM            │
+        │  (Docker + Nginx, api.mystudyguide.in/api)    │
         │  routes → controllers → models (Mongoose)     │
         └───────────────┬─────────────────────────────┘
                         │  Mongoose
@@ -36,8 +37,8 @@ roles, the content model, the API + page routes, and the main user journeys.
    • AI providers (Gemini, etc.) — generate / extend / regenerate questions
 ```
 
-**Note (free tier):** the Render backend sleeps after ~15 min idle; the first
-request wakes it (~60–90s). The frontend retries while it wakes.
+**Note:** the backend container runs with `--restart always` on the VM, so it
+stays up (no cold-start wait). The frontend still retries transient errors.
 
 ---
 
@@ -196,7 +197,8 @@ frontend/
 
 ## 10. How to verify what's deployed
 
-- Open `https://<your-render-app>.onrender.com/api/health` — the `version` and
-  `features` fields show exactly which backend build is live.
-- The frontend auto-deploys from Vercel on each push to `main`; the backend
-  auto-deploys from Render. Both track the `main` branch.
+- Open `https://api.mystudyguide.in/api/health` — the `version` and `features`
+  fields show exactly which backend build is live.
+- The frontend redeploys on Cloudflare on each push to `main`; the backend
+  redeploys to the Oracle VM (via `.github/workflows/deploy-backend.yml`). Both
+  track the `main` branch.

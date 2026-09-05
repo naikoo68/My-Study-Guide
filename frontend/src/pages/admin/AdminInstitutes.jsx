@@ -536,7 +536,7 @@ export default function AdminInstitutes() {
               <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs dark:border-slate-700 dark:bg-slate-800/60">
                 <p className="mb-1 font-semibold text-slate-700 dark:text-slate-200">Next steps — DNS</p>
                 <p className="text-slate-500 dark:text-slate-400">
-                  Point <b>{dnsInfo.cname?.host}</b> to <b>{dnsInfo.cname?.pointsTo}</b> (CNAME), then add the domain in your frontend host (e.g. Vercel) so it's served with SSL.
+                  Point <b>{dnsInfo.cname?.host}</b> to <b>{dnsInfo.cname?.pointsTo}</b> (CNAME), then add the domain in your frontend host so it's served with SSL.
                 </p>
                 <p className="mt-1 text-slate-400">{dnsInfo.note}</p>
               </div>

@@ -1,7 +1,7 @@
 name: Deploy backend to Oracle VM
 
 # Auto-deploys the backend to the self-hosted Oracle Cloud VM whenever backend
-# code lands on main. Frontend deploys are handled by Vercel separately, so this
+# code lands on main. Frontend deploys are handled separately (Cloudflare), so this
 # only fires for backend changes (or a manual run). It SSHes into the VM, pulls
 # the latest code, rebuilds the Docker image, restarts the container, and health-
 # checks it.

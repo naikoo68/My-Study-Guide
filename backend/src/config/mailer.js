@@ -4,7 +4,7 @@ import nodemailer from "nodemailer";
 //
 //   1. Brevo HTTPS API  (recommended)  — set BREVO_API_KEY.
 //      Sends over port 443, so it works even on hosts that block SMTP ports
-//      (e.g. Render's free plan blocks 25/465/587).
+//      (e.g. some hosts block outbound SMTP on 25/465/587).
 //
 //   2. SMTP  (e.g. Gmail)              — set SMTP_HOST/PORT/USER/PASS.
 //      Only works where outbound SMTP ports are open (paid hosts, local dev).

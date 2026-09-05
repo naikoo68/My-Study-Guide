@@ -1,15 +1,15 @@
-# Hosting the backend — Render *or* Oracle (or anywhere)
+# Hosting the backend — Oracle Cloud VM (or anywhere)
 
 **Key idea:** unlike the database (which needed `DB_ENGINE` to switch drivers in
 code), the *host* needs **no code changes**. The exact same Node/Express app runs
-on Render, an Oracle Cloud VM, or any server. Only two things differ per host:
+on an Oracle Cloud VM, or any server. Only two things differ per host:
 
 1. **Environment variables** (same set everywhere — see below).
-2. **How you start / expose it** (Render does it for you; on a VM you run the
-   container and put Nginx + HTTPS in front).
+2. **How you start / expose it** (on a VM you run the container and put Nginx +
+   HTTPS in front).
 
 The included **`Dockerfile`** makes the app run *identically* on every host, so
-"supports both" just means: build the same image, give it the same env vars,
+moving hosts just means: build the same image, give it the same env vars, and
 point the frontend at whichever URL is live.
 
 ---
@@ -20,7 +20,7 @@ Copy from `.env.example`. The important ones:
 
 | Variable | Purpose |
 |---|---|
-| `PORT` | Port to listen on (Render sets this automatically; VM: 5000). |
+| `PORT` | Port to listen on (the VM uses 5000). |
 | `DB_ENGINE` | `mongo` \| `oracle` \| `dynamo` (your existing DB switch). |
 | `MONGO_URI` / `ORACLE_MONGO_URI` | DB connection (per engine). |
 | `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `DYNAMODB_TABLE_PREFIX` | only if `DB_ENGINE=dynamo`. |
@@ -35,21 +35,7 @@ Copy from `.env.example`. The important ones:
 
 ---
 
-## 2. Option A — Render (what you use today)
-
-Two ways, both fine:
-
-- **Native (current):** Build `npm install`, Start `node src/server.js`. Set the
-  env vars above in the Render dashboard.
-- **Docker:** point the service at this `Dockerfile` (Render auto-detects it).
-  Same result, portable image.
-
-Render provides HTTPS, a public URL, and `PORT` for you. Downside: the free tier
-caps bandwidth (why it suspended). Enable gzip (already added) to stretch it.
-
----
-
-## 3. Option B — Oracle Cloud Always Free VM (lots of free bandwidth)
+## 2. Oracle Cloud Always Free VM (lots of free bandwidth)
 
 Oracle's free tier includes a huge egress allowance and Always-Free compute, and
 your Oracle DB already lives there (so backend↔DB traffic is fast/internal).
@@ -114,10 +100,10 @@ cd backend && sudo docker build -t msg-backend . \
 
 ---
 
-## 4. Pointing the frontend at whichever backend is live
+## 3. Pointing the frontend at the backend
 
 1. Set the frontend env `VITE_API_URL` to the active backend URL, e.g.
-   `https://api.yourdomain.com/api` (Oracle) or the `…onrender.com/api` (Render).
+   `https://api.yourdomain.com/api`.
 2. Add that frontend origin to the backend's `CLIENT_URL` (CORS).
 3. Redeploy the frontend.
 

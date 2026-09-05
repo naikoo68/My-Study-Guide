@@ -10,8 +10,8 @@ export function clientBaseFromReq(req) {
     try { return h ? new URL(h).origin : ""; } catch { return ""; }
   };
   const cand = originOf(req?.headers?.origin) || originOf(req?.headers?.referer);
-  // Only trust the request origin if it matches CLIENT_URL, a Vercel deployment,
+  // Only trust the request origin if it matches CLIENT_URL, a preview deployment,
   // or localhost — so a forged Origin can't redirect reset links elsewhere.
-  const trusted = !!cand && (cand === env || /\.vercel\.app$/.test(cand) || /^https?:\/\/localhost(:\d+)?$/.test(cand));
+  const trusted = !!cand && (cand === env || /\.pages\.dev$/.test(cand) || /^https?:\/\/localhost(:\d+)?$/.test(cand));
   return (trusted ? cand : (env || "http://localhost:5173")).replace(/\/$/, "");
 }

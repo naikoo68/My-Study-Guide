@@ -82,14 +82,14 @@ once from the Companion popup and you're ready to go.
     selected text.
   - `storage` — store the user's My Study Guide sign-in token and the API/site
     URLs locally on their device.
-  - Host permissions (`*.onrender.com`, `*.vercel.app`) — talk to the user's own
-    My Study Guide backend and site.
+  - Host permissions (the My Study Guide API/site domains) — talk to the user's
+    own My Study Guide backend and site.
 - **Data usage:** The extension stores only the user's My Study Guide login
   token locally. It does not sell data or use it for anything beyond providing
   the feature. Page content is sent to the user's own My Study Guide backend for
   AI processing.
 - **Privacy policy URL:** use your site's existing policy page, e.g.
-  `https://mystudyguideme.vercel.app/privacy` (point to whatever your live
+  `https://www.mystudyguide.in/privacy` (point to whatever your live
   privacy page is).
 
 ### 5. [YOU] Add screenshots

@@ -2,7 +2,7 @@
 
 **A ready-to-launch, fully-featured study and examination platform for coaching institutes, schools, and edtech sellers — brandable as your own.**
 
-- 🔗 **Live demo:** https://mystudyguideme.vercel.app
+- 🔗 **Live demo:** https://www.mystudyguide.in
 - 💬 **Contact:** Aadil Abdullah Naikoo · aadilabdullah552@gmail.com · +91 6006898857
 - 🏷️ **Type:** Full source code (MERN) · fully white-label
 
@@ -52,7 +52,7 @@ Launch a professional exam-prep platform in days, not months — under **your ow
 - **Frontend:** React + Vite + Tailwind CSS (installable PWA)
 - **Backend:** Node.js + Express
 - **Database:** MongoDB (Atlas)
-- **Hosting:** Vercel (frontend) + Render (backend) — free tiers supported
+- **Hosting:** any static host (frontend) + any Node server / VM (backend) — portable, host-agnostic
 - **Integrations:** Razorpay (payments), Cloudinary (uploads), email (SMTP/Brevo), AI (OpenAI-compatible)
 
 ## Ideal for

@@ -2,8 +2,8 @@
 // secrets are ever stored here — only the user's My Study Guide JWT and the API
 // base URL. Change DEFAULT_API_BASE / DEFAULT_SITE to your own deployment, or
 // set them from the popup's Settings.
-export const DEFAULT_API_BASE = "https://my-prep-mart-api-39nk.onrender.com/api";
-export const DEFAULT_SITE = "https://mystudyguideme.vercel.app";
+export const DEFAULT_API_BASE = "https://api.mystudyguide.in/api";
+export const DEFAULT_SITE = "https://www.mystudyguide.in";
 
 export async function getApiBase() {
   const { apiBase } = await chrome.storage.local.get("apiBase");

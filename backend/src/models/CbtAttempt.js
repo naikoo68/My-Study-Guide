@@ -40,7 +40,7 @@ const cbtAttemptSchema = new mongoose.Schema(
     // student reaches it from the link emailed to them).
     resultToken: { type: String, index: true, unique: true, sparse: true },
     // The frontend origin the candidate took the exam from (e.g.
-    // https://mysite.vercel.app), captured at submit time so the emailed result
+    // https://www.mystudyguide.in), captured at submit time so the emailed result
     // link points at the real site even when CLIENT_URL isn't configured.
     resultBase: { type: String, default: "" },
     emailed: { type: Boolean, default: false }, // whether the result email was sent

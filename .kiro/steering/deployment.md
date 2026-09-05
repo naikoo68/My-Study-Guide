@@ -9,10 +9,12 @@ The user wants every requested change (update, add, fix, or modify) to be
 
 ## How deployment works for this repo
 
-Deployment is driven by GitHub. Both platforms auto-rebuild when `main` is pushed:
+Deployment is driven by GitHub, pushing to `main`:
 
-- **Frontend** → Vercel (root dir `frontend`)
-- **Backend API** → Render (root dir `backend`, see `render.yaml`)
+- **Frontend** → Cloudflare (root dir `frontend`), rebuilt on push to `main`.
+- **Backend API** → self-hosted Oracle Cloud VM (root dir `backend`). A push to
+  `main` that touches `backend/**` triggers `.github/workflows/deploy-backend.yml`,
+  which SSHes into the VM, rebuilds the Docker image, and restarts the container.
 
 ## Procedure after making a change
 
@@ -21,12 +23,13 @@ Deployment is driven by GitHub. Both platforms auto-rebuild when `main` is pushe
 3. Push `main` using the push tool (raw `git push` cannot authenticate through
    the gateway — always use the GitHub power's `push_to_remote`).
 4. Report the deployed commit SHA and how to verify:
-   - Vercel/Render dashboards show a new deployment for that commit.
-   - Backend health check: `https://<render-api>/api/health` → `{"status":"ok"}`.
+   - Backend health check: `https://api.mystudyguide.in/api/health` → `{"status":"ok"}`;
+     the `version` field confirms the new build is live.
+   - The frontend redeploys on the Cloudflare side for the pushed commit.
 
 ## Notes
 
-- Render free tier can take a few minutes and may cold-start (~30s) on the
-  first request after a deploy.
+- The backend VM runs the container with `--restart always`, so it stays up
+  across reboots/crashes and does not cold-start on the first request.
 - Frontend and backend deploy independently — if a change touches both, make
   sure both finish before judging the result.

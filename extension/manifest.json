@@ -10,8 +10,8 @@
   },
   "permissions": ["activeTab", "scripting", "contextMenus", "storage"],
   "host_permissions": [
-    "https://*.onrender.com/*",
-    "https://*.vercel.app/*",
+    "https://api.mystudyguide.in/*",
+    "https://*.mystudyguide.in/*",
     "http://localhost:5000/*",
     "http://127.0.0.1:5000/*"
   ],
