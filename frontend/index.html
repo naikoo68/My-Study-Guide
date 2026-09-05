@@ -3,26 +3,6 @@
   <head>
     <meta charset="UTF-8" />
 
-    <!-- Move visitors off the legacy *.vercel.app URL onto the custom domain.
-         Runs before anything else so it works even when the page is served
-         from the PWA / service-worker cache (which a server-side redirect in
-         vercel.json can't reach). No-op on the real domain and on Vercel
-         preview deployments (their hostnames don't match). -->
-    <script>
-      (function () {
-        try {
-          if (window.location.hostname === "mystudyguideme.vercel.app") {
-            var l = window.location;
-            window.location.replace(
-              "https://www.mystudyguide.in" + l.pathname + l.search + l.hash
-            );
-          }
-        } catch (e) {
-          /* never let this block the app from loading */
-        }
-      })();
-    </script>
-
     <!-- Guard against the "Failed to execute 'removeChild' / 'insertBefore' on
          'Node'" crash that browser page-translation (Google / Brave Translate)
          triggers by swapping out React-managed text nodes. If the target's
@@ -103,7 +83,8 @@
     <link rel="dns-prefetch" href="https://api.mystudyguide.in" />
 
     <!-- Google Analytics (GA4). Loads ONLY when a real Measurement ID is set via
-         the VITE_GA_MEASUREMENT_ID env var (e.g. on Vercel). Vite substitutes
+         the VITE_GA_MEASUREMENT_ID env var (set in your host's build settings).
+         Vite substitutes
          %VITE_GA_MEASUREMENT_ID% at build time; if it's unset/empty the guard
          below skips loading gtag entirely, so nothing runs until you add the ID. -->
     <script>

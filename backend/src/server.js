@@ -356,7 +356,7 @@ async function start() {
 
   // Seed in the background (never blocks startup, never crashes the server).
   // Runs only when the database has no users — handy on hosts without shell
-  // access (e.g. Render free tier). Disable with AUTO_SEED=off.
+  // access (e.g. a minimal container/host). Disable with AUTO_SEED=off.
   if (process.env.AUTO_SEED !== "off") {
     seedIfEmpty()
       .then((seeded) => {

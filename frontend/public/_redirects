@@ -1,1 +1,6 @@
-/*    /index.html   200
+# Cloudflare Pages redirect/rewrite rules (evaluated top-to-bottom).
+# Shared-link social previews and the sitemap are served by the backend API,
+# so forward them there. Everything else falls through to the SPA (index.html).
+/s/*          https://api.mystudyguide.in/s/:splat          302
+/sitemap.xml  https://api.mystudyguide.in/sitemap.xml       302
+/*            /index.html                                   200

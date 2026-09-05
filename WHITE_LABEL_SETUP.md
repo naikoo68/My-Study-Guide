@@ -24,12 +24,12 @@ subscriptions & payments, analytics, and an admin panel. Everything runs on
 Follow **[DEPLOYMENT.md](./DEPLOYMENT.md)**. In short you will create three free accounts
 and connect them:
 
-1. **MongoDB Atlas** — your database.
-2. **Render** — your backend API.
-3. **Vercel** — your website (frontend).
+1. **Database** — your MongoDB-compatible database (e.g. MongoDB Atlas or Oracle Autonomous DB).
+2. **Backend API** — a server you control (e.g. an Oracle Cloud VM running the Docker image; see `backend/HOSTING.md`).
+3. **Frontend** — a static host (e.g. Cloudflare Pages).
 
-Use **your own** logins everywhere. When finished you will have your own URL, e.g.
-`https://your-brand.vercel.app` (you can also connect your own domain in Vercel).
+Use **your own** accounts everywhere. When finished you will have your own URL —
+connect your own custom domain on the frontend host.
 
 ---
 
@@ -63,11 +63,11 @@ including:
 
 ## Step 3 — Connect your own services
 
-Set these as **environment variables** on Render (backend) and Vercel (frontend).
-See `backend/.env.example` for the full list. The important ones:
+Set these as **environment variables** on your backend server (and any build-time
+vars on the frontend host). See `backend/.env.example` for the full list. The important ones:
 
 ### Payments (so subscription money goes to you) — Razorpay
-- On **Render**, set `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` from your own
+- On the **backend server**, set `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` from your own
   [Razorpay](https://razorpay.com) account.
 - If you leave these unset, paid sign-ups are disabled and only the free trial works.
 
@@ -104,8 +104,8 @@ first split-second of loading and how your link looks when shared / searched.
 Edit them once, before deploying, for a flawless result on your own domain:
 
 - **`frontend/index.html`** — update the `<title>`, `description`, `theme-color`,
-  and the Open Graph / Twitter tags (site name, URL, image). Replace the
-  `mystudyguideme.vercel.app` URL with your domain.
+  and the Open Graph / Twitter tags (site name, URL, image). Replace any
+  `mystudyguide.in` URLs with your own domain.
 - **`frontend/public/manifest.webmanifest`** — update `name`, `short_name`,
   `description`, and colours (the installed-app identity).
 - **`frontend/public/`** — replace the brand image files with your own, keeping the
@@ -119,15 +119,6 @@ Edit them once, before deploying, for a flawless result on your own domain:
 
 ---
 
-## Step 6 — Keep the free backend awake
-
-The free Render backend sleeps after ~15 minutes of no traffic, which makes the
-first visit slow. Set up a free **UptimeRobot** monitor to ping it every 5 minutes.
-Full steps are in **[DEPLOYMENT.md](./DEPLOYMENT.md)** under
-"Keeping the backend awake".
-
----
-
 ## Checklist before you go live
 
 - [ ] Site name, logo, and colours set in **Admin → Customization**
@@ -136,6 +127,5 @@ Full steps are in **[DEPLOYMENT.md](./DEPLOYMENT.md)** under
 - [ ] Email (SMTP/Brevo) working — test a password reset
 - [ ] Plans and prices set on the Pricing page
 - [ ] (Optional) Static SEO files and icons updated for your domain
-- [ ] UptimeRobot monitor running
 
 Once these are done, the app is fully yours — your brand, your data, your revenue.

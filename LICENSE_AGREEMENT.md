@@ -38,7 +38,7 @@ intellectual property. (If this is a **full exclusive transfer**, replace this
 section with an assignment clause — consult a lawyer.)
 
 ## 4. Third-party services & costs
-The Software relies on third-party services (e.g. MongoDB Atlas, Render, Vercel,
+The Software relies on third-party services (e.g. your database, hosting,
 Razorpay, Cloudinary, email/AI providers). **You** are responsible for creating
 and paying for your own accounts and API keys. We provide no such keys and are
 not responsible for third-party fees, availability, or terms.

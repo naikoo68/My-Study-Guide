@@ -376,7 +376,7 @@ export async function register(req, res) {
           console.error("[payment] signature verification failed", { order: razorpay_order_id, payment: razorpay_payment_id });
           return res.status(400).json({
             message:
-              "Payment signature check failed. This almost always means RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET on the server are not from the SAME key pair (or aren't both Live). Please re-check them on Render.",
+              "Payment signature check failed. This almost always means RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET on the server are not from the SAME key pair (or aren't both Live). Please re-check them in your server's environment variables.",
           });
         }
         // The signature only proves the payment is authentic for ITS order — not

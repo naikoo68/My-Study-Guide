@@ -1,9 +1,8 @@
-name: Keep backend awake
+name: Ping backend health
 
-# Pings the backend health endpoint every 5 minutes so the free-tier server
-# never idles into sleep (Render spins down after ~15 min of no traffic). The
-# health endpoint also declares any due CBT results on each ping, so results
-# release on their own (within ~5 min) without an admin opening the panel.
+# Pings the backend health endpoint every 5 minutes. The health endpoint also
+# declares any due CBT results on each ping, so results release on their own
+# (within ~5 min) without an admin opening the panel.
 on:
   schedule:
     - cron: "*/5 * * * *"
@@ -15,7 +14,7 @@ jobs:
     steps:
       - name: Ping /api/health
         run: |
-          echo "Pinging backend to keep it awake..."
-          curl -sS -m 40 https://my-prep-mart-api-39nk.onrender.com/api/health || true
+          echo "Pinging backend health endpoint..."
+          curl -sS -m 40 https://api.mystudyguide.in/api/health || true
           echo ""
           echo "Done."

@@ -681,8 +681,8 @@ function stemPreview(t, max = 170) {
 
 // Resolve the SITE base URL to use for the preview image and the human redirect.
 // A /s/:token link is shared on the site's OWN domain and proxied to this API by
-// Vercel, which forwards the original site host in x-forwarded-host (different
-// from this API's own host). Using it keeps everything on the SAME site the
+// the frontend host, which forwards the original site host in x-forwarded-host
+// (different from this API's own host). Using it keeps everything on the SAME site the
 // visitor came from — the main app OR an institute's custom domain — with NO
 // server env required. Falls back to CLIENT_URL, then the request origin.
 function siteBaseFromReq(req) {
@@ -786,8 +786,8 @@ export async function shareTestPreview(req, res) {
   // host anyway).
   // Institute slug as a QUERY param (?t=) so the app resolves the right tenant.
   const tQuery = (tenant && !tenant.isDefault && tenant.slug) ? `?t=${encodeURIComponent(tenant.slug)}` : "";
-  // RELATIVE target for the human redirect: because Vercel serves this page
-  // transparently under the site's own domain, a relative URL always resolves
+  // RELATIVE target for the human redirect: because the frontend host serves this
+  // page transparently under the site's own domain, a relative URL always resolves
   // to the correct site — even if we couldn't determine the absolute base. The
   // absolute form is used only for crawler metadata (og:url / canonical).
   // Path-based route (clean URL) with the tenant slug carried as a query string.

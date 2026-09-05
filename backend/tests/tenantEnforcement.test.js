@@ -3,18 +3,19 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 // Guard test: tenant isolation is only auto-enforced when TENANT_ENFORCEMENT=on.
-// The live deployment sets it in render.yaml. If someone removes/flips it, the
-// whole cross-tenant guarantee silently disappears — so fail the build here.
+// The deployment env template (backend/msg.env.example, copied to the VM's
+// msg.env) documents it as the required default. If someone removes/flips it,
+// the whole cross-tenant guarantee silently disappears — so fail the build here.
 describe("production tenant enforcement config", () => {
-  it("render.yaml keeps TENANT_ENFORCEMENT set to \"on\"", () => {
-    const renderYamlPath = fileURLToPath(new URL("../../render.yaml", import.meta.url));
-    const yaml = readFileSync(renderYamlPath, "utf8");
+  it("msg.env.example keeps TENANT_ENFORCEMENT set to \"on\"", () => {
+    const envPath = fileURLToPath(new URL("../msg.env.example", import.meta.url));
+    const env = readFileSync(envPath, "utf8");
 
-    // Match:  - key: TENANT_ENFORCEMENT  \n  value: "on"
-    const enforced = /key:\s*TENANT_ENFORCEMENT[\s\S]{0,80}?value:\s*"?on"?/i.test(yaml);
+    // Match an uncommented:  TENANT_ENFORCEMENT=on
+    const enforced = /^\s*TENANT_ENFORCEMENT\s*=\s*"?on"?\s*$/im.test(env);
     expect(
       enforced,
-      "TENANT_ENFORCEMENT must be \"on\" in render.yaml — tenant isolation depends on it."
+      "TENANT_ENFORCEMENT must be \"on\" in backend/msg.env.example — tenant isolation depends on it."
     ).toBe(true);
   });
 });

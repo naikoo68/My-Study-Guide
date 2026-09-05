@@ -2,7 +2,7 @@ import { lazy, Suspense } from "react";
 // Path-based routing (clean URLs like /quiz, /about, /subjects/...) so pages are
 // crawlable/indexable for SEO — not trapped behind a "#". A full-page REFRESH on
 // any deep route still works because the host serves index.html for every path
-// (Vercel rewrite in vercel.json + public/_redirects, with public/404.html +
+// (public/_redirects on the static host, with public/404.html +
 // the index.html "?/" decoder as a static-host fallback).
 import { createBrowserRouter, RouterProvider, Navigate } from "react-router-dom";
 import { ThemeProvider } from "./context/ThemeContext";

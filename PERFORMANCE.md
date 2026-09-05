@@ -52,11 +52,10 @@ Also watch **Search Console → Experience → Core Web Vitals** for field data
 
 Do **not** change working code blindly — measure, then fix the biggest item.
 
-1. **Backend cold starts (TTFB).** The API is on Render's free tier
-   (`onrender.com`), which sleeps when idle → the first request can be slow.
-   A `keep-alive` workflow already exists (`.github/workflows/keep-alive.yml`);
-   confirm it's active, or move the API to an always-on plan. This is the most
-   likely real-world performance problem for this app.
+1. **API latency (TTFB).** The API is self-hosted on an always-on VM (no
+   cold starts). Watch the biggest wins: serve it over HTTP/2 behind the CDN,
+   keep list endpoints lean, and cache slow/decorative aggregations. Put the
+   API behind a CDN edge so TLS terminates near users.
 2. **Image sizes.** Compress/resize large uploads (logo, OG image, any
    question images). Serve appropriately sized images; prefer WebP where easy.
 3. **Font loading.** If any web fonts are used, ensure `font-display: swap`.

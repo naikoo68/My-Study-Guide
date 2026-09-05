@@ -399,7 +399,7 @@ export default function AdminAiKeys({ clientMode = false }) {
   };
 
   const importOne = async (k) => {
-    // Import a single Render env key into the DB so it becomes manageable.
+    // Import a single server env key into the DB so it becomes manageable.
     setBusy((b) => ({ ...b, [k._id]: true }));
     try {
       await aiService.keys.importEnv();
@@ -693,7 +693,7 @@ export default function AdminAiKeys({ clientMode = false }) {
                   <p className="font-bold">{k.label || "Untitled key"}</p>
                   <StatusBadge k={k} />
                   {k.source === "env" && (
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500 dark:bg-slate-800">From server (Render)</span>
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500 dark:bg-slate-800">From server env</span>
                   )}
                   <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-800">{k.keyMask}</code>
                 </div>

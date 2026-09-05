@@ -10,7 +10,7 @@
 //     so a restart resumes instead of restarting.
 //   • Clears the target collections ONCE (guarded) to drop any sample/seed
 //     data, then imports. It NEVER touches the source MongoDB.
-//   • Time-boxed per pass so a weak host (Render free tier) still makes progress
+//   • Time-boxed per pass so a small/weak host still makes progress
 //     across restarts.
 //   • Preserves every _id and reference (raw document copy).
 //

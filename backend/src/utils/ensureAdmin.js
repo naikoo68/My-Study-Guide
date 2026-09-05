@@ -3,7 +3,7 @@ import { isStrongPassword, generateStrongPassword } from "./passwordPolicy.js";
 
 // Guarantees an admin account exists based on environment variables — a safe,
 // data-preserving way to bootstrap or recover admin access on hosts without
-// shell access (e.g. Render free tier).
+// shell access (e.g. a minimal container/host).
 //
 //   ADMIN_EMAIL     – the admin's email
 //   ADMIN_PASSWORD  – the admin's password

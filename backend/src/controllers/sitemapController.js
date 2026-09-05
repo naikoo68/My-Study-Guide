@@ -4,7 +4,7 @@ import Exam from "../models/Exam.js";
 import { NOT_DELETED } from "../utils/softDelete.js";
 
 // Dynamic XML sitemap served at the site root (proxied from the frontend host
-// to this API — see frontend/vercel.json). It lists the fixed public pages PLUS
+// to this API — see the frontend host's redirect rules). It lists the fixed public pages PLUS
 // every REAL, public, non-deleted subject/stream/exam landing page so Google
 // can discover them directly instead of only via internal links.
 //

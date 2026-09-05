@@ -82,7 +82,7 @@ async function providers(scope = SYSTEM_SCOPE) {
       };
     });
   // DB keys first, then env slots (if in scope) — de-duplicated by key value so
-  // the same key isn't used twice if it's both imported and still set in Render.
+  // the same key isn't used twice if it's both imported and still set in the env.
   const seen = new Set();
   const deduped = [];
   // Env-var slots are the PLATFORM (super-admin) keys. An institute may only use
@@ -1265,7 +1265,7 @@ const MAX_TOTAL = 500; // absolute hard ceiling / fallback (admin can set a lowe
 const CHUNK_SIZE = 12; // questions generated per provider call — smaller so the richer, detailed explanations don't truncate the JSON reply
 
 // ---- Per-account AI generation limits (admin global cap + client plans) ----
-// Rolling-window usage kept IN MEMORY (single Render instance): userId → recent
+// Rolling-window usage kept IN MEMORY (single server instance): userId → recent
 // { at, count } events, pruned on read. A restart resets windows — acceptable
 // for a soft business quota.
 const aiUsageByUser = new Map();
@@ -4896,7 +4896,7 @@ export async function listKeys(req, res) {
     .map((p, i) => ({
       _id: `env-${i + 1}`,
       source: "env",
-      readOnly: true, // configured in Render — import it to manage from the UI
+      readOnly: true, // configured in the server env — import it to manage from the UI
       label: i === 0 ? "Server key · AI_API_KEY" : `Server key · AI_API_KEY_${i + 1}`,
       baseUrl: p.baseUrl,
       models: p.models.join(", "),
@@ -5282,7 +5282,7 @@ export async function autoDetectKeyModel(req, res) {
   res.json({ ...result, models: doc.models, status: doc.lastStatus, error: doc.lastError });
 }
 
-// POST /api/ai/keys/import (admin) — copy Render env-var keys into the DB so they
+// POST /api/ai/keys/import (admin) — copy server env-var keys into the DB so they
 // become fully manageable (test/edit/delete). Skips keys already imported.
 export async function importEnvKeys(req, res) {
   // Env keys belong to the PLATFORM pool (owner null) and this route is

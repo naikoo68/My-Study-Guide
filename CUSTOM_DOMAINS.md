@@ -29,7 +29,7 @@ route to the platform and be served with SSL:
      (or whatever your frontend host expects).
    - Apex/root (e.g. `brightfuture.com`) → an **A / ALIAS** record per your host's
      instructions.
-2. **Frontend host (e.g. Vercel):** add the domain to the project so it's issued
+2. **Frontend host:** add the domain to the project so it's issued
    an SSL certificate. Until the host serves the domain over HTTPS, browsers
    can't reach it.
 3. Once DNS + SSL are live, visiting the custom domain loads that institute's

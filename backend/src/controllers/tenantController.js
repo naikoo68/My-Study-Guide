@@ -260,7 +260,7 @@ export async function setTenantDomain(req, res) {
     // DNS the institute must configure for the domain to resolve here.
     dns: {
       cname: { host: domain, pointsTo: root ? `app.${root}` : "your platform frontend host" },
-      note: "Add this domain in your frontend host (e.g. Vercel) so it's served with SSL. Apex domains may need an A record instead of CNAME — follow your host's instructions.",
+      note: "Add this domain in your frontend host so it's served with SSL. Apex domains may need an A record instead of CNAME — follow your host's instructions.",
     },
   });
   } catch (e) {

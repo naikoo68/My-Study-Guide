@@ -1,14 +1,14 @@
 // Build the shareable PUBLIC link for a quiz/test token.
 //
 // The link points at "/s/:token" ON THE SITE'S OWN DOMAIN (e.g.
-// https://mystudyguideme.vercel.app/s/<token>). A Vercel rewrite proxies that
+// https://www.mystudyguide.in/s/<token>). A host redirect rule proxies that
 // path to the backend, which returns server-rendered Open Graph HTML so social
 // apps like WhatsApp/Facebook — which never run JavaScript — get a rich preview
 // (subject, topic, the quiz/test name and its first question). The backend then
 // redirects a human visitor on to the real in-app player, staying on this same
 // domain (so it also works for an institute's custom domain).
 //
-// On localhost dev (no Vercel rewrite) we fall back to the in-app hash route so
+// On localhost dev (no host rewrite) we fall back to the in-app hash route so
 // the link still opens the player directly.
 export function publicShareUrl(token, kind) {
   try {

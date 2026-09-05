@@ -1,7 +1,7 @@
 name: CI
 
 # Validates every push and pull request to main so a broken build is caught
-# *before* Vercel (frontend) and Render (backend) auto-deploy it to production.
+# *before* the frontend (Cloudflare) and backend (Oracle VM) auto-deploy it to production.
 on:
   push:
     branches: [main]

@@ -85,19 +85,19 @@ import { sanitizeRequest } from "./middleware/sanitizeRequest.js";
 
 const app = express();
 
-// Trust the reverse proxy in front of us (Render / most PaaS hosts terminate
-// TLS and forward requests, setting the `X-Forwarded-For` header with the real
-// client IP). Without this, Express treats the proxy's IP as the client and
+// Trust the reverse proxy in front of us (the nginx that terminates TLS and
+// forwards requests, setting the `X-Forwarded-For` header with the real client
+// IP). Without this, Express treats the proxy's IP as the client and
 // express-rate-limit throws ERR_ERL_UNEXPECTED_X_FORWARDED_FOR because it can't
-// trust the forwarded IP. We trust exactly ONE hop (Render's proxy) rather than
+// trust the forwarded IP. We trust exactly ONE hop (the nginx proxy) rather than
 // `true`: trusting all proxies would let a client spoof X-Forwarded-For and
 // evade rate limiting. Bump this number if you add more proxy layers (e.g. a
-// CDN in front of Render).
+// CDN in front of the server).
 app.set("trust proxy", 1);
 
 // Security & parsing.
-// In production, restrict CORS to the configured CLIENT_URL (and common Vercel
-// preview URLs). In development, allow any origin for convenience.
+// In production, restrict CORS to the configured CLIENT_URL (and common preview
+// URLs). In development, allow any origin for convenience.
 app.use(helmet());
 // gzip every response. JSON (question lists, backups, etc.) compresses ~70–90%,
 // which is the biggest single cut to outbound bandwidth (free-tier egress cap).
@@ -113,12 +113,12 @@ app.use(compression());
 // subdomain, which isn't known ahead of time, so a fixed allowlist would break
 // them. To lock the API down to a known set of origins, set the env var
 // CORS_ALLOWED_ORIGINS to a comma-separated list — requests from anything else
-// are then refused. (CLIENT_URL is always included; Vercel preview URLs
+// are then refused. (CLIENT_URL is always included; preview-deploy URLs
 // are allowed; requests with no Origin — curl, mobile, server-to-server — pass.)
 // Security fix: DEFAULT-DENY unknown origins (was previously permissive/reflect-any).
 // Allowed origins are: the exact allowlist (CLIENT_URL + CORS_ALLOWED_ORIGINS),
 // wildcard subdomains of configured base domains (CORS_ALLOWED_DOMAINS, e.g. the
-// white-label platform domain) plus Vercel previews, and any registered
+// white-label platform domain) plus preview deploys, and any registered
 // tenant custom domain / <slug>.<PLATFORM_BASE_DOMAIN> looked up from the DB.
 // Requests with NO Origin (curl, mobile apps, server-to-server) still pass — CORS
 // is a browser control and these aren't browser cross-origin requests.
@@ -134,11 +134,10 @@ const wildcardDomains = [
   // even if CLIENT_URL / CORS_ALLOWED_DOMAINS aren't set on the server. Matches
   // both mystudyguide.in and any subdomain (www., app., <institute>., …).
   "mystudyguide.in",
-  // Vercel preview deployments (*.vercel.app) so a preview build can talk to the
-  // API. Netlify is NOT used by this project, so it's intentionally not allowed.
-  // If you ever stop using Vercel previews against prod, set CORS_ALLOWED_DOMAINS
-  // and drop this by editing here.
-  "vercel.app",
+  // Cloudflare Pages preview deployments (*.pages.dev) so a preview build can
+  // talk to the API. If you don't use preview deploys against prod, set
+  // CORS_ALLOWED_DOMAINS and drop this by editing here.
+  "pages.dev",
 ].map((d) => String(d || "").trim().toLowerCase().replace(/^\.*/, "")).filter(Boolean);
 
 const hostMatchesWildcard = (host) =>
@@ -201,7 +200,7 @@ app.use(resolveTenant);
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 50 });
 
 // Health check — also reports whether email (SMTP) is configured so you can
-// verify your Render settings by visiting /api/health in a browser.
+// verify your server settings by visiting /api/health in a browser.
 // It ALSO opportunistically declares any CBT results that are now due. The
 // keep-alive workflow pings this endpoint regularly, so results release on
 // their own (auto: at exam end · manual: at the scheduled timer) even when the
@@ -244,9 +243,9 @@ app.get("/api/health", async (req, res) => {
     service: "my-study-guide-api",
     db: dbStatus,
     dbOk,
-    // Bump this whenever backend code changes so we can verify Render actually
-    // redeployed: open /api/health and check `version`. If it's older than the
-    // latest, the backend did NOT deploy and server-side fixes aren't live.
+    // Bump this whenever backend code changes so we can verify the server
+    // actually redeployed: open /api/health and check `version`. If it's older
+    // than the latest, the backend did NOT deploy and server-side fixes aren't live.
     version: "2026-08-29-oracle-autodeploy-v49",
     features: ["ai-scope", "ai-key-owner", "extract-batches", "matching-labels", "documents", "extract-remaining", "notes-gen", "latex-json-repair", "no-currency-dollar", "parallel-small-chunks", "provider-timeout", "addtotest-drilldown", "mytest-subjectplan", "reshuffle-subjects-questions-options", "db-indexes", "extend-verify-numeric", "extend-verify-matching-pairs", "generate-extract-formula-verify", "regenerate-question", "wrap-numeric-options-latex", "regenerate-fixall-render", "regenerate-columns-not-in-stem", "regenerate-table-not-in-stem", "regenerate-strip-list-markers", "youtube-transcript-source", "shared-link-tracker", "shared-link-opens", "youtube-innertube-retry", "cbt-online-exams", "cbt-emailed-results", "cbt-rankings", "cbt-exam-portal", "cbt-live-toggle", "cbt-deferred-results", "cbt-otp-registration", "cbt-scheduled-window", "cbt-one-attempt", "cbt-portal-registration", "cbt-portal-login-password", "cbt-student-dashboard", "cbt-reset-password", "cbt-change-password", "cbt-admin-candidates", "cbt-late-entry-cutoff", "cbt-entry-allowlist", "cbt-student-status", "cbt-late-entry-access", "cbt-manual-result-mode", "cbt-result-autorelease-on-ping"],
     mailConfigured: isMailConfigured(),
@@ -299,7 +298,7 @@ app.use("/api/manual", userManualRoutes); // editable User Manual (public read, 
 app.get("/s/:token", shareTestPreview);
 
 // Dynamic XML sitemap (served at the site root; the frontend host proxies
-// /sitemap.xml here — see frontend/vercel.json). Lists the fixed public pages
+// /sitemap.xml here — see the frontend host's redirect rules). Lists the fixed public pages
 // plus every real, public subject/stream/exam landing page. Public, no auth.
 app.get("/sitemap.xml", sitemap);
 

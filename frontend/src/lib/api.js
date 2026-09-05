@@ -48,10 +48,9 @@ export function consumeSessionFromUrl() {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// Retry on network failures and gateway errors (502/503/504) — these happen
-// while a free-tier host (e.g. Render) is spinning the server back up. A cold
-// start of a Node app can take well over a minute, so the schedule now spans
-// ~2.5 minutes to ride out even a slow wake-up instead of failing early.
+// Retry on network failures and gateway errors (502/503/504) — e.g. a brief
+// restart/deploy or a transient network blip. The schedule spans ~2.5 minutes
+// to ride out even a slow recovery instead of failing early.
 const RETRY_WAITS = [1500, 3000, 5000, 8000, 10000, 12000, 15000, 15000, 20000, 20000, 25000, 25000]; // ms between attempts (~2.5 min total)
 const MAX_RETRIES = RETRY_WAITS.length;
 const RETRYABLE = [502, 503, 504];
@@ -96,7 +95,7 @@ async function request(path, { method = "GET", body, auth = true, headers = {}, 
   }
 
   // Shareable tenant links: when the URL carries ?t=<slug> (e.g.
-  // mystudyguideme.vercel.app/?t=acme), target that institute explicitly. This
+  // www.mystudyguide.in/?t=acme), target that institute explicitly. This
   // lets institutes share a public portal link before they own a custom domain.
   // The backend's resolveTenant prioritises this X-Tenant slug header over the
   // host, so the visitor sees that institute's branding & data. For logged-in

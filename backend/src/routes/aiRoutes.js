@@ -48,7 +48,7 @@ router.put("/mode", ...manage, setAiMode);
 router.get("/keys", ...manage, listKeys);
 router.post("/keys", ...manage, createKey);
 router.post("/keys/bulk", ...manage, bulkCreateKeys); // add many keys at once (shared preset)
-router.post("/keys/import", ...admin, importEnvKeys); // import Render env keys — platform only
+router.post("/keys/import", ...admin, importEnvKeys); // import server env keys — platform only
 router.post("/keys/test-all", ...manage, testAllKeys); // test every key in the caller's pool
 router.post("/keys/auto-model-all", ...manage, autoDetectAllKeys); // auto-pick a working model for every key at once
 router.post("/keys/set-enabled-all", ...manage, setAllKeysEnabled); // enable/disable every key at once
