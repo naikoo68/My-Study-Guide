@@ -796,7 +796,8 @@ export default function AdminTests() {
                 <label className="mb-1 block text-sm font-semibold">Subjects &amp; questions per subject (optional)</label>
                 <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
                   Type your subjects and how many questions each — this is a plan/guide for the test. You add the actual
-                  questions afterwards.
+                  questions afterwards. Prefer no subjects? Leave this empty, or use the
+                  <span className="font-medium"> “General (no subject)”</span> option to add questions that aren’t split by subject.
                 </p>
                 <SubjectPlanEditor rows={composition} onChange={setComposition} />
               </div>

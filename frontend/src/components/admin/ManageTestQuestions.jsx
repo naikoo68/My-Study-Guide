@@ -182,20 +182,32 @@ export default function ManageTestQuestions({
               </button>
             );
           })}
-          {tq.some((q) => !q.section) && (
-            <button
-              onClick={() => { setActiveSubject("__unassigned__"); setSelectedTq([]); setTqSearch(""); }}
-              className="w-full rounded-xl border border-dashed border-slate-300 p-4 text-left transition hover:border-slate-400 hover:bg-slate-50 dark:border-slate-600 dark:hover:border-slate-500 dark:hover:bg-slate-800/50"
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-semibold text-slate-500 dark:text-slate-400">Unassigned</p>
-                  <p className="mt-1 text-xs text-slate-400">{tq.filter((q) => !q.section).length} questions (no subject)</p>
+          {/* General (no subject) bucket — ALWAYS shown so you can add questions
+              that aren't tied to any subject, even alongside a subject plan.
+              These map to section="" (unlimited — no per-subject cap). Before,
+              this card only appeared once a general question already existed,
+              so there was no way to add the first one. */}
+          {(() => {
+            const generalCount = tq.filter((q) => !q.section).length;
+            return (
+              <button
+                onClick={() => { setActiveSubject("__unassigned__"); setSelectedTq([]); setTqSearch(""); }}
+                className="w-full rounded-xl border border-dashed border-slate-300 p-4 text-left transition hover:border-slate-400 hover:bg-slate-50 dark:border-slate-600 dark:hover:border-slate-500 dark:hover:bg-slate-800/50"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-semibold text-slate-600 dark:text-slate-300">General <span className="font-normal text-slate-400">(no subject)</span></p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      {generalCount > 0
+                        ? `${generalCount} question${generalCount === 1 ? "" : "s"} — not tied to a subject`
+                        : "Add questions without a subject"}
+                    </p>
+                  </div>
+                  <ChevronRight className="h-5 w-5 text-slate-400" />
                 </div>
-                <ChevronRight className="h-5 w-5 text-slate-400" />
-              </div>
-            </button>
-          )}
+              </button>
+            );
+          })()}
         </div>
 
         <div className="mt-4 flex items-center justify-between rounded-lg bg-slate-50 px-4 py-3 dark:bg-slate-800/60">
@@ -242,7 +254,7 @@ export default function ManageTestQuestions({
           </button>
           <ChevronRight className="h-4 w-4 text-slate-400" />
           <span className="rounded px-2 py-1 font-medium text-slate-700 dark:text-slate-200">
-            {activeSubject === "__unassigned__" ? "Unassigned" : activeSubject}
+            {activeSubject === "__unassigned__" ? "General (no subject)" : activeSubject}
           </span>
         </div>
       )}
