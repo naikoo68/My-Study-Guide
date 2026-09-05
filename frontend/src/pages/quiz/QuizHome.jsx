@@ -111,6 +111,8 @@ export default function QuizHome() {
                           src={s.image}
                           alt=""
                           aria-hidden="true"
+                          loading="lazy"
+                          decoding="async"
                           className="absolute inset-0 h-full w-full scale-125 object-cover blur-2xl"
                         />
                         {/* The banner is 16:9, matching the images the app produces/expects
@@ -121,6 +123,8 @@ export default function QuizHome() {
                         <img
                           src={s.image}
                           alt=""
+                          loading="lazy"
+                          decoding="async"
                           className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                         />
                       </>

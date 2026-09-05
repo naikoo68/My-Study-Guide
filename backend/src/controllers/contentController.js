@@ -13,9 +13,94 @@ import { NOT_DELETED, softDeletePatch } from "../utils/softDelete.js";
 import { sanitizeBody, ALLOW } from "../utils/sanitizeBody.js";
 import { normName } from "../utils/conceptDedupe.js";
 import { platformContentFilter } from "../utils/platformScope.js";
+import { runUnscoped } from "../utils/tenantContext.js";
 
 const slugify = (s) =>
   String(s || "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+/* ---------------- Banner images (streams & subjects) ----------------
+ *
+ * Stream/Subject banners are stored as base64 `data:` URIs on the `image`
+ * field. Returning them inline in the LIST endpoints made those responses
+ * multi-megabyte (a dozen streams ≈ 7 MB), so every "browse" page stalled on
+ * "Loading streams…" while the browser dragged the whole blob down.
+ *
+ * Fix: the list endpoints replace a heavy `data:` URI with a small URL that
+ * points at the dedicated image endpoints below (`serveContentImage`). The
+ * browser then loads each banner as a normal, cacheable `<img>` request — in
+ * parallel and non-blocking — instead of bloating the JSON. The field name
+ * stays `image`, so every `<img src={…}>` consumer keeps working unchanged.
+ */
+
+// Absolute URL to a banner image endpoint. Absolute (not relative) because the
+// `<img>` renders on the FRONTEND origin (e.g. www.mystudyguide.in) while the
+// API lives on another host (e.g. api.mystudyguide.in). `trust proxy` is set,
+// so req.protocol / req.get("host") reflect the real public scheme + host.
+// A `?v=<updatedAt>` cache-buster makes the URL change whenever the banner does,
+// which lets the endpoint serve it as immutable (cached forever by the browser).
+function imageEndpointUrl(req, kind, id, updatedAt) {
+  const base = `${req.protocol}://${req.get("host")}`;
+  const v = updatedAt ? `?v=${new Date(updatedAt).getTime()}` : "";
+  return `${base}/api/${kind}/${id}/image${v}`;
+}
+
+// True for our own image-endpoint URL — used to guard updates from clobbering
+// the stored banner when the admin form echoes the list value back on save.
+const IMAGE_ENDPOINT_RE = /\/(streams|subjects)\/[^/]+\/image(\?|$)/;
+
+// Swap a heavy base64 `data:` URI on a lean doc for a small image-endpoint URL.
+// Non-data-URI images (already-small external URLs) and empty values pass
+// through untouched, so nothing changes for streams that store a plain URL.
+function withLiteImage(doc, kind, req) {
+  if (typeof doc.image === "string" && doc.image.startsWith("data:")) {
+    return { ...doc, image: imageEndpointUrl(req, kind, String(doc._id), doc.updatedAt) };
+  }
+  return doc;
+}
+
+// When an admin saves a stream/subject, drop `image` from the update if it's the
+// lightweight endpoint URL we handed the client in the list (i.e. the banner was
+// NOT changed) — otherwise the stored data URI would be overwritten with a
+// pointer to itself and the real image would be lost. A genuine change is always
+// a `data:` URI (new upload / AI) or "" (explicit Remove), both of which pass.
+function stripEchoedImage(data) {
+  if (typeof data.image === "string" && IMAGE_ENDPOINT_RE.test(data.image)) {
+    delete data.image;
+  }
+  return data;
+}
+
+// GET /api/streams/:id/image and /api/subjects/:id/image — serve a stored banner
+// as a real, cacheable image so it stays OUT of the JSON list responses.
+function makeImageHandler(Model, label) {
+  return async function serveContentImage(req, res) {
+    // Look up UNSCOPED by unique id: banners are public content shown on public
+    // pages, and a plain <img> request carries no tenant header (so tenant
+    // scoping would otherwise 404 an institute's own banner). Serving a public
+    // banner by id leaks nothing sensitive.
+    const doc = await runUnscoped(() =>
+      Model.findById(req.params.id).select("image updatedAt").lean()
+    );
+    const img = doc?.image || "";
+    if (!img) return res.status(404).end();
+    // Legacy: a plain external URL was stored instead of a data URI — redirect.
+    if (!img.startsWith("data:")) return res.redirect(302, img);
+    const m = /^data:([^;,]+)?(;base64)?,([\s\S]*)$/.exec(img);
+    if (!m) return res.status(404).end();
+    const contentType = m[1] || "application/octet-stream";
+    const buf = m[2] ? Buffer.from(m[3], "base64") : Buffer.from(decodeURIComponent(m[3]));
+    // The ?v=<updatedAt> query makes each URL content-stable, so cache hard.
+    const etag = `"${label}-${req.params.id}-${doc.updatedAt ? new Date(doc.updatedAt).getTime() : buf.length}"`;
+    if (req.headers["if-none-match"] === etag) return res.status(304).end();
+    res.set("Cache-Control", "public, max-age=31536000, immutable");
+    res.set("ETag", etag);
+    res.type(contentType);
+    return res.send(buf);
+  };
+}
+
+export const streamImage = makeImageHandler(Stream, "stream");
+export const subjectImage = makeImageHandler(Subject, "subject");
 
 // Admins / institute-admins see EVERYTHING (including items they've disabled);
 // students & the public never see DISABLED items. Applied to the shared list
@@ -110,7 +195,7 @@ export async function listStreams(req, res) {
     streams.map((s) => {
       const id = String(s._id);
       return {
-        ...s,
+        ...withLiteImage(s, "streams", req),
         subjects: subjects[id] || 0,
         topics: topics[id] || 0,
         quizzes: quizzes[id] || 0,
@@ -129,7 +214,7 @@ export async function createStream(req, res) {
 }
 
 export async function updateStream(req, res) {
-  const data = sanitizeBody(req.body, { allow: ALLOW.STREAM });
+  const data = stripEchoedImage(sanitizeBody(req.body, { allow: ALLOW.STREAM }));
   if (data.name) {
     const taken = await nameTaken(Stream, data.name, "stream", req.params.id);
     if (taken) return res.status(taken.status).json({ message: taken.message });
@@ -158,6 +243,7 @@ export async function listStreamSubjects(req, res) {
   // `streams[]` (reused from another stream). Linked subjects show under this
   // stream but open in their home stream.
   const subjects = await Subject.find({ $or: [{ stream: sid }, { streams: sid }], isActive: true, ...NOT_DELETED, ...visFilter(req) }).sort("name").lean();
+  const liteSub = (s) => withLiteImage(s, "subjects", req);
   const ids = subjects.map((s) => s._id);
   // subject/quiz are denormalised on their descendants, so each count is one
   // grouped scan; questions are limited to quiz questions (test-series excluded),
@@ -169,7 +255,7 @@ export async function listStreamSubjects(req, res) {
   ]);
   const toMap = (agg) => Object.fromEntries(agg.map((r) => [String(r._id), r.count]));
   const tMap = toMap(topics), qzMap = toMap(quizzes), qMap = toMap(questions);
-  res.json(subjects.map((s) => ({ ...s, topics: tMap[String(s._id)] || 0, quizzes: qzMap[String(s._id)] || 0, questions: qMap[String(s._id)] || 0 })));
+  res.json(subjects.map((s) => ({ ...liteSub(s), topics: tMap[String(s._id)] || 0, quizzes: qzMap[String(s._id)] || 0, questions: qMap[String(s._id)] || 0 })));
 }
 
 async function countMap(Model, matchIds, field) {
@@ -185,6 +271,7 @@ async function countMap(Model, matchIds, field) {
 // GET /api/subjects — includes topic count per subject
 export async function listSubjects(req, res) {
   const subjects = await Subject.find({ isActive: true, ...NOT_DELETED, ...visFilter(req), ...(await platformContentFilter(req)) }).sort("name").lean();
+  const liteSub = (s) => withLiteImage(s, "subjects", req);
   const [topics, quizzes, questions] = await Promise.all([
     Topic.aggregate([{ $match: { deleted: { $ne: true } } }, { $group: { _id: "$subject", count: { $sum: 1 } } }]),
     Quiz.aggregate([{ $match: { deleted: { $ne: true } } }, { $group: { _id: "$subject", count: { $sum: 1 } } }]),
@@ -192,7 +279,7 @@ export async function listSubjects(req, res) {
   ]);
   const toMap = (agg) => Object.fromEntries(agg.map((r) => [String(r._id), r.count]));
   const tMap = toMap(topics), qzMap = toMap(quizzes), qMap = toMap(questions);
-  res.json(subjects.map((s) => ({ ...s, topics: tMap[String(s._id)] || 0, quizzes: qzMap[String(s._id)] || 0, questions: qMap[String(s._id)] || 0 })));
+  res.json(subjects.map((s) => ({ ...liteSub(s), topics: tMap[String(s._id)] || 0, quizzes: qzMap[String(s._id)] || 0, questions: qMap[String(s._id)] || 0 })));
 }
 
 export async function createSubject(req, res) {
@@ -224,7 +311,7 @@ export async function createSubject(req, res) {
 }
 
 export async function updateSubject(req, res) {
-  const data = sanitizeBody(req.body, { allow: ALLOW.SUBJECT });
+  const data = stripEchoedImage(sanitizeBody(req.body, { allow: ALLOW.SUBJECT }));
   if (data.name) {
     const taken = await nameTaken(Subject, data.name, "subject", req.params.id);
     if (taken) return res.status(taken.status).json({ message: taken.message });

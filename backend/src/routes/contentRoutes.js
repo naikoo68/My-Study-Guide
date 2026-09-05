@@ -5,6 +5,8 @@ import {
   updateStream,
   deleteStream,
   listStreamSubjects,
+  streamImage,
+  subjectImage,
   listSubjects,
   createSubject,
   updateSubject,
@@ -54,6 +56,11 @@ router.post("/streams", ...admin, createStream);
 router.put("/streams/:id", ...admin, updateStream);
 router.delete("/streams/:id", ...admin, deleteStream);
 router.get("/streams/:streamId/subjects", optionalAuth, listStreamSubjects);
+// Public banner images. Served as real, cacheable images so the big base64
+// blobs stay OUT of the JSON list responses (which were multi-MB). No auth: a
+// banner is public content shown on public pages and an <img> can't send one.
+router.get("/streams/:id/image", streamImage);
+router.get("/subjects/:id/image", subjectImage);
 
 // Subjects
 router.get("/subjects", optionalAuth, listSubjects);

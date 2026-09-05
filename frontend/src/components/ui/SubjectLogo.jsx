@@ -20,7 +20,7 @@ export default function SubjectLogo({ name = "", icon = "", color = "", image = 
   if (image) {
     return (
       <div style={box} className={`${base} ${fill ? "" : "border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800"}`}>
-        <img src={image} alt="" className="h-full w-full object-cover" />
+        <img src={image} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
       </div>
     );
   }
