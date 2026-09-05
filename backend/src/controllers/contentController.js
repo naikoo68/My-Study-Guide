@@ -13,7 +13,7 @@ import { NOT_DELETED, softDeletePatch } from "../utils/softDelete.js";
 import { sanitizeBody, ALLOW } from "../utils/sanitizeBody.js";
 import { normName } from "../utils/conceptDedupe.js";
 import { platformContentFilter } from "../utils/platformScope.js";
-import { runUnscoped } from "../utils/tenantContext.js";
+import { runUnscoped, getCurrentTenantId, getShareContent } from "../utils/tenantContext.js";
 
 const slugify = (s) =>
   String(s || "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -153,6 +153,39 @@ async function nameTaken(Model, name, label, excludeId = null) {
   return null;
 }
 
+/* ---------------- Per-subject content counts (cached) ----------------
+ *
+ * The topic / quiz / question totals shown on stream & subject cards are
+ * computed by grouping the WHOLE Topic/Quiz/Question collections by subject.
+ * The Question group alone scans a ~57k-row table and was ~0.9 s of server time
+ * on EVERY streams/subjects list load (the "Loading streams…" wait) — even
+ * though the counts are decorative and change slowly.
+ *
+ * So cache the three aggregations for a short TTL. The cache key includes the
+ * tenant id AND its content-sharing flag because the aggregations are
+ * tenant-scoped (see models/plugins/tenantId.js) — the result differs per
+ * institute, so a global cache would leak counts across tenants. Trade-off: a
+ * newly added quiz/question can take up to COUNTS_TTL_MS to show in the card
+ * totals; acceptable for a decorative number and a big latency win.
+ */
+const COUNTS_TTL_MS = 60 * 1000;
+const _countsCache = new Map(); // key -> { at, topicAgg, quizAgg, questionAgg }
+
+async function getSubjectContentCounts() {
+  const key = `${getCurrentTenantId() || "none"}:${getShareContent()}`;
+  const hit = _countsCache.get(key);
+  if (hit && Date.now() - hit.at < COUNTS_TTL_MS) return hit;
+  const [topicAgg, quizAgg, questionAgg] = await Promise.all([
+    Topic.aggregate([{ $match: { deleted: { $ne: true } } }, { $group: { _id: "$subject", count: { $sum: 1 } } }]),
+    Quiz.aggregate([{ $match: { deleted: { $ne: true } } }, { $group: { _id: "$subject", count: { $sum: 1 } } }]),
+    // Only questions that live inside a quiz (test-series questions have no quiz).
+    Question.aggregate([{ $match: { quiz: { $ne: null }, deleted: { $ne: true } } }, { $group: { _id: "$subject", count: { $sum: 1 } } }]),
+  ]);
+  const entry = { at: Date.now(), topicAgg, quizAgg, questionAgg };
+  _countsCache.set(key, entry);
+  return entry;
+}
+
 /* ---------------- Streams (top level) ---------------- */
 
 // GET /api/streams — includes subject count per stream
@@ -170,12 +203,7 @@ export async function listStreams(req, res) {
   const subjectDocs = await Subject.find({ stream: { $ne: null }, deleted: { $ne: true } }).select("_id stream").lean();
   const subjectStream = new Map(subjectDocs.map((s) => [String(s._id), String(s.stream)]));
 
-  const [topicAgg, quizAgg, questionAgg] = await Promise.all([
-    Topic.aggregate([{ $match: { deleted: { $ne: true } } }, { $group: { _id: "$subject", count: { $sum: 1 } } }]),
-    Quiz.aggregate([{ $match: { deleted: { $ne: true } } }, { $group: { _id: "$subject", count: { $sum: 1 } } }]),
-    // Only questions that live inside a quiz (test-series questions have no quiz).
-    Question.aggregate([{ $match: { quiz: { $ne: null }, deleted: { $ne: true } } }, { $group: { _id: "$subject", count: { $sum: 1 } } }]),
-  ]);
+  const { topicAgg, quizAgg, questionAgg } = await getSubjectContentCounts();
 
   const subjects = {};
   for (const streamId of subjectStream.values()) subjects[streamId] = (subjects[streamId] || 0) + 1;
@@ -272,11 +300,7 @@ async function countMap(Model, matchIds, field) {
 export async function listSubjects(req, res) {
   const subjects = await Subject.find({ isActive: true, ...NOT_DELETED, ...visFilter(req), ...(await platformContentFilter(req)) }).sort("name").lean();
   const liteSub = (s) => withLiteImage(s, "subjects", req);
-  const [topics, quizzes, questions] = await Promise.all([
-    Topic.aggregate([{ $match: { deleted: { $ne: true } } }, { $group: { _id: "$subject", count: { $sum: 1 } } }]),
-    Quiz.aggregate([{ $match: { deleted: { $ne: true } } }, { $group: { _id: "$subject", count: { $sum: 1 } } }]),
-    Question.aggregate([{ $match: { quiz: { $ne: null }, deleted: { $ne: true } } }, { $group: { _id: "$subject", count: { $sum: 1 } } }]),
-  ]);
+  const { topicAgg: topics, quizAgg: quizzes, questionAgg: questions } = await getSubjectContentCounts();
   const toMap = (agg) => Object.fromEntries(agg.map((r) => [String(r._id), r.count]));
   const tMap = toMap(topics), qzMap = toMap(quizzes), qMap = toMap(questions);
   res.json(subjects.map((s) => ({ ...liteSub(s), topics: tMap[String(s._id)] || 0, quizzes: qzMap[String(s._id)] || 0, questions: qMap[String(s._id)] || 0 })));
