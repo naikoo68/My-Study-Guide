@@ -2385,7 +2385,7 @@ export function Pendulum({ showLabels = true }) {
 
 // ---- Crude oil fractional distillation -------------------------------------
 export function CrudeOil({ showLabels = true }) {
-  const topX = W / 2 - 90, botX = W / 2 - 150, colTop = 70, colBot = H - 70, w1 = 180, w2 = 300;
+  const colTop = 70, colBot = H - 70, w1 = 180, w2 = 300;
   const cx = W / 2;
   const fractions = [
     ["Refinery gas", "#a78bfa", 0.06], ["Petrol (gasoline)", "#60a5fa", 0.24],
@@ -2986,7 +2986,7 @@ export function ContinentalDrift({ showLabels = true }) {
       {blob(210, H / 2, "M -60 -50 q 60 -20 90 20 q 30 40 -10 70 q -50 40 -100 10 q -40 -30 -10 -60 q 10 -30 40 -40 Z", "#22c55e")}
       {/* Present (right) — separated continents */}
       {globe(W - 210, H / 2)}
-      {[["M -70 -40 q 30 -14 44 10 q 6 30 -20 34 q -34 4 -34 -20 z", "#22c55e"], ["M 6 -46 q 40 -6 40 30 q -6 34 -34 26 q -20 -30 -6 -56 z", "#16a34a"], ["M -20 30 q 30 -6 40 20 q -4 26 -34 20 q -20 -20 -6 -40 z", "#4ade80"], ["M 40 34 q 24 0 24 22 q -10 18 -30 8 z", "#22c55e"]].map(([p, c], i) => blob(W - 210, H / 2, p, c))}
+      {[["M -70 -40 q 30 -14 44 10 q 6 30 -20 34 q -34 4 -34 -20 z", "#22c55e"], ["M 6 -46 q 40 -6 40 30 q -6 34 -34 26 q -20 -30 -6 -56 z", "#16a34a"], ["M -20 30 q 30 -6 40 20 q -4 26 -34 20 q -20 -20 -6 -40 z", "#4ade80"], ["M 40 34 q 24 0 24 22 q -10 18 -30 8 z", "#22c55e"]].map(([p, c]) => blob(W - 210, H / 2, p, c))}
       {/* Arrow */}
       <line x1={340} y1={H / 2} x2={W - 340} y2={H / 2} stroke="#334155" strokeWidth="3" markerEnd="url(#il-arrow)" />
       {showLabels && (
@@ -3074,7 +3074,7 @@ export function ReactionTypes({ showLabels = true }) {
   const red = "#dc2626", blue = "#2563eb", green = "#16a34a", amber = "#f59e0b";
   return (
     <g>
-      {rows.map(([name, y, eq], i) => (
+      {rows.map(([name, y], i) => (
         <g key={i}>
           {showLabels && <text x={70} y={y + 4} fontSize="12.5" fontWeight="700" fill="#334155">{name}</text>}
           {i === 0 && <>{atom(300, y, red, "A")}<text x={332} y={y + 5} fontSize="16" textAnchor="middle">+</text>{atom(364, y, blue, "B")}<line x1={392} y1={y} x2={440} y2={y} stroke="#334155" strokeWidth="2" markerEnd="url(#il-arrow)" />{atom(474, y, red, "A")}{atom(500, y, blue, "B")}</>}
@@ -4293,7 +4293,7 @@ export function IonicLattice({ showLabels = true }) {
   for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) ions.push([x0 + c * gap, y0 + r * gap, (r + c) % 2 === 0]);
   return (
     <g>
-      {ions.map(([x, y], i) => { const [rx, ry] = [ions[i][0], ions[i][1]]; return <g key={`b${i}`}>{i % 4 !== 3 && <line x1={x} y1={y} x2={x + gap} y2={y} stroke="#cbd5e1" strokeWidth="1.5" />}{Math.floor(i / 4) !== 3 && <line x1={x} y1={y} x2={x} y2={y + gap} stroke="#cbd5e1" strokeWidth="1.5" />}</g>; })}
+      {ions.map(([x, y], i) => { return <g key={`b${i}`}>{i % 4 !== 3 && <line x1={x} y1={y} x2={x + gap} y2={y} stroke="#cbd5e1" strokeWidth="1.5" />}{Math.floor(i / 4) !== 3 && <line x1={x} y1={y} x2={x} y2={y + gap} stroke="#cbd5e1" strokeWidth="1.5" />}</g>; })}
       {ions.map(([x, y, na], i) => (
         <g key={i}>
           <g filter="url(#viz-shadow)"><Sphere cx={x} cy={y} r={na ? 16 : 24} fill={na ? "#8b5cf6" : "#10b981"} /></g>
