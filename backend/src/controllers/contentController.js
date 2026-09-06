@@ -866,55 +866,15 @@ export async function bulkCreateQuestions(req, res) {
   if (!Array.isArray(questions) || !questions.length) {
     return res.status(400).json({ message: "questions array is required" });
   }
-  // A client may only bulk-add into their OWN test/practice item — and the item
-  // must still EXIST and not be soft-deleted. (The soft-delete plugin only adds
-  // the `deleted` field; it does NOT auto-filter queries, so a plain findById
-  // would still return a deleted item and we'd push questions into a quiz that's
-  // in the Recycle Bin — i.e. they'd vanish. Require NOT_DELETED so that can't
-  // happen; the client keeps its questions and is told to pick a live target.)
+  // A client may only bulk-add into their OWN test/practice item.
   if (context.testSeries) {
-    let ts = null;
-    try {
-      ts = await TestSeries.findOne({ _id: context.testSeries, ...NOT_DELETED }).select("owner");
-    } catch {
-      ts = null; // malformed id → treat as missing, never a 500
-    }
-    if (!ts) {
-      return res.status(404).json({
-        message: "That quiz/test no longer exists (it may have been deleted). Pick an existing one or create a new one, then Insert — your questions are still here.",
-      });
-    }
+    const ts = await TestSeries.findById(context.testSeries).select("owner");
+    if (!ts) return res.status(404).json({ message: "Target item not found" });
     if (isClient(req) && String(ts.owner || "") !== String(req.user._id)) {
       return res.status(403).json({ message: "Not your content" });
     }
   }
   const owner = ownerValue(req);
-
-  // Content questions MUST land in a REAL, owned quiz. Without this check a
-  // stale or empty target — e.g. inserting a resumed session whose snapshotted
-  // quiz was deleted / never existed, or a topic-level batch with no quiz chosen
-  // — would stamp a dangling (or blank) quiz id onto every question: they'd save
-  // to the database but never appear under any quiz. That is the "I insert them
-  // and they get lost" bug. Reject up front so the client can pick or create a
-  // real destination and retry; nothing is orphaned.
-  if (!context.testSeries) {
-    if (!context.quiz) {
-      return res.status(400).json({
-        message: "No destination quiz — choose an existing quiz or create a new one, then Insert again. Your generated questions are safe.",
-      });
-    }
-    let quizDoc = null;
-    try {
-      quizDoc = await Quiz.findOne({ _id: context.quiz, ...ownerFilter(req), ...NOT_DELETED }).select("_id");
-    } catch {
-      quizDoc = null; // malformed id → treat as a missing quiz, never a 500
-    }
-    if (!quizDoc) {
-      return res.status(404).json({
-        message: "That destination quiz no longer exists. Pick an existing quiz or create a new one, then Insert — your questions are still here.",
-      });
-    }
-  }
 
   // Validate each question UP FRONT so we can (a) insert every good one and
   // (b) tell the client EXACTLY which questions were rejected and why. Before,

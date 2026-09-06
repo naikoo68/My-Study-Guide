@@ -422,12 +422,6 @@ export default function AdminContent() {
       quizId = created._id;
       setAiTarget({ id: quizId, title }); // subsequent batches target the new quiz
     }
-    // No valid destination quiz (e.g. a resumed session started at topic level,
-    // or whose target quiz was deleted). Stop BEFORE inserting so the batch can't
-    // be saved against a missing quiz and lost — tell the user to pick/create one.
-    if (!quizId) {
-      throw new Error("No quiz to insert into. Choose “New quiz”, give it a name, then Insert. Your generated questions are safe.");
-    }
     const res = await contentService.bulkQuestions(questions, {
       subject: subjId,
       session: sessId,
