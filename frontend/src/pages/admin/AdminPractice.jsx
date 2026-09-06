@@ -105,23 +105,37 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
   const [subject, setSubject] = useState(() => loadNav(NAV_KEY).subject || null);
   const [topic, setTopic] = useState(() => loadNav(NAV_KEY).topic || null);
 
+  // Level model per kind. My Quiz and Previous Papers have a 4th (topic) level;
+  // My Test goes straight stream → subject → items. For Previous Papers the
+  // levels are relabelled: subject = "Exam", topic = "Year", item = "Paper".
+  const hasTopics = kind === "quiz" || kind === "paper";
+  // My Quiz has an extra Exam level between Stream and Subject:
+  // Stream → Exam → Subject → Topic → Quiz. My Test / Previous Papers do not.
+  const hasExams = kind === "quiz";
+  const L = kind === "paper"
+    ? { examPl: "Exams", examAdd: "Add Exam", subjectPl: "Exams", subjectAdd: "Add Exam", topicPl: "Years", topicAdd: "Add Year", itemPl: "Papers", itemAdd: "Add Paper", openTopics: "Open years", itemsWord: "papers", groupWord: "year" }
+    : kind === "quiz"
+    ? { examPl: "Exams", examAdd: "Add Exam", subjectPl: "Subjects", subjectAdd: "Add Subject", topicPl: "Topics", topicAdd: "Add Topic", itemPl: "Quizzes", itemAdd: "Add Quiz", openTopics: "Open topics", itemsWord: "quizzes", groupWord: "topic" }
+    : { examPl: "Exams", examAdd: "Add Exam", subjectPl: "Subjects", subjectAdd: "Add Subject", topicPl: "Topics", topicAdd: "Add Topic", itemPl: "Tests", itemAdd: "Add Test", openTopics: "Open topics", itemsWord: "tests", groupWord: "subject" };
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
   // ── Resume a saved AI generation session ────────────────────────────────
   // The AI generator checkpoints its work to localStorage keyed by the target
   // (a specific quiz/test, else the leaf container — the topic for My Quiz /
   // Previous Papers, the subject for My Test). Surface it HERE on the topic
-  // page so a deliberately-saved session is visible (with Resume / Discard) —
-  // not only after reopening the generator. Uses the SAME key the generator
-  // restores from, so "Resume" lands on the same saved questions.
+  // page so a deliberately-saved session is visible (with Resume / Discard).
+  // NOTE: declared AFTER `items` on purpose — readSavedSession reads `items`,
+  // so it must not run before that state is initialised (avoids a TDZ crash).
   const [savedSession, setSavedSession] = useState(null); // { key, done, target, label, item } | null
   const readSavedSession = useCallback(() => {
     // The generator keys its checkpoint by the target it was opened for:
     //   • topic-level batch → the leaf container name (topic for quiz/paper,
     //     subject for test),
-    //   • a batch aimed at a specific quiz/test → that item's name (or its
-    //     aiTopic).
-    // We don't know which was used, so scan ALL of those candidate keys for
-    // THIS topic page and surface the most-recently-saved one — otherwise a
-    // session saved against a quiz wouldn't be found on the topic page.
+    //   • a batch aimed at a specific quiz/test → that item's name (or its aiTopic).
+    // We don't know which was used, so scan ALL those candidate keys for THIS
+    // topic page and surface the most-recently-saved one.
     try {
       const candidates = [];
       const leaf = (kind === "quiz" ? topic : subject)?.name;
@@ -161,22 +175,6 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
     try { localStorage.removeItem(savedSession.key); } catch { /* ignore */ }
     setSavedSession(null);
   };
-
-  // Level model per kind. My Quiz and Previous Papers have a 4th (topic) level;
-  // My Test goes straight stream → subject → items. For Previous Papers the
-  // levels are relabelled: subject = "Exam", topic = "Year", item = "Paper".
-  const hasTopics = kind === "quiz" || kind === "paper";
-  // My Quiz has an extra Exam level between Stream and Subject:
-  // Stream → Exam → Subject → Topic → Quiz. My Test / Previous Papers do not.
-  const hasExams = kind === "quiz";
-  const L = kind === "paper"
-    ? { examPl: "Exams", examAdd: "Add Exam", subjectPl: "Exams", subjectAdd: "Add Exam", topicPl: "Years", topicAdd: "Add Year", itemPl: "Papers", itemAdd: "Add Paper", openTopics: "Open years", itemsWord: "papers", groupWord: "year" }
-    : kind === "quiz"
-    ? { examPl: "Exams", examAdd: "Add Exam", subjectPl: "Subjects", subjectAdd: "Add Subject", topicPl: "Topics", topicAdd: "Add Topic", itemPl: "Quizzes", itemAdd: "Add Quiz", openTopics: "Open topics", itemsWord: "quizzes", groupWord: "topic" }
-    : { examPl: "Exams", examAdd: "Add Exam", subjectPl: "Subjects", subjectAdd: "Add Subject", topicPl: "Topics", topicAdd: "Add Topic", itemPl: "Tests", itemAdd: "Add Test", openTopics: "Open topics", itemsWord: "tests", groupWord: "subject" };
-  const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
   const [modal, setModal] = useState(null); // { type, mode, data }
   const [linkOpen, setLinkOpen] = useState(false); // "Add existing subject" (reuse under another exam) modal — My Quiz
   const [saving, setSaving] = useState(false);
