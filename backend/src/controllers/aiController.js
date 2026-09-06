@@ -1602,25 +1602,20 @@ async function runGenerationJob(id, ctx) {
   const deadline = Date.now() + 8 * 60 * 1000; // overall time budget
   if (!job.keyStats) job.keyStats = {}; // live per-key activity for THIS run
 
-  // Chunk size balances TWO goals:
-  //  1. Throughput on big batches — the free-tier limit is per REQUEST (per key,
-  //     per minute), so a full CHUNK_SIZE (12) per call yields the most questions
-  //     per allowed request. A large target keeps every key busy for many rounds.
-  //  2. Engaging ALL keys on a SMALL remaining target — this is the tail case the
-  //     user hit: "17 of 400 left" with 29 keys. A fixed 12-question chunk makes
-  //     only ~2 chunks, so only ~2 keys ever get work; the other 27 keys find no
-  //     chunk to reserve and sit idle on standby. Then those 2 keys hit their
-  //     per-minute limit and the whole run STALLS ~54s waiting for them to reset,
-  //     while 27 fresh (never-limited) keys could have finished the 17 instantly.
-  // So size the chunk to spread the remaining work across ALL keys — ceil(target
-  // / keys) — capped at CHUNK_SIZE. Big targets still resolve to 12 (e.g. 400 or
-  // 1000 → 12, unchanged), so throughput is preserved; only when the work is
-  // smaller than one full round across every key does it shrink, so every key
-  // gets a piece and the tail finishes in ONE parallel round instead of cycling
-  // on a couple of rate-limited keys. reserveChunk() still caps each reservation
-  // at what's remaining, so there's no overshoot.
+  // Always request the FULL, most-efficient chunk (CHUNK_SIZE) per provider
+  // call — regardless of target size. The free-tier rate limit is per REQUEST
+  // (per key, per minute), NOT per question, so asking for fewer questions per
+  // request just wastes each rate-limited call. Shrinking the chunk for smaller
+  // targets (the old `ceil(target / workerCount)`) is exactly why a 200-target
+  // run was slower than a 1000-target run and stalled on the tail: each request
+  // produced ~7 instead of 12, so the same allowed requests yielded ~40% fewer
+  // questions per minute. Overshoot is impossible — reserveChunk() below only
+  // reserves up to what's still remaining (`min(chunkSize, remaining)`), and
+  // workers keep looping to grab more chunks across keys while work remains, so
+  // many keys still run in parallel whenever the target is large enough to need
+  // them (a target smaller than a full wave simply finishes in one quick round).
   const workerCount = Math.max(1, (workers?.length || 0) + (fallbackWorkers?.length || 0));
-  const chunkSize = Math.max(1, Math.min(CHUNK_SIZE, Math.ceil((target || CHUNK_SIZE) / workerCount)));
+  const chunkSize = Math.max(1, Math.min(CHUNK_SIZE, target || CHUNK_SIZE));
 
   // Signature of a question (normalised stem) used to guarantee NO duplicates —
   // neither within this batch nor against questions from an earlier batch
