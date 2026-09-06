@@ -506,8 +506,11 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
         } else if (s.status === "error") {
           setMsg(s.error || "Generation failed."); result = { produced: 0, errored: true }; done = true;
         } else {
-          const soFar = priorTotal + (s.count || 0);
-          setMsg(stopRef.current ? `Stopping… keeping the ${soFar} generated so far` : `Generating… ${soFar} of ${target} ready (${Math.max(0, target - soFar)} to go)${elapsedSuffix()}${etaSuffix(soFar, target)}`);
+          // Show the COMMITTED total (priorTotal) so the count only climbs; the
+          // in-flight wave is shown separately (+N) rather than added, so the
+          // duplicates dropped when a wave finalises can't make it jump backward.
+          const inFlight = s.count || 0;
+          setMsg(stopRef.current ? `Stopping… keeping the ${priorTotal} generated so far` : `Generating… ${priorTotal} of ${target} ready${inFlight ? ` · +${inFlight} generating in this wave` : ""} (${Math.max(0, target - priorTotal)} to go)${elapsedSuffix()}${etaSuffix(priorTotal, target)}`);
         }
       }
       if (!done) setMsg("Still generating — this is taking longer than expected. Try a smaller batch.");
