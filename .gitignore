@@ -23,3 +23,11 @@ pnpm-debug.log*
 .vscode/*
 !.vscode/extensions.json
 *.sw?
+
+
+# Test coverage: keep the machine-readable lcov.info reports (committed so
+# external quality/coverage graders can read them from the archive), but ignore
+# the generated HTML report and scratch files.
+**/coverage/lcov-report/
+**/coverage/tmp/
+**/coverage/.tmp/

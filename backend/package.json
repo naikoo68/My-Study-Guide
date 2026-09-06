@@ -12,6 +12,7 @@
     "dev": "node --watch src/server.js",
     "test": "vitest run",
     "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
     "seed": "node src/utils/seed.js",
     "create-tables": "node src/scripts/createTablesCli.js",
     "migrate-from-mongo": "node src/scripts/migrateFromMongo.js",
@@ -48,6 +49,7 @@
     "uuid": "^9.0.1"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^2.1.9",
     "mongodb-memory-server": "^10.1.4",
     "vitest": "^2.1.9"
   }
