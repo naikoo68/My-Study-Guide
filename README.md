@@ -95,6 +95,23 @@ See [`backend/README.md`](backend/README.md) for the full API reference.
 | Backend | Node.js, Express, MongoDB (Mongoose), JWT, bcrypt, Cloudinary, Multer |
 | Cross-cutting | Dark/light mode, responsive design, SEO meta tags, role-based auth |
 
+## ✅ Testing
+
+Both the frontend and backend are covered by automated tests ([Vitest](https://vitest.dev)),
+and they run in CI on every push and pull request to `main`.
+
+```bash
+# Backend — unit tests + tenant-isolation/security integration tests
+cd backend && npm test
+
+# Frontend — unit tests for the pure helpers in src/lib
+cd frontend && npm test
+```
+
+See **[TESTING.md](TESTING.md)** for how the suites are organised and
+**[CONTRIBUTING.md](CONTRIBUTING.md)** for the local setup and the checks a PR
+must pass.
+
 ## 🔗 Connecting frontend to backend
 
 The frontend talks to the backend through a small API layer (`src/lib/api.js`) using the base URL in `VITE_API_URL` (e.g. `http://localhost:5000/api`). Authentication is real: the JWT returned by the API is stored and sent as a Bearer token on later requests. A few `src/data/*` files remain only as default/fallback content.

@@ -37,6 +37,10 @@ jobs:
       - name: Lint (advisory)
         run: npm run lint
         continue-on-error: true
+      # Correctness gate: runs the frontend unit tests (pure helpers under
+      # src/lib/*) with Vitest. A failure here blocks the merge/deploy.
+      - name: Tests (unit)
+        run: npm test
       - run: npm run build
 
   backend:
