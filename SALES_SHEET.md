@@ -3,7 +3,7 @@
 **A ready-to-launch, fully-featured study and examination platform for coaching institutes, schools, and edtech sellers — brandable as your own.**
 
 - 🔗 **Live demo:** https://www.mystudyguide.in
-- 💬 **Contact:** Aadil Abdullah Naikoo · aadilabdullah552@gmail.com · +91 6006898857
+- 💬 **Contact:** Aadil Abdullah Naikoo · https://www.mystudyguide.in
 - 🏷️ **Type:** Full source code (MERN) · fully white-label
 
 ---
@@ -69,4 +69,4 @@ Coaching institutes, schools, tuition centres, and developers/resellers who want
 
 ---
 
-*Interested? Reply for a live demo walkthrough.* — Aadil Abdullah Naikoo · aadilabdullah552@gmail.com · +91 6006898857
+*Interested? Reply for a live demo walkthrough.* — Aadil Abdullah Naikoo · https://www.mystudyguide.in

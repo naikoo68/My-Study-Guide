@@ -10,7 +10,7 @@
 
 This Agreement is made between:
 
-- **Seller / Licensor:** Aadil Abdullah Naikoo — aadilabdullah552@gmail.com — +91 6006898857, ("we", "us")
+- **Seller / Licensor:** Aadil Abdullah Naikoo — via https://www.mystudyguide.in ("we", "us")
 - **Buyer / Licensee:** [BUYER NAME OR INSTITUTE], ("you")
 - **Date:** [DATE]
 - **Product:** "My Study Guide" study & examination platform source code (the "Software").
