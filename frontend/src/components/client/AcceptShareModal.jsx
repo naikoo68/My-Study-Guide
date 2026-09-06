@@ -13,6 +13,8 @@ import { runAcceptShareJob, acceptSharePercent } from "../../lib/acceptShareProg
 //   onClose  — close without accepting
 //   onDone   — called after a successful accept (host removes it + refreshes)
 const LABEL = { stream: "Stream", exam: "Exam", subject: "Subject", topic: "Topic" };
+// Previous Papers relabel their hierarchy: Subject = "Exam", Topic = "Year".
+const PAPER_LABEL = { stream: "Stream", subject: "Exam", topic: "Year" };
 
 export default function AcceptShareModal({ share, onClose, onDone }) {
   const [loading, setLoading] = useState(true);
@@ -116,6 +118,9 @@ export default function AcceptShareModal({ share, onClose, onDone }) {
     return !!String(c.name || "").trim();
   });
 
+  // Level label, relabelled for Previous Papers (Subject→Exam, Topic→Year).
+  const labelFor = (level) => (share.kind === "paper" ? PAPER_LABEL[level] : LABEL[level]) || level;
+
   const submit = async () => {
     if (!valid || saving) return;
     setSaving(true);
@@ -156,7 +161,7 @@ export default function AcceptShareModal({ share, onClose, onDone }) {
             const remaining = progress.questionsTotal > 0
               ? progress.questionsTotal - progress.questionsSaved
               : progress.itemsTotal - progress.itemsSaved;
-            const itemLabel = share.kind === "test" ? "Tests" : "Quizzes";
+            const itemLabel = share.kind === "paper" ? "Papers" : share.kind === "test" ? "Tests" : "Quizzes";
             return (
               <div className="mt-4">
                 <div className="mb-2 flex items-center justify-between text-sm">
@@ -193,7 +198,7 @@ export default function AcceptShareModal({ share, onClose, onDone }) {
               const opts = options[level] || [];
               return (
                 <div key={level} className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
-                  <p className="mb-2 text-sm font-semibold">{LABEL[level]}</p>
+                  <p className="mb-2 text-sm font-semibold">{labelFor(level)}</p>
                   <div className="flex gap-2">
                     <button
                       type="button"
@@ -218,22 +223,22 @@ export default function AcceptShareModal({ share, onClose, onDone }) {
                       onChange={(e) => setExistingId(level, e.target.value)}
                       className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800"
                     >
-                      <option value="">Select a {level}…</option>
+                      <option value="">Select {/[aeiou]/.test(labelFor(level)[0].toLowerCase()) ? "an" : "a"} {labelFor(level).toLowerCase()}…</option>
                       {opts.map((o) => (<option key={o._id} value={o._id}>{o.name}</option>))}
                     </select>
                   ) : (
                     <input
                       value={c.name || ""}
                       onChange={(e) => setName(level, e.target.value)}
-                      placeholder={`New ${level} name`}
+                      placeholder={`New ${labelFor(level).toLowerCase()} name`}
                       className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800"
                     />
                   )}
                   {c.mode === "existing" && !existingAllowed && (
-                    <p className="mt-1 text-[11px] text-slate-400">Pick an existing parent first to reuse an existing {level}.</p>
+                    <p className="mt-1 text-[11px] text-slate-400">Pick an existing parent first to reuse an existing {labelFor(level).toLowerCase()}.</p>
                   )}
                   {c.mode === "new" && (
-                    <p className="mt-1 text-[11px] text-slate-400">If you already have a {level} with this name, a separate "(shared)" copy is created.</p>
+                    <p className="mt-1 text-[11px] text-slate-400">If you already have a {labelFor(level).toLowerCase()} with this name, a separate "(shared)" copy is created.</p>
                   )}
                 </div>
               );

@@ -12,7 +12,7 @@ const contentShareSchema = new mongoose.Schema(
     fromName: { type: String, default: "" }, // snapshot of sender's name for display
     level: { type: String, enum: ["stream", "subject", "topic", "item"], required: true },
     sourceId: { type: mongoose.Schema.Types.ObjectId, required: true }, // stream/subject/topic id, or TestSeries id
-    kind: { type: String, enum: ["quiz", "test"], default: "quiz" },
+    kind: { type: String, enum: ["quiz", "test", "paper"], default: "quiz" },
     title: { type: String, default: "" },   // snapshot of the node/item name
     itemCount: { type: Number, default: 0 }, // how many quizzes/tests it contains
     status: { type: String, enum: ["pending", "accepted", "declined"], default: "pending" },
