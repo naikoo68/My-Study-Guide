@@ -493,30 +493,6 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
     }
 
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-    // ── Batch ETA ────────────────────────────────────────────────────────────
-    // Estimate the time left to reach the target from the REAL pace of this run
-    // (questions produced ÷ elapsed wall-clock), which naturally folds in the
-    // per-minute rate-limit waits between waves. Stays blank until there's enough
-    // of a sample (≥2 questions, ≥4s) so we never flash a wild first guess.
-    const runStartTs = Date.now();
-    const producedAtRunStart = extra.resume ? preview.length : 0;
-    const fmtDur = (ms) => {
-      const s = Math.max(0, Math.round(ms / 1000));
-      const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
-      if (h) return `${h}h ${m}m`;
-      if (m) return `${m}m ${String(sec).padStart(2, "0")}s`;
-      return `${sec}s`;
-    };
-    const etaSuffix = (soFar, tgt) => {
-      const made = soFar - producedAtRunStart;
-      const elapsed = Date.now() - runStartTs;
-      const remaining = (tgt || 0) - soFar;
-      if (made < 2 || elapsed < 4000 || remaining <= 0) return "";
-      const etaMs = (elapsed / made) * remaining;
-      return ` · ~${fmtDur(etaMs)} left`;
-    };
-
     // Accumulate the avoid-list LOCALLY across waves — React state updates are
     // async, so relying on avoidStems would let the next wave repeat this wave's
     // questions. We still mirror it into state for later manual "Generate more".
@@ -619,7 +595,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
           // resetting to "0 of 500" each wave.
           const soFar = priorTotal + (s.count || 0);
           patchActiveGenJob({ count: soFar, requested: target || requested || 0, status: "running" }); // keep the reload-surviving pill's progress current
-          setMsg(stopRef.current ? `Stopping… keeping the ${soFar} generated so far` : `Generating… ${soFar} of ${target || requested} ready (${Math.max(0, (target || requested) - soFar)} to go)${etaSuffix(soFar, target || requested)}`);
+          setMsg(stopRef.current ? `Stopping… keeping the ${soFar} generated so far` : `Generating… ${soFar} of ${target || requested} ready (${Math.max(0, (target || requested) - soFar)} to go)`);
         }
       }
       if (!done) setMsg("Still generating — this is taking longer than expected. Please try a smaller batch.");
@@ -716,7 +692,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
         // after an empty wave so the window has time to reset).
         const waitSec = (last.produced || 0) === 0 ? 60 : 40;
         for (let k = waitSec; k > 0 && !stopRef.current; k--) {
-          setMsg(`Auto-continue: ${producedTotal} of ${target} so far${zeroWaves ? ` · ${zeroWaves} empty wave(s)` : ""}. Waiting ${k}s for the free-tier limit to reset…${etaSuffix(producedTotal, target)} (press Stop to keep what you have)`);
+          setMsg(`Auto-continue: ${producedTotal} of ${target} so far${zeroWaves ? ` · ${zeroWaves} empty wave(s)` : ""}. Waiting ${k}s for the free-tier limit to reset… (press Stop to keep what you have)`);
           await sleep(1000);
         }
         if (stopRef.current) { finalize(last, producedTotal, target); break; }

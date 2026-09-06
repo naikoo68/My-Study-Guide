@@ -418,27 +418,6 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
     // the whole plan every wave).
     const producedByBucket = {};
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-    // ── Batch ETA ────────────────────────────────────────────────────────────
-    // Estimate time left from the REAL pace of this run (questions produced ÷
-    // elapsed wall-clock), which folds in the per-minute rate-limit waits between
-    // waves. Blank until ≥2 questions / ≥4s so we never flash a wild first guess.
-    const runStartTs = Date.now();
-    const fmtDur = (ms) => {
-      const s = Math.max(0, Math.round(ms / 1000));
-      const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
-      if (h) return `${h}h ${m}m`;
-      if (m) return `${m}m ${String(sec).padStart(2, "0")}s`;
-      return `${sec}s`;
-    };
-    const etaSuffix = (soFar, tgt) => {
-      const elapsed = Date.now() - runStartTs;
-      const remaining = (tgt || 0) - soFar;
-      if (soFar < 2 || elapsed < 4000 || remaining <= 0) return "";
-      const etaMs = (elapsed / soFar) * remaining;
-      return ` · ~${fmtDur(etaMs)} left`;
-    };
-
     // Accumulate the avoid-list LOCALLY across waves (React state is async, so
     // relying on avoidStems would let the next wave repeat this wave's questions).
     let avoidLocal = Array.from(new Set([...(avoidStems || [])]));
@@ -501,7 +480,7 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
           setMsg(s.error || "Generation failed."); result = { produced: 0, errored: true }; done = true;
         } else {
           const soFar = priorTotal + (s.count || 0);
-          setMsg(stopRef.current ? `Stopping… keeping the ${soFar} generated so far` : `Generating… ${soFar} of ${target} ready (${Math.max(0, target - soFar)} to go)${etaSuffix(soFar, target)}`);
+          setMsg(stopRef.current ? `Stopping… keeping the ${soFar} generated so far` : `Generating… ${soFar} of ${target} ready (${Math.max(0, target - soFar)} to go)`);
         }
       }
       if (!done) setMsg("Still generating — this is taking longer than expected. Try a smaller batch.");
@@ -555,7 +534,7 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
         // Interruptible wait for the per-minute limit to refill.
         const waitSec = (last.produced || 0) === 0 ? 60 : 40;
         for (let k = waitSec; k > 0 && !stopRef.current; k--) {
-          setMsg(`Auto-continue: ${producedTotal} of ${target} so far${zeroWaves ? ` · ${zeroWaves} empty wave(s)` : ""}. Waiting ${k}s for the free-tier limit to reset…${etaSuffix(producedTotal, target)} (press Stop to keep what you have)`);
+          setMsg(`Auto-continue: ${producedTotal} of ${target} so far${zeroWaves ? ` · ${zeroWaves} empty wave(s)` : ""}. Waiting ${k}s for the free-tier limit to reset… (press Stop to keep what you have)`);
           // eslint-disable-next-line no-await-in-loop
           await sleep(1000);
         }
