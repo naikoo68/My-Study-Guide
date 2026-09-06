@@ -548,7 +548,11 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
         firstWave = false;
         wave += 1;
         zeroWaves = (last.produced || 0) === 0 ? zeroWaves + 1 : 0;
-        lowWaves = (last.produced || 0) < MIN_YIELD ? lowWaves + 1 : 0;
+        // Stop grinding once the source/topic is exhausted: an attempt that adds
+        // far fewer NEW unique questions than it asked for (mostly dropped dupes)
+        // counts as "barely progressing"; MAX_LOW in a row ends the run.
+        const yieldFloor = Math.max(MIN_YIELD, Math.ceil((last.requested || 0) * 0.25));
+        lowWaves = (last.produced || 0) < yieldFloor ? lowWaves + 1 : 0;
         const reached = producedTotal >= target;
         const dead = zeroWaves >= MAX_ZERO;
         const stalled = lowWaves >= MAX_LOW;

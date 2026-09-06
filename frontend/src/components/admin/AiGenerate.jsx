@@ -698,8 +698,8 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
       const autoLoop = autoContinue && (!append || extra.resume);
       const MAX_WAVES = 60; // very high cap so a big target can grind through many quota windows
       const MAX_ZERO = 8;   // consecutive EMPTY waves before we conclude the quota is truly dead
-      const MIN_YIELD = 2;  // a wave adding 0–1 questions is "barely progressing"
-      const MAX_LOW = 4;    // consecutive barely-progressing waves → a bucket the model just can't fill (e.g. Assertion & Reason); stop instead of spinning forever
+      const MIN_YIELD = 2;  // absolute floor: adding 0–1 new questions is "barely progressing"
+      const MAX_LOW = 4;    // consecutive barely-progressing attempts → the topic is exhausted or a type can't be filled; stop instead of grinding for hours
       setMsg(extra.resume ? `Resuming — continuing toward ${total} question(s)…` : append ? `Generating ${total} more from this topic (no duplicates)…` : `Starting generation of ${total} question(s)…`);
       // On resume, the restored preview already counts toward the target so the
       // "X of target" progress and the per-wave trim start from where we left off.
@@ -715,7 +715,13 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
         firstWave = false;
         wave += 1;
         zeroWaves = (last.produced || 0) === 0 ? zeroWaves + 1 : 0; // reset the moment a wave produces anything
-        lowWaves = (last.produced || 0) < MIN_YIELD ? lowWaves + 1 : 0; // reset once a wave makes real progress
+        // "Barely progressing" = this attempt added far fewer NEW unique questions
+        // than it asked for. On a saturated topic (syllabus fully covered) attempts
+        // keep returning duplicates that get dropped, so this stays true and we
+        // stop after MAX_LOW in a row — instead of grinding for HOURS toward a
+        // target the topic simply doesn't contain enough distinct questions for.
+        const yieldFloor = Math.max(MIN_YIELD, Math.ceil((last.requested || 0) * 0.25));
+        lowWaves = (last.produced || 0) < yieldFloor ? lowWaves + 1 : 0; // reset once an attempt makes real progress
         const reached = producedTotal >= target;
         // Keep going through empty/small waves (waiting out the per-minute limit).
         // Give up when the quota is clearly dead (many EMPTY waves), when a type
@@ -734,7 +740,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
                   .filter((b) => (producedByBucket[`${b.type}|${b.difficulty}`] || 0) < b.count)
                   .map((b) => TYPE_OPTIONS.find((t) => t.id === b.type)?.label || b.type)
               )];
-              setMsg(`⏸ Auto-continue stopped at ${producedTotal} of ${target}. The AI couldn't generate more ${shortTypes.join(", ")} on this topic (these types are the hardest for it). Insert these ${producedTotal} now, or Resume to retry the rest — it often succeeds on another try or with a fuller model. Save session to come back later.`);
+              setMsg(`✓ Stopped at ${producedTotal} of ${target} — this topic looks fully covered. The AI is now only repeating ${shortTypes.length ? shortTypes.join(", ") + " " : ""}questions it already made (duplicates are dropped), so ${producedTotal} is effectively the COMPLETE set of distinct questions for this topic. Insert these now. (Resume will try for a few more, but it likely won't add much — a smaller topic simply has fewer unique questions.)`);
             } else {
               setMsg(`⏸ Auto-continue stopped at ${producedTotal} of ${target}. The free-tier quota looks exhausted right now (many empty tries in a row) — Insert these, or Resume once the quota resets (add keys from other Google accounts for more). Save session to come back to this topic later.`);
             }
