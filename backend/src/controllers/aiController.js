@@ -1665,7 +1665,21 @@ async function runGenerationJob(id, ctx) {
     let emptyReplies = 0;
     while (collected.length < target && attempts < MAX_ATTEMPTS && Date.now() < deadline && !job.cancelled) {
       const res = reserveChunk();
-      if (!res) break; // nothing left to generate
+      if (!res) {
+        // No chunk to grab right now. If the target is met, we're done. Otherwise
+        // every remaining chunk is currently IN-FLIGHT on other keys (reserved) —
+        // so there's nothing to take THIS instant, but a key that hits its
+        // per-minute limit RELEASES its chunk the moment it 429s. So DON'T quit:
+        // stay on standby and re-check, so a fresh/idle key (e.g. #18) can pick up
+        // work a rate-limited key (e.g. #4) just dropped, instead of the whole
+        // batch stalling on that one key's reset. (This is what makes small
+        // batches resilient now that they no longer spread a tiny chunk to every
+        // key up front.) The while-condition's deadline bounds the standby, and
+        // once a released chunk exists reserveChunk() returns it on the next pass.
+        if (collected.length >= target) break;
+        await sleep(400);
+        continue;
+      }
       const prompt = plan
         ? buildUserPrompt({ topic, notes, subject, stream, plan: res.chunk, avoid: avoidNow(), source, focus: res.focus, numerical, reshape, outLang })
         : buildUserPrompt({ topic, notes, subject, stream, count: res.n, difficulty, types, avoid: avoidNow(), source, focus: res.focus, numerical, reshape, outLang });
