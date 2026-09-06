@@ -824,12 +824,20 @@ function nodeItemFilter(level, id, owner) {
 // container (and for a shared subject/topic, that node itself), whether to use
 // an EXISTING container of theirs or CREATE a NEW one. Tests have no topic level.
 // My Quiz has an extra "exam" level between stream and subject; My Test has none.
+// Normalise a source item's practiceKind to the share kind. Three shapes:
+//   quiz  → Stream → Exam → Subject → Topic → item
+//   paper → Stream → Subject → Topic → item   (no exam; Exam/Year/Paper labels)
+//   test  → Stream → Subject → item           (no exam, no topic)
+const shareKindOf = (practiceKind) => (practiceKind === "test" ? "test" : practiceKind === "paper" ? "paper" : "quiz");
+
 function placementChain(level, kind) {
-  const quiz = kind !== "test"; // quiz (and paper, treated as quiz) use the exam+topic levels
-  if (level === "exam") return quiz ? ["stream", "exam"] : ["stream"];
-  if (level === "subject") return quiz ? ["stream", "exam", "subject"] : ["stream", "subject"];
-  if (level === "topic") return quiz ? ["stream", "exam", "subject", "topic"] : ["stream", "subject"];
-  if (level === "item") return quiz ? ["stream", "exam", "subject", "topic"] : ["stream", "subject"];
+  const hasExam = kind === "quiz";                       // only My Quiz has the exam level
+  const hasTopic = kind === "quiz" || kind === "paper";  // My Quiz & Previous Papers have a topic level; My Test doesn't
+  const upToSubject = hasExam ? ["stream", "exam", "subject"] : ["stream", "subject"];
+  if (level === "exam") return hasExam ? ["stream", "exam"] : ["stream"];
+  if (level === "subject") return upToSubject;
+  if (level === "topic") return hasTopic ? [...upToSubject, "topic"] : upToSubject;
+  if (level === "item") return hasTopic ? [...upToSubject, "topic"] : upToSubject;
   return []; // stream (or unknown) → no placement prompt
 }
 
@@ -838,7 +846,7 @@ function placementChain(level, kind) {
 // "new" → find-or-create by the given name under the resolved parent.
 async function resolvePlacementChain(chainLevels, placement, kind, copyOwner, cache) {
   const models = { stream: PracticeStream, exam: PracticeExam, subject: PracticeSubject, topic: PracticeTopic };
-  const quiz = kind !== "test"; // My Quiz uses the exam level; My Test doesn't
+  const hasExam = kind === "quiz"; // only My Quiz uses the exam level; My Test & Previous Papers don't
   const resolved = {};
   for (const level of chainLevels) {
     const choice = (placement && placement[level]) || {};
@@ -848,7 +856,7 @@ async function resolvePlacementChain(chainLevels, placement, kind, copyOwner, ca
     if (level === "stream") { parentId = null; parentKey = undefined; }
     else if (level === "exam") { parentId = resolved.stream; parentKey = "stream"; }
     else if (level === "subject") {
-      if (quiz) { parentId = resolved.exam; parentKey = "exam"; extra = { stream: resolved.stream }; }
+      if (hasExam) { parentId = resolved.exam; parentKey = "exam"; extra = { stream: resolved.stream }; }
       else { parentId = resolved.stream; parentKey = "stream"; }
     } else if (level === "topic") { parentId = resolved.subject; parentKey = "subject"; }
     if (choice.mode === "existing" && choice.id) {
@@ -909,7 +917,7 @@ export async function shareContent(req, res) {
     const node = await Model.findOne({ _id: id, owner: ownerValue(req) }).select("name").lean();
     if (node?.name) title = node.name;
   }
-  const kind = matches[0].practiceKind === "test" ? "test" : "quiz";
+  const kind = shareKindOf(matches[0].practiceKind);
 
   const share = await ContentShare.create({
     from: req.user._id,
@@ -1116,7 +1124,7 @@ export async function acceptShare(req, res) {
   // the sender's names, as before). Levels BELOW the chosen chain (e.g. the
   // topics inside a shared subject) are still recreated by their source names,
   // preserving the sub-structure.
-  const shareKind = share.kind === "test" ? "test" : "quiz";
+  const shareKind = shareKindOf(share.kind);
   const chainLevels = placementChain(share.level, shareKind);
   let placed;
   try {
@@ -1151,7 +1159,8 @@ async function runAcceptJob(jobId, { share, items, placed, copyOwner, cache }) {
   const job = acceptJobs.get(jobId);
   if (!job) return;
   for (const src of items) {
-    const kind = src.practiceKind === "test" ? "test" : "quiz";
+    const kind = shareKindOf(src.practiceKind);
+    const hasTopic = kind === "quiz" || kind === "paper"; // My Quiz & Previous Papers have a topic (Year) level
     // Recreate the hierarchy under the recipient — using the placed containers
     // where the recipient chose them, else create by the source name. This
     // fallback only runs for a whole-stream accept (no placement prompt); it
@@ -1180,7 +1189,7 @@ async function runAcceptJob(jobId, { share, items, placed, copyOwner, cache }) {
       copyOwner, cache
     );
     let topicId;
-    if (kind === "quiz") {
+    if (hasTopic) {
       topicId = placed.topic || await ensureContainer(
         PracticeTopic,
         { name: src.practiceTopic?.name || "Shared", parentKey: "subject", parentId: subjectId, icon: src.practiceTopic?.icon, color: src.practiceTopic?.color },
@@ -1189,7 +1198,7 @@ async function runAcceptJob(jobId, { share, items, placed, copyOwner, cache }) {
     }
     // Create the recipient-owned copy, then duplicate its questions. Keep the
     // copy's name distinct from any same-named item already in the destination.
-    const itemScope = kind === "quiz"
+    const itemScope = hasTopic
       ? { practice: true, owner: copyOwner ?? null, practiceTopic: topicId }
       : { practice: true, owner: copyOwner ?? null, practiceSubject: subjectId };
     const copyName = await uniqueItemName(src.name, itemScope);
@@ -1213,6 +1222,14 @@ async function runAcceptJob(jobId, { share, items, placed, copyOwner, cache }) {
       subjectPlan: Array.isArray(src.subjectPlan) ? src.subjectPlan : [],
       status: "published",
       visibleToAll: false,
+      // Previous Papers carry their uploaded paper PDF, answer key(s) and any
+      // extra info — copy them so the recipient's paper is complete.
+      ...(kind === "paper" ? {
+        paperPdfUrl: src.paperPdfUrl || "",
+        answerKeyPdfUrl: src.answerKeyPdfUrl || "",
+        answerKeys: Array.isArray(src.answerKeys) ? src.answerKeys : [],
+        additionalInfo: src.additionalInfo || "",
+      } : {}),
       ...(src.createdAt ? { createdAt: src.createdAt } : {}),
       ...(src.updatedAt ? { updatedAt: src.updatedAt } : {}),
     });
@@ -1250,7 +1267,7 @@ export function acceptShareJob(req, res) {
 export async function sharePlacement(req, res) {
   const share = await ContentShare.findOne({ _id: req.params.id, to: req.user._id, status: "pending" });
   if (!share) return res.status(404).json({ message: "Share not found." });
-  const kind = share.kind === "test" ? "test" : "quiz";
+  const kind = shareKindOf(share.kind);
   const levels = placementChain(share.level, kind);
   let names = {};
   if (levels.length) {

@@ -76,7 +76,7 @@ export default function IncomingSharesInbox({ onAccepted }) {
             <div className="min-w-0">
               <p className="font-medium">{s.title}</p>
               <p className="text-xs text-slate-400">
-                from <b className="text-slate-500 dark:text-slate-300">{s.from}</b> · {s.level === "item" ? (s.kind === "test" ? "1 test" : "1 quiz") : `${s.itemCount} ${s.kind === "test" ? "test" : "quiz"}(s) · whole ${s.level}`}
+                from <b className="text-slate-500 dark:text-slate-300">{s.from}</b> · {(() => { const w = s.kind === "paper" ? "paper" : s.kind === "test" ? "test" : "quiz"; return s.level === "item" ? `1 ${w}` : `${s.itemCount} ${w}(s) · whole ${s.level}`; })()}
               </p>
             </div>
             {progress[s._id] ? (
@@ -88,7 +88,7 @@ export default function IncomingSharesInbox({ onAccepted }) {
                   <div className="h-full rounded-full bg-brand-600 transition-all duration-300" style={{ width: `${acceptSharePercent(progress[s._id])}%` }} />
                 </div>
                 <p className="mt-1 text-[11px] text-slate-400">
-                  {progress[s._id].questionsSaved}/{progress[s._id].questionsTotal} questions · {progress[s._id].itemsSaved}/{progress[s._id].itemsTotal} {s.kind === "test" ? "tests" : "quizzes"}
+                  {progress[s._id].questionsSaved}/{progress[s._id].questionsTotal} questions · {progress[s._id].itemsSaved}/{progress[s._id].itemsTotal} {s.kind === "paper" ? "papers" : s.kind === "test" ? "tests" : "quizzes"}
                 </p>
               </div>
             ) : (
