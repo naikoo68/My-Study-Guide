@@ -163,6 +163,28 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
           : ck.preview.length;
         best = { key: `mstg.genJob:${name}`, done: ck.preview.length, target, label: name, item, updatedAt: ck.updatedAt };
       }
+      // Fallback: if none of the topic/item candidate names matched, scan EVERY
+      // saved generation checkpoint (mstg.genJob:*). A session can be keyed under
+      // a name that isn't one of this page's candidates — e.g. it was generated
+      // at a different level, reopened from the background pill, or the target was
+      // later renamed — and without this it would seem to have vanished. We still
+      // prefer an exact candidate match above; this only runs when nothing matched.
+      if (!best) {
+        for (let i = 0; i < localStorage.length; i++) {
+          const kk = localStorage.key(i);
+          if (!kk || !kk.startsWith("mstg.genJob:")) continue;
+          let ck;
+          try { ck = JSON.parse(localStorage.getItem(kk) || "null"); } catch { ck = null; }
+          if (!ck || !Array.isArray(ck.preview) || !ck.preview.length) continue;
+          if (!ck.updatedAt || Date.now() - ck.updatedAt > 7 * 24 * 3600 * 1000) continue;
+          if (best && ck.updatedAt <= best.updatedAt) continue;
+          const name = kk.slice("mstg.genJob:".length);
+          const target = ck.matrix
+            ? Object.values(ck.matrix).reduce((s, dm) => s + Object.values(dm || {}).reduce((a, v) => a + (Number(v) || 0), 0), 0)
+            : ck.preview.length;
+          best = { key: kk, done: ck.preview.length, target, label: name, item: null, updatedAt: ck.updatedAt };
+        }
+      }
       return best;
     } catch { return null; }
   }, [kind, topic, subject, items]);
@@ -615,26 +637,31 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
   // navigating to another admin section. All values are captured here at open
   // time; the onUpload/onGenerationStart closures keep targeting the right
   // destination (via the destination snapshot) after this page unmounts.
-  const openPracticeGenerate = ({ item = null, gap = null, otherTypes = false, section = "", stems = [] } = {}) => {
+  const openPracticeGenerate = ({ item = null, gap = null, otherTypes = false, section = "", stems = [], resumeName = "" } = {}) => {
+    // `resumeName` = restore a specific saved session. The generator keys its
+    // checkpoint by currentTargetName || defaultTopic, so to reload THAT exact
+    // saved session we clear currentTargetName and set defaultTopic to its name.
     openAiGenerate({
       sections: sectionsOf(item),
       subjectName: subject?.name || "",
       defaultSection: normSection(section),
-      title: `Generate with AI — ${item?.name || (gap ? `new ${kind} (missing areas)` : (otherTypes ? "other question types (all quizzes)" : ""))}${normSection(section) ? ` (${normSection(section)})` : ""}`,
+      title: resumeName
+        ? `Generate with AI — ${resumeName}`
+        : `Generate with AI — ${item?.name || (gap ? `new ${kind} (missing areas)` : (otherTypes ? "other question types (all quizzes)" : ""))}${normSection(section) ? ` (${normSection(section)})` : ""}`,
       onClose: () => { setForceSection(""); },
       allowNewTarget: true,
       newLeafLabel: kind,
-      // Topic-level generation (missing-areas / "other question types") has NO
-      // single open quiz, so never show "Current quiz — <name>": that would be a
-      // stale/left-over item from one you opened earlier (e.g. "Quiz 1") and
-      // could send the batch to the wrong — or a since-deleted — quiz. Only pass
-      // it when a quiz/test is genuinely open.
-      currentTargetName: (gap || otherTypes) ? "" : (aiTarget?.name || item?.name || ""),
+      // Topic-level generation (missing-areas / "other question types") or a
+      // resume has NO single open quiz, so never show "Current quiz — <name>":
+      // that would be a stale/left-over item from one you opened earlier (e.g.
+      // "Quiz 1") and could send the batch to the wrong — or a since-deleted —
+      // quiz. Only pass it when a quiz/test is genuinely open.
+      currentTargetName: (gap || otherTypes || resumeName) ? "" : (aiTarget?.name || item?.name || ""),
       existingItems: (items || []).filter((it) => it._id !== item?._id).map((it) => ({ _id: it._id, name: it.name, questionCount: it.questionCount })),
       existingQuestions: otherTypes ? [] : (gap ? gap.avoid : tq),
-      defaultTopic: gap ? gap.topic : (item?.aiTopic || (kind === "quiz" ? topic : subject)?.name || ""),
+      defaultTopic: resumeName || (gap ? gap.topic : (item?.aiTopic || (kind === "quiz" ? topic : subject)?.name || "")),
       defaultSubtopics: gap ? gap.subtopics : (item?.aiSubtopics || ""),
-      defaultDest: (gap || otherTypes) ? "new" : "current",
+      defaultDest: (gap || otherTypes || resumeName) ? "new" : "current",
       coverageQuestions: stems,
       onGenerationStart: () => ({ itemId: aiTarget?.id || item?._id, section: normSection(section), streamId: stream?._id, subjectId: subject?._id, topicId: hasTopics ? topic?._id : undefined, kind }),
       onUpload: (questions, opts = {}) => saveAiBatch(questions, opts),
@@ -1118,7 +1145,7 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
               {savedSession.done}{savedSession.target > savedSession.done ? ` of ${savedSession.target}` : ""} question(s) saved for “{savedSession.label}”. Pick up where you left off — no duplicates.
             </p>
           </div>
-          <button onClick={() => openPracticeGenerate(savedSession.item ? { item: savedSession.item } : {})} className="btn-primary py-1.5 text-sm">
+          <button onClick={() => openPracticeGenerate(savedSession.item ? { item: savedSession.item } : { resumeName: savedSession.label })} className="btn-primary py-1.5 text-sm">
             <Sparkles className="h-4 w-4" /> Resume session
           </button>
           <button onClick={discardSavedSession} className="btn-outline py-1.5 text-sm">Discard</button>
