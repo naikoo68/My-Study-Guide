@@ -1,0 +1,16 @@
+{
+  "name": "my-study-guide-companion",
+  "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "description": "Chrome (Manifest V3) companion extension for My Study Guide — turns permitted study content (lecture text, captions, selected text) into questions, quizzes, summaries and flashcards via the My Study Guide AI.",
+  "type": "module",
+  "homepage": "https://github.com/naikoo68/My-Study-Guide",
+  "keywords": [
+    "chrome-extension",
+    "manifest-v3",
+    "education",
+    "study",
+    "quiz"
+  ]
+}
