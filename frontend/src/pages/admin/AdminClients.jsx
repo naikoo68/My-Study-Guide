@@ -1,3 +1,5 @@
+// Admin → Creators page — manage creator/client accounts and their subscriptions.
+
 import { useEffect, useState } from "react";
 import { Search, Ban, CheckCircle2, KeyRound, UserPlus, Trash2, X, ListChecks, FileStack, HelpCircle, Store, Pencil, Clock, AlarmClock, Gift, Ticket, Sparkles, Undo2, Archive, Eye, EyeOff } from "lucide-react";
 import { userService, settingsService } from "../../services";

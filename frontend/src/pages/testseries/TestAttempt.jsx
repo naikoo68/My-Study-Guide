@@ -1,3 +1,6 @@
+// Test-series attempt screen — full-screen test interface with countdown/auto-
+// submit, question palette, mark-for-review and save-and-next.
+
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {

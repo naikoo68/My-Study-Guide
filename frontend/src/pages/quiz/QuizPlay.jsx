@@ -1,3 +1,6 @@
+// Quiz player — plays a subject/chapter quiz one question at a time (timer,
+// palette, explanation, progress bar, submit).
+
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {

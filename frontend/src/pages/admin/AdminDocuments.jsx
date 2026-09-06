@@ -1,3 +1,5 @@
+// Admin → Documents page — upload and manage study documents / materials.
+
 import { useEffect, useState, useRef } from "react";
 import { FileText, Upload, Plus, Pencil, Trash2, X, Loader2, Save, Download, ScanText, Maximize2, Minimize2, Copy, Check, Wand2, Eraser, Eye, Pencil as PencilIcon, FileDown, Type, PenLine } from "lucide-react";
 import katex from "katex";

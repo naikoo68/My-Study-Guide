@@ -1,3 +1,6 @@
+// Super-admin → Institutes console — provision and manage institute tenants and
+// toggle each institute's enabled features.
+
 import { useEffect, useState } from "react";
 import { School, Plus, UserPlus, X, Search, CheckCircle2, Ban, Users, FileStack, HelpCircle, Store, ShieldCheck, Globe, Copy, Trash2, AlertTriangle, ListChecks, Eye, EyeOff, ExternalLink } from "lucide-react";
 import { tenantService } from "../../services";

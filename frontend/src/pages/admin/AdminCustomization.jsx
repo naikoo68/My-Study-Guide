@@ -1,3 +1,6 @@
+// Admin → Customization page — white-label branding: logo, theme colours, banners,
+// notices, announcements and contact/social details.
+
 import { useState, useRef } from "react";
 import {
   Palette, Type, ImagePlus, Save, RotateCcw, CheckCircle2, Eye, EyeOff,

@@ -1,3 +1,6 @@
+// Authentication API — registration (with email-OTP verification), login and JWT
+// issuance, password reset, Google login, coupon/trial handling and plan lookup.
+
 import crypto from "crypto";
 import User from "../models/User.js";
 import Tenant from "../models/Tenant.js";

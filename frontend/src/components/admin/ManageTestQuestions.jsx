@@ -1,3 +1,6 @@
+// Admin component — manage the set of questions attached to a test series
+// (add, remove, reorder).
+
 import { useState, useEffect } from "react";
 import { Plus, Pencil, Trash2, Eye, X, Search, ChevronRight, Copy, Download, Clock, Upload, Sparkles, Globe, Library, Wand2, Loader2, RefreshCw, CheckCircle2, ArrowRightLeft } from "lucide-react";
 import { Files } from "lucide-react";

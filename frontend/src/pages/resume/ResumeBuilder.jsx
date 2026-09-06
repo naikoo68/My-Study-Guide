@@ -1,3 +1,5 @@
+// Resume Builder page — build, preview and export a resume as a PDF.
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Download, Upload, Plus, Trash2, ArrowUp, ArrowDown, Eye, EyeOff, FileText, ZoomIn, ZoomOut, Sparkles, RotateCcw, Copy, Mail, Globe, Menu, Sun, Moon } from "lucide-react";
 import ResumeDocument from "./ResumeDocument";

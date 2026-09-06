@@ -1,3 +1,5 @@
+// Admin onboarding wizard — guided first-run setup steps for a new admin/institute.
+
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { School, ImagePlus, Upload, X, FileText, Check, CheckCircle2, Loader2, ArrowRight, Mail, Phone, Info, Sparkles, Share2, BookCopy, FileStack, BookMarked, MonitorCheck } from "lucide-react";

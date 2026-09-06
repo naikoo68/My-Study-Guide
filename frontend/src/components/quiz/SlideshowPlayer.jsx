@@ -1,3 +1,5 @@
+// Slideshow quiz player — presents questions in a slideshow / presentation style.
+
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {

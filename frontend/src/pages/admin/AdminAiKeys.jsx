@@ -1,3 +1,6 @@
+// Admin → AI Keys page — add, verify and rotate AI provider API keys (stored
+// encrypted at rest) and review per-key usage.
+
 import { useEffect, useState, useCallback } from "react";
 import { KeyRound, Plus, Trash2, Pencil, X, CheckCircle2, XCircle, Loader2, RefreshCw, Power, PowerOff, Download, List, Layers, Wand2, AlertTriangle, Eye, EyeOff, Copy, Check, ChevronDown, ChevronUp } from "lucide-react";
 import { aiService } from "../../services";

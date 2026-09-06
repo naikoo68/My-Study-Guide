@@ -1,3 +1,6 @@
+// Admin → PDF Builder page — assemble question papers / booklets and export them
+// as print-ready PDFs.
+
 import { useEffect, useMemo, useState } from "react";
 import {
   FileText, Download, Loader2, Plus, Trash2, Copy, ArrowUp, ArrowDown,

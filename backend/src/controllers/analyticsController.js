@@ -1,3 +1,6 @@
+// Analytics API — aggregates dashboard metrics (attempts, scores, revenue,
+// subscriptions, weak-topic analysis) across users, tests, quizzes and content.
+
 import User from "../models/User.js";
 import TestSeries from "../models/TestSeries.js";
 import Attempt from "../models/Attempt.js";

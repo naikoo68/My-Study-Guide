@@ -1,3 +1,6 @@
+// Institute sign-up page — registers a new institute tenant (with email
+// verification) and starts its trial.
+
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { School, User, Mail, Lock, Globe, Eye, EyeOff, Loader2, AlertCircle, Check, Tag, Gift, ShieldCheck, ArrowRight, Copy, ExternalLink } from "lucide-react";

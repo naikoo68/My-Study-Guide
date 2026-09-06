@@ -1,3 +1,6 @@
+// My Practice quiz player — plays a practice quiz: question navigation, timer,
+// bookmark, auto-save, submit and result.
+
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {

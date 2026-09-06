@@ -1,3 +1,7 @@
+// Admin → My Practice page — manage practice streams/exams/subjects/topics,
+// quizzes and practice test-series, with bulk upload, AI generation, duplicate
+// detection and account-to-account sharing.
+
 import { useEffect, useState, useRef, useCallback, Fragment } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Plus, Pencil, Trash2, X, ChevronRight, GraduationCap, FolderOpen, ListChecks, FileStack, HelpCircle, Users, Search, Share2, ClipboardList, ArrowRightLeft, Send, Copy as CopyIcon, Upload, BookOpen, Eye, EyeOff, Building2 } from "lucide-react";

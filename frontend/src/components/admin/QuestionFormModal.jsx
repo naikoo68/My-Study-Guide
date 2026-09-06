@@ -1,3 +1,6 @@
+// Admin question editor modal — create/edit a question of any supported type
+// (MCQ, numerical, assertion, matching, statement, table, etc.).
+
 import { useState } from "react";
 import { Plus, Trash2, X, Image as ImageIcon, Upload, Loader2, Eraser, FileText, Wand2, LayoutGrid } from "lucide-react";
 import { uploadService, aiService } from "../../services";

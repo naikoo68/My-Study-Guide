@@ -1,3 +1,6 @@
+// Facebook / Instagram Graph API helper — verifies page credentials and publishes
+// auto-posts to a connected Facebook page / Instagram account.
+
 import Settings from "../models/Settings.js";
 
 // Facebook Page auto-posting via the Graph API. The Page ID + long-lived Page
