@@ -491,46 +491,8 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
         producedByBucket[k] = (producedByBucket[k] || 0) + 1;
       }
     }
-    // The normalized text of every question ALREADY in the preview. Each wave
-    // drops any question whose text is already here, so the running count is the
-    // UNIQUE count — it can't be inflated by a repeated question. This is what
-    // makes the number you see match what a save/resume restores (previously the
-    // preview showed 400 but resume/insert deduped to ~367, looking like a loss).
-    const collectedTexts = new Set(
-      (extra.resume ? preview : []).map((q) => String(q?.text || "").trim().toLowerCase()).filter(Boolean)
-    );
 
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-    // ── Batch ETA ────────────────────────────────────────────────────────────
-    // Estimate the time left to reach the target from the REAL pace of this run
-    // (questions produced ÷ elapsed wall-clock), which naturally folds in the
-    // per-minute rate-limit waits between waves. Stays blank until there's enough
-    // of a sample (≥2 questions, ≥4s) so we never flash a wild first guess.
-    const runStartTs = Date.now();
-    const producedAtRunStart = extra.resume ? preview.length : 0;
-    const fmtDur = (ms) => {
-      const s = Math.max(0, Math.round(ms / 1000));
-      const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
-      if (h) return `${h}h ${m}m`;
-      if (m) return `${m}m ${String(sec).padStart(2, "0")}s`;
-      return `${sec}s`;
-    };
-    const etaSuffix = (soFar, tgt) => {
-      const made = soFar - producedAtRunStart;
-      const elapsed = Date.now() - runStartTs;
-      const remaining = (tgt || 0) - soFar;
-      if (made < 2 || elapsed < 4000 || remaining <= 0) return "";
-      const etaMs = (elapsed / made) * remaining;
-      return ` · ~${fmtDur(etaMs)} left`;
-    };
-    // Running elapsed timer — how long this batch has been going so far. Shows
-    // alongside the ETA so you see both "time taken" and "time left".
-    const elapsedSuffix = () => {
-      const e = Date.now() - runStartTs;
-      return e >= 2000 ? ` · ${fmtDur(e)} elapsed` : "";
-    };
-
     // Accumulate the avoid-list LOCALLY across waves — React state updates are
     // async, so relying on avoidStems would let the next wave repeat this wave's
     // questions. We still mirror it into state for later manual "Generate more".
@@ -607,19 +569,9 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
           // exactly — each wave requests the full plan, so without this the last
           // wave overshoots (e.g. 472 for a target of 400).
           const room = target > 0 ? Math.max(0, target - priorTotal) : qsAll.length;
-          // Keep this wave's questions, but DROP any whose text already exists in
-          // the preview (a duplicate the avoid-list missed) so it never inflates
-          // the count. "Keep all generated" still keeps every UNIQUE one even past
-          // the target; otherwise stop at the remaining room. The kept list is the
-          // real, unique set — the same set a save/resume/insert will hold.
-          const qs = [];
-          for (const q of qsAll) {
-            if (!keepExtras && qs.length >= room) break;
-            const k = String(q?.text || "").trim().toLowerCase();
-            if (!k || collectedTexts.has(k)) continue;
-            collectedTexts.add(k);
-            qs.push(q);
-          }
+          // "Keep all generated" → keep the whole wave even if it overshoots the
+          // target; otherwise trim so the total lands on the requested count exactly.
+          const qs = keepExtras ? qsAll : qsAll.slice(0, room);
           setPreview((prev) => (isAppend ? [...prev, ...qs] : qs));
           // Fold this wave's kept questions into the cross-wave bucket tally, and
           // clear the in-progress overlay (they're now counted via the preview).
@@ -641,16 +593,9 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
           // Show the CUMULATIVE progress toward the overall target (prior waves +
           // this wave's live count), so it climbs 71 → … → target instead of
           // resetting to "0 of 500" each wave.
-          // "ready" = the COMMITTED, de-duplicated total so far (priorTotal). Show
-          // THAT as the progress count so it only ever CLIMBS. The in-flight wave
-          // is shown separately as "+N" and NOT added to the main total — its raw
-          // server count includes duplicate questions that get dropped when the
-          // wave is finalised, which is exactly what made the counter jump forward
-          // then BACK (e.g. up to 990, back to 920) once the topic was saturated
-          // and each wave committed only a few genuinely-new questions.
-          const inFlight = s.count || 0;
-          patchActiveGenJob({ count: priorTotal, requested: target || requested || 0, status: "running" }); // reload-surviving pill — committed count only (never bounces)
-          setMsg(stopRef.current ? `Stopping… keeping the ${priorTotal} generated so far` : `Generating… ${priorTotal} of ${target || requested} ready${inFlight ? ` · +${inFlight} generating in this wave` : ""} (${Math.max(0, (target || requested) - priorTotal)} to go)${elapsedSuffix()}${etaSuffix(priorTotal, target || requested)}`);
+          const soFar = priorTotal + (s.count || 0);
+          patchActiveGenJob({ count: soFar, requested: target || requested || 0, status: "running" }); // keep the reload-surviving pill's progress current
+          setMsg(stopRef.current ? `Stopping… keeping the ${soFar} generated so far` : `Generating… ${soFar} of ${target || requested} ready (${Math.max(0, (target || requested) - soFar)} to go)`);
         }
       }
       if (!done) setMsg("Still generating — this is taking longer than expected. Please try a smaller batch.");
@@ -747,7 +692,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
         // after an empty wave so the window has time to reset).
         const waitSec = (last.produced || 0) === 0 ? 60 : 40;
         for (let k = waitSec; k > 0 && !stopRef.current; k--) {
-          setMsg(`Auto-continue: ${producedTotal} of ${target} so far${zeroWaves ? ` · ${zeroWaves} empty wave(s)` : ""}. Waiting ${k}s for the free-tier limit to reset…${elapsedSuffix()}${etaSuffix(producedTotal, target)} (press Stop to keep what you have)`);
+          setMsg(`Auto-continue: ${producedTotal} of ${target} so far${zeroWaves ? ` · ${zeroWaves} empty wave(s)` : ""}. Waiting ${k}s for the free-tier limit to reset… (press Stop to keep what you have)`);
           await sleep(1000);
         }
         if (stopRef.current) { finalize(last, producedTotal, target); break; }

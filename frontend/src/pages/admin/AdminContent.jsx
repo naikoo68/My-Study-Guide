@@ -422,12 +422,6 @@ export default function AdminContent() {
       quizId = created._id;
       setAiTarget({ id: quizId, title }); // subsequent batches target the new quiz
     }
-    // No valid destination quiz (e.g. a resumed session started at topic level,
-    // or whose target quiz was deleted). Stop BEFORE inserting so the batch can't
-    // be saved against a missing quiz and lost — tell the user to pick/create one.
-    if (!quizId) {
-      throw new Error("No quiz to insert into. Choose “New quiz”, give it a name, then Insert. Your generated questions are safe.");
-    }
     const res = await contentService.bulkQuestions(questions, {
       subject: subjId,
       session: sessId,
@@ -585,11 +579,7 @@ export default function AdminContent() {
       title: topicLevel ? `Generate with AI — ${topic?.title || ""} (missing areas)` : `Generate with AI${quiz ? ` — ${quiz.title}` : ""}`,
       allowNewTarget: true,
       newLeafLabel: "quiz",
-      // Topic-level generation has NO single open quiz, so never offer "Current
-      // quiz — <name>": that name would be a stale/left-over quiz from a quiz you
-      // opened earlier (e.g. "Quiz 1"), which is confusing and could send the
-      // batch to the wrong quiz. Only pass it when a quiz is genuinely open.
-      currentTargetName: topicLevel ? "" : (quiz?.title || ""),
+      currentTargetName: quiz?.title || "",
       existingQuestions: view === "questions" ? items : [],
       defaultTopic: gap?.topic || quiz?.aiTopic || topic?.title || "",
       defaultSubtopics: gap?.subtopics || quiz?.aiSubtopics || "",

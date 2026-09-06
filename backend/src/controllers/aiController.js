@@ -1602,25 +1602,13 @@ async function runGenerationJob(id, ctx) {
   const deadline = Date.now() + 8 * 60 * 1000; // overall time budget
   if (!job.keyStats) job.keyStats = {}; // live per-key activity for THIS run
 
-  // Chunk size balances TWO goals:
-  //  1. Throughput on big batches — the free-tier limit is per REQUEST (per key,
-  //     per minute), so a full CHUNK_SIZE (12) per call yields the most questions
-  //     per allowed request. A large target keeps every key busy for many rounds.
-  //  2. Engaging ALL keys on a SMALL remaining target — this is the tail case the
-  //     user hit: "17 of 400 left" with 29 keys. A fixed 12-question chunk makes
-  //     only ~2 chunks, so only ~2 keys ever get work; the other 27 keys find no
-  //     chunk to reserve and sit idle on standby. Then those 2 keys hit their
-  //     per-minute limit and the whole run STALLS ~54s waiting for them to reset,
-  //     while 27 fresh (never-limited) keys could have finished the 17 instantly.
-  // So size the chunk to spread the remaining work across ALL keys — ceil(target
-  // / keys) — capped at CHUNK_SIZE. Big targets still resolve to 12 (e.g. 400 or
-  // 1000 → 12, unchanged), so throughput is preserved; only when the work is
-  // smaller than one full round across every key does it shrink, so every key
-  // gets a piece and the tail finishes in ONE parallel round instead of cycling
-  // on a couple of rate-limited keys. reserveChunk() still caps each reservation
-  // at what's remaining, so there's no overshoot.
+  // Spread the work across ALL keys at once. With many keys and a modest target
+  // (e.g. 40 questions across 20 keys) each key produces a SMALL batch (~2) so
+  // every key runs simultaneously, instead of a few keys doing big 12-question
+  // chunks while the rest sit idle. Smaller batches also finish faster and mean
+  // one slow/failing key can't stall the whole run.
   const workerCount = Math.max(1, (workers?.length || 0) + (fallbackWorkers?.length || 0));
-  const chunkSize = Math.max(1, Math.min(CHUNK_SIZE, Math.ceil((target || CHUNK_SIZE) / workerCount)));
+  const chunkSize = Math.max(1, Math.min(CHUNK_SIZE, Math.ceil(target / workerCount)));
 
   // Signature of a question (normalised stem) used to guarantee NO duplicates —
   // neither within this batch nor against questions from an earlier batch
@@ -1748,21 +1736,7 @@ async function runGenerationJob(id, ctx) {
     let emptyReplies = 0;
     while (collected.length < target && attempts < MAX_ATTEMPTS && Date.now() < deadline && !job.cancelled) {
       const res = reserveChunk();
-      if (!res) {
-        // No chunk to grab right now. If the target is met, we're done. Otherwise
-        // every remaining chunk is currently IN-FLIGHT on other keys (reserved) —
-        // so there's nothing to take THIS instant, but a key that hits its
-        // per-minute limit RELEASES its chunk the moment it 429s. So DON'T quit:
-        // stay on standby and re-check, so a fresh/idle key (e.g. #18) can pick up
-        // work a rate-limited key (e.g. #4) just dropped, instead of the whole
-        // batch stalling on that one key's reset. (This is what makes small
-        // batches resilient now that they no longer spread a tiny chunk to every
-        // key up front.) The while-condition's deadline bounds the standby, and
-        // once a released chunk exists reserveChunk() returns it on the next pass.
-        if (collected.length >= target) break;
-        await sleep(400);
-        continue;
-      }
+      if (!res) break; // nothing left to generate
       const prompt = plan
         ? buildUserPrompt({ topic, notes, subject, stream, plan: res.chunk, avoid: avoidNow(), source, focus: res.focus, numerical, reshape, outLang })
         : buildUserPrompt({ topic, notes, subject, stream, count: res.n, difficulty, types, avoid: avoidNow(), source, focus: res.focus, numerical, reshape, outLang });
