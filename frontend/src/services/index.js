@@ -1,3 +1,7 @@
+// Frontend API client — thin wrappers around the backend REST endpoints (auth,
+// content, practice, tests, AI, users, settings, …) that attach the JWT bearer
+// token and normalise responses/errors.
+
 import { api } from "../lib/api";
 
 // ---- Auth ----

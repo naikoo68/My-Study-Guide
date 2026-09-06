@@ -1,3 +1,6 @@
+// Admin AI Import modal — extract questions from a web page, video captions or
+// uploaded documents, and generate questions from that source text.
+
 import { useEffect, useRef, useState } from "react";
 import { X, Minus, Globe, Download, CheckCircle2, AlertTriangle, Loader2, Server, KeyRound, FileText, Upload, Files, ScanText, Maximize2, Minimize2, Plus, Sparkles, ListChecks, Circle, Trash2 } from "lucide-react";
 import { aiService, documentService } from "../../services";

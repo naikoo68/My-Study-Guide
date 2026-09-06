@@ -1,3 +1,6 @@
+// User management API — admin views/actions over student & creator accounts:
+// listing, subscriptions/plans, block/unblock and password reset.
+
 import crypto from "crypto";
 import User from "../models/User.js";
 import { getClientPlans, getStudentPlans } from "../utils/plans.js";

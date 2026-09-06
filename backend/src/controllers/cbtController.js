@@ -1,3 +1,7 @@
+// Online exam (CBT) API — schedules and manages computer-based test sittings on
+// platform test-series, handles candidate registration (password-protected), and
+// grades submissions (reusing testController.gradeSubmission).
+
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import TestSeries from "../models/TestSeries.js";

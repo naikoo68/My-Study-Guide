@@ -1,3 +1,6 @@
+// Admin → Facebook auto-post page — connect a page/account and configure automatic
+// social posts for new content.
+
 import { useEffect, useState, useRef } from "react";
 import {
   Send, Loader2, CheckCircle2, AlertTriangle, KeyRound, Plus, Trash2, Pencil, X,

@@ -1,3 +1,6 @@
+// Admin → Online Exams (CBT) page — schedule computer-based test sittings, manage
+// candidate registrations and review results.
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   MonitorCheck, Users, Eye, ExternalLink, Copy, Check, RefreshCw, Trophy, Clock,

@@ -1,3 +1,6 @@
+// Creator/client dashboard — overview of the creator's own practice content,
+// subscription status and recent activity.
+
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import * as Icons from "lucide-react";

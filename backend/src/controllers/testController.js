@@ -1,3 +1,6 @@
+// Test-series API — public test series: listing/visibility, starting attempts and
+// grading submissions. Exports gradeSubmission, which the CBT controller reuses.
+
 import mongoose from "../db/odm.js";
 import crypto from "crypto";
 import TestSeries from "../models/TestSeries.js";

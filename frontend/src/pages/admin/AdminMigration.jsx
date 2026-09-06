@@ -1,3 +1,5 @@
+// Admin → Migration page — move / copy content between locations in the tree.
+
 import { useEffect, useMemo, useState } from "react";
 import { ArrowRightLeft, Loader2, ArrowRight } from "lucide-react";
 import { practiceService, contentService, examService, testService } from "../../services";

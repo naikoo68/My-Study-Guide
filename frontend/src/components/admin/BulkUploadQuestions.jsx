@@ -1,3 +1,6 @@
+// Admin bulk question upload — CSV import/export of questions. Also exports
+// questionsToCsv used elsewhere for downloads.
+
 import { useEffect, useState } from "react";
 import { X, Upload, FileText, CheckCircle2, AlertTriangle } from "lucide-react";
 

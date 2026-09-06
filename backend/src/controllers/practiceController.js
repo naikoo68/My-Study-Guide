@@ -1,3 +1,8 @@
+// My Practice API — the self-service "My Practice" section where creators/clients
+// build and manage their OWN practice streams, exams, subjects, topics, quizzes and
+// shared practice tests. Owner-scoped and tenant-aware; enforces subscription and
+// sharing access via accessControl.
+
 import crypto from "crypto";
 import PracticeStream from "../models/PracticeStream.js";
 import PracticeExam from "../models/PracticeExam.js";

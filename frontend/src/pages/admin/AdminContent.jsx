@@ -1,3 +1,7 @@
+// Admin → Content page — manage the shared content tree (streams → subjects →
+// topics → sessions → quizzes → questions) with CRUD, bulk CSV upload, AI
+// generation, question editing and "share to institutes".
+
 import { useEffect, useState, useCallback, useRef, Fragment } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Plus, Pencil, Trash2, X, ChevronRight, FolderOpen, Layers, BookOpen, HelpCircle, ListChecks, Upload, Eye, EyeOff, Copy, Download, GraduationCap, Search, Clock, Share2, Building2 } from "lucide-react";

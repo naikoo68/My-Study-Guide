@@ -1,3 +1,6 @@
+// Frontend app root — route definitions and the top-level providers/layout that
+// wrap every page.
+
 import { lazy, Suspense } from "react";
 // Path-based routing (clean URLs like /quiz, /about, /subjects/...) so pages are
 // crawlable/indexable for SEO — not trapped behind a "#". A full-page REFRESH on

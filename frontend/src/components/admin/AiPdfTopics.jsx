@@ -1,3 +1,6 @@
+// Admin AI PDF topics — extract a topic outline / questions from an uploaded PDF
+// via the AI provider.
+
 import { useEffect, useRef, useState } from "react";
 import {
   X, Upload, FileText, Sparkles, Loader2, CheckCircle2, AlertTriangle, Plus, Trash2,

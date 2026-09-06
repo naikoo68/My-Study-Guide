@@ -1,3 +1,6 @@
+// Admin AI Generator modal — generates questions with the configured AI provider:
+// batched and resumable, with live progress, picture-in-picture and notifications.
+
 import { useEffect, useRef, useState } from "react";
 import { X, Minus, Sparkles, Wand2, CheckCircle2, AlertTriangle, Loader2, Server, KeyRound, ListChecks, Circle, Square, Bookmark, Trash2, Globe, PictureInPicture2 } from "lucide-react";
 import { aiService } from "../../services";

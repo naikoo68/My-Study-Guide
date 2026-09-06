@@ -1,3 +1,6 @@
+// Admin → Users / Students page — view and manage student accounts: subscriptions,
+// block/unblock and password reset.
+
 import { useEffect, useState } from "react";
 import { Search, Ban, CheckCircle2, KeyRound, Crown, UserPlus, Pencil, Trash2, X, Clock, AlarmClock, ListChecks, BookOpen, FileStack } from "lucide-react";
 import { userService, testService, authService } from "../../services";

@@ -1,3 +1,7 @@
+// Content management API — CRUD for the shared platform content tree
+// (streams → subjects → topics → sessions → quizzes → questions), plus bulk
+// operations, duplicate detection, split-by-question-type and soft-delete.
+
 import Stream from "../models/Stream.js";
 import Subject from "../models/Subject.js";
 import Topic from "../models/Topic.js";

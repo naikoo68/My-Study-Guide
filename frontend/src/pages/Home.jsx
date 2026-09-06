@@ -1,3 +1,5 @@
+// Public landing page — hero, feature highlights, stats and footer.
+
 import { Fragment, useEffect, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { useSeo } from "../lib/useSeo";

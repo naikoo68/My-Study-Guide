@@ -1,3 +1,6 @@
+// Admin → Test Series page — create, schedule and publish/unpublish public test
+// series and manage the questions attached to each.
+
 import { useEffect, useState } from "react";
 import { Plus, Pencil, Trash2, Eye, EyeOff, Ban, X, CalendarClock, Users, Search, Upload, HelpCircle, ChevronRight, GraduationCap, Briefcase, Copy, Download, Sparkles, Globe, Library, Scale, Share2, Building2 } from "lucide-react";
 import { testService, contentService, examService, aiService } from "../../services";
