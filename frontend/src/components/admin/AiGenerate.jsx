@@ -641,16 +641,9 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
           // Show the CUMULATIVE progress toward the overall target (prior waves +
           // this wave's live count), so it climbs 71 → … → target instead of
           // resetting to "0 of 500" each wave.
-          // "ready" = the COMMITTED, de-duplicated total so far (priorTotal). Show
-          // THAT as the progress count so it only ever CLIMBS. The in-flight wave
-          // is shown separately as "+N" and NOT added to the main total — its raw
-          // server count includes duplicate questions that get dropped when the
-          // wave is finalised, which is exactly what made the counter jump forward
-          // then BACK (e.g. up to 990, back to 920) once the topic was saturated
-          // and each wave committed only a few genuinely-new questions.
-          const inFlight = s.count || 0;
-          patchActiveGenJob({ count: priorTotal, requested: target || requested || 0, status: "running" }); // reload-surviving pill — committed count only (never bounces)
-          setMsg(stopRef.current ? `Stopping… keeping the ${priorTotal} generated so far` : `Generating… ${priorTotal} of ${target || requested} ready${inFlight ? ` · +${inFlight} generating in this wave` : ""} (${Math.max(0, (target || requested) - priorTotal)} to go)${elapsedSuffix()}${etaSuffix(priorTotal, target || requested)}`);
+          const soFar = priorTotal + (s.count || 0);
+          patchActiveGenJob({ count: soFar, requested: target || requested || 0, status: "running" }); // keep the reload-surviving pill's progress current
+          setMsg(stopRef.current ? `Stopping… keeping the ${soFar} generated so far` : `Generating… ${soFar} of ${target || requested} ready (${Math.max(0, (target || requested) - soFar)} to go)${elapsedSuffix()}${etaSuffix(soFar, target || requested)}`);
         }
       }
       if (!done) setMsg("Still generating — this is taking longer than expected. Please try a smaller batch.");
