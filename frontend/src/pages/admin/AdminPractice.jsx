@@ -112,24 +112,42 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
   // page so a deliberately-saved session is visible (with Resume / Discard) —
   // not only after reopening the generator. Uses the SAME key the generator
   // restores from, so "Resume" lands on the same saved questions.
-  const [savedSession, setSavedSession] = useState(null); // { key, done, target, label } | null
+  const [savedSession, setSavedSession] = useState(null); // { key, done, target, label, item } | null
   const readSavedSession = useCallback(() => {
+    // The generator keys its checkpoint by the target it was opened for:
+    //   • topic-level batch → the leaf container name (topic for quiz/paper,
+    //     subject for test),
+    //   • a batch aimed at a specific quiz/test → that item's name (or its
+    //     aiTopic).
+    // We don't know which was used, so scan ALL of those candidate keys for
+    // THIS topic page and surface the most-recently-saved one — otherwise a
+    // session saved against a quiz wouldn't be found on the topic page.
     try {
-      // Matches the generator's key when opened at this level (no specific item):
-      // currentTargetName is empty, so it falls back to defaultTopic = the leaf
-      // container name — topic for quiz/paper, subject for test.
-      const name = (kind === "quiz" ? topic : subject)?.name || "";
-      if (!name) return null;
-      const key = `mstg.genJob:${name}`;
-      const ck = JSON.parse(localStorage.getItem(key) || "null");
-      if (!ck || !Array.isArray(ck.preview) || !ck.preview.length) return null;
-      if (!ck.updatedAt || Date.now() - ck.updatedAt > 7 * 24 * 3600 * 1000) return null; // 7-day window (matches the generator)
-      const target = ck.matrix
-        ? Object.values(ck.matrix).reduce((s, dm) => s + Object.values(dm || {}).reduce((a, v) => a + (Number(v) || 0), 0), 0)
-        : ck.preview.length;
-      return { key, done: ck.preview.length, target, label: name };
+      const candidates = [];
+      const leaf = (kind === "quiz" ? topic : subject)?.name;
+      if (leaf) candidates.push({ name: leaf, item: null });
+      for (const it of items || []) {
+        if (it?.name) candidates.push({ name: it.name, item: it });
+        if (it?.aiTopic && it.aiTopic !== it.name) candidates.push({ name: it.aiTopic, item: it });
+      }
+      let best = null;
+      const seen = new Set();
+      for (const { name, item } of candidates) {
+        if (!name || seen.has(name)) continue;
+        seen.add(name);
+        let ck;
+        try { ck = JSON.parse(localStorage.getItem(`mstg.genJob:${name}`) || "null"); } catch { ck = null; }
+        if (!ck || !Array.isArray(ck.preview) || !ck.preview.length) continue;
+        if (!ck.updatedAt || Date.now() - ck.updatedAt > 7 * 24 * 3600 * 1000) continue; // 7-day window (matches the generator)
+        if (best && ck.updatedAt <= best.updatedAt) continue; // keep the most recent
+        const target = ck.matrix
+          ? Object.values(ck.matrix).reduce((s, dm) => s + Object.values(dm || {}).reduce((a, v) => a + (Number(v) || 0), 0), 0)
+          : ck.preview.length;
+        best = { key: `mstg.genJob:${name}`, done: ck.preview.length, target, label: name, item, updatedAt: ck.updatedAt };
+      }
+      return best;
     } catch { return null; }
-  }, [kind, topic, subject]);
+  }, [kind, topic, subject, items]);
   useEffect(() => {
     const refresh = () => setSavedSession(readSavedSession());
     refresh();
@@ -1092,7 +1110,7 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
               {savedSession.done}{savedSession.target > savedSession.done ? ` of ${savedSession.target}` : ""} question(s) saved for “{savedSession.label}”. Pick up where you left off — no duplicates.
             </p>
           </div>
-          <button onClick={() => openPracticeGenerate({})} className="btn-primary py-1.5 text-sm">
+          <button onClick={() => openPracticeGenerate(savedSession.item ? { item: savedSession.item } : {})} className="btn-primary py-1.5 text-sm">
             <Sparkles className="h-4 w-4" /> Resume session
           </button>
           <button onClick={discardSavedSession} className="btn-outline py-1.5 text-sm">Discard</button>
