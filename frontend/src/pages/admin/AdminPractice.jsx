@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, Fragment } from "react";
+import { useEffect, useState, useRef, useCallback, Fragment } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Plus, Pencil, Trash2, X, ChevronRight, GraduationCap, FolderOpen, ListChecks, FileStack, HelpCircle, Users, Search, Share2, ClipboardList, ArrowRightLeft, Send, Copy as CopyIcon, Upload, BookOpen, Eye, EyeOff, Building2 } from "lucide-react";
 import { practiceService, testService, contentService, aiService } from "../../services";
@@ -104,6 +104,45 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
   const [exam, setExam] = useState(() => loadNav(NAV_KEY).exam || null); // My Quiz only: Stream → Exam → Subject
   const [subject, setSubject] = useState(() => loadNav(NAV_KEY).subject || null);
   const [topic, setTopic] = useState(() => loadNav(NAV_KEY).topic || null);
+
+  // ── Resume a saved AI generation session ────────────────────────────────
+  // The AI generator checkpoints its work to localStorage keyed by the target
+  // (a specific quiz/test, else the leaf container — the topic for My Quiz /
+  // Previous Papers, the subject for My Test). Surface it HERE on the topic
+  // page so a deliberately-saved session is visible (with Resume / Discard) —
+  // not only after reopening the generator. Uses the SAME key the generator
+  // restores from, so "Resume" lands on the same saved questions.
+  const [savedSession, setSavedSession] = useState(null); // { key, done, target, label } | null
+  const readSavedSession = useCallback(() => {
+    try {
+      // Matches the generator's key when opened at this level (no specific item):
+      // currentTargetName is empty, so it falls back to defaultTopic = the leaf
+      // container name — topic for quiz/paper, subject for test.
+      const name = (kind === "quiz" ? topic : subject)?.name || "";
+      if (!name) return null;
+      const key = `mstg.genJob:${name}`;
+      const ck = JSON.parse(localStorage.getItem(key) || "null");
+      if (!ck || !Array.isArray(ck.preview) || !ck.preview.length) return null;
+      if (!ck.updatedAt || Date.now() - ck.updatedAt > 7 * 24 * 3600 * 1000) return null; // 7-day window (matches the generator)
+      const target = ck.matrix
+        ? Object.values(ck.matrix).reduce((s, dm) => s + Object.values(dm || {}).reduce((a, v) => a + (Number(v) || 0), 0), 0)
+        : ck.preview.length;
+      return { key, done: ck.preview.length, target, label: name };
+    } catch { return null; }
+  }, [kind, topic, subject]);
+  useEffect(() => {
+    const refresh = () => setSavedSession(readSavedSession());
+    refresh();
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => { window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", refresh); };
+  }, [readSavedSession]);
+  const discardSavedSession = () => {
+    if (!savedSession) return;
+    if (!window.confirm("Discard the saved AI session for this topic? The generated questions kept in your browser will be removed.")) return;
+    try { localStorage.removeItem(savedSession.key); } catch { /* ignore */ }
+    setSavedSession(null);
+  };
 
   // Level model per kind. My Quiz and Previous Papers have a 4th (topic) level;
   // My Test goes straight stream → subject → items. For Previous Papers the
@@ -1041,6 +1080,24 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
           </>)}
         </nav>
       </div>
+
+      {/* A deliberately-saved (or auto-checkpointed) AI generation for this
+          topic is waiting — show it here so it's easy to pick back up. */}
+      {view === "items" && savedSession && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 dark:border-brand-900/50 dark:bg-brand-900/20">
+          <Sparkles className="h-5 w-5 flex-shrink-0 text-brand-600 dark:text-brand-300" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-brand-700 dark:text-brand-300">Resume your saved AI session</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {savedSession.done}{savedSession.target > savedSession.done ? ` of ${savedSession.target}` : ""} question(s) saved for “{savedSession.label}”. Pick up where you left off — no duplicates.
+            </p>
+          </div>
+          <button onClick={() => openPracticeGenerate({})} className="btn-primary py-1.5 text-sm">
+            <Sparkles className="h-4 w-4" /> Resume session
+          </button>
+          <button onClick={discardSavedSession} className="btn-outline py-1.5 text-sm">Discard</button>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="flex items-center gap-2 text-lg font-bold"><H.icon className="h-5 w-5 text-brand-600" /> {H.title}</h2>
