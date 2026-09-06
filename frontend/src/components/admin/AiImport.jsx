@@ -438,6 +438,12 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
       const etaMs = (elapsed / soFar) * remaining;
       return ` · ~${fmtDur(etaMs)} left`;
     };
+    // Running elapsed timer — how long this batch has been going so far. Shows
+    // alongside the ETA so you see both "time taken" and "time left".
+    const elapsedSuffix = () => {
+      const e = Date.now() - runStartTs;
+      return e >= 2000 ? ` · ${fmtDur(e)} elapsed` : "";
+    };
 
     // Accumulate the avoid-list LOCALLY across waves (React state is async, so
     // relying on avoidStems would let the next wave repeat this wave's questions).
@@ -501,7 +507,7 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
           setMsg(s.error || "Generation failed."); result = { produced: 0, errored: true }; done = true;
         } else {
           const soFar = priorTotal + (s.count || 0);
-          setMsg(stopRef.current ? `Stopping… keeping the ${soFar} generated so far` : `Generating… ${soFar} of ${target} ready (${Math.max(0, target - soFar)} to go)${etaSuffix(soFar, target)}`);
+          setMsg(stopRef.current ? `Stopping… keeping the ${soFar} generated so far` : `Generating… ${soFar} of ${target} ready (${Math.max(0, target - soFar)} to go)${elapsedSuffix()}${etaSuffix(soFar, target)}`);
         }
       }
       if (!done) setMsg("Still generating — this is taking longer than expected. Try a smaller batch.");
@@ -555,7 +561,7 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
         // Interruptible wait for the per-minute limit to refill.
         const waitSec = (last.produced || 0) === 0 ? 60 : 40;
         for (let k = waitSec; k > 0 && !stopRef.current; k--) {
-          setMsg(`Auto-continue: ${producedTotal} of ${target} so far${zeroWaves ? ` · ${zeroWaves} empty wave(s)` : ""}. Waiting ${k}s for the free-tier limit to reset…${etaSuffix(producedTotal, target)} (press Stop to keep what you have)`);
+          setMsg(`Auto-continue: ${producedTotal} of ${target} so far${zeroWaves ? ` · ${zeroWaves} empty wave(s)` : ""}. Waiting ${k}s for the free-tier limit to reset…${elapsedSuffix()}${etaSuffix(producedTotal, target)} (press Stop to keep what you have)`);
           // eslint-disable-next-line no-await-in-loop
           await sleep(1000);
         }
