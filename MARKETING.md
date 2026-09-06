@@ -5,7 +5,7 @@ per-page titles, Google Analytics, Search Console, professional email, and
 subject/stream landing pages. **Step 10 is ongoing marketing** — this is your
 playbook. Tick items as you go.
 
-Site: **https://www.mystudyguide.in** · Email: **info@mystudyguide.in**
+Site: **https://www.mystudyguide.in**
 
 ---
 
