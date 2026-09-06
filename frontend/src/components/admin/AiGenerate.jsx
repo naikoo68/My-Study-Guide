@@ -516,6 +516,12 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
       const etaMs = (elapsed / made) * remaining;
       return ` · ~${fmtDur(etaMs)} left`;
     };
+    // Running elapsed timer — how long this batch has been going so far. Shows
+    // alongside the ETA so you see both "time taken" and "time left".
+    const elapsedSuffix = () => {
+      const e = Date.now() - runStartTs;
+      return e >= 2000 ? ` · ${fmtDur(e)} elapsed` : "";
+    };
 
     // Accumulate the avoid-list LOCALLY across waves — React state updates are
     // async, so relying on avoidStems would let the next wave repeat this wave's
@@ -619,7 +625,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
           // resetting to "0 of 500" each wave.
           const soFar = priorTotal + (s.count || 0);
           patchActiveGenJob({ count: soFar, requested: target || requested || 0, status: "running" }); // keep the reload-surviving pill's progress current
-          setMsg(stopRef.current ? `Stopping… keeping the ${soFar} generated so far` : `Generating… ${soFar} of ${target || requested} ready (${Math.max(0, (target || requested) - soFar)} to go)${etaSuffix(soFar, target || requested)}`);
+          setMsg(stopRef.current ? `Stopping… keeping the ${soFar} generated so far` : `Generating… ${soFar} of ${target || requested} ready (${Math.max(0, (target || requested) - soFar)} to go)${elapsedSuffix()}${etaSuffix(soFar, target || requested)}`);
         }
       }
       if (!done) setMsg("Still generating — this is taking longer than expected. Please try a smaller batch.");
@@ -716,7 +722,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
         // after an empty wave so the window has time to reset).
         const waitSec = (last.produced || 0) === 0 ? 60 : 40;
         for (let k = waitSec; k > 0 && !stopRef.current; k--) {
-          setMsg(`Auto-continue: ${producedTotal} of ${target} so far${zeroWaves ? ` · ${zeroWaves} empty wave(s)` : ""}. Waiting ${k}s for the free-tier limit to reset…${etaSuffix(producedTotal, target)} (press Stop to keep what you have)`);
+          setMsg(`Auto-continue: ${producedTotal} of ${target} so far${zeroWaves ? ` · ${zeroWaves} empty wave(s)` : ""}. Waiting ${k}s for the free-tier limit to reset…${elapsedSuffix()}${etaSuffix(producedTotal, target)} (press Stop to keep what you have)`);
           await sleep(1000);
         }
         if (stopRef.current) { finalize(last, producedTotal, target); break; }
