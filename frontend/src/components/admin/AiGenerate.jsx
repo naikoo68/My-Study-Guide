@@ -491,6 +491,14 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
         producedByBucket[k] = (producedByBucket[k] || 0) + 1;
       }
     }
+    // The normalized text of every question ALREADY in the preview. Each wave
+    // drops any question whose text is already here, so the running count is the
+    // UNIQUE count — it can't be inflated by a repeated question. This is what
+    // makes the number you see match what a save/resume restores (previously the
+    // preview showed 400 but resume/insert deduped to ~367, looking like a loss).
+    const collectedTexts = new Set(
+      (extra.resume ? preview : []).map((q) => String(q?.text || "").trim().toLowerCase()).filter(Boolean)
+    );
 
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -599,9 +607,19 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
           // exactly — each wave requests the full plan, so without this the last
           // wave overshoots (e.g. 472 for a target of 400).
           const room = target > 0 ? Math.max(0, target - priorTotal) : qsAll.length;
-          // "Keep all generated" → keep the whole wave even if it overshoots the
-          // target; otherwise trim so the total lands on the requested count exactly.
-          const qs = keepExtras ? qsAll : qsAll.slice(0, room);
+          // Keep this wave's questions, but DROP any whose text already exists in
+          // the preview (a duplicate the avoid-list missed) so it never inflates
+          // the count. "Keep all generated" still keeps every UNIQUE one even past
+          // the target; otherwise stop at the remaining room. The kept list is the
+          // real, unique set — the same set a save/resume/insert will hold.
+          const qs = [];
+          for (const q of qsAll) {
+            if (!keepExtras && qs.length >= room) break;
+            const k = String(q?.text || "").trim().toLowerCase();
+            if (!k || collectedTexts.has(k)) continue;
+            collectedTexts.add(k);
+            qs.push(q);
+          }
           setPreview((prev) => (isAppend ? [...prev, ...qs] : qs));
           // Fold this wave's kept questions into the cross-wave bucket tally, and
           // clear the in-progress overlay (they're now counted via the preview).

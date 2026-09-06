@@ -579,7 +579,11 @@ export default function AdminContent() {
       title: topicLevel ? `Generate with AI — ${topic?.title || ""} (missing areas)` : `Generate with AI${quiz ? ` — ${quiz.title}` : ""}`,
       allowNewTarget: true,
       newLeafLabel: "quiz",
-      currentTargetName: quiz?.title || "",
+      // Topic-level generation has NO single open quiz, so never offer "Current
+      // quiz — <name>": that name would be a stale/left-over quiz from a quiz you
+      // opened earlier (e.g. "Quiz 1"), which is confusing and could send the
+      // batch to the wrong quiz. Only pass it when a quiz is genuinely open.
+      currentTargetName: topicLevel ? "" : (quiz?.title || ""),
       existingQuestions: view === "questions" ? items : [],
       defaultTopic: gap?.topic || quiz?.aiTopic || topic?.title || "",
       defaultSubtopics: gap?.subtopics || quiz?.aiSubtopics || "",
