@@ -67,7 +67,7 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
   const [liveWave, setLiveWave] = useState({}); // in-progress job's per-bucket "have" counts { "type|difficulty": n }
   const [subtopics, setSubtopics] = useState(""); // optional — specific subtopics to spread the questions across
   const [numerical, setNumerical] = useState(false); // opt-in: also include numerical/calculation questions
-  const [autoContinue, setAutoContinue] = useState(true); // resume across quota windows until the target is reached
+  const [autoContinue, setAutoContinue] = useState(false); // OFF by default: one single pass, then stop. Tick it on to resume across quota windows until the target is reached
   const [keepExtras, setKeepExtras] = useState(false); // keep everything even if a wave overshoots the requested count
   const [perSubtopic, setPerSubtopic] = useState(false); // run the grid's mix once per subtopic listed
   const [perSubRun, setPerSubRun] = useState(null); // live per-subtopic progress { i, n, name }
@@ -1019,9 +1019,9 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
                 <label className="flex cursor-pointer items-start gap-2 text-sm text-slate-700 dark:text-slate-200">
                   <input type="checkbox" className="mt-0.5 h-4 w-4" checked={autoContinue} onChange={(e) => setAutoContinue(e.target.checked)} />
                   <span>
-                    <span className="font-semibold">Auto-continue until the target is reached</span>
+                    <span className="font-semibold">Auto-continue until the target is reached (off by default)</span>
                     <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">
-                      Keep generating across free-tier limits (waiting out quota pauses) until the full count is made. Press Stop anytime.
+                      Off by default — generation runs one pass, then stops. Tick this to keep generating across free-tier limits (waiting out quota pauses) until the full count is made. Press Stop anytime.
                     </span>
                   </span>
                 </label>

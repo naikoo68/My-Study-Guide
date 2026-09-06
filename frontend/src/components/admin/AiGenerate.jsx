@@ -80,7 +80,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
   const [preview, setPreview] = useState([]);
   const [busy, setBusy] = useState(false);
   const [stopping, setStopping] = useState(false); // user asked to stop the current generation
-  const [autoContinue, setAutoContinue] = useState(true); // ON by default: resume across quota windows until the full count is reached, then stop
+  const [autoContinue, setAutoContinue] = useState(false); // OFF by default: one straightforward pass, then stop (the simple/"early" behavior). Tick it on to resume across quota windows until the full count is reached
   const [keepExtras, setKeepExtras] = useState(false); // if a wave produces more than the target, keep ALL of them instead of trimming to the exact count
   const [numerical, setNumerical] = useState(false); // when ON, EVERY generated question is numerical/calculation-based (default off)
   const [perSubtopic, setPerSubtopic] = useState(false); // when ON, the grid counts are generated FOR EACH subtopic (looped), not as a whole-batch total
@@ -1385,7 +1385,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
 
             <label className="mt-4 flex items-start gap-2 rounded-lg border border-slate-200 p-2.5 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
               <input type="checkbox" checked={autoContinue} onChange={(e) => setAutoContinue(e.target.checked)} className="mt-0.5 h-4 w-4 flex-shrink-0 accent-brand-600" />
-              <span><b>Auto-continue</b> until the full count is generated <b>(on by default)</b>. If the per-minute free-tier limit stops a wave partway (e.g. 35 of 50), it waits for the limit to reset and <b>resumes from where it left off</b> — asking only for the questions still remaining — then <b>stops exactly at {total || "the target"}</b>. No restart from 0, no duplicates, no overshoot. Press <b>Stop</b> to end early, or untick for a single quick batch.</span>
+              <span><b>Auto-continue</b> until the full count is generated <b>(off by default — leave it OFF for one simple pass that stops when done; tick it on only if you want it to keep going across quota limits)</b>. If the per-minute free-tier limit stops a wave partway (e.g. 35 of 50), it waits for the limit to reset and <b>resumes from where it left off</b> — asking only for the questions still remaining — then <b>stops exactly at {total || "the target"}</b>. No restart from 0, no duplicates, no overshoot. Press <b>Stop</b> to end early, or untick for a single quick batch.</span>
             </label>
 
             <label className="mt-2 flex items-start gap-2 rounded-lg border border-slate-200 p-2.5 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
