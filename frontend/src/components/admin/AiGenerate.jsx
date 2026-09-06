@@ -650,7 +650,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
           // and each wave committed only a few genuinely-new questions.
           const inFlight = s.count || 0;
           patchActiveGenJob({ count: priorTotal, requested: target || requested || 0, status: "running" }); // reload-surviving pill — committed count only (never bounces)
-          setMsg(stopRef.current ? `Stopping… keeping the ${priorTotal} generated so far` : `Generating… ${priorTotal} of ${target || requested} ready${inFlight ? ` · +${inFlight} generating in this wave` : ""} (${Math.max(0, (target || requested) - priorTotal)} to go)${elapsedSuffix()}${etaSuffix(priorTotal, target || requested)}`);
+          setMsg(stopRef.current ? `Stopping… keeping the ${priorTotal} generated so far` : `Generating… ${priorTotal} of ${target || requested} ready${inFlight ? ` · +${inFlight} generating now` : ""} (${Math.max(0, (target || requested) - priorTotal)} to go)${elapsedSuffix()}${etaSuffix(priorTotal, target || requested)}`);
         }
       }
       if (!done) setMsg("Still generating — this is taking longer than expected. Please try a smaller batch.");
@@ -747,7 +747,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
         // after an empty wave so the window has time to reset).
         const waitSec = (last.produced || 0) === 0 ? 60 : 40;
         for (let k = waitSec; k > 0 && !stopRef.current; k--) {
-          setMsg(`Auto-continue: ${producedTotal} of ${target} so far${zeroWaves ? ` · ${zeroWaves} empty wave(s)` : ""}. Waiting ${k}s for the free-tier limit to reset…${elapsedSuffix()}${etaSuffix(producedTotal, target)} (press Stop to keep what you have)`);
+          setMsg(`Auto-continue: ${producedTotal} of ${target} so far${zeroWaves ? ` · ${zeroWaves} empty ${zeroWaves === 1 ? "try" : "tries"}` : ""}. Waiting ${k}s for the free-tier limit to reset…${elapsedSuffix()}${etaSuffix(producedTotal, target)} (press Stop to keep what you have)`);
           await sleep(1000);
         }
         if (stopRef.current) { finalize(last, producedTotal, target); break; }
@@ -1385,7 +1385,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
 
             <label className="mt-4 flex items-start gap-2 rounded-lg border border-slate-200 p-2.5 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
               <input type="checkbox" checked={autoContinue} onChange={(e) => setAutoContinue(e.target.checked)} className="mt-0.5 h-4 w-4 flex-shrink-0 accent-brand-600" />
-              <span><b>Auto-continue</b> until the full count is generated <b>(on by default)</b>. If the per-minute free-tier limit stops a wave partway (e.g. 35 of 50), it waits for the limit to reset and <b>resumes from where it left off</b> — asking only for the questions still remaining — then <b>stops exactly at {total || "the target"}</b>. No restart from 0, no duplicates, no overshoot. Press <b>Stop</b> to end early, or untick for a single quick batch.</span>
+              <span><b>Auto-continue</b> until the full count is generated <b>(on by default)</b>. If the per-minute free-tier limit stops generation partway (e.g. 35 of 50), it waits for the limit to reset and <b>resumes from where it left off</b> — asking only for the questions still remaining — then <b>stops exactly at {total || "the target"}</b>. No restart from 0, no duplicates, no overshoot. Press <b>Stop</b> to end early, or untick for a single quick batch.</span>
             </label>
 
             <label className="mt-2 flex items-start gap-2 rounded-lg border border-slate-200 p-2.5 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">

@@ -510,7 +510,7 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
           // in-flight wave is shown separately (+N) rather than added, so the
           // duplicates dropped when a wave finalises can't make it jump backward.
           const inFlight = s.count || 0;
-          setMsg(stopRef.current ? `Stopping… keeping the ${priorTotal} generated so far` : `Generating… ${priorTotal} of ${target} ready${inFlight ? ` · +${inFlight} generating in this wave` : ""} (${Math.max(0, target - priorTotal)} to go)${elapsedSuffix()}${etaSuffix(priorTotal, target)}`);
+          setMsg(stopRef.current ? `Stopping… keeping the ${priorTotal} generated so far` : `Generating… ${priorTotal} of ${target} ready${inFlight ? ` · +${inFlight} generating now` : ""} (${Math.max(0, target - priorTotal)} to go)${elapsedSuffix()}${etaSuffix(priorTotal, target)}`);
         }
       }
       if (!done) setMsg("Still generating — this is taking longer than expected. Try a smaller batch.");
@@ -564,7 +564,7 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
         // Interruptible wait for the per-minute limit to refill.
         const waitSec = (last.produced || 0) === 0 ? 60 : 40;
         for (let k = waitSec; k > 0 && !stopRef.current; k--) {
-          setMsg(`Auto-continue: ${producedTotal} of ${target} so far${zeroWaves ? ` · ${zeroWaves} empty wave(s)` : ""}. Waiting ${k}s for the free-tier limit to reset…${elapsedSuffix()}${etaSuffix(producedTotal, target)} (press Stop to keep what you have)`);
+          setMsg(`Auto-continue: ${producedTotal} of ${target} so far${zeroWaves ? ` · ${zeroWaves} empty ${zeroWaves === 1 ? "try" : "tries"}` : ""}. Waiting ${k}s for the free-tier limit to reset…${elapsedSuffix()}${etaSuffix(producedTotal, target)} (press Stop to keep what you have)`);
           // eslint-disable-next-line no-await-in-loop
           await sleep(1000);
         }
