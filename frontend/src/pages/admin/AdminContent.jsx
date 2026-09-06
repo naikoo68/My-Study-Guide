@@ -112,6 +112,7 @@ export default function AdminContent() {
   // Split a topic/quiz into quizzes of N. { kind: "quiz"|"topic", id, name, count }
   const [splitTarget, setSplitTarget] = useState(null);
   const [splitPer, setSplitPer] = useState(50);
+  const [splitBy, setSplitBy] = useState("count"); // "count" = N per quiz · "type" = one quiz per question type
   const [splitting, setSplitting] = useState(false);
   // Merge sibling quizzes (same session) INTO one target quiz (inverse of split).
   const [mergeTarget, setMergeTarget] = useState(null);
@@ -983,8 +984,8 @@ export default function AdminContent() {
     setError("");
     try {
       const res = splitTarget.kind === "topic"
-        ? await contentService.splitTopic(splitTarget.id, per)
-        : await contentService.splitQuiz(splitTarget.id, per);
+        ? await contentService.splitTopic(splitTarget.id, per, splitBy)
+        : await contentService.splitQuiz(splitTarget.id, per, splitBy);
       setSplitTarget(null);
       window.alert(res?.message || "Done.");
       load(view);
@@ -1429,7 +1430,7 @@ export default function AdminContent() {
                   <RowActionButton icon={RefreshCw} label="Regenerate" tone="violet" loading={regenId === item._id} title="Regenerate options/answer to fit the question (reshuffles pair/matching columns)" onClick={() => regenerateQ(item)} />
                 )}
                 {(view === "quizzes" || view === "topics") && (
-                  <RowActionButton icon={Scissors} label="Split" tone="indigo" title={view === "topics" ? "Split this topic's questions into quizzes of N" : "Split this quiz into quizzes of N"} onClick={() => { setSplitPer(50); setSplitTarget({ kind: view === "topics" ? "topic" : "quiz", id: item._id, name: item.title || item.name, count: item.questions ?? null }); }} />
+                  <RowActionButton icon={Scissors} label="Split" tone="indigo" title={view === "topics" ? "Split this topic's questions into quizzes of N" : "Split this quiz into quizzes of N"} onClick={() => { setSplitPer(50); setSplitBy("count"); setSplitTarget({ kind: view === "topics" ? "topic" : "quiz", id: item._id, name: item.title || item.name, count: item.questions ?? null }); }} />
                 )}
                 {view === "quizzes" && (
                   <RowActionButton icon={GitMerge} label="Merge" tone="indigo" title="Merge other quizzes in this topic into this one" onClick={() => { setMergeIds([]); setMergeTarget(item); }} />
@@ -1756,19 +1757,35 @@ export default function AdminContent() {
                 ? <>Split all questions in the topic <b>“{splitTarget.name}”</b> into quizzes named Quiz 1, Quiz 2, …</>
                 : <>Split the quiz <b>“{splitTarget.name}”</b>{splitTarget.count != null ? <> ({splitTarget.count} questions)</> : null} — it keeps its name and first chunk; the rest go into new quizzes numbered after your existing ones (e.g. splitting “Quiz 2” adds Quiz 3, Quiz 4, …).</>}
             </p>
-            <label className="mb-1 block text-sm font-semibold">Questions per quiz</label>
-            <input
-              type="number"
-              min={1}
-              max={500}
-              value={splitPer}
-              onChange={(e) => setSplitPer(e.target.value)}
-              className="input"
-              autoFocus
-            />
-            {splitTarget.count != null && (
-              <p className="mt-1 text-xs text-slate-400">
-                {splitTarget.count} questions ÷ {Math.max(1, parseInt(splitPer, 10) || 1)} = about {Math.ceil((splitTarget.count || 0) / Math.max(1, parseInt(splitPer, 10) || 1))} quiz(zes).
+            {/* Split mode: a fixed number per quiz, OR one quiz per question type. */}
+            <div className="mb-3 flex gap-2">
+              <button type="button" onClick={() => setSplitBy("count")} className={`flex-1 rounded-lg border px-3 py-1.5 text-sm font-medium transition ${splitBy === "count" ? "border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300" : "border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300"}`}>Number per quiz</button>
+              <button type="button" onClick={() => setSplitBy("type")} className={`flex-1 rounded-lg border px-3 py-1.5 text-sm font-medium transition ${splitBy === "type" ? "border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300" : "border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300"}`}>By question type</button>
+            </div>
+            {splitBy === "count" ? (
+              <>
+                <label className="mb-1 block text-sm font-semibold">Questions per quiz</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={500}
+                  value={splitPer}
+                  onChange={(e) => setSplitPer(e.target.value)}
+                  className="input"
+                  autoFocus
+                />
+                {splitTarget.count != null && (
+                  <p className="mt-1 text-xs text-slate-400">
+                    {splitTarget.count} questions ÷ {Math.max(1, parseInt(splitPer, 10) || 1)} = about {Math.ceil((splitTarget.count || 0) / Math.max(1, parseInt(splitPer, 10) || 1))} quiz(zes).
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-300">
+                Each question type becomes its own quiz — e.g. <b>MCQ</b>, <b>Matching</b>, <b>Assertion &amp; Reason</b>, <b>Statement</b>…{" "}
+                {splitTarget.kind === "topic"
+                  ? "All the topic's questions are regrouped by type."
+                  : "This quiz keeps its name and its first type; the other types move into new quizzes named after each type."}
               </p>
             )}
             {splitTarget.kind === "topic" && (

@@ -15,6 +15,7 @@ import { sanitizeBody, ALLOW } from "../utils/sanitizeBody.js";
 import { sendMail, isMailConfigured } from "../config/mailer.js";
 import { clientBaseFromReq } from "../config/clientUrl.js";
 import { duplicateQuestions } from "../utils/duplicateQuestions.js";
+import { groupByType, uniqueName } from "../utils/questionTypes.js";
 import { byNatural } from "../utils/naturalSort.js";
 import { softDeletePatch } from "../utils/softDelete.js";
 
@@ -453,40 +454,56 @@ export async function moveItem(req, res) {
 // quizzes). e.g. 300 questions at 50/quiz → Quiz 1..Quiz 6.
 export async function splitItem(req, res) {
   const per = Math.max(1, Math.min(500, parseInt(req.body?.perQuiz, 10) || 50));
+  const byType = req.body?.by === "type"; // "type" → one quiz per question type; else N-per-quiz
   const item = await TestSeries.findOne({ _id: req.params.id, practice: true, practiceKind: "quiz", ...ownerFilter(req) });
   if (!item) return res.status(404).json({ message: "Quiz not found" });
 
   const qids = (item.questions || []).map((q) => q);
   const total = qids.length;
-  if (total <= per) {
-    return res.json({ message: `No split needed — this quiz has ${total} question(s) (≤ ${per}).`, quizzes: 1, created: 0 });
-  }
 
-  const chunks = [];
-  for (let i = 0; i < total; i += per) chunks.push(qids.slice(i, i + per));
-
-  // Keep the original quiz's OWN name and its first chunk. Name the NEW chunks
-  // "Quiz N" continuing AFTER the highest existing quiz number in this topic, so
-  // splitting e.g. "Quiz 2" (with a "Quiz 1" already present) yields Quiz 3,
-  // Quiz 4, … instead of restarting at "Quiz 1" and clobbering the existing one.
+  // Keep the original quiz's OWN name and its first chunk. Sibling names give the
+  // "Quiz N" numbering AND guard type-named quizzes from clobbering a same-named one.
   const siblings = await TestSeries.find({
     practice: true, practiceKind: "quiz", practiceTopic: item.practiceTopic, ...ownerFilter(req),
   }).select("name").lean();
   const usedNums = new Set();
+  const usedLower = new Set();
   let maxNum = 0;
   for (const s of [...siblings, item]) {
-    const m = String(s.name || "").match(/\bQuiz\s+(\d+)\b/i);
+    const nm = String(s.name || "");
+    usedLower.add(nm.toLowerCase());
+    const m = nm.match(/\bQuiz\s+(\d+)\b/i);
     if (m) { const n = parseInt(m[1], 10); usedNums.add(n); if (n > maxNum) maxNum = n; }
   }
   let nextNum = maxNum + 1;
   const nextQuizName = () => { while (usedNums.has(nextNum)) nextNum++; usedNums.add(nextNum); return `Quiz ${nextNum++}`; };
+
+  // chunk 0 stays in the ORIGINAL item; chunks 1..N become new items.
+  let chunks;
+  let nameFor;
+  if (byType) {
+    const qdocs = await Question.find({ _id: { $in: qids } }).select("_id type").lean();
+    const groups = groupByType(qdocs);
+    if (groups.length <= 1) {
+      return res.json({ message: `No split needed — all ${total} question(s) are the same type.`, quizzes: 1, created: 0 });
+    }
+    chunks = groups.map((g) => g.ids);
+    nameFor = (k) => uniqueName(groups[k].label, usedLower);
+  } else {
+    if (total <= per) {
+      return res.json({ message: `No split needed — this quiz has ${total} question(s) (≤ ${per}).`, quizzes: 1, created: 0 });
+    }
+    chunks = [];
+    for (let i = 0; i < total; i += per) chunks.push(qids.slice(i, i + per));
+    nameFor = () => nextQuizName();
+  }
 
   item.questions = chunks[0]; // original keeps its name; just trim to the first chunk
   await item.save();
 
   for (let k = 1; k < chunks.length; k++) {
     const newItem = await TestSeries.create({
-      name: nextQuizName(),
+      name: nameFor(k),
       owner: ownerValue(req),
       practice: true,
       practiceKind: "quiz",
@@ -505,7 +522,7 @@ export async function splitItem(req, res) {
     // Point each moved question at its new item.
     await Question.updateMany({ _id: { $in: chunks[k] } }, { $set: { testSeries: newItem._id } }, { timestamps: false }); // split = association only, keep updatedAt
   }
-  res.json({ message: `Split ${total} questions into ${chunks.length} quizzes.`, quizzes: chunks.length, created: chunks.length - 1 });
+  res.json({ message: `Split ${total} questions into ${chunks.length} quizzes${byType ? " by type" : ""}.`, quizzes: chunks.length, created: chunks.length - 1 });
 }
 
 // POST /api/practice/items/:id/merge  { sourceIds: [] }
@@ -635,6 +652,7 @@ export async function copyQuestions(req, res) {
 // (questions preserved). Owner-scoped. e.g. 200 questions at 50/quiz → Quiz 1..4.
 export async function splitTopic(req, res) {
   const per = Math.max(1, Math.min(500, parseInt(req.body?.perQuiz, 10) || 50));
+  const byType = req.body?.by === "type"; // "type" → one quiz per question type; else N-per-quiz
   const topic = await PracticeTopic.findOne({ _id: req.params.id, ...ownerFilter(req) });
   if (!topic) return res.status(404).json({ message: "Topic not found" });
 
@@ -656,12 +674,25 @@ export async function splitTopic(req, res) {
   // reassigned to the fresh items below).
   await TestSeries.deleteMany({ _id: { $in: items.map((i) => i._id) } });
 
-  const chunks = [];
-  for (let i = 0; i < total; i += per) chunks.push(allQids.slice(i, i + per));
+  // Chunk + name each new quiz: by TYPE (one quiz per type, named "MCQ",
+  // "Matching", …) or by COUNT ("Quiz 1".."Quiz N").
+  let chunks;
+  let names;
+  if (byType) {
+    const qdocs = await Question.find({ _id: { $in: allQids } }).select("_id type").lean();
+    const groups = groupByType(qdocs);
+    chunks = groups.map((g) => g.ids);
+    const usedLower = new Set();
+    names = groups.map((g) => uniqueName(g.label, usedLower));
+  } else {
+    chunks = [];
+    for (let i = 0; i < total; i += per) chunks.push(allQids.slice(i, i + per));
+    names = chunks.map((_, k) => `Quiz ${k + 1}`);
+  }
 
   for (let k = 0; k < chunks.length; k++) {
     const newItem = await TestSeries.create({
-      name: `Quiz ${k + 1}`,
+      name: names[k],
       owner: ownerValue(req),
       practice: true,
       practiceKind: "quiz",
@@ -676,7 +707,7 @@ export async function splitTopic(req, res) {
     });
     await Question.updateMany({ _id: { $in: chunks[k] } }, { $set: { testSeries: newItem._id } }, { timestamps: false }); // split = association only, keep updatedAt
   }
-  res.json({ message: `Split ${total} questions into ${chunks.length} quizzes.`, quizzes: chunks.length, created: chunks.length });
+  res.json({ message: `Split ${total} questions into ${chunks.length} quizzes${byType ? " by type" : ""}.`, quizzes: chunks.length, created: chunks.length });
 }
 
 // The FIRST published quiz in a topic (natural order — "Quiz 1") is a FREE
