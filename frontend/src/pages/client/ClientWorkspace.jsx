@@ -235,13 +235,19 @@ export default function ClientWorkspace() {
         ) : tab === "manual" ? (
           <ClientUserManual onGoTab={setTab} />
         ) : tab === "papers" ? (
-          <AdminPractice clientMode fixedKind="paper" />
+          // Distinct `key` from the "build" render below: both are <AdminPractice>
+          // at the same tree position, so without unique keys React reuses ONE
+          // instance when switching Build ⇄ Previous Papers. AdminPractice seeds
+          // its `kind` from `fixedKind` only at mount, so a reused instance keeps
+          // the wrong kind (Build shows papers, or papers show quizzes). Separate
+          // keys force a clean remount on each switch.
+          <AdminPractice key="practice-papers" clientMode fixedKind="paper" />
         ) : tab === "checker" ? (
           <AdminChecker />
         ) : tab === "account" ? (
           <ClientAccount onUpgrade={() => setShowUpgrade(true)} />
         ) : (
-          <AdminPractice clientMode />
+          <AdminPractice key="practice-build" clientMode />
         )}
       </main>
 
