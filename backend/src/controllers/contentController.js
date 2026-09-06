@@ -9,6 +9,7 @@ import { notifyNewContent } from "../utils/notify.js";
 import { ownerValue, ownerFilter, isClient } from "../utils/ownership.js";
 import { duplicateQuestions } from "../utils/duplicateQuestions.js";
 import { byNatural } from "../utils/naturalSort.js";
+import { groupByType, uniqueName } from "../utils/questionTypes.js";
 import { NOT_DELETED, softDeletePatch } from "../utils/softDelete.js";
 import { sanitizeBody, ALLOW } from "../utils/sanitizeBody.js";
 import { normName } from "../utils/conceptDedupe.js";
@@ -564,41 +565,59 @@ export async function moveQuiz(req, res) {
 // 50/quiz → Quiz 1..Quiz 6.
 export async function splitQuiz(req, res) {
   const per = Math.max(1, Math.min(500, parseInt(req.body?.perQuiz, 10) || 50));
+  const byType = req.body?.by === "type"; // "type" → one quiz per question type; else N-per-quiz
   const quiz = await Quiz.findById(req.params.id);
   if (!quiz) return res.status(404).json({ message: "Quiz not found" });
 
-  const questions = await Question.find({ quiz: quiz._id }).sort("createdAt _id").select("_id").lean();
+  const questions = await Question.find({ quiz: quiz._id }).sort("createdAt _id").select("_id type").lean();
   const total = questions.length;
-  if (total <= per) {
-    return res.json({ message: `No split needed — this quiz has ${total} question(s) (≤ ${per}).`, quizzes: 1, created: 0 });
-  }
 
-  // Chunk the question ids into groups of `per`.
-  const chunks = [];
-  for (let i = 0; i < total; i += per) chunks.push(questions.slice(i, i + per).map((q) => q._id));
-
-  // Keep the original quiz's OWN title and its first chunk (no move needed).
-  // Name the NEW chunks "Quiz N" continuing AFTER the highest existing quiz
-  // number in this session, so splitting e.g. "Quiz 2" (with a "Quiz 1" already
-  // present) yields Quiz 3, Quiz 4, … instead of restarting at "Quiz 1" and
-  // clobbering the existing one.
+  // Existing sibling titles → used "Quiz N" numbers AND used names (so a
+  // type-named quiz like "Matching" never clobbers an existing same-named one).
   const siblings = await Quiz.find({ session: quiz.session }).select("title").lean();
   const usedNums = new Set();
+  const usedLower = new Set();
   let maxNum = 0;
   for (const s of siblings) {
-    const m = String(s.title || "").match(/\bQuiz\s+(\d+)\b/i);
+    const t = String(s.title || "");
+    usedLower.add(t.toLowerCase());
+    const m = t.match(/\bQuiz\s+(\d+)\b/i);
     if (m) { const n = parseInt(m[1], 10); usedNums.add(n); if (n > maxNum) maxNum = n; }
   }
   let nextNum = maxNum + 1;
   const nextQuizTitle = () => { while (usedNums.has(nextNum)) nextNum++; usedNums.add(nextNum); return `Quiz ${nextNum++}`; };
 
+  // Build the chunks (chunk 0 stays in the ORIGINAL quiz — it keeps its title)
+  // and a namer for the NEW quizzes (chunks 1..N).
+  let chunks;
+  let nameFor;
+  if (byType) {
+    // Group by question type → one quiz per type present. Original keeps its
+    // title + the FIRST type (e.g. plain MCQs); each other type → its own quiz.
+    const groups = groupByType(questions);
+    if (groups.length <= 1) {
+      return res.json({ message: `No split needed — all ${total} question(s) are the same type.`, quizzes: 1, created: 0 });
+    }
+    chunks = groups.map((g) => g.ids);
+    nameFor = (k) => uniqueName(groups[k].label, usedLower);
+  } else {
+    if (total <= per) {
+      return res.json({ message: `No split needed — this quiz has ${total} question(s) (≤ ${per}).`, quizzes: 1, created: 0 });
+    }
+    // Chunk the question ids into groups of `per`. New chunks are named "Quiz N"
+    // continuing AFTER the highest existing quiz number in this session.
+    chunks = [];
+    for (let i = 0; i < total; i += per) chunks.push(questions.slice(i, i + per).map((q) => q._id));
+    nameFor = () => nextQuizTitle();
+  }
+
   // New quizzes for the remaining chunks, appended after existing quizzes.
   let index = await Quiz.countDocuments({ session: quiz.session });
   for (let k = 1; k < chunks.length; k++) {
-    const newQuiz = await Quiz.create({ title: nextQuizTitle(), subject: quiz.subject, session: quiz.session, index: index++ });
+    const newQuiz = await Quiz.create({ title: nameFor(k), subject: quiz.subject, session: quiz.session, index: index++ });
     await Question.updateMany({ _id: { $in: chunks[k] } }, { $set: { quiz: newQuiz._id, session: quiz.session, subject: quiz.subject } }, { timestamps: false }); // split = association only, keep updatedAt
   }
-  res.json({ message: `Split ${total} questions into ${chunks.length} quizzes.`, quizzes: chunks.length, created: chunks.length - 1 });
+  res.json({ message: `Split ${total} questions into ${chunks.length} quizzes${byType ? " by type" : ""}.`, quizzes: chunks.length, created: chunks.length - 1 });
 }
 
 // POST /api/quizzes/:id/merge  { sourceIds: [] }
@@ -725,6 +744,7 @@ export async function copyQuestions(req, res) {
 // → Quiz 1..Quiz 4.
 export async function splitTopic(req, res) {
   const per = Math.max(1, Math.min(500, parseInt(req.body?.perQuiz, 10) || 50));
+  const byType = req.body?.by === "type"; // "type" → one quiz per question type; else N-per-quiz
   const topic = await Topic.findById(req.params.id);
   if (!topic) return res.status(404).json({ message: "Topic not found" });
 
@@ -732,22 +752,34 @@ export async function splitTopic(req, res) {
   const sessionIds = sessions.map((s) => s._id);
   if (!sessionIds.length) return res.json({ message: "This topic has no sessions/questions yet.", quizzes: 0, created: 0 });
 
-  const questions = await Question.find({ session: { $in: sessionIds } }).sort("createdAt _id").select("_id").lean();
+  const questions = await Question.find({ session: { $in: sessionIds } }).sort("createdAt _id").select("_id type").lean();
   const total = questions.length;
   if (!total) return res.json({ message: "This topic has no questions yet.", quizzes: 0, created: 0 });
 
   // Target session: reuse the first session (keeps the topic tidy), rest are removed.
   const targetSession = sessions[0];
 
-  const chunks = [];
-  for (let i = 0; i < total; i += per) chunks.push(questions.slice(i, i + per).map((q) => q._id));
+  // Chunk the questions + name each resulting quiz: by TYPE (one quiz per type,
+  // named "MCQ", "Matching", …) or by COUNT ("Quiz 1".."Quiz N").
+  let chunks;
+  let names;
+  if (byType) {
+    const groups = groupByType(questions);
+    chunks = groups.map((g) => g.ids);
+    const usedLower = new Set();
+    names = groups.map((g) => uniqueName(g.label, usedLower));
+  } else {
+    chunks = [];
+    for (let i = 0; i < total; i += per) chunks.push(questions.slice(i, i + per).map((q) => q._id));
+    names = chunks.map((_, k) => `Quiz ${k + 1}`);
+  }
 
   // Remove the topic's existing quizzes (questions are reassigned below, not deleted).
   await Quiz.deleteMany({ session: { $in: sessionIds } });
 
-  // Create Quiz 1..N under the target session and move each chunk's questions in.
+  // Create the quizzes under the target session and move each chunk's questions in.
   for (let k = 0; k < chunks.length; k++) {
-    const newQuiz = await Quiz.create({ title: `Quiz ${k + 1}`, subject: targetSession.subject, session: targetSession._id, index: k });
+    const newQuiz = await Quiz.create({ title: names[k], subject: targetSession.subject, session: targetSession._id, index: k });
     await Question.updateMany(
       { _id: { $in: chunks[k] } },
       { $set: { quiz: newQuiz._id, session: targetSession._id, subject: targetSession.subject } },
@@ -759,7 +791,7 @@ export async function splitTopic(req, res) {
   const extraSessionIds = sessionIds.filter((id) => String(id) !== String(targetSession._id));
   if (extraSessionIds.length) await Session.deleteMany({ _id: { $in: extraSessionIds } });
 
-  res.json({ message: `Split ${total} questions into ${chunks.length} quizzes.`, quizzes: chunks.length, created: chunks.length });
+  res.json({ message: `Split ${total} questions into ${chunks.length} quizzes${byType ? " by type" : ""}.`, quizzes: chunks.length, created: chunks.length });
 }
 
 // GET /api/quizzes/:quizId/questions — practice questions (with answers)

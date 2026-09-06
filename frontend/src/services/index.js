@@ -42,9 +42,9 @@ export const contentService = {
   questions: (sessionId) => api.get(`/sessions/${sessionId}/questions`),
   allQuestions: () => api.get("/questions"),
   moveQuiz: (id, data) => api.patch(`/quizzes/${id}/move`, data), // { session, copy }
-  splitQuiz: (id, perQuiz) => api.post(`/quizzes/${id}/split`, { perQuiz }), // split one quiz into quizzes of N
+  splitQuiz: (id, perQuiz, by) => api.post(`/quizzes/${id}/split`, { perQuiz, by }), // split one quiz into quizzes of N (by="type" → one quiz per question type)
   checkQuestions: (data) => api.post("/questions/check", data, { timeout: 120000 }), // "did this question come from my bank?" → { total, found, summary, results }
-  splitTopic: (id, perQuiz) => api.post(`/topics/${id}/split`, { perQuiz }), // split all a topic's questions into quizzes of N
+  splitTopic: (id, perQuiz, by) => api.post(`/topics/${id}/split`, { perQuiz, by }), // split all a topic's questions into quizzes of N (by="type" → one quiz per question type)
   mergeQuiz: (id, sourceIds) => api.post(`/quizzes/${id}/merge`, { sourceIds }), // merge other quizzes (same session) into this one
   // MOVE / COPY selected questions from one quiz into another (any session/subject).
   moveQuestions: (quizId, questionIds, targetQuiz) => api.post(`/quizzes/${quizId}/move-questions`, { questionIds, targetQuiz }),
@@ -244,8 +244,8 @@ export const practiceService = {
   createItem: (data) => api.post("/practice/items", data),
   updateItem: (id, data) => api.patch(`/practice/items/${id}`, data), // name / remembered AI topic
   moveItem: (id, target) => api.patch(`/practice/items/${id}/move`, target), // internal practice migration
-  splitItem: (id, perQuiz) => api.post(`/practice/items/${id}/split`, { perQuiz }), // split one My-Quiz item into quizzes of N
-  splitTopic: (id, perQuiz) => api.post(`/practice/topics/${id}/split`, { perQuiz }), // split all a topic's questions into quizzes of N
+  splitItem: (id, perQuiz, by) => api.post(`/practice/items/${id}/split`, { perQuiz, by }), // split one My-Quiz item into quizzes of N (by="type" → one quiz per question type)
+  splitTopic: (id, perQuiz, by) => api.post(`/practice/topics/${id}/split`, { perQuiz, by }), // split all a topic's questions into quizzes of N (by="type" → one quiz per question type)
   mergeItem: (id, sourceIds) => api.post(`/practice/items/${id}/merge`, { sourceIds }), // merge other My-Quiz items (same topic) into this one
   moveQuestions: (id, questionIds, targetId) => api.post(`/practice/items/${id}/move-questions`, { questionIds, targetId }), // move selected questions to another quiz (same topic)
   copyQuestions: (id, questionIds, targetId) => api.post(`/practice/items/${id}/copy-questions`, { questionIds, targetId }), // copy selected questions into another quiz (originals kept)
