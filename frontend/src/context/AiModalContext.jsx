@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, lazy, Suspense } from "react";
-import { contentService, practiceService } from "../services";
+import { contentService } from "../services";
 import { getActiveGenJob } from "../lib/activeGenJob";
 
 // The modals are admin-only and fairly heavy, so load them on demand (keeps the
@@ -64,61 +64,16 @@ export function AiModalProvider({ children }) {
   // to insert.)
   const openFromPill = useCallback(({ targetName, label, dest } = {}) => {
     const snap = dest || {};
-    // The saved destination tells us whether this batch belongs to the content
-    // library (sessionId/quizId) or to My Practice (itemId/streamId/kind).
-    const isPractice = !!(snap.itemId || snap.streamId || snap.kind);
-    const leaf = isPractice ? (snap.kind === "test" ? "test" : "quiz") : "quiz";
-
-    // Insert the reopened batch. Supports CREATING a new target (when the user
-    // picks "New quiz/test" and names it) as well as inserting into the existing
-    // snapshotted one — for BOTH content and practice — so a resumed session can
-    // always be saved somewhere. Previously this only handled a content quiz and
-    // REQUIRED an existing quizId, so a practice resume (or a session whose quiz
-    // no longer existed) had NO way to insert — the questions looked stuck/lost.
     const recoveryUpload = async (questions, opts = {}) => {
       const d = opts.dest || snap || {};
-      if (isPractice) {
-        let itemId = opts.existingTargetId || d.itemId;
-        if (opts.newTarget) {
-          const name = String(opts.newTarget.name || "").trim();
-          if (!name) throw new Error(`Enter a name for the new ${leaf}.`);
-          const created = await practiceService.createItem({
-            name,
-            practiceStream: d.streamId,
-            practiceSubject: d.subjectId,
-            practiceTopic: d.topicId,
-            practiceKind: d.kind || "quiz",
-          });
-          if (!created?._id) throw new Error(`Could not create the new ${leaf}.`);
-          itemId = created._id;
-        }
-        if (!itemId) throw new Error(`Choose “New ${leaf}” and enter a name to save these questions.`);
-        return contentService.bulkQuestions(questions, { testSeries: itemId, section: d.section || "" });
-      }
-      // Content library
-      let quizId = opts.existingTargetId || d.quizId;
-      if (opts.newTarget) {
-        const title = String(opts.newTarget.name || "").trim();
-        if (!title) throw new Error("Enter a name for the new quiz.");
-        if (!d.subjectId || !d.sessionId) throw new Error("Reopen the generator from the topic to insert these — your questions are safe and restored.");
-        const created = await contentService.createQuiz({ title, subject: d.subjectId, session: d.sessionId });
-        if (!created?._id) throw new Error("Could not create the new quiz.");
-        quizId = created._id;
-      }
-      if (!quizId) throw new Error("Choose “New quiz” and enter a name to save these questions.");
-      return contentService.bulkQuestions(questions, { subject: d.subjectId, session: d.sessionId, quiz: quizId });
+      if (!d.quizId) throw new Error("Reopen the generator from the quiz to insert these here — your generated questions are safe and restored.");
+      return contentService.bulkQuestions(questions, { subject: d.subjectId, session: d.sessionId, quiz: d.quizId });
     };
-
     setGenProps({
       title: "Generate Questions with AI",
-      // Show the destination picker so you can create/choose a real quiz to
-      // insert into — without this, a resumed batch had no "New quiz" option.
-      allowNewTarget: true,
-      newLeafLabel: leaf,
-      defaultDest: "new", // default to a fresh target (safest for a restored batch)
+      currentTargetName: targetName || "",
       defaultTopic: label || "",
       onUpload: recoveryUpload,
-      onGenerationStart: () => snap, // a Resume keeps targeting the same place
     });
   }, []);
 
