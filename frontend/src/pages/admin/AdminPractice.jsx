@@ -624,7 +624,12 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
       onClose: () => { setForceSection(""); },
       allowNewTarget: true,
       newLeafLabel: kind,
-      currentTargetName: aiTarget?.name || item?.name || "",
+      // Topic-level generation (missing-areas / "other question types") has NO
+      // single open quiz, so never show "Current quiz — <name>": that would be a
+      // stale/left-over item from one you opened earlier (e.g. "Quiz 1") and
+      // could send the batch to the wrong — or a since-deleted — quiz. Only pass
+      // it when a quiz/test is genuinely open.
+      currentTargetName: (gap || otherTypes) ? "" : (aiTarget?.name || item?.name || ""),
       existingItems: (items || []).filter((it) => it._id !== item?._id).map((it) => ({ _id: it._id, name: it.name, questionCount: it.questionCount })),
       existingQuestions: otherTypes ? [] : (gap ? gap.avoid : tq),
       defaultTopic: gap ? gap.topic : (item?.aiTopic || (kind === "quiz" ? topic : subject)?.name || ""),
