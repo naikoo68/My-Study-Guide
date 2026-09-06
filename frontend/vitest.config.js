@@ -9,5 +9,13 @@ export default defineConfig({
     environment: "node",
     include: ["src/**/*.{test,spec}.{js,jsx}"],
     globals: false,
+    coverage: {
+      // `npm run coverage` writes coverage/lcov.info (plus a text summary).
+      // Reports coverage for the modules exercised by the suite (the pure
+      // helpers in src/lib), which is where the unit tests are focused today.
+      provider: "v8",
+      reporter: ["text-summary", "lcov"],
+      exclude: ["**/*.{test,spec}.{js,jsx}", "src/main.jsx"],
+    },
   },
 });
