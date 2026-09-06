@@ -31,3 +31,9 @@ pnpm-debug.log*
 **/coverage/lcov-report/
 **/coverage/tmp/
 **/coverage/.tmp/
+
+
+# Generated at build time by frontend/scripts/pack-extension.mjs (npm run build).
+# The extension source of truth is the extension/ directory; this packaged zip is
+# a build artifact and must not be committed (a binary archive is unscannable).
+frontend/public/companion-extension.zip
