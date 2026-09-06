@@ -27,6 +27,11 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # contents:read lets the auto-provided GITHUB_TOKEN fetch the repo (needed
+    # now the repo is private — an unauthenticated HTTPS fetch on the VM fails
+    # with "could not read Username for 'https://github.com'").
+    permissions:
+      contents: read
     steps:
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.0
@@ -35,20 +40,29 @@ jobs:
           # secret (Settings → Secrets and variables → Actions). If it's left
           # unset, the app still runs fine with keys unencrypted (see #718).
           AI_KEY_ENC_SECRET: ${{ secrets.AI_KEY_ENC_SECRET }}
+          # Short-lived token (auto-provided by Actions, valid only for this run)
+          # used to authenticate the git fetch on the VM. Works whether the repo
+          # is public or private, so no PAT/deploy key or VM credential is needed.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           command_timeout: 20m
           script_stop: true
-          envs: AI_KEY_ENC_SECRET
+          envs: AI_KEY_ENC_SECRET,GH_TOKEN,GH_REPO
           script: |
             set -e
             cd ~/My-Study-Guide
-            git fetch origin main
-            # Hard reset to the remote main. This updates only tracked files;
+            # Fetch over an authenticated HTTPS URL rather than the VM's stored
+            # `origin` credentials. `x-access-token:<GITHUB_TOKEN>` is accepted by
+            # github.com for both public and private repos, so the deploy no
+            # longer depends on any credential being configured on the VM.
+            git fetch "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" main
+            # Hard reset to the fetched main. This updates only tracked files;
             # the untracked backend/msg.env (your secrets) is left untouched.
-            git reset --hard origin/main
+            git reset --hard FETCH_HEAD
             cd backend
             sudo docker build -t msg-backend .
             sudo docker rm -f msg-backend || true
