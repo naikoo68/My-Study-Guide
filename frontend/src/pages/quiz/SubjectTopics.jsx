@@ -79,7 +79,7 @@ export default function SubjectTopics() {
               <div className="flex flex-1 flex-col p-5">
                 <h3 className="text-base font-bold leading-snug text-slate-900 dark:text-white">{t.title}</h3>
                 {t.description && (
-                  <p className="mt-1 text-justify text-[10px] leading-tight text-slate-500 dark:text-slate-400">{t.description}</p>
+                  <p className="mt-1 text-justify text-[9px] leading-tight text-slate-500 dark:text-slate-400">{t.description}</p>
                 )}
                 <NodeStats
                   className="mt-4"
