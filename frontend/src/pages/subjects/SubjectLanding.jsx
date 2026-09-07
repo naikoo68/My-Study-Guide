@@ -77,7 +77,7 @@ export default function SubjectLanding() {
         </p>
       )}
 
-      <p className="mt-4 max-w-2xl text-slate-600 dark:text-slate-300">
+      <p className="mt-4 max-w-2xl text-justify text-slate-600 dark:text-slate-300">
         {subject.description
           || `Practise ${subject.name} with subject-wise quizzes and full-length mock tests. Get instant results, detailed step-by-step solutions and track your progress and rank on My Study Guide.`}
       </p>
