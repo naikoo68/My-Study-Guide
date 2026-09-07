@@ -14,7 +14,7 @@
      always comes fresh from the network.
 
    Bump CACHE when you want every client to drop old cached assets. */
-const CACHE = "msg-pwa-v5";
+const CACHE = "msg-pwa-v6";
 const SHELL = "/index.html";
 
 self.addEventListener("install", (event) => {
@@ -54,14 +54,27 @@ self.addEventListener("fetch", (event) => {
   if (isHTML) {
     event.respondWith(
       (async () => {
-        try {
-          const res = await fetch(req, { cache: "no-store" });
-          const cache = await caches.open(CACHE);
-          cache.put(SHELL, res.clone()).catch(() => {});
-          return res;
-        } catch {
-          return (await caches.match(SHELL)) || new Response("", { status: 504, statusText: "Offline" });
-        }
+        const cache = await caches.open(CACHE);
+        // Kick off the fresh-network fetch and update the cached shell when it
+        // lands (keeps deploys picked up promptly — asset filenames are hashed).
+        const net = fetch(req, { cache: "no-store" })
+          .then((res) => {
+            cache.put(SHELL, res.clone()).catch(() => {});
+            return res;
+          })
+          .catch(() => null);
+        // BUT never let a slow/stalled network make the page hang: race it
+        // against a short timeout. On iOS the SW navigation fetch could stall,
+        // which made EVERY page wait ~30s. If the network doesn't answer within
+        // ~3.5s, serve the cached shell instantly and let the fetch keep running
+        // in the background to refresh the cache for next time.
+        const timeout = new Promise((resolve) => setTimeout(() => resolve(undefined), 3500));
+        const winner = await Promise.race([net, timeout]);
+        if (winner) return winner; // network came back in time
+        const cached = await cache.match(SHELL);
+        if (cached) return cached; // fast path — no more 30s hangs
+        // Nothing cached yet (very first load): wait for the network / offline.
+        return (await net) || new Response("", { status: 504, statusText: "Offline" });
       })()
     );
     return;
