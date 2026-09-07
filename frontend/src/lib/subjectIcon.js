@@ -12,6 +12,21 @@ const DEFAULT_EMOJI = "📘";
 const DEFAULT_COLOR = "from-violet-500 to-fuchsia-600";
 
 const RULES = [
+  // Specific overrides FIRST so closely-related subjects don't collapse to the
+  // SAME glyph (first match wins). e.g. Art History vs Aesthetics, Anthropology
+  // vs Cultural Studies vs Geography, Nursing vs Health Science.
+  [/aesthetic/i, "Image", "🖼️", "from-fuchsia-500 to-pink-600"],
+  [/art history|history of art/i, "Brush", "🖌️", "from-rose-500 to-pink-600"],
+  [/anthropolog/i, "Footprints", "🗿", "from-amber-600 to-orange-700"],
+  [/archaeolog|artefact|artifact|excavation/i, "Landmark", "🏺", "from-orange-600 to-amber-700"],
+  [/cultural stud|\bculture\b|folklore/i, "Drama", "🎭", "from-rose-500 to-pink-600"],
+  [/gender|women.?s stud|sexualit|\bqueer\b/i, "Users", "⚧️", "from-pink-500 to-purple-600"],
+  [/\bfilm\b|cinema|\bmovie|media stud/i, "Clapperboard", "🎬", "from-slate-600 to-gray-800"],
+  [/nursing/i, "Syringe", "💉", "from-rose-600 to-red-700"],
+  [/anatomy|physiolog/i, "HeartPulse", "🫀", "from-red-500 to-rose-600"],
+  [/pharma|pharmacol|\bdrug\b|medicinal chem/i, "Pill", "💊", "from-teal-500 to-emerald-600"],
+  [/radiolog|imaging|x.?ray|\bmri\b/i, "ScanLine", "🩻", "from-cyan-600 to-blue-700"],
+
   [/account|ledger|book.?keep|commerce|audit|tally/i, "Calculator", "🧮", "from-amber-500 to-orange-600"],
   [/econom|micro|macro|trade|market|finance|bank|gdp/i, "TrendingUp", "📈", "from-emerald-500 to-teal-600"],
   [/business|management|\bmba\b|marketing|entrepreneur/i, "Briefcase", "💼", "from-yellow-500 to-amber-600"],
@@ -54,12 +69,44 @@ function match(name) {
   return RULES.find(([re]) => re.test(n)) || null;
 }
 
+// When NO keyword rule matches, don't fall back to the SAME book for everyone —
+// pick a varied but STABLE glyph/colour from the name so different subjects look
+// different (and a given subject always looks the same).
+const FALLBACK = [
+  ["📗", "from-emerald-500 to-teal-600"],
+  ["📙", "from-amber-500 to-orange-600"],
+  ["📕", "from-rose-500 to-red-600"],
+  ["📓", "from-slate-500 to-gray-700"],
+  ["📔", "from-violet-500 to-fuchsia-600"],
+  ["🧭", "from-sky-500 to-cyan-600"],
+  ["💡", "from-yellow-500 to-amber-600"],
+  ["🧩", "from-pink-500 to-rose-600"],
+  ["🎯", "from-red-500 to-orange-600"],
+  ["🔎", "from-blue-500 to-indigo-600"],
+  ["🗺️", "from-teal-500 to-cyan-600"],
+  ["✒️", "from-fuchsia-500 to-purple-600"],
+  ["📝", "from-cyan-500 to-blue-600"],
+  ["🏵️", "from-lime-500 to-green-600"],
+  ["⚜️", "from-indigo-500 to-violet-600"],
+  ["🧠", "from-pink-500 to-fuchsia-600"],
+];
+function fallbackIndex(name) {
+  const s = String(name || "");
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  return h % FALLBACK.length;
+}
+
 export function subjectIconName(name) {
   return match(name)?.[1] || DEFAULT_ICON;
 }
 export function subjectEmoji(name) {
-  return match(name)?.[2] || DEFAULT_EMOJI;
+  const m = match(name);
+  if (m) return m[2];
+  return name ? FALLBACK[fallbackIndex(name)][0] : DEFAULT_EMOJI;
 }
 export function subjectColor(name) {
-  return match(name)?.[3] || DEFAULT_COLOR;
+  const m = match(name);
+  if (m) return m[3];
+  return name ? FALLBACK[fallbackIndex(name)][1] : DEFAULT_COLOR;
 }

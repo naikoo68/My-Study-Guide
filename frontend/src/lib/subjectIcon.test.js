@@ -29,13 +29,20 @@ describe("subjectIcon — recognised subjects", () => {
 });
 
 describe("subjectIcon — unknown / empty names fall back safely", () => {
-  it("uses the default book icon/emoji/colour", () => {
+  it("unknown name: keeps the book ICON but gets a varied, STABLE emoji/colour", () => {
+    // No keyword match still uses the neutral book line-icon…
     expect(subjectIconName("Underwater Basket Weaving")).toBe("BookOpen");
-    expect(subjectEmoji("Underwater Basket Weaving")).toBe("📘");
-    expect(subjectColor("Underwater Basket Weaving")).toBe("from-violet-500 to-fuchsia-600");
+    // …but the emoji/colour are now picked from a varied pool (so different
+    // subjects don't all show the same book), deterministically per name.
+    const emoji = subjectEmoji("Underwater Basket Weaving");
+    expect(emoji).toBeTruthy();
+    expect(subjectEmoji("Underwater Basket Weaving")).toBe(emoji); // same name → same glyph
+    expect(subjectColor("Underwater Basket Weaving")).toMatch(/^from-.+ to-.+$/);
+    // Two different unknown names should generally differ (variety, not identical).
+    expect(subjectEmoji("Underwater Basket Weaving")).not.toBe(subjectEmoji("Speculative Cartography"));
   });
 
-  it("never throws on nullish/empty input", () => {
+  it("never throws on nullish/empty input (uses the safe defaults)", () => {
     expect(subjectIconName(null)).toBe("BookOpen");
     expect(subjectEmoji(undefined)).toBe("📘");
     expect(subjectColor("")).toBe("from-violet-500 to-fuchsia-600");
