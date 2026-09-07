@@ -18,8 +18,19 @@ export default function SubjectLogo({ name = "", icon = "", color = "", image = 
   const glyph = fill ? 52 : Math.round(size * 0.5);
 
   if (image) {
+    // Full-bleed banner: show the WHOLE image (object-contain, never cropped) so
+    // logos/illustrations aren't cut off, with a blurred copy behind filling any
+    // leftover space so the banner is never empty. Small fixed tiles keep cover.
+    if (fill) {
+      return (
+        <div className={`${base} relative bg-slate-100 dark:bg-slate-800`}>
+          <img src={image} alt="" aria-hidden="true" loading="lazy" decoding="async" className="absolute inset-0 h-full w-full scale-125 object-cover opacity-60 blur-xl" />
+          <img src={image} alt="" loading="lazy" decoding="async" className="relative h-full w-full object-contain" />
+        </div>
+      );
+    }
     return (
-      <div style={box} className={`${base} ${fill ? "" : "border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800"}`}>
+      <div style={box} className={`${base} border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800`}>
         <img src={image} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
       </div>
     );
