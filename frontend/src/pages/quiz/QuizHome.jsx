@@ -91,7 +91,7 @@ export default function QuizHome() {
         <EmptyState message="No streams available yet. Add some from the admin panel." />
       ) : (
         <>
-          <div className="mt-10 grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          <div className="mt-10 grid gap-2.5 grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
             {filtered.map((s, i) => {
               const Icon = Icons[s.icon] || Icons.GraduationCap;
               return (
@@ -137,8 +137,8 @@ export default function QuizHome() {
                   </div>
 
                   {/* Body */}
-                  <div className="flex flex-1 flex-col p-2.5">
-                    <h3 className="text-xs font-bold leading-snug text-slate-900 dark:text-white">{s.name}</h3>
+                  <div className="flex flex-1 flex-col p-2">
+                    <h3 className="text-[11px] font-bold leading-snug text-slate-900 dark:text-white">{s.name}</h3>
                     {s.description && (
                       <p className="mt-0.5 text-justify text-[9px] leading-tight text-slate-500 dark:text-slate-400">{s.description}</p>
                     )}
