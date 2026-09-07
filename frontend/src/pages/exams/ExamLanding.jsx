@@ -67,7 +67,7 @@ export default function ExamLanding() {
     <div className="container-page py-12">
       <Breadcrumbs items={crumbs} />
       <h1 className="text-3xl font-extrabold sm:text-4xl">{exam.name}</h1>
-      <p className="mt-4 max-w-2xl text-slate-600 dark:text-slate-300">
+      <p className="mt-4 max-w-2xl text-justify text-slate-600 dark:text-slate-300">
         {exam.description
           || `Prepare for ${exam.name} with full-length mock tests and test series. Choose a test series below and attempt it online with instant results and detailed solutions.`}
       </p>
@@ -86,7 +86,7 @@ export default function ExamLanding() {
               className="card p-5 transition hover:-translate-y-0.5 hover:shadow-lg"
             >
               <h3 className="font-bold">{p.name}</h3>
-              {p.description && <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{p.description}</p>}
+              {p.description && <p className="mt-1 text-justify text-sm text-slate-500 dark:text-slate-400">{p.description}</p>}
               <span className="mt-3 flex items-center gap-2 text-sm text-slate-400">
                 {typeof p.tests === "number" && <span>{p.tests} test{p.tests === 1 ? "" : "s"}</span>}
                 <span className="ml-auto inline-flex items-center gap-1 font-medium text-brand-600 dark:text-brand-400">Open <ArrowRight className="h-3.5 w-3.5" /></span>

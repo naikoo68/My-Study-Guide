@@ -140,7 +140,7 @@ export default function QuizHome() {
                   <div className="flex flex-1 flex-col p-5">
                     <h3 className="text-base font-bold leading-snug text-slate-900 dark:text-white">{s.name}</h3>
                     {s.description && (
-                      <p className="mt-1 line-clamp-3 text-xs text-slate-500 dark:text-slate-400">{s.description}</p>
+                      <p className="mt-1 line-clamp-3 text-justify text-xs text-slate-500 dark:text-slate-400">{s.description}</p>
                     )}
 
                     {/* At-a-glance size of the stream */}

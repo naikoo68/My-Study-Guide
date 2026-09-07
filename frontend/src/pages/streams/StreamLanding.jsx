@@ -64,7 +64,7 @@ export default function StreamLanding() {
     <div className="container-page py-12">
       <Breadcrumbs items={crumbs} />
       <h1 className="text-3xl font-extrabold sm:text-4xl">{stream.name}</h1>
-      <p className="mt-4 max-w-2xl text-slate-600 dark:text-slate-300">
+      <p className="mt-4 max-w-2xl text-justify text-slate-600 dark:text-slate-300">
         {stream.description
           || `Prepare for ${stream.name} with subject-wise quizzes, full-length mock tests and curated study material. Pick a subject below to start practising with instant results and detailed solutions.`}
       </p>
@@ -83,7 +83,7 @@ export default function StreamLanding() {
               className="card p-5 transition hover:-translate-y-0.5 hover:shadow-lg"
             >
               <h3 className="font-bold">{s.name}</h3>
-              {s.description && <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{s.description}</p>}
+              {s.description && <p className="mt-1 text-justify text-sm text-slate-500 dark:text-slate-400">{s.description}</p>}
               <span className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-brand-600 dark:text-brand-400">Practise <ArrowRight className="h-3.5 w-3.5" /></span>
             </Link>
           ))}
