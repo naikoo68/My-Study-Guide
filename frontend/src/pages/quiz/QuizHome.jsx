@@ -17,9 +17,9 @@ const fmtCount = (n) => {
 // One cell in a stream card's at-a-glance stats grid.
 function StreamStat({ icon: Ic, value, label }) {
   return (
-    <div className="flex min-w-0 flex-col items-center overflow-hidden rounded-lg bg-slate-50 px-0.5 py-1.5 dark:bg-slate-800/60">
+    <div className="flex min-w-0 flex-col items-center overflow-hidden rounded-lg bg-slate-50 px-0.5 py-1 dark:bg-slate-800/60">
       <Ic className="h-3 w-3 text-slate-400 dark:text-slate-500" />
-      <span className="mt-0.5 text-xs font-bold tabular-nums text-slate-800 dark:text-slate-100">{fmtCount(value)}</span>
+      <span className="text-[11px] font-bold tabular-nums text-slate-800 dark:text-slate-100">{fmtCount(value)}</span>
       <span className="w-full text-center text-[8px] font-semibold leading-none text-slate-400 dark:text-slate-500">{label}</span>
     </div>
   );
@@ -102,7 +102,7 @@ export default function QuizHome() {
                   className="card-hover group flex animate-fade-in-up flex-col overflow-hidden p-0 opacity-0"
                 >
                   {/* Full-width banner — the stream's uploaded/AI logo, else its icon over the gradient */}
-                  <div className={`relative flex aspect-video w-full items-center justify-center overflow-hidden ${s.image ? "bg-slate-100 dark:bg-slate-800" : `bg-gradient-to-br ${s.color}`}`}>
+                  <div className={`relative flex aspect-[16/7] w-full items-center justify-center overflow-hidden ${s.image ? "bg-slate-100 dark:bg-slate-800" : `bg-gradient-to-br ${s.color}`}`}>
                     {s.image ? (
                       <>
                         {/* Blurred copy fills the banner edge-to-edge so there are no empty
@@ -131,20 +131,20 @@ export default function QuizHome() {
                     ) : (
                       <>
                         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_30%_25%,rgba(255,255,255,0.28),transparent_60%)]" />
-                        <Icon className="relative h-8 w-8 text-white drop-shadow-md transition-transform duration-300 group-hover:scale-110" />
+                        <Icon className="relative h-7 w-7 text-white drop-shadow-md transition-transform duration-300 group-hover:scale-110" />
                       </>
                     )}
                   </div>
 
                   {/* Body */}
-                  <div className="flex flex-1 flex-col p-3">
-                    <h3 className="text-[13px] font-bold leading-snug text-slate-900 dark:text-white">{s.name}</h3>
+                  <div className="flex flex-1 flex-col p-2.5">
+                    <h3 className="text-xs font-bold leading-snug text-slate-900 dark:text-white">{s.name}</h3>
                     {s.description && (
-                      <p className="mt-1 text-justify text-[9px] leading-tight text-slate-500 dark:text-slate-400">{s.description}</p>
+                      <p className="mt-0.5 text-justify text-[9px] leading-tight text-slate-500 dark:text-slate-400">{s.description}</p>
                     )}
 
                     {/* At-a-glance size of the stream */}
-                    <div className="mt-2.5 grid grid-cols-4 gap-1">
+                    <div className="mt-2 grid grid-cols-4 gap-1">
                       <StreamStat icon={Icons.FolderOpen} value={s.subjects} label="Subjects" />
                       <StreamStat icon={Icons.Layers} value={s.topics} label="Topics" />
                       <StreamStat icon={Icons.ListChecks} value={s.quizzes} label="Quizzes" />
@@ -152,7 +152,7 @@ export default function QuizHome() {
                     </div>
 
                     {/* Footer pinned to the bottom so every card lines up */}
-                    <div className="mt-auto flex items-center justify-between border-t border-slate-100 pt-2.5 dark:border-slate-800">
+                    <div className="mt-auto flex items-center justify-between border-t border-slate-100 pt-2 dark:border-slate-800">
                       <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500">Subject-wise quizzes</span>
                       <span className="flex items-center gap-1 text-xs font-semibold text-brand-600 transition group-hover:gap-2 dark:text-brand-400">
                         Explore <ArrowRight className="h-3.5 w-3.5" />
