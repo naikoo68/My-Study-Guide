@@ -20,7 +20,7 @@ function StreamStat({ icon: Ic, value, label }) {
     <div className="flex min-w-0 flex-col items-center overflow-hidden rounded-lg bg-slate-50 px-0.5 py-1.5 dark:bg-slate-800/60">
       <Ic className="h-3 w-3 text-slate-400 dark:text-slate-500" />
       <span className="mt-0.5 text-xs font-bold tabular-nums text-slate-800 dark:text-slate-100">{fmtCount(value)}</span>
-      <span className="w-full truncate text-center text-[8px] font-semibold uppercase leading-none text-slate-400 dark:text-slate-500">{label}</span>
+      <span className="w-full text-center text-[8px] font-semibold leading-none text-slate-400 dark:text-slate-500">{label}</span>
     </div>
   );
 }
