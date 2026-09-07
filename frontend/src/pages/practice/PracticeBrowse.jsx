@@ -179,7 +179,7 @@ export default function PracticeBrowse() {
                 </div>
                 <div className="flex flex-1 flex-col p-5">
                   <h3 className="text-base font-bold leading-snug text-slate-900 dark:text-white">{s.name}</h3>
-                  {s.description && <p className="mt-1 text-justify text-[11px] leading-tight text-slate-500 dark:text-slate-400">{s.description}</p>}
+                  {s.description && <p className="mt-1 text-justify text-[9px] leading-tight text-slate-500 dark:text-slate-400">{s.description}</p>}
                 {(() => {
                   // What's inside this node — counts come from the browse API.
                   const quizWord = kind === "test" ? "Tests" : "Quizzes";
