@@ -180,7 +180,7 @@ async function nameTaken(Model, name, label, excludeId = null) {
  * newly added quiz/question can take up to COUNTS_TTL_MS to show in the card
  * totals; acceptable for a decorative number and a big latency win.
  */
-const COUNTS_TTL_MS = 60 * 1000;
+const COUNTS_TTL_MS = 5 * 60 * 1000;
 const _countsCache = new Map(); // key -> { at, topicAgg, quizAgg, questionAgg }
 
 async function getSubjectContentCounts() {
@@ -288,22 +288,37 @@ export async function listStreamSubjects(req, res) {
   // subject/quiz are denormalised on their descendants, so each count is one
   // grouped scan; questions are limited to quiz questions (test-series excluded),
   // matching the stream-card counts.
-  const [topics, quizzes, questions] = await Promise.all([
-    Topic.aggregate([{ $match: { subject: { $in: ids }, deleted: { $ne: true } } }, { $group: { _id: "$subject", count: { $sum: 1 } } }]),
-    Quiz.aggregate([{ $match: { subject: { $in: ids }, deleted: { $ne: true } } }, { $group: { _id: "$subject", count: { $sum: 1 } } }]),
-    Question.aggregate([{ $match: { subject: { $in: ids }, quiz: { $ne: null }, deleted: { $ne: true } } }, { $group: { _id: "$subject", count: { $sum: 1 } } }]),
+  const [tMap, qzMap, qMap] = await Promise.all([
+    countMap(Topic, ids, "subject"),
+    countMap(Quiz, ids, "subject"),
+    countMap(Question, ids, "subject", { quiz: { $ne: null } }),
   ]);
-  const toMap = (agg) => Object.fromEntries(agg.map((r) => [String(r._id), r.count]));
-  const tMap = toMap(topics), qzMap = toMap(quizzes), qMap = toMap(questions);
   res.json(subjects.map((s) => ({ ...liteSub(s), topics: tMap[String(s._id)] || 0, quizzes: qzMap[String(s._id)] || 0, questions: qMap[String(s._id)] || 0 })));
 }
 
-async function countMap(Model, matchIds, field) {
+// Navigation count cards (topics/quizzes/questions per subject/session/quiz) are
+// decorative and change slowly, but the grouped scans behind them are expensive
+// on a large question bank — and were run LIVE on EVERY streams→subjects→topics→
+// sessions→quizzes navigation, which is what froze the site for 30–60s under load
+// on a slow/limited DB. Cache each grouped count by Model+field+extraMatch+tenant
+// +the exact id set, for a short TTL, so repeat navigation is served from memory.
+const GROUP_COUNTS_TTL_MS = 5 * 60 * 1000;
+const _groupCountCache = new Map(); // key -> { at, map }
+
+async function countMap(Model, matchIds, field, extraMatch = {}) {
+  if (!matchIds || !matchIds.length) return {};
+  const ids = matchIds.map(String);
+  const key = `${Model.modelName}:${field}:${JSON.stringify(extraMatch)}:${getCurrentTenantId() || "none"}:${getShareContent()}:${ids.slice().sort().join(",")}`;
+  const hit = _groupCountCache.get(key);
+  if (hit && Date.now() - hit.at < GROUP_COUNTS_TTL_MS) return hit.map;
   const rows = await Model.aggregate([
-    { $match: { [field]: { $in: matchIds }, deleted: { $ne: true } } },
+    { $match: { [field]: { $in: matchIds }, deleted: { $ne: true }, ...extraMatch } },
     { $group: { _id: `$${field}`, count: { $sum: 1 } } },
   ]);
-  return Object.fromEntries(rows.map((r) => [String(r._id), r.count]));
+  const map = Object.fromEntries(rows.map((r) => [String(r._id), r.count]));
+  _groupCountCache.set(key, { at: Date.now(), map });
+  if (_groupCountCache.size > 1000) { const oldest = _groupCountCache.keys().next().value; _groupCountCache.delete(oldest); } // bound memory
+  return map;
 }
 
 /* ---------------- Subjects ---------------- */
@@ -414,21 +429,21 @@ export async function listTopics(req, res) {
   const sessionIds = sessions.map((s) => s._id);
   // Quizzes + questions both live under the topic's session(s) (Question stores
   // its session), so roll each up per session onto the owning topic.
-  const [qAgg, questionAgg] = sessions.length
+  const [qBySession, questionBySession] = sessions.length
     ? await Promise.all([
-        Quiz.aggregate([{ $match: { session: { $in: sessionIds }, deleted: { $ne: true } } }, { $group: { _id: "$session", count: { $sum: 1 } } }]),
-        Question.aggregate([{ $match: { session: { $in: sessionIds }, deleted: { $ne: true } } }, { $group: { _id: "$session", count: { $sum: 1 } } }]),
+        countMap(Quiz, sessionIds, "session"),
+        countMap(Question, sessionIds, "session"),
       ])
-    : [[], []];
+    : [{}, {}];
   const perTopicQuizzes = {};
-  for (const row of qAgg) {
-    const t = sessionToTopic.get(String(row._id));
-    if (t) perTopicQuizzes[t] = (perTopicQuizzes[t] || 0) + (row.count || 0);
+  for (const [sid, count] of Object.entries(qBySession)) {
+    const t = sessionToTopic.get(sid);
+    if (t) perTopicQuizzes[t] = (perTopicQuizzes[t] || 0) + (count || 0);
   }
   const perTopicQuestions = {};
-  for (const row of questionAgg) {
-    const t = sessionToTopic.get(String(row._id));
-    if (t) perTopicQuestions[t] = (perTopicQuestions[t] || 0) + (row.count || 0);
+  for (const [sid, count] of Object.entries(questionBySession)) {
+    const t = sessionToTopic.get(sid);
+    if (t) perTopicQuestions[t] = (perTopicQuestions[t] || 0) + (count || 0);
   }
   res.json(topics.map((t) => ({ ...t, quizzes: perTopicQuizzes[String(t._id)] || 0, questions: perTopicQuestions[String(t._id)] || 0 })));
 }
