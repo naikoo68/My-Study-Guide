@@ -91,7 +91,7 @@ export default function QuizHome() {
         <EmptyState message="No streams available yet. Add some from the admin panel." />
       ) : (
         <>
-          <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <div className="mt-10 grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {filtered.map((s, i) => {
               const Icon = Icons[s.icon] || Icons.GraduationCap;
               return (
@@ -131,20 +131,20 @@ export default function QuizHome() {
                     ) : (
                       <>
                         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_30%_25%,rgba(255,255,255,0.28),transparent_60%)]" />
-                        <Icon className="relative h-11 w-11 text-white drop-shadow-md transition-transform duration-300 group-hover:scale-110" />
+                        <Icon className="relative h-9 w-9 text-white drop-shadow-md transition-transform duration-300 group-hover:scale-110" />
                       </>
                     )}
                   </div>
 
                   {/* Body */}
-                  <div className="flex flex-1 flex-col p-5">
-                    <h3 className="text-base font-bold leading-snug text-slate-900 dark:text-white">{s.name}</h3>
+                  <div className="flex flex-1 flex-col p-3.5">
+                    <h3 className="text-sm font-bold leading-snug text-slate-900 dark:text-white">{s.name}</h3>
                     {s.description && (
-                      <p className="mt-1 text-justify text-xs text-slate-500 dark:text-slate-400">{s.description}</p>
+                      <p className="mt-1 text-justify text-[11px] leading-snug text-slate-500 dark:text-slate-400">{s.description}</p>
                     )}
 
                     {/* At-a-glance size of the stream */}
-                    <div className="mt-4 grid grid-cols-4 gap-1.5">
+                    <div className="mt-3 grid grid-cols-4 gap-1">
                       <StreamStat icon={Icons.FolderOpen} value={s.subjects} label="Subjects" />
                       <StreamStat icon={Icons.Layers} value={s.topics} label="Topics" />
                       <StreamStat icon={Icons.ListChecks} value={s.quizzes} label="Quizzes" />
@@ -152,8 +152,8 @@ export default function QuizHome() {
                     </div>
 
                     {/* Footer pinned to the bottom so every card lines up */}
-                    <div className="mt-auto flex items-center justify-between border-t border-slate-100 pt-4 dark:border-slate-800">
-                      <span className="text-xs font-medium text-slate-400 dark:text-slate-500">Subject-wise quizzes</span>
+                    <div className="mt-auto flex items-center justify-between border-t border-slate-100 pt-3 dark:border-slate-800">
+                      <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500">Subject-wise quizzes</span>
                       <span className="flex items-center gap-1 text-sm font-semibold text-brand-600 transition group-hover:gap-2 dark:text-brand-400">
                         Explore <ArrowRight className="h-4 w-4" />
                       </span>
