@@ -77,7 +77,7 @@ export default function PublicNode() {
             <div className="mb-6">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{LEVEL_WORD[data.level] || "collection"}</p>
               <h1 className="mt-1 text-2xl font-bold text-slate-800 dark:text-slate-100">{data.name}</h1>
-              {data.description && <p className="mt-1 text-justify text-sm text-slate-500 dark:text-slate-400">{data.description}</p>}
+              {data.description && <p className="desc mt-1 text-justify text-sm text-slate-500 dark:text-slate-400">{data.description}</p>}
               <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
                 {data.items.length} {data.items.length === 1 ? "item" : "items"} available — tap any to take it. No account or login needed.
               </p>

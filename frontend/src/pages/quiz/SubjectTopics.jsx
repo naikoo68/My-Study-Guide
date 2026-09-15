@@ -51,7 +51,7 @@ export default function SubjectTopics() {
         <SubjectLogo name={subject.name} icon={subject.icon} color={subject.color} image={subject.image} size={64} />
         <div className="flex-1">
           <h1 className="text-3xl font-extrabold">{subject.name}</h1>
-          <p className="mt-1 text-slate-600 dark:text-slate-300">{subject.description}</p>
+          <p className="desc mt-1 text-slate-600 dark:text-slate-300">{subject.description}</p>
         </div>
         <div className="text-center">
           <p className="text-2xl font-bold text-brand-600 dark:text-brand-400">{topics.length}</p>
@@ -79,7 +79,7 @@ export default function SubjectTopics() {
               <div className="flex flex-1 flex-col p-5">
                 <h3 className="text-base font-bold leading-snug text-slate-900 dark:text-white">{t.title}</h3>
                 {t.description && (
-                  <p className="mt-1 text-justify text-[9px] leading-tight text-slate-500 dark:text-slate-400">{t.description}</p>
+                  <p className="desc mt-1 text-justify text-[9px] leading-tight text-slate-500 dark:text-slate-400">{t.description}</p>
                 )}
                 <NodeStats
                   className="mt-4"

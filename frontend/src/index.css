@@ -76,6 +76,13 @@
   p[class*="text-xl"] {
     font-size: 1rem !important; /* 16px */
   }
+  /* Entity "description" text (stream / subject / topic / exam / node / file
+     descriptions) is a fixed 9px everywhere it appears. Placed AFTER the size
+     tiers and scoped as p.desc so it wins over them and over the base rule; 9px
+     in px (not rem) to match the original compact card look. */
+  p.desc {
+    font-size: 9px !important;
+  }
 }
 
 @layer components {
