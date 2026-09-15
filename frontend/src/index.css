@@ -44,6 +44,16 @@
     @apply bg-slate-50 text-slate-800 antialiased transition-colors duration-300 dark:bg-slate-950 dark:text-slate-100;
     overscroll-behavior-y: contain;
   }
+  /* Site-wide: body paragraphs are justified (flush on both edges) for a clean,
+     book-like block of text. Only WRAPPED, multi-line text is affected — a
+     single-line paragraph looks unchanged. An explicit Tailwind alignment
+     utility on the element itself (text-center / text-left / text-right) still
+     wins by specificity, so intentionally centered subtitles, buttons wrapped in
+     <p>, and labels keep their alignment. Applies in every browser. */
+  p {
+    text-align: justify;
+    text-justify: inter-word;
+  }
 }
 
 @layer components {

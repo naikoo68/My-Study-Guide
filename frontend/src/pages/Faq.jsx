@@ -128,7 +128,7 @@ export default function Faq() {
     <div className="container-page py-14">
       <Breadcrumbs items={crumbs} />
 
-      <div className="mx-auto max-w-3xl text-center">
+      <div className="text-center">
         <span className="badge bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">FAQ</span>
         <h1 className="mt-4 text-4xl font-extrabold">Frequently Asked Questions</h1>
         <p className="mt-4 text-lg text-slate-600 dark:text-slate-300">{sub(group.intro)}</p>
@@ -151,7 +151,7 @@ export default function Faq() {
         </div>
       )}
 
-      <div className="mx-auto mt-10 max-w-3xl space-y-4">
+      <div className="mt-10 space-y-4">
         {faqs.map((f, i) => (
           <div key={i} className="card p-6">
             <h2 className="flex items-start gap-3 text-lg font-bold text-slate-800 dark:text-slate-100">
@@ -164,7 +164,7 @@ export default function Faq() {
       </div>
 
       {/* How to get started — per-audience call to action */}
-      <div className="mx-auto mt-8 flex max-w-3xl flex-wrap gap-3">
+      <div className="mt-8 flex flex-wrap gap-3">
         {group.ctas.map((c) => (
           <Link key={c.to + c.label} to={c.to} className={c.primary ? "btn-primary" : "btn-outline"}>
             {c.label} <ArrowRight className="h-4 w-4" />
@@ -172,7 +172,7 @@ export default function Faq() {
         ))}
       </div>
 
-      <div className="mx-auto mt-12 max-w-3xl">
+      <div className="mt-12">
         <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Explore {siteName}</h2>
         <div className="mt-4 flex flex-wrap gap-3">
           {exploreLinks.map((l) => (
