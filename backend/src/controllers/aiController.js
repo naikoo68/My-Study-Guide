@@ -3057,18 +3057,29 @@ export async function suggestSubjects(req, res) {
 
   const existing = Array.isArray(req.body?.existing) ? req.body.existing.map((x) => String(x || "").trim()).filter(Boolean) : [];
   const alreadyList = existing.slice(0, 200).join(", ");
+  // Re-scan (the "missing subjects" flow): ask ONLY for genuinely-missing ones
+  // and converge once the stream already has enough, instead of padding forever.
+  const rescan = existing.length > 0;
+  const haveN = existing.length;
+  const wellCovered = haveN >= 20;
 
   const userPrompt = [
     `List the academic SUBJECTS that belong to the stream / course / category named "${stream}".`,
     "Rules:",
-    "- BE EXHAUSTIVE: aim to cover the FULL, COMPLETE breadth of the stream so you BARELY MISS ANY subject a student in this stream studies. Include the core subjects AND the allied / optional / commonly-paired ones (e.g. for Electrical Engineering: Circuit Theory, Power Systems, Control Systems, Electrical Machines, Signals & Systems, Power Electronics, Measurements & Instrumentation, Electromagnetics …). Do NOT stop early or return only the few obvious ones.",
+    rescan
+      ? `- The user ALREADY has ${haveN} subjects for this stream (listed below)${wellCovered ? " — that is ALREADY comprehensive coverage" : ""}. Suggest ONLY MAJOR subjects that are genuinely and completely ABSENT — not niche, narrow, or specialisations/sub-fields of subjects that already exist.`
+      : "- BE EXHAUSTIVE: aim to cover the FULL, COMPLETE breadth of the stream so you BARELY MISS ANY subject a student in this stream studies. Include the core subjects AND the allied / optional / commonly-paired ones (e.g. for Electrical Engineering: Circuit Theory, Power Systems, Control Systems, Electrical Machines, Signals & Systems, Power Electronics, Measurements & Instrumentation, Electromagnetics …). Do NOT stop early or return only the few obvious ones.",
     "- Each subject has a short name (2-5 words) and a one-line description (max ~14 words).",
-    "- List as MANY subjects as GENUINELY belong to the stream (typically 8–40), most important first. Never pad with filler that does not truly belong.",
+    rescan
+      ? (wellCovered
+          ? "- A single stream rarely needs more than ~20–25 subjects, and this one ALREADY HAS ENOUGH. STRONGLY PREFER returning an EMPTY array []. Return a subject ONLY if a WHOLE MAJOR area is completely missing. It is normal to return []."
+          : "- Return as FEW as are genuinely missing, or an EMPTY array [] if it's already well covered. Never pad, and never split an existing subject into finer pieces.")
+      : "- List as MANY subjects as GENUINELY belong to the stream (typically 8–40), most important first. Never pad with filler that does not truly belong.",
     "- NO DUPLICATES, NO NEAR-DUPLICATES / SYNONYMS, AND NO OVERLAPS: never list the SAME subject twice under different names or wordings, and never list a broader COMBINED wording alongside its parts. Include ONLY ONE canonical entry per subject. For example: list ONLY \"Radiobiology\" OR \"Radiation Biology\" (never both); never list \"Renaissance and Reformation\" together with \"The Renaissance\" and/or \"The Reformation\"; never list \"Contemporary History\" and \"Contemporary Global History\"; never \"The Enlightenment\" and \"Enlightenment Philosophy\"; never \"Age of Revolutions\" and \"Atlantic Revolutions\". Also avoid a broad subject AND its own sub-field as two separate subjects when the sub-field is normally taught inside it. (But DO keep genuinely distinct specializations, e.g. \"Algebra\" vs \"Linear Algebra\".)",
     "- If the stream is an exam (e.g. JKSSB, UPSC), list its main papers / subjects instead.",
-    alreadyList ? `- These subjects ALREADY EXIST — do NOT list them again or any near-duplicate/overlap of them: ${alreadyList}.` : "",
+    alreadyList ? `- These subjects ALREADY EXIST — do NOT list them again, nor any near-duplicate, sub-part, synonym or CONCEPTUAL OVERLAP of them: ${alreadyList}.` : "",
     "",
-    'Return ONLY a JSON array like: [{"name":"Circuit Theory","description":"Network analysis, theorems and AC/DC circuits."}]',
+    `Return ONLY a JSON array like: [{"name":"Circuit Theory","description":"Network analysis, theorems and AC/DC circuits."}]${rescan ? " (or [] if nothing important is missing)" : ""}`,
     "No markdown, no commentary.",
   ].filter(Boolean).join("\n");
 
@@ -3091,8 +3102,19 @@ export async function suggestSubjects(req, res) {
   let list = dedupeExact(parseConceptArray(r.content), (x) => x.name, existing);
   const canon = await canonicalizeConcepts({ chosen, owner: scope.owner, kind: "subject", parentName: stream, items: list, existingNames: existing });
   if (canon && canon.length) list = dedupeExact(canon, (x) => x.name, existing);
+  list = dropSameConceptAsExisting(list, (x) => x.name, existing);
+  // STRICT semantic prune: drop candidates that mean the same as an existing
+  // subject even when worded differently.
+  if (rescan && list.length) {
+    list = await pruneOverlapsWithExisting({ chosen, owner: scope.owner, kind: "subject", parentName: stream, items: list, existingNames: existing });
+  }
   const subjects = list.slice(0, 60);
-  if (!subjects.length) return res.status(502).json({ message: "The AI didn't return any subjects. Try again." });
+  if (!subjects.length) {
+    // On a re-scan, empty = already well covered → success (UI shows "all
+    // covered"). On a fresh search, empty means the AI failed → retry.
+    if (rescan) return res.json({ subjects: [] });
+    return res.status(502).json({ message: "The AI didn't return any subjects. Try again." });
+  }
   res.json({ subjects });
 }
 
@@ -3125,6 +3147,48 @@ function dropSameConceptAsExisting(items, getName, existingNames) {
     if (!w.size) return true;
     return !ex.some((e) => e.size === w.size && [...w].every((x) => e.has(x)));
   });
+}
+
+// STRICT semantic overlap filter. Given AI CANDIDATE names and the user's
+// EXISTING names, ask the model to drop any candidate that is already covered by
+// / a synonym of / a sub-part of / substantially OVERLAPS an existing one — EVEN
+// WHEN WORDED COMPLETELY DIFFERENTLY (which word-matching can't catch, e.g.
+// "Visualization of Science" vs an existing "Science Mapping"). Returns the kept
+// items. Fail-OPEN: on any error the candidates are returned unchanged so the
+// feature never breaks — but an intentional empty result (all overlap) is kept.
+async function pruneOverlapsWithExisting({ chosen, owner, kind, parentName, items, existingNames }) {
+  const existing = (existingNames || []).map((s) => String(s || "").trim()).filter(Boolean);
+  if (!Array.isArray(items) || !items.length || !existing.length) return items || [];
+  const label = kind === "topic" ? "topics" : "subjects";
+  const userPrompt = [
+    `Refining CANDIDATE ${label} for "${parentName}". The user ALREADY HAS these ${label}:`,
+    existing.slice(0, 300).map((n) => `- ${n}`).join("\n"),
+    "",
+    `CANDIDATE ${label} to check:`,
+    items.map((it) => `- ${it.name}`).join("\n"),
+    "",
+    `Return ONLY the candidates that are GENUINELY NEW and DISTINCT. REMOVE any candidate that is already COVERED BY, a SYNONYM/rewording of, a SUB-PART of, or that SUBSTANTIALLY OVERLAPS any existing ${kind} above — EVEN IF WORDED COMPLETELY DIFFERENTLY. For example: remove "Visualization of Science" when "Science Mapping" already exists; remove "Mathematical Foundations of Scientometrics" when "Bibliometric Laws"/"Foundations" exist; remove "Bibliometric Databases and Sources" when "Database Coverage" exists. Keep a candidate ONLY if it is a real, separate ${kind} not already implied by any existing one.`,
+    "It is completely fine — and expected — to return an EMPTY array [] if every candidate overlaps something the user already has.",
+    'Return ONLY a JSON array of the KEPT candidate names, copied EXACTLY as written above — e.g. ["Name A","Name B"]. No markdown, no commentary.',
+  ].join("\n");
+  try {
+    const r = await callWithFallback({
+      endpoints: chosen.endpoints, model: chosen.model, userPrompt, maxTokens: 1500, owner,
+      systemPrompt: "You output ONLY a JSON array of strings — no markdown, no commentary.",
+      failOnEmpty: true,
+    });
+    if (!r.ok) return items; // fail-open — never break the feature on a provider hiccup
+    let kept;
+    try { kept = JSON.parse(r.content); }
+    catch { const m = String(r.content || "").match(/\[[\s\S]*\]/); kept = m ? JSON.parse(m[0]) : null; }
+    if (!Array.isArray(kept)) return items; // couldn't parse → fail-open
+    const keepSet = new Set(kept.map((s) => normConceptName(String(s || ""))).filter(Boolean));
+    if (!keepSet.size) return []; // model kept none → every candidate overlaps (intended)
+    const filtered = items.filter((it) => keepSet.has(normConceptName(it.name)));
+    return filtered.length ? filtered : items; // if names didn't align, don't nuke everything
+  } catch {
+    return items; // fail-open
+  }
 }
 
 export async function suggestTopics(req, res) {
@@ -3195,6 +3259,13 @@ export async function suggestTopics(req, res) {
   // that are the same topic worded differently (plural / reordered / filler
   // words) which exact-name matching misses. Keeps genuine specialisations.
   list = dropSameConceptAsExisting(list, (x) => x.name, existing);
+  // STRICT semantic prune: drop candidates that MEAN the same as an existing
+  // topic even when worded completely differently (e.g. "Visualization of
+  // Science" vs an existing "Science Mapping"). Only when there are existing
+  // topics to compare against.
+  if (rescan && list.length) {
+    list = await pruneOverlapsWithExisting({ chosen, owner: scope.owner, kind: "topic", parentName: subject, items: list, existingNames: existing });
+  }
   const topics = list.slice(0, 80).map((x) => ({ title: x.name, description: x.description }));
   if (!topics.length) {
     // On a RE-SCAN an empty result is EXPECTED — the subject is already well
