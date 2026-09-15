@@ -3147,15 +3147,22 @@ export async function suggestTopics(req, res) {
   // AI keeps padding and every scan surfaces another big batch of overlapping
   // topics. A fresh search (no existing) still gets the full, exhaustive list.
   const rescan = existing.length > 0;
+  const haveN = existing.length;
+  // Once a subject already has a healthy number of topics, a re-scan must
+  // CONVERGE (return few or nothing) instead of forever surfacing niche extras —
+  // otherwise repeatedly adding "3 more" balloons a subject past 100 topics.
+  const wellCovered = haveN >= 25;
   const userPrompt = [
     `List the TOPICS / chapters that make up the subject "${subject}"${context}.`,
     "Rules:",
     rescan
-      ? "- The user ALREADY has a good set of topics (listed below). Suggest ONLY topics that are GENUINELY MISSING and important — real, distinct parts of the syllabus that are NOT already present and do NOT overlap, restate or specialise any existing one. Do NOT try to be exhaustive, and do NOT pad the list to reach a count."
+      ? `- The user ALREADY has ${haveN} topics for this subject (listed below)${wellCovered ? " — that is ALREADY comprehensive coverage" : ""}. Suggest ONLY MAJOR, CORE branches of the syllabus that are genuinely and completely ABSENT. Do NOT suggest niche or narrow items, sub-sub-topics, applications, tools, techniques, methods, or specialisations of topics that already exist.`
       : "- BE EXHAUSTIVE: cover the FULL, COMPLETE syllabus of the subject so you BARELY MISS ANY topic a student actually studies within it (e.g. for Physics: Mechanics, Thermodynamics, Optics, Modern Physics, Electrostatics, Current Electricity, Magnetism, Waves & Oscillations, Electromagnetic Induction, Semiconductors …). Include foundational, core AND the less-obvious/advanced chapters. Do NOT stop early or return only the few headline topics.",
     "- Each topic has a short title (2-6 words) and a one-line description (max ~14 words).",
     rescan
-      ? "- Return as FEW as are genuinely missing. If the subject is already well covered, return an EMPTY array []. Quality over quantity — never invent filler just to have more."
+      ? (wellCovered
+          ? "- A single subject rarely needs more than ~25–30 topics, and this one ALREADY HAS ENOUGH. STRONGLY PREFER returning an EMPTY array []. Return a topic ONLY if a WHOLE MAJOR branch of the subject is completely missing — never niche additions. It is normal and expected to return []."
+          : "- Return as FEW as are genuinely missing, or an EMPTY array [] if it's already well covered. Never pad, and never split an existing topic into finer pieces.")
       : "- List as MANY topics as the subject GENUINELY contains (typically 8–50), ordered the way they are usually taught (foundational first). Never pad with filler that isn't really part of the subject.",
     "- NO DUPLICATES, NO NEAR-DUPLICATES / SYNONYMS, AND NO OVERLAPS: never list the SAME topic twice under different names or wordings, never a synonym, and never a broader COMBINED wording alongside its parts. Include ONLY ONE canonical entry per topic (e.g. list ONLY \"Radiobiology\" OR \"Radiation Biology\", never both; never \"Kinematics\" said two ways; never a combined \"Work and Energy\" alongside separate \"Work\" and \"Energy\" when they mean the same coverage). Do NOT split one topic into two near-identical items. (But DO keep genuinely distinct topics separate.)",
     "- Stay STRICTLY inside the scope of this subject — do NOT drift into other subjects or list the subject itself as a topic.",
@@ -3189,7 +3196,13 @@ export async function suggestTopics(req, res) {
   // words) which exact-name matching misses. Keeps genuine specialisations.
   list = dropSameConceptAsExisting(list, (x) => x.name, existing);
   const topics = list.slice(0, 80).map((x) => ({ title: x.name, description: x.description }));
-  if (!topics.length) return res.status(502).json({ message: "The AI didn't return any topics. Try again." });
+  if (!topics.length) {
+    // On a RE-SCAN an empty result is EXPECTED — the subject is already well
+    // covered — so return it as success (the UI shows "all covered"), not an
+    // error. On a FRESH search an empty result means the AI failed → retry.
+    if (rescan) return res.json({ topics: [] });
+    return res.status(502).json({ message: "The AI didn't return any topics. Try again." });
+  }
   res.json({ topics });
 }
 
