@@ -1762,11 +1762,19 @@ export default function AdminContent() {
                 : <>Split the quiz <b>“{splitTarget.name}”</b>{splitTarget.count != null ? <> ({splitTarget.count} questions)</> : null} — it keeps its name and first chunk; the rest go into new quizzes numbered after your existing ones (e.g. splitting “Quiz 2” adds Quiz 3, Quiz 4, …).</>}
             </p>
             {/* Split mode: a fixed number per quiz, OR one quiz per question type. */}
-            <div className="mb-3 flex gap-2">
-              <button type="button" onClick={() => setSplitBy("count")} className={`flex-1 rounded-lg border px-3 py-1.5 text-sm font-medium transition ${splitBy === "count" ? "border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300" : "border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300"}`}>Number per quiz</button>
-              <button type="button" onClick={() => setSplitBy("type")} className={`flex-1 rounded-lg border px-3 py-1.5 text-sm font-medium transition ${splitBy === "type" ? "border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300" : "border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300"}`}>By question type</button>
+            <div className="mb-3 flex flex-wrap gap-2">
+              <button type="button" onClick={() => setSplitBy("count")} className={`min-w-[7rem] flex-1 rounded-lg border px-3 py-1.5 text-sm font-medium transition ${splitBy === "count" ? "border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300" : "border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300"}`}>Number per quiz</button>
+              <button type="button" onClick={() => setSplitBy("type")} className={`min-w-[7rem] flex-1 rounded-lg border px-3 py-1.5 text-sm font-medium transition ${splitBy === "type" ? "border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300" : "border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300"}`}>By question type</button>
+              <button type="button" onClick={() => setSplitBy("weights")} className={`min-w-[7rem] flex-1 rounded-lg border px-3 py-1.5 text-sm font-medium transition ${splitBy === "weights" ? "border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300" : "border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300"}`}>By weights</button>
             </div>
-            {splitBy === "count" ? (
+            {splitBy === "type" ? (
+              <p className="rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-300">
+                Each question type becomes its own quiz — e.g. <b>MCQ</b>, <b>Matching</b>, <b>Assertion &amp; Reason</b>, <b>Statement</b>…{" "}
+                {splitTarget.kind === "topic"
+                  ? "All the topic's questions are regrouped by type."
+                  : "This quiz keeps its name and its first type; the other types move into new quizzes named after each type."}
+              </p>
+            ) : (
               <>
                 <label className="mb-1 block text-sm font-semibold">Questions per quiz</label>
                 <input
@@ -1778,19 +1786,18 @@ export default function AdminContent() {
                   className="input"
                   autoFocus
                 />
-                {splitTarget.count != null && (
-                  <p className="mt-1 text-xs text-slate-400">
-                    {splitTarget.count} questions ÷ {Math.max(1, parseInt(splitPer, 10) || 1)} = about {Math.ceil((splitTarget.count || 0) / Math.max(1, parseInt(splitPer, 10) || 1))} quiz(zes).
+                {splitBy === "weights" ? (
+                  <p className="mt-2 rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-300">
+                    Each quiz is built as <b>~50% plain MCQs</b> and <b>~50% the other question types</b>, split evenly across the types present. A quiz of {Math.max(1, parseInt(splitPer, 10) || 1)} → about <b>{Math.ceil(Math.max(1, parseInt(splitPer, 10) || 1) / 2)} MCQs</b> + {Math.max(1, parseInt(splitPer, 10) || 1) - Math.ceil(Math.max(1, parseInt(splitPer, 10) || 1) / 2)} spread across the rest.
                   </p>
+                ) : (
+                  splitTarget.count != null && (
+                    <p className="mt-1 text-xs text-slate-400">
+                      {splitTarget.count} questions ÷ {Math.max(1, parseInt(splitPer, 10) || 1)} = about {Math.ceil((splitTarget.count || 0) / Math.max(1, parseInt(splitPer, 10) || 1))} quiz(zes).
+                    </p>
+                  )
                 )}
               </>
-            ) : (
-              <p className="rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-300">
-                Each question type becomes its own quiz — e.g. <b>MCQ</b>, <b>Matching</b>, <b>Assertion &amp; Reason</b>, <b>Statement</b>…{" "}
-                {splitTarget.kind === "topic"
-                  ? "All the topic's questions are regrouped by type."
-                  : "This quiz keeps its name and its first type; the other types move into new quizzes named after each type."}
-              </p>
             )}
             {splitTarget.kind === "topic" && (
               <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
