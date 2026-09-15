@@ -1347,6 +1347,16 @@ const CHUNK_SIZE = 12; // questions generated per provider call — smaller so t
 // instead of stalling the whole run. Tunable via env for a fast/slow provider.
 const CALL_TIMEOUT_MS = Math.min(120000, Math.max(15000, parseInt(process.env.AI_CALL_TIMEOUT_MS, 10) || 60000));
 
+// How PATIENT a rate-limited (429) key is before it's retired for the wave.
+// Each key is typically its own Google account with its own per-minute free-tier
+// limit, so a 429 means "this key is over quota for ~a minute" — waiting it out
+// lets that key keep producing instead of sitting idle. MAX_QUOTA_WAITS = how
+// many 429s we ride out per key; QUOTA_WAIT_CAP_MS = the longest single wait.
+// Both tunable via env: raise AI_MAX_QUOTA_WAITS for more patience (more
+// questions per key on free tiers), lower it to fail faster.
+const MAX_QUOTA_WAITS = Math.max(1, Math.min(30, parseInt(process.env.AI_MAX_QUOTA_WAITS, 10) || 8));
+const QUOTA_WAIT_CAP_MS = Math.max(5000, Math.min(120000, parseInt(process.env.AI_QUOTA_WAIT_MS, 10) || 60000));
+
 // A "thinking"/lite model (e.g. gemini-2.5-flash-lite) frequently spends its
 // budget reasoning and returns an EMPTY reply for JSON generation, so keys
 // pinned to one produce nothing. Used to warn the user up-front.
@@ -1668,7 +1678,9 @@ async function runGenerationJob(id, ctx) {
     sigList.push({ tk, ans });
     return false;
   };
-  const MAX_QUOTA_WAITS = 3; // per key: how many per-minute 429s we ride out before retiring it (lowered so a limited key frees up / the fallback pool takes over faster)
+  // MAX_QUOTA_WAITS is a module-level, env-tunable constant (see top of file) so
+  // a rate-limited key waits out its per-minute limit and keeps producing instead
+  // of retiring early.
   const MAX_EMPTY = 4; // per key: empty (safety/thinking-only) replies we retry before retiring the key
   const MAX_ATTEMPTS = Math.ceil(target / chunkSize) + 12 + workerCount * (MAX_QUOTA_WAITS + MAX_EMPTY); // global safety cap
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -1839,7 +1851,10 @@ async function runGenerationJob(id, ctx) {
         // This key hit its per-minute limit. Wait it out; the other key-workers
         // keep generating in parallel meanwhile.
         if (quotaWaits >= MAX_QUOTA_WAITS) break;
-        const waitMs = Math.min(retryWaitMs(null, r.detail) || 20000, 30000); // cap the per-429 sleep so one limited key can't stall the run for minutes
+        // Wait out this key's per-minute limit (honour the provider's suggested
+        // retry delay, capped) so a valid-but-throttled key resumes producing
+        // rather than retiring with 0 questions.
+        const waitMs = Math.min(retryWaitMs(null, r.detail) || 30000, QUOTA_WAIT_CAP_MS);
         if (Date.now() + waitMs >= deadline) break;
         quotaWaits += 1;
         await sleep(waitMs);
