@@ -3,6 +3,7 @@ import { Target, Eye, HeartHandshake, Users, Award, BookOpen } from "lucide-reac
 import { useSettings } from "../context/SettingsContext";
 import { analyticsService } from "../services";
 import { useSeo } from "../lib/useSeo";
+import { parseRichText } from "../lib/aboutContent";
 
 // Fixed icon sets (cycled by index) so admins only edit the text.
 const VALUE_ICONS = [Target, Eye, HeartHandshake];
@@ -18,6 +19,16 @@ export default function About() {
   useEffect(() => {
     analyticsService.stats().then(setRealStats).catch(() => {});
   }, []);
+  // Parse the admin-editable intro into structured blocks so long, multi-section
+  // write-ups render with real (bold) section headings and a readable article
+  // layout instead of one flat, centered block. Everything BEFORE the first
+  // heading stays a centered "lead"; from the first heading on we render a
+  // left-aligned article. Short intros (no headings) render centered as before.
+  const introBlocks = parseRichText(settings.aboutIntro);
+  const firstHeadingIdx = introBlocks.findIndex((b) => b.type === "heading");
+  const leadBlocks = firstHeadingIdx === -1 ? introBlocks : introBlocks.slice(0, firstHeadingIdx);
+  const bodyBlocks = firstHeadingIdx === -1 ? [] : introBlocks.slice(firstHeadingIdx);
+
   const fmt = (n) => Number(n || 0).toLocaleString("en-IN");
   const DEFAULT_KEYS = ["students", "quizzes", "tests"];
   const DEFAULT_ROWS = [
@@ -42,8 +53,22 @@ export default function About() {
       <div className="mx-auto max-w-3xl text-center">
         <span className="badge bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">About Us</span>
         <h1 className="mt-4 text-4xl font-extrabold">{settings.aboutHeading}</h1>
-        <p className="mt-4 whitespace-pre-line text-lg text-slate-600 dark:text-slate-300">{settings.aboutIntro}</p>
+        {leadBlocks.map((b, i) => (
+          <p key={i} className="mt-4 whitespace-pre-line text-lg text-slate-600 dark:text-slate-300">{b.text}</p>
+        ))}
       </div>
+
+      {bodyBlocks.length > 0 && (
+        <article className="mx-auto mt-10 max-w-3xl text-left">
+          {bodyBlocks.map((b, i) =>
+            b.type === "heading" ? (
+              <h2 key={i} className="mt-10 text-2xl font-bold text-slate-800 first:mt-0 dark:text-slate-100">{b.text}</h2>
+            ) : (
+              <p key={i} className="mt-3 whitespace-pre-line leading-relaxed text-slate-600 dark:text-slate-300">{b.text}</p>
+            )
+          )}
+        </article>
+      )}
 
       {values.length > 0 && (
         <div className="mt-12 grid gap-6 md:grid-cols-3">
