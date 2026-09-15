@@ -2,8 +2,12 @@ import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { ShieldCheck, Mail, Lock, LogIn, Eye, EyeOff, Loader2, AlertCircle } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
+import { useSeo } from "../../lib/useSeo";
 
 export default function AdminLogin() {
+  // Keep the admin login out of search engines (defense-in-depth on top of the
+  // X-Robots-Tag header in public/_headers).
+  useSeo("Admin Login", "Secure access to the admin panel.", undefined, null, { noindex: true });
   const { login, logout } = useAuth();
   const navigate = useNavigate();
   const [showPw, setShowPw] = useState(false);

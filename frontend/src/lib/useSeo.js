@@ -54,7 +54,13 @@ function upsertJsonLd(obj) {
   el.textContent = JSON.stringify(obj);
 }
 
-export function useSeo(title, description, canonical, jsonLd) {
+// options.noindex → emit <meta name="robots" content="noindex, nofollow"> so the
+// page is kept out of search results (defense-in-depth on top of the HTTP-level
+// X-Robots-Tag header in public/_headers). We ALWAYS set the robots meta — to
+// "index, follow" by default — so navigating from a noindex page (e.g. the admin
+// login) to a normal page flips it back and a stale "noindex" can never leak.
+export function useSeo(title, description, canonical, jsonLd, options = {}) {
+  const noindex = !!options.noindex;
   useEffect(() => {
     const fullTitle = title ? `${title} | ${SITE}` : DEFAULT_TITLE;
     const desc = description || DEFAULT_DESC;
@@ -63,6 +69,7 @@ export function useSeo(title, description, canonical, jsonLd) {
       (typeof window !== "undefined" ? window.location.origin + window.location.pathname : "");
     document.title = fullTitle;
     upsertMeta("name", "description", desc);
+    upsertMeta("name", "robots", noindex ? "noindex, nofollow" : "index, follow");
     upsertMeta("property", "og:title", fullTitle);
     upsertMeta("property", "og:description", desc);
     if (url) upsertMeta("property", "og:url", url);
@@ -72,5 +79,5 @@ export function useSeo(title, description, canonical, jsonLd) {
     upsertJsonLd(jsonLd || null);
     // Clear page-specific JSON-LD on unmount so it never leaks to the next page.
     return () => upsertJsonLd(null);
-  }, [title, description, canonical, JSON.stringify(jsonLd)]);
+  }, [title, description, canonical, JSON.stringify(jsonLd), noindex]);
 }
