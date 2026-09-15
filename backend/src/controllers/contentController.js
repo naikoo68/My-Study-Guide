@@ -13,7 +13,7 @@ import { notifyNewContent } from "../utils/notify.js";
 import { ownerValue, ownerFilter, isClient } from "../utils/ownership.js";
 import { duplicateQuestions } from "../utils/duplicateQuestions.js";
 import { byNatural } from "../utils/naturalSort.js";
-import { groupByType, uniqueName } from "../utils/questionTypes.js";
+import { groupByType, uniqueName, balancedMixChunks } from "../utils/questionTypes.js";
 import { NOT_DELETED, softDeletePatch } from "../utils/softDelete.js";
 import { sanitizeBody, ALLOW } from "../utils/sanitizeBody.js";
 import { normName } from "../utils/conceptDedupe.js";
@@ -584,7 +584,8 @@ export async function moveQuiz(req, res) {
 // 50/quiz → Quiz 1..Quiz 6.
 export async function splitQuiz(req, res) {
   const per = Math.max(1, Math.min(500, parseInt(req.body?.perQuiz, 10) || 50));
-  const byType = req.body?.by === "type"; // "type" → one quiz per question type; else N-per-quiz
+  const byType = req.body?.by === "type"; // "type" → one quiz per question type
+  const byWeights = req.body?.by === "weights"; // "weights" → each quiz ~50% MCQ + rest even; else N-per-quiz
   const quiz = await Quiz.findById(req.params.id);
   if (!quiz) return res.status(404).json({ message: "Quiz not found" });
 
@@ -619,6 +620,14 @@ export async function splitQuiz(req, res) {
     }
     chunks = groups.map((g) => g.ids);
     nameFor = (k) => uniqueName(groups[k].label, usedLower);
+  } else if (byWeights) {
+    // Balanced mix: each new quiz is ~50% plain MCQ + ~50% the other types,
+    // evenly. New chunks are named "Quiz N" like the count mode.
+    if (total <= per) {
+      return res.json({ message: `No split needed — this quiz has ${total} question(s) (≤ ${per}).`, quizzes: 1, created: 0 });
+    }
+    chunks = balancedMixChunks(questions, per);
+    nameFor = () => nextQuizTitle();
   } else {
     if (total <= per) {
       return res.json({ message: `No split needed — this quiz has ${total} question(s) (≤ ${per}).`, quizzes: 1, created: 0 });
@@ -636,7 +645,7 @@ export async function splitQuiz(req, res) {
     const newQuiz = await Quiz.create({ title: nameFor(k), subject: quiz.subject, session: quiz.session, index: index++ });
     await Question.updateMany({ _id: { $in: chunks[k] } }, { $set: { quiz: newQuiz._id, session: quiz.session, subject: quiz.subject } }, { timestamps: false }); // split = association only, keep updatedAt
   }
-  res.json({ message: `Split ${total} questions into ${chunks.length} quizzes${byType ? " by type" : ""}.`, quizzes: chunks.length, created: chunks.length - 1 });
+  res.json({ message: `Split ${total} questions into ${chunks.length} quizzes${byType ? " by type" : byWeights ? " by weights" : ""}.`, quizzes: chunks.length, created: chunks.length - 1 });
 }
 
 // POST /api/quizzes/:id/merge  { sourceIds: [] }
@@ -763,7 +772,8 @@ export async function copyQuestions(req, res) {
 // → Quiz 1..Quiz 4.
 export async function splitTopic(req, res) {
   const per = Math.max(1, Math.min(500, parseInt(req.body?.perQuiz, 10) || 50));
-  const byType = req.body?.by === "type"; // "type" → one quiz per question type; else N-per-quiz
+  const byType = req.body?.by === "type"; // "type" → one quiz per question type
+  const byWeights = req.body?.by === "weights"; // "weights" → each quiz ~50% MCQ + rest even; else N-per-quiz
   const topic = await Topic.findById(req.params.id);
   if (!topic) return res.status(404).json({ message: "Topic not found" });
 
@@ -787,6 +797,10 @@ export async function splitTopic(req, res) {
     chunks = groups.map((g) => g.ids);
     const usedLower = new Set();
     names = groups.map((g) => uniqueName(g.label, usedLower));
+  } else if (byWeights) {
+    // Balanced mix: each quiz ~50% plain MCQ + ~50% the other types, evenly.
+    chunks = balancedMixChunks(questions, per);
+    names = chunks.map((_, k) => `Quiz ${k + 1}`);
   } else {
     chunks = [];
     for (let i = 0; i < total; i += per) chunks.push(questions.slice(i, i + per).map((q) => q._id));
@@ -810,7 +824,7 @@ export async function splitTopic(req, res) {
   const extraSessionIds = sessionIds.filter((id) => String(id) !== String(targetSession._id));
   if (extraSessionIds.length) await Session.deleteMany({ _id: { $in: extraSessionIds } });
 
-  res.json({ message: `Split ${total} questions into ${chunks.length} quizzes${byType ? " by type" : ""}.`, quizzes: chunks.length, created: chunks.length });
+  res.json({ message: `Split ${total} questions into ${chunks.length} quizzes${byType ? " by type" : byWeights ? " by weights" : ""}.`, quizzes: chunks.length, created: chunks.length });
 }
 
 // GET /api/quizzes/:quizId/questions — practice questions (with answers)

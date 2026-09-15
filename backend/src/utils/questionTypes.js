@@ -55,3 +55,85 @@ export function uniqueName(label, usedLower) {
   usedLower.add(name.toLowerCase());
   return name;
 }
+
+// "Split by weights": chunk question docs (each needing `_id` + `type`) into
+// quizzes of `per`, where EACH quiz is composed ~50% plain MCQ and ~50% the
+// OTHER question types present, split as EVENLY as possible across those types.
+// Returns an array of chunks (arrays of ids), in order — chunk 0 is the first
+// quiz. Every question is used exactly once and no id is duplicated.
+//
+// Design decisions (see the split UI help text):
+//  - Half rounds UP to MCQ, so an odd quiz size (e.g. 25 → 13 MCQ + 12 others).
+//  - The non-MCQ half is dealt round-robin across the present non-MCQ types in
+//    the standard TYPE_ORDER, so earlier types get the extra when it doesn't
+//    divide evenly (e.g. 12 across 5 types → 3,3,2,2,2).
+//  - Scarce MCQs are spread EVENLY across all quizzes (early quizzes don't hoard
+//    them) and MCQ demand is capped at what exists.
+//  - If a pool runs dry, the shortfall is back-filled from whatever remains so
+//    each quiz still reaches its target size (only the final quiz may be smaller
+//    when the questions simply run out).
+export function balancedMixChunks(questions, per) {
+  const size = Math.max(1, per);
+  const list = questions || [];
+  if (!list.length) return [];
+
+  // Plain-MCQ ids in one pool; every other present type in its own pool, kept in
+  // TYPE_ORDER, each preserving input order.
+  const groups = groupByType(list);
+  let mcqPool = [];
+  const otherPools = [];
+  for (const g of groups) {
+    if (g.typeKey === "mcq") mcqPool = [...g.ids];
+    else otherPools.push([...g.ids]);
+  }
+
+  const otherRemaining = () => otherPools.reduce((a, p) => a + p.length, 0);
+  const remaining = () => mcqPool.length + otherRemaining();
+
+  // Deal up to `n` ids round-robin across the non-empty "other" pools so the
+  // non-MCQ half is spread as evenly as possible across those types.
+  const takeOthers = (n) => {
+    const out = [];
+    let progressed = true;
+    while (out.length < n && progressed) {
+      progressed = false;
+      for (const pool of otherPools) {
+        if (out.length >= n) break;
+        if (pool.length) { out.push(pool.shift()); progressed = true; }
+      }
+    }
+    return out;
+  };
+
+  const total = list.length;
+  const numQuizzes = Math.ceil(total / size);
+  const chunks = [];
+  for (let q = 0; q < numQuizzes; q++) {
+    const left = remaining();
+    if (!left) break;
+    const thisSize = Math.min(size, left);
+    const quizzesLeft = numQuizzes - q;
+
+    // Target ~half MCQ, but never more MCQs than exist and spread a scarce MCQ
+    // pool evenly over the remaining quizzes rather than front-loading it.
+    const half = Math.ceil(thisSize / 2);
+    const mcqEven = Math.ceil(mcqPool.length / quizzesLeft);
+    let mcqTake = Math.min(half, mcqEven, mcqPool.length);
+    let otherTake = thisSize - mcqTake;
+    // Not enough "other" questions to fill the non-MCQ half → give slots to MCQ.
+    if (otherTake > otherRemaining()) {
+      const shortfall = otherTake - otherRemaining();
+      otherTake -= shortfall;
+      mcqTake = Math.min(mcqTake + shortfall, mcqPool.length);
+    }
+
+    const chunk = [];
+    for (let i = 0; i < mcqTake && mcqPool.length; i++) chunk.push(mcqPool.shift());
+    chunk.push(...takeOthers(otherTake));
+    // Back-fill any residual shortfall from whatever's left (MCQ first, then others).
+    while (chunk.length < thisSize && mcqPool.length) chunk.push(mcqPool.shift());
+    if (chunk.length < thisSize) chunk.push(...takeOthers(thisSize - chunk.length));
+    if (chunk.length) chunks.push(chunk);
+  }
+  return chunks;
+}
