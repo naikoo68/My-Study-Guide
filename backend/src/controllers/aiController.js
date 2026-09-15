@@ -1361,7 +1361,12 @@ const QUOTA_WAIT_CAP_MS = Math.max(5000, Math.min(120000, parseInt(process.env.A
 // budget reasoning and returns an EMPTY reply for JSON generation, so keys
 // pinned to one produce nothing. Used to warn the user up-front.
 function isWeakModel(m) {
-  return /(?:lite|thinking)/i.test(String(m || ""));
+  // Lite / thinking / preview / experimental / research / nano models tend to
+  // return empty (or non-question) output for JSON quiz generation. Treat them
+  // all as "weak" so auto-rotation never PICKS or PERSISTS one as if it were a
+  // good full model — this is what let "deep-research-max-preview-…" keep coming
+  // back onto keys. (Kept broad and aligned with orderForDetection's demotion.)
+  return /lite|thinking|preview|experimental|nano|deep[-_ ]?research|research|(?:^|[-_])exp(?:$|[-_])/i.test(String(m || ""));
 }
 
 // ---- Per-account AI generation limits (admin global cap + client plans) ----
@@ -1771,10 +1776,13 @@ async function runGenerationJob(id, ctx) {
     let list = [];
     try { list = await fetchModels(ep.key, ep.baseUrl); } catch { list = []; }
     list = (list || []).filter((m) => m && !NON_TEXT_MODEL.test(m));
-    // Full (generation-capable) models first for quality; weak/lite models after,
-    // as EXTRA quota buckets to fall back on once the full ones are limited.
-    const ordered = [...list.filter((m) => !isWeakModel(m)), ...list.filter((m) => isWeakModel(m))];
-    if (ep.model && !ordered.includes(ep.model)) ordered.unshift(ep.model); // always keep the configured model in play
+    // Order BEST-first using the same preference the auto-detector uses (real
+    // full flash models like gemini-2.5-flash first; lite/preview/research ones
+    // demoted to the back as fallback-only). This stops rotation from landing on
+    // — and persisting — a junk "preview/deep-research" id just because it wasn't
+    // literally named "lite".
+    const ordered = orderForDetection(list);
+    if (ep.model && !isWeakModel(ep.model) && !ordered.includes(ep.model)) ordered.unshift(ep.model); // keep a GOOD configured model in play
     ep._pool = ordered.length ? ordered : [ep.model].filter(Boolean);
     ep._mi = Math.max(0, ep._pool.indexOf(ep.model));
     ep._tried = new Set();
