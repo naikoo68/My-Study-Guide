@@ -1762,53 +1762,20 @@ async function runGenerationJob(id, ctx) {
     else reservedCount = Math.max(0, reservedCount - res.n);
   };
 
-  // ---- Per-key model rotation ------------------------------------------------
-  // Each key can serve SEVERAL models, and on the free tier every model has its
-  // OWN separate quota. So instead of parking a key when its current model is
-  // empty or rate-limited, rotate to the NEXT model on the SAME key (a fresh
-  // quota bucket) and keep going — sweeping the key's models "again and again"
-  // until the batch is done. The model list is discovered once per key, lazily
-  // (only when a rotation is first needed), so a key whose first model works
-  // never pays for the lookup.
-  const NON_TEXT_MODEL = /embed|vision|image|whisper|tts|audio|moderation|rerank|dall|diffusion/i;
-  const ensureModelPool = async (ep) => {
-    if (ep._pool) return ep._pool;
-    let list = [];
-    try { list = await fetchModels(ep.key, ep.baseUrl); } catch { list = []; }
-    list = (list || []).filter((m) => m && !NON_TEXT_MODEL.test(m));
-    // Order BEST-first using the same preference the auto-detector uses (real
-    // full flash models like gemini-2.5-flash first; lite/preview/research ones
-    // demoted to the back as fallback-only). This stops rotation from landing on
-    // — and persisting — a junk "preview/deep-research" id just because it wasn't
-    // literally named "lite".
-    const ordered = orderForDetection(list);
-    if (ep.model && !isWeakModel(ep.model) && !ordered.includes(ep.model)) ordered.unshift(ep.model); // keep a GOOD configured model in play
-    ep._pool = ordered.length ? ordered : [ep.model].filter(Boolean);
-    ep._mi = Math.max(0, ep._pool.indexOf(ep.model));
-    ep._tried = new Set();
-    return ep._pool;
-  };
-  // Switch the key to its next NOT-yet-tried model this cycle. Returns true when
-  // it moved to a fresh model, false once every model has been tried this cycle.
-  const rotateModel = async (ep) => {
-    const pool = await ensureModelPool(ep);
-    if (!pool || pool.length <= 1) return false; // nothing else to switch to
-    ep._tried.add(ep.model);
-    for (let step = 0; step < pool.length; step++) {
-      ep._mi = (ep._mi + 1) % pool.length;
-      const cand = pool[ep._mi];
-      if (!ep._tried.has(cand)) {
-        ep.model = cand;
-        // Persist the first FULL model we settle on so the next run starts there.
-        if (!isWeakModel(cand) && ep._savedModel !== cand) {
-          ep._savedModel = cand;
-          AiKey.updateOne({ keyHash: keyFingerprint(ep.key), owner: ep.owner ?? owner ?? null }, { models: cand }).catch(() => {});
-        }
-        return true;
-      }
-    }
-    return false;
-  };
+  // ---- Per-key model rotation: DISABLED --------------------------------------
+  // Auto model-switching is turned OFF (per admin request). A generation run now
+  // ALWAYS uses the model chosen in the generator — we never rotate a key onto a
+  // different model mid-run. Previously, when the chosen model hit its per-minute
+  // limit (429), returned empty, or 404'd, the code would silently switch that
+  // key to another of its models (which could land on a weak/lite model) and even
+  // PERSIST that change to the key. That produced questions from a model the
+  // admin didn't pick, so it's removed.
+  //
+  // With rotation disabled, `rotateModel` always reports "no other model", so the
+  // worker below instead: waits out a 429 on the SAME model, and retires the key
+  // on a 404 (invalid model) rather than switching. `resetModelCycle` is kept as
+  // a harmless no-op so its existing call sites need no change.
+  const rotateModel = async () => false;
   const resetModelCycle = (ep) => { if (ep._tried) ep._tried.clear(); };
 
   // ONE worker PER API KEY → every key generates SIMULTANEOUSLY. Each worker
@@ -1885,18 +1852,16 @@ async function runGenerationJob(id, ctx) {
         continue;
       }
       if (r.status === 404) {
-        // The current model id isn't valid for this key — rotate to another of
-        // the key's models instead of failing the whole key.
-        if (await rotateModel(ep)) continue;
-        break; // no other model available — retire this key
+        // The chosen model id isn't valid for this key. Model rotation is
+        // disabled, so retire this key rather than switching to another model.
+        if (await rotateModel(ep)) continue; // (rotation disabled → always false)
+        break; // retire this key
       }
       if (r.status === 429) {
-        // This MODEL is over its limit. FIRST switch to a DIFFERENT model on the
-        // SAME key — each model has its own quota, so another one is usually free
-        // right now (this is the big throughput win). Only when EVERY model on the
-        // key is limited do we wait out the per-minute window, then sweep the
-        // key's models again ("again and again") until the batch is complete.
-        if (await rotateModel(ep)) continue;
+        // The chosen model is over its per-minute limit. Model rotation is
+        // disabled (we never switch to a different model), so wait out the
+        // per-minute window and retry the SAME model until the batch is done.
+        if (await rotateModel(ep)) continue; // (rotation disabled → always false)
         if (quotaWaits >= MAX_QUOTA_WAITS) break;
         const waitMs = Math.min(retryWaitMs(null, r.detail) || 30000, QUOTA_WAIT_CAP_MS);
         if (Date.now() + waitMs >= deadline) break;
