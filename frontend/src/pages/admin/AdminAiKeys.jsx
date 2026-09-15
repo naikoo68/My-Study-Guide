@@ -8,10 +8,11 @@ import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState"
 
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/openai";
 const PRESETS = [
-  // gemini-3.5-flash-lite is the current default: a newer lite model that returns
-  // cleaner JSON (fewer empty replies) than 2.5-flash-lite while keeping a generous
-  // free tier. If a key ever 404s on it, use "Show models"/Auto-pick to fall back.
-  { label: "Google Gemini", baseUrl: GEMINI_BASE, models: "gemini-3.5-flash-lite" },
+  // gemini-2.5-flash is the default: a REAL, current Google model that reliably
+  // returns clean question JSON. (Avoid made-up ids like "gemini-3.x" or
+  // "*-preview"/"deep-research" — those don't exist / return empty replies.)
+  // If a key ever 404s on it, use "Show models" / Auto-pick to pick a valid id.
+  { label: "Google Gemini", baseUrl: GEMINI_BASE, models: "gemini-2.5-flash" },
   { label: "OpenAI", baseUrl: "https://api.openai.com/v1", models: "gpt-4o-mini" },
   { label: "TokenLab", baseUrl: "https://api.tokenlab.sh/v1", models: "gpt-4o-mini" },
   { label: "Groq", baseUrl: "https://api.groq.com/openai/v1", models: "llama-3.3-70b-versatile" },
@@ -28,30 +29,28 @@ const PRESETS = [
   { label: "Kiro", baseUrl: "https://your-kiro-gateway/v1", models: "claude-sonnet-4" },
 ];
 
-const blank = { label: "", baseUrl: GEMINI_BASE, models: "gemini-3.5-flash-lite", key: "", creditLimit: "", autoDetect: true };
+const blank = { label: "", baseUrl: GEMINI_BASE, models: "gemini-2.5-flash", key: "", creditLimit: "", autoDetect: true };
 // Bulk-add defaults: one shared preset applied to every pasted key.
-const blankBulk = { label: "", baseUrl: GEMINI_BASE, models: "gemini-3.5-flash-lite", creditLimit: "", keysText: "" };
+const blankBulk = { label: "", baseUrl: GEMINI_BASE, models: "gemini-2.5-flash", creditLimit: "", keysText: "" };
 
 const PER_PAGE = 10; // keys shown per page; bulk actions are scoped to the current page
 
 // Built-in models offered by the "Set model" control, all served on the Gemini
-// base URL (so your existing Google keys can use them — no new key needed). The
-// first entry is the default. gemini-3.5-flash-lite leads: newer, cleaner JSON and
-// fewer empty replies than 2.5-flash-lite. The 3.6 ids are the newest generation;
-// the gemma-3-* ids are Google's open Gemma models on the SAME endpoint. Not every
-// free key/project serves every model, so test a new pick on ONE key first before
-// applying it to all.
+// base URL (so your existing Google keys can use them — no new key needed). These
+// are REAL, current Google model ids. The first entry (gemini-2.5-flash) is the
+// default: reliable for question JSON. Lite ids give more free volume but flakier
+// output; the gemma-3-* ids are Google's open models on the SAME endpoint. Not
+// every free key/project serves every model, so test a new pick on ONE key first.
+// (Do NOT add made-up ids like "gemini-3.x", "*-preview" or "deep-research-*" —
+// they don't exist and return empty replies, producing 0 questions.)
 const GEMINI_MODELS = [
-  { id: "gemini-3.5-flash-lite", label: "gemini-3.5-flash-lite — recommended (newer, cleaner JSON)" },
-  { id: "gemini-3.6-flash-lite", label: "gemini-3.6-flash-lite — newest lite (test on one key first)" },
-  { id: "gemini-3.6-flash", label: "gemini-3.6-flash — newest (higher quality)" },
-  { id: "gemini-3.5-flash", label: "gemini-3.5-flash — near-Pro quality" },
-  { id: "gemini-2.5-flash-lite", label: "gemini-2.5-flash-lite — free 15 RPM · 1,000/day (best quota)" },
-  { id: "gemini-2.5-flash", label: "gemini-2.5-flash — free 10 RPM · 250/day" },
-  { id: "gemini-2.5-pro", label: "gemini-2.5-pro — free 5 RPM · 100/day" },
-  { id: "gemini-2.0-flash", label: "gemini-2.0-flash" },
-  { id: "gemini-2.0-flash-lite", label: "gemini-2.0-flash-lite" },
-  { id: "gemma-3-27b-it", label: "gemma-3-27b-it — Gemma, best quality (test on one key first)" },
+  { id: "gemini-2.5-flash", label: "gemini-2.5-flash — recommended (reliable for questions) · 10 RPM · 250/day" },
+  { id: "gemini-2.0-flash", label: "gemini-2.0-flash — fast, good quality" },
+  { id: "gemini-2.5-flash-lite", label: "gemini-2.5-flash-lite — most free volume · 15 RPM · 1,000/day (flakier)" },
+  { id: "gemini-2.0-flash-lite", label: "gemini-2.0-flash-lite — high volume, lighter" },
+  { id: "gemini-1.5-flash", label: "gemini-1.5-flash — older, stable" },
+  { id: "gemini-2.5-pro", label: "gemini-2.5-pro — highest quality · 5 RPM · 100/day" },
+  { id: "gemma-3-27b-it", label: "gemma-3-27b-it — Gemma, best quality" },
   { id: "gemma-3-12b-it", label: "gemma-3-12b-it — Gemma, lighter" },
   { id: "gemma-3-4b-it", label: "gemma-3-4b-it — Gemma, lightest/fastest" },
   { id: "gemini-flash-latest", label: "gemini-flash-latest (alias)" },
