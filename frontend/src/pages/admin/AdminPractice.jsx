@@ -250,6 +250,7 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
   const [migrateTopicsOpen, setMigrateTopicsOpen] = useState(false); // bulk-topic migrate modal
   const [sendSelectedOpen, setSendSelectedOpen] = useState(false); // bulk "Send selected" to another account
   const [delSelBusy, setDelSelBusy] = useState(null); // real-time bulk-delete progress: { done, total }
+  const [bulkDisBusy, setBulkDisBusy] = useState(null); // real-time bulk enable/disable progress: { done, total, disabled }
   const [extendItem, setExtendItem] = useState(null); // AI extend-explanations target
   const [extendingQId, setExtendingQId] = useState(null); // per-question extend in progress
   const [extendOneItem, setExtendOneItem] = useState(null); // per-question extend confirm modal target
@@ -444,6 +445,34 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
       setError(e.message);
     } finally {
       setDelSelBusy(null);
+    }
+  };
+
+  // Enable/disable EVERY ticked node at once (streams / exams / subjects /
+  // topics / items) — the same "disabled" flag as the per-row toggle, applied
+  // in bulk. Loops the existing owner-scoped single-item update calls (mirrors
+  // the bulk-delete above); refetches once at the end.
+  const bulkSetDisabled = async (disabled) => {
+    const nodes = selectedNodes(); // [{ level, id, name }]
+    if (!nodes.length || bulkDisBusy || delSelBusy) return;
+    setBulkDisBusy({ done: 0, total: nodes.length, disabled });
+    setError("");
+    try {
+      let done = 0;
+      for (const n of nodes) {
+        if (n.level === "stream") await practiceService.updateStream(n.id, { disabled });
+        else if (n.level === "exam") await practiceService.updateExam(n.id, { disabled });
+        else if (n.level === "subject") await practiceService.updateSubject(n.id, { disabled });
+        else if (n.level === "topic") await practiceService.updateTopic(n.id, { disabled });
+        else await practiceService.updateItem(n.id, { disabled });
+        setBulkDisBusy({ done: ++done, total: nodes.length, disabled });
+      }
+      setSelTopics({});
+      load(view);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBulkDisBusy(null);
     }
   };
 
@@ -1177,13 +1206,19 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
                   <Building2 className="h-3.5 w-3.5" /> Share to institutes
                 </button>
               )}
-              <button onClick={deleteSelectedNodes} disabled={!!delSelBusy} className="btn-outline py-1.5 text-xs text-rose-600 disabled:opacity-50">
+              <button onClick={() => bulkSetDisabled(false)} disabled={!!delSelBusy || !!bulkDisBusy} className="btn-outline py-1.5 text-xs text-emerald-600 disabled:opacity-50">
+                <Eye className="h-3.5 w-3.5" /> {bulkDisBusy && !bulkDisBusy.disabled ? `Enabling ${bulkDisBusy.done}/${bulkDisBusy.total}…` : "Enable"}
+              </button>
+              <button onClick={() => bulkSetDisabled(true)} disabled={!!delSelBusy || !!bulkDisBusy} className="btn-outline py-1.5 text-xs text-amber-600 disabled:opacity-50">
+                <EyeOff className="h-3.5 w-3.5" /> {bulkDisBusy && bulkDisBusy.disabled ? `Disabling ${bulkDisBusy.done}/${bulkDisBusy.total}…` : "Disable"}
+              </button>
+              <button onClick={deleteSelectedNodes} disabled={!!delSelBusy || !!bulkDisBusy} className="btn-outline py-1.5 text-xs text-rose-600 disabled:opacity-50">
                 <Trash2 className="h-3.5 w-3.5" /> {delSelBusy ? `Deleting ${delSelBusy.done}/${delSelBusy.total}…` : "Delete selected"}
               </button>
               <button onClick={() => setSelTopics({})} className="btn-ghost py-1.5 text-xs">Clear</button>
             </>
           )}
-          <span className="ml-auto text-xs text-slate-400">Tick items to delete, send{view === "topics" ? " or move" : ""} several at once</span>
+          <span className="ml-auto text-xs text-slate-400">Tick items to enable, disable, delete, send{view === "topics" ? " or move" : ""} several at once</span>
         </div>
       )}
 

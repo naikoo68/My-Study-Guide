@@ -171,6 +171,7 @@ export default function AdminContent() {
   // ---- Bulk delete of NODES (streams/subjects/topics/sessions/quizzes) ----
   const [selNodes, setSelNodes] = useState([]); // ticked node ids (non-question views)
   const [delNodeBusy, setDelNodeBusy] = useState(null); // { done, total } while deleting nodes
+  const [bulkDisBusy, setBulkDisBusy] = useState(null); // { done, total, disabled } while bulk enable/disable
   const toggleNode = (id) => setSelNodes((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
   const allNodesSelected = view !== "questions" && items.length > 0 && selNodes.length === items.length;
   const toggleAllNodes = () => setSelNodes(allNodesSelected ? [] : items.map((i) => i._id));
@@ -202,6 +203,37 @@ export default function AdminContent() {
       setError(e.message);
     } finally {
       setDelNodeBusy(null);
+    }
+  };
+
+  // ---- Bulk ENABLE / DISABLE of the ticked NODES (streams/subjects/topics/
+  // quizzes) — same "disabled" flag as the per-row toggle, applied to all
+  // selected at once. Loops the existing single-item update calls (mirrors the
+  // bulk-delete above) so auth/scoping is unchanged; refetches once at the end.
+  const setDisabledSelectedNodes = async (disabled) => {
+    if (!selNodes.length || bulkDisBusy || delNodeBusy) return;
+    const type = VIEW_TYPE[view];
+    const svc = type === "stream" ? contentService.updateStream
+      : type === "subject" ? contentService.updateSubject
+      : type === "topic" ? contentService.updateTopic
+      : type === "quiz" ? contentService.updateQuiz
+      : null;
+    if (!svc) return;
+    const total = selNodes.length;
+    setBulkDisBusy({ done: 0, total, disabled });
+    setError("");
+    try {
+      let done = 0;
+      for (const id of selNodes) {
+        await svc(id, { disabled });
+        setBulkDisBusy({ done: ++done, total, disabled });
+      }
+      setSelNodes([]);
+      load(view);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBulkDisBusy(null);
     }
   };
   const deleteSelected = async () => {
@@ -1336,10 +1368,14 @@ export default function AdminContent() {
               <label className="flex items-center gap-2 text-sm font-medium">
                 <input type="checkbox" checked={allNodesSelected} onChange={toggleAllNodes} className="h-5 w-5 accent-brand-600" /> Select all
               </label>
-              {(selNodes.length > 0 || delNodeBusy) && (
+              {(selNodes.length > 0 || delNodeBusy || bulkDisBusy) && (
                 delNodeBusy ? (
                   <span className="inline-flex items-center gap-1.5 text-sm font-medium text-rose-600">
                     <Loader2 className="h-4 w-4 animate-spin" /> Deleting {delNodeBusy.done} of {delNodeBusy.total}…
+                  </span>
+                ) : bulkDisBusy ? (
+                  <span className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-600">
+                    <Loader2 className="h-4 w-4 animate-spin" /> {bulkDisBusy.disabled ? "Disabling" : "Enabling"} {bulkDisBusy.done} of {bulkDisBusy.total}…
                   </span>
                 ) : (
                   <>
@@ -1352,12 +1388,14 @@ export default function AdminContent() {
                         <Building2 className="h-4 w-4" /> Share to institutes
                       </button>
                     )}
+                    <button onClick={() => setDisabledSelectedNodes(false)} className="btn-outline py-1.5 text-emerald-600"><Eye className="h-4 w-4" /> Enable selected</button>
+                    <button onClick={() => setDisabledSelectedNodes(true)} className="btn-outline py-1.5 text-amber-600"><EyeOff className="h-4 w-4" /> Disable selected</button>
                     <button onClick={deleteSelectedNodes} className="btn-outline py-1.5 text-rose-600"><Trash2 className="h-4 w-4" /> Delete selected</button>
                     <button onClick={() => setSelNodes([])} className="text-sm text-slate-500 hover:underline">Clear</button>
                   </>
                 )
               )}
-              <span className="ml-auto text-xs text-slate-400">Tick to delete several at once</span>
+              <span className="ml-auto text-xs text-slate-400">Tick to enable, disable or delete several at once</span>
             </div>
           )}
           {questionResults && questionResults.length === 0 && (
@@ -1377,7 +1415,7 @@ export default function AdminContent() {
                 <input type="checkbox" checked={selected.includes(item._id)} onChange={() => toggleSelect(item._id)} className="h-5 w-5 flex-shrink-0 accent-brand-600" />
               )}
               {view !== "questions" && (
-                <input type="checkbox" checked={selNodes.includes(item._id)} onClick={(e) => e.stopPropagation()} onChange={() => toggleNode(item._id)} className="h-5 w-5 flex-shrink-0 accent-brand-600" title="Select to delete" />
+                <input type="checkbox" checked={selNodes.includes(item._id)} onClick={(e) => e.stopPropagation()} onChange={() => toggleNode(item._id)} className="h-5 w-5 flex-shrink-0 accent-brand-600" title="Select for bulk enable / disable / delete" />
               )}
               <div className="min-w-0 flex-1">
                 {view === "questions" ? (
