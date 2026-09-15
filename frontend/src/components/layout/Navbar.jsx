@@ -65,31 +65,6 @@ export default function Navbar() {
           </div>
         </div>
 
-        <div className="hidden items-center gap-1 lg:flex">
-          {visibleLinks.map((l) => (
-            <NavLink
-              key={l.to}
-              to={l.to}
-              end={l.end}
-              style={{
-                fontSize: "var(--nav-font-size, 0.875rem)",
-                fontWeight: "var(--nav-font-weight, 500)",
-                fontFamily: "var(--nav-font-family)",
-                textTransform: "var(--nav-text-transform, none)",
-              }}
-              className={({ isActive }) =>
-                `rounded-lg px-3 py-2 transition-colors ${
-                  isActive
-                    ? "text-brand-600 dark:text-brand-400"
-                    : "text-slate-600 hover:text-brand-600 dark:text-slate-300 dark:hover:text-brand-400"
-                }`
-              }
-            >
-              {l.label}
-            </NavLink>
-          ))}
-        </div>
-
         <div className="flex items-center gap-2">
           <InstallAppButton />
           <button
@@ -130,7 +105,7 @@ export default function Navbar() {
 
           <button
             onClick={() => setOpen((o) => !o)}
-            className="rounded-lg p-2 text-slate-600 lg:hidden dark:text-slate-300"
+            className="rounded-lg p-2 text-slate-600 dark:text-slate-300"
             aria-label="Toggle menu"
           >
             {open ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
@@ -139,7 +114,7 @@ export default function Navbar() {
       </nav>
 
       {open && (
-        <div className="animate-fade-in border-t border-slate-200 bg-white px-4 py-3 lg:hidden dark:border-slate-800 dark:bg-slate-950">
+        <div className="animate-fade-in border-t border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-950">
           <div className="flex flex-col gap-1">
             {visibleLinks.map((l) => (
               <NavLink
@@ -164,7 +139,7 @@ export default function Navbar() {
                 {l.label}
               </NavLink>
             ))}
-            <div className="mt-2 flex flex-col gap-2 border-t border-slate-200 pt-3 dark:border-slate-800">
+            <div className="mt-2 flex flex-col gap-2 border-t border-slate-200 pt-3 lg:hidden dark:border-slate-800">
               {user ? (
                 <>
                   {isAdmin && (
