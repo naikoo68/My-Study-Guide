@@ -8,6 +8,7 @@
     "dev": "vite",
     "prebuild": "node scripts/pack-extension.mjs",
     "build": "vite build",
+    "postbuild": "node scripts/generate-route-stubs.mjs",
     "pack-extension": "node scripts/pack-extension.mjs",
     "lint": "eslint .",
     "preview": "vite preview",

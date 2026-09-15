@@ -38,6 +38,12 @@ const STATIC = [
   { path: "/subjects", priority: "0.8", changefreq: "weekly" },
   { path: "/streams", priority: "0.8", changefreq: "weekly" },
   { path: "/exams", priority: "0.8", changefreq: "weekly" },
+  // Legal/info pages — publicly reachable and expected by reviewers (a working
+  // Privacy Policy is required for AdSense), so they belong in the sitemap too.
+  { path: "/pricing", priority: "0.5", changefreq: "monthly" },
+  { path: "/privacy", priority: "0.4", changefreq: "yearly" },
+  { path: "/terms", priority: "0.4", changefreq: "yearly" },
+  { path: "/refund", priority: "0.4", changefreq: "yearly" },
 ];
 
 const xmlEscape = (s) =>
