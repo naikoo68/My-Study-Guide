@@ -1682,7 +1682,11 @@ async function runGenerationJob(id, ctx) {
   // a rate-limited key waits out its per-minute limit and keeps producing instead
   // of retiring early.
   const MAX_EMPTY = 4; // per key: empty (safety/thinking-only) replies we retry before retiring the key
-  const MAX_ATTEMPTS = Math.ceil(target / chunkSize) + 12 + workerCount * (MAX_QUOTA_WAITS + MAX_EMPTY); // global safety cap
+  // Global safety cap on total provider calls. Model rotation lets a key make
+  // several calls per quota/empty event (one per model it sweeps), so give the
+  // cap generous headroom — the wall-clock `deadline` is the real stop.
+  const MODELS_PER_KEY_EST = 6;
+  const MAX_ATTEMPTS = Math.ceil(target / chunkSize) + 12 + workerCount * (MAX_QUOTA_WAITS + MAX_EMPTY + 1) * MODELS_PER_KEY_EST; // global safety cap
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   const collected = [];
@@ -1753,6 +1757,52 @@ async function runGenerationJob(id, ctx) {
     else reservedCount = Math.max(0, reservedCount - res.n);
   };
 
+  // ---- Per-key model rotation ------------------------------------------------
+  // Each key can serve SEVERAL models, and on the free tier every model has its
+  // OWN separate quota. So instead of parking a key when its current model is
+  // empty or rate-limited, rotate to the NEXT model on the SAME key (a fresh
+  // quota bucket) and keep going — sweeping the key's models "again and again"
+  // until the batch is done. The model list is discovered once per key, lazily
+  // (only when a rotation is first needed), so a key whose first model works
+  // never pays for the lookup.
+  const NON_TEXT_MODEL = /embed|vision|image|whisper|tts|audio|moderation|rerank|dall|diffusion/i;
+  const ensureModelPool = async (ep) => {
+    if (ep._pool) return ep._pool;
+    let list = [];
+    try { list = await fetchModels(ep.key, ep.baseUrl); } catch { list = []; }
+    list = (list || []).filter((m) => m && !NON_TEXT_MODEL.test(m));
+    // Full (generation-capable) models first for quality; weak/lite models after,
+    // as EXTRA quota buckets to fall back on once the full ones are limited.
+    const ordered = [...list.filter((m) => !isWeakModel(m)), ...list.filter((m) => isWeakModel(m))];
+    if (ep.model && !ordered.includes(ep.model)) ordered.unshift(ep.model); // always keep the configured model in play
+    ep._pool = ordered.length ? ordered : [ep.model].filter(Boolean);
+    ep._mi = Math.max(0, ep._pool.indexOf(ep.model));
+    ep._tried = new Set();
+    return ep._pool;
+  };
+  // Switch the key to its next NOT-yet-tried model this cycle. Returns true when
+  // it moved to a fresh model, false once every model has been tried this cycle.
+  const rotateModel = async (ep) => {
+    const pool = await ensureModelPool(ep);
+    if (!pool || pool.length <= 1) return false; // nothing else to switch to
+    ep._tried.add(ep.model);
+    for (let step = 0; step < pool.length; step++) {
+      ep._mi = (ep._mi + 1) % pool.length;
+      const cand = pool[ep._mi];
+      if (!ep._tried.has(cand)) {
+        ep.model = cand;
+        // Persist the first FULL model we settle on so the next run starts there.
+        if (!isWeakModel(cand) && ep._savedModel !== cand) {
+          ep._savedModel = cand;
+          AiKey.updateOne({ keyHash: keyFingerprint(ep.key), owner: ep.owner ?? owner ?? null }, { models: cand }).catch(() => {});
+        }
+        return true;
+      }
+    }
+    return false;
+  };
+  const resetModelCycle = (ep) => { if (ep._tried) ep._tried.clear(); };
+
   // ONE worker PER API KEY → every key generates SIMULTANEOUSLY. Each worker
   // sticks to its own key; when that key hits its per-minute limit (429) it
   // waits it out while the OTHER keys keep producing. This both speeds up big
@@ -1809,55 +1859,38 @@ async function runGenerationJob(id, ctx) {
       _ks[(r.status === 429 || /quota|rate.?limit|exhausted|resource has been exhausted/i.test(r.detail || "")) ? "limited" : "error"] += 1;
       save({});
       lastError = r;
+      if ([401, 403].includes(r.status)) break; // key dead/unauthorized — retire
       if (r.status === 520 && r.empty) {
-        // A 200 with no usable text — a Gemini safety block, or (far more common)
-        // a lite/thinking/preview model that spends its whole budget reasoning and
-        // emits nothing. AUTOMATIC SELF-HEAL: the very first time a key on a WEAK
-        // model returns empty, transparently switch it to a full, generation-
-        // capable model (same mechanism as the 404 repair) and retry — so the run
-        // fixes itself mid-generation without the admin ever opening AI Keys.
-        if (!ep._repaired && isWeakModel(ep.model)) {
-          ep._repaired = true;
-          const picked = pickPreferredModel(await fetchModels(ep.key, ep.baseUrl));
-          if (picked && picked !== ep.model && !isWeakModel(picked)) {
-            ep.model = picked;
-            AiKey.updateOne({ keyHash: keyFingerprint(ep.key) }, { models: picked }).catch(() => {}); // persist so next run starts on the full model
-            continue; // retry this chunk on the upgraded model
-          }
-        }
-        // Couldn't upgrade (no full model available) — retry a bounded number of
-        // times, then retire the key so other keys / the fallback pool take over.
+        // A 200 with no usable text — a safety block, or a weak/thinking model
+        // that emitted nothing. Try the SAME key on a DIFFERENT model (its own
+        // quota) before giving up — rotating the key's models keeps it producing.
+        if (await rotateModel(ep)) continue;
+        // Every model on this key returned empty this cycle. Bounded retries; the
+        // reset lets it sweep the models again on the next pass.
         if (emptyReplies >= MAX_EMPTY) break;
         emptyReplies += 1;
+        resetModelCycle(ep);
         continue;
       }
-      if ([401, 403].includes(r.status)) break; // key dead/unauthorized — retire
       if (r.status === 404) {
-        // The model isn't valid for this key. Auto-find a valid one (once),
-        // switch to it, remember it on the key, and retry — so a wrong model id
-        // (common with OpenRouter) self-heals instead of failing the whole run.
-        if (!ep._repaired) {
-          ep._repaired = true;
-          const picked = pickPreferredModel(await fetchModels(ep.key, ep.baseUrl));
-          if (picked && picked !== ep.model) {
-            ep.model = picked;
-            AiKey.updateOne({ keyHash: keyFingerprint(ep.key) }, { models: picked }).catch(() => {}); // match by key fingerprint, not the encrypted value
-            continue; // retry this chunk with the valid model
-          }
-        }
-        break; // couldn't find a valid model for this key — retire it
+        // The current model id isn't valid for this key — rotate to another of
+        // the key's models instead of failing the whole key.
+        if (await rotateModel(ep)) continue;
+        break; // no other model available — retire this key
       }
       if (r.status === 429) {
-        // This key hit its per-minute limit. Wait it out; the other key-workers
-        // keep generating in parallel meanwhile.
+        // This MODEL is over its limit. FIRST switch to a DIFFERENT model on the
+        // SAME key — each model has its own quota, so another one is usually free
+        // right now (this is the big throughput win). Only when EVERY model on the
+        // key is limited do we wait out the per-minute window, then sweep the
+        // key's models again ("again and again") until the batch is complete.
+        if (await rotateModel(ep)) continue;
         if (quotaWaits >= MAX_QUOTA_WAITS) break;
-        // Wait out this key's per-minute limit (honour the provider's suggested
-        // retry delay, capped) so a valid-but-throttled key resumes producing
-        // rather than retiring with 0 questions.
         const waitMs = Math.min(retryWaitMs(null, r.detail) || 30000, QUOTA_WAIT_CAP_MS);
         if (Date.now() + waitMs >= deadline) break;
         quotaWaits += 1;
         await sleep(waitMs);
+        resetModelCycle(ep); // fresh pass over all the key's models after the wait
       }
       // transient/other errors: loop and try another chunk on this key
     }
