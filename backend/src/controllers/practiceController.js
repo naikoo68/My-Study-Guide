@@ -12,7 +12,7 @@ import TestSeries from "../models/TestSeries.js";
 import Question from "../models/Question.js";
 import User from "../models/User.js";
 import ContentShare from "../models/ContentShare.js";
-import { isTestVisibleToUser, isSharedWithUser, hasActiveSubscription } from "../utils/accessControl.js";
+import { isTestVisibleToUser, isSharedWithUser, hasActiveSubscription, studentPaywallOff } from "../utils/accessControl.js";
 import { ownerFilter, ownerValue } from "../utils/ownership.js";
 import { runUnscoped } from "../utils/tenantContext.js";
 import { platformContentFilter } from "../utils/platformScope.js";
@@ -777,7 +777,9 @@ export async function playQuiz(req, res) {
     if (!req.user) return res.status(401).json({ message: "Please log in to open Previous Papers." });
   } else {
     // My Quiz: the first quiz of the topic is free; the rest need access.
-    const free = await isFreePreviewQuiz(item);
+    // When the student paywall is OFF site-wide, EVERY quiz is free for everyone
+    // (incl. guests) — same as the main Public Quizzes area — so skip the gate.
+    const free = studentPaywallOff() || await isFreePreviewQuiz(item);
     if (!free) {
       if (!req.user) {
         return res.status(401).json({ message: "Log in and subscribe to attempt this quiz. The first quiz in each topic is free." });
@@ -1481,12 +1483,14 @@ export async function browseItems(req, res) {
   const { kind, subjectId } = req.params;
   if (await subjectHidden(subjectId)) return res.json([]); // disabled subject/exam/stream → hide all
   const grantAll = req.user?.role === "admin" || (kind === "quiz" ? req.user?.myQuizAccess === true : req.user?.myTestAccess === true);
+  // Paywall OFF site-wide → every item is free for everyone (incl. guests).
+  const freeForAll = studentPaywallOff();
   const items = (await TestSeries.find({ practice: true, practiceKind: kind, status: "published", disabled: { $ne: true }, practiceSubject: subjectId, owner: null })
     .lean()).sort(byNatural("name"));
   res.json(
     items.map((t, idx) => {
-      const freePreview = idx === 0; // first test in the subject is free for everyone
-      const hasAccess = grantAll || hasActiveSubscription(req.user) || isTestVisibleToUser(t, req.user?._id) || isSharedWithUser(t, req.user?._id);
+      const freePreview = freeForAll || idx === 0; // first test in the subject is free for everyone
+      const hasAccess = freeForAll || grantAll || hasActiveSubscription(req.user) || isTestVisibleToUser(t, req.user?._id) || isSharedWithUser(t, req.user?._id);
       return {
         _id: t._id, name: t.name, duration: t.duration, marks: t.marks, difficulty: t.difficulty,
         questionCount: t.questions?.length || 0,
@@ -1532,17 +1536,21 @@ export async function browseStreamItems(req, res) {
 // `locked` unless the user has access (login + subscription / share / owner).
 export async function browseTopicItems(req, res) {
   if (await topicHidden(req.params.topicId)) return res.json([]); // disabled topic/subject/exam/stream → hide all
+  // Paywall OFF site-wide → every quiz is free for everyone (incl. guests), not
+  // just the first-in-topic preview. Then nothing is locked and the client
+  // routes each item through the guest-friendly free player.
+  const freeForAll = studentPaywallOff();
   const items = (await TestSeries.find({ practice: true, practiceKind: "quiz", status: "published", disabled: { $ne: true }, practiceTopic: req.params.topicId, owner: null })
     .lean()).sort(byNatural("name"));
   res.json(
     items.map((t, idx) => {
-      const freePreview = idx === 0; // first quiz in the topic is free for everyone
+      const freePreview = freeForAll || idx === 0; // first quiz in the topic is free for everyone
       return {
         _id: t._id, name: t.name, duration: t.duration, marks: t.marks, difficulty: t.difficulty,
         questionCount: t.questions?.length || 0,
         views: t.views || 0,
         freePreview,
-        locked: !freePreview && !hasQuizAccess(req, t),
+        locked: freeForAll ? false : (!freePreview && !hasQuizAccess(req, t)),
       };
     })
   );

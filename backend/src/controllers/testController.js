@@ -8,7 +8,7 @@ import Question from "../models/Question.js";
 import Attempt from "../models/Attempt.js";
 import PublicAttempt from "../models/PublicAttempt.js";
 import User from "../models/User.js";
-import { isTestVisibleToUser, findAccessEntry, isSharedWithUser, hasActiveSubscription } from "../utils/accessControl.js";
+import { isTestVisibleToUser, findAccessEntry, isSharedWithUser, hasActiveSubscription, studentPaywallOff } from "../utils/accessControl.js";
 import { notifyNewContent } from "../utils/notify.js";
 import { ownerValue, ownerFilter } from "../utils/ownership.js";
 import PracticeStream from "../models/PracticeStream.js";
@@ -275,8 +275,9 @@ export async function getTest(req, res) {
   // FREE preview: the first My-Test in a subject is attemptable by anyone (so a
   // logged-in user without a subscription can still open it via this path).
   const freePreviewOk = await isFreePreviewTest(test);
-  // An active student subscription unlocks every test-series.
-  if (req.user?.role !== "admin" && !isOwner && !masterGrant && !freePreviewOk && !hasActiveSubscription(req.user) && !isTestVisibleToUser(test.toObject(), req.user?._id) && !isSharedWithUser(test, req.user?._id)) {
+  // An active student subscription unlocks every test-series. When the student
+  // paywall is OFF site-wide, every test is free for everyone (incl. guests).
+  if (req.user?.role !== "admin" && !isOwner && !masterGrant && !freePreviewOk && !studentPaywallOff() && !hasActiveSubscription(req.user) && !isTestVisibleToUser(test.toObject(), req.user?._id) && !isSharedWithUser(test, req.user?._id)) {
     return res.status(403).json({ message: "A subscription is needed for this test. The first test in each subject is free." });
   }
   const obj = test.toObject();
@@ -302,7 +303,9 @@ export async function getFreeTest(req, res) {
   const test = await TestSeries.findById(req.params.id)
     .populate({ path: "questions", select: "-correct -explanation -optionExplanations" });
   if (!test) return res.status(404).json({ message: "Test not found" });
-  if (!(await isFreePreviewTest(test))) {
+  // Paywall OFF site-wide → any test is free for everyone (incl. guests), so the
+  // free (no-auth) route may serve/grade it, not just the first-in-subject preview.
+  if (!studentPaywallOff() && !(await isFreePreviewTest(test))) {
     return res.status(req.user ? 403 : 401).json({ message: "A subscription is needed for this test. The first test in each subject is free." });
   }
   const obj = test.toObject();
@@ -316,7 +319,9 @@ export async function submitFreeTest(req, res) {
   const { answers = {}, timeTaken = 0 } = req.body;
   const test = await TestSeries.findById(req.params.id).populate("questions");
   if (!test) return res.status(404).json({ message: "Test not found" });
-  if (!(await isFreePreviewTest(test))) {
+  // Paywall OFF site-wide → any test is free for everyone (incl. guests), so the
+  // free (no-auth) route may serve/grade it, not just the first-in-subject preview.
+  if (!studentPaywallOff() && !(await isFreePreviewTest(test))) {
     return res.status(req.user ? 403 : 401).json({ message: "A subscription is needed for this test. The first test in each subject is free." });
   }
   const g = gradeSubmission(test, answers);

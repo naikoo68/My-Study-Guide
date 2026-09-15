@@ -37,3 +37,15 @@ export function hasActiveSubscription(user) {
   if (user?.role === "student" && planFlagsSync(user?.tenantId).studentPlansEnabled === false) return true;
   return !!(user?.studentPlanExpiresAt && new Date(user.studentPlanExpiresAt).getTime() > Date.now());
 }
+
+// True when the student paywall is turned OFF site-wide for the current tenant.
+// When off, ALL practice content is free for EVERYONE — including logged-out
+// guests — mirroring the main "Public Quizzes" area (whose play endpoint is
+// ungated). This is deliberately user-independent: unlike hasActiveSubscription
+// (which only frees content for a logged-in *student*), this also unlocks the
+// Practice section for guests, so anonymous visitors — and Google's AdSense
+// crawler — can browse and play every quiz/test when the admin flips plans off.
+// tenantId defaults to the current request's tenant via planFlagsSync.
+export function studentPaywallOff(tenantId) {
+  return planFlagsSync(tenantId).studentPlansEnabled === false;
+}
