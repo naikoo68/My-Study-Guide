@@ -3102,6 +3102,31 @@ export async function suggestSubjects(req, res) {
 // suggestSubjects one level deeper. Works for ANY subject (e.g. "Circuit
 // Theory", "Indian Polity"). Returns
 //   { topics: [ { title, description } ] }.
+// Filler words ignored when comparing two topic/subject names for "same concept".
+const NAME_FILLER = new Set(["the", "a", "an", "of", "and", "or", "in", "on", "to", "for", "with", "&"]);
+// Significant-word signature of a name: lower-cased, filler words removed, a
+// trailing plural "s" stripped, as a Set — so word ORDER, PLURALISATION and
+// FILLER words can't hide a duplicate ("Bibliometric Laws" ≡ "Bibliometric Law",
+// "Citation Analysis" ≡ "Analysis of Citations").
+function sigWordSet(s) {
+  return new Set(
+    String(s || "").toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/)
+      .filter((w) => w && !NAME_FILLER.has(w))
+      .map((w) => (w.length > 3 && w.endsWith("s") ? w.slice(0, -1) : w)) // crude singularise
+  );
+}
+// Drop items whose significant-word set EXACTLY equals an existing name's — the
+// same concept worded differently. Set-EQUALITY only, so genuine specialisations
+// ("Linear Algebra" vs "Algebra", "Modern Physics" vs "Physics") are KEPT.
+function dropSameConceptAsExisting(items, getName, existingNames) {
+  const ex = (existingNames || []).map(sigWordSet).filter((s) => s.size);
+  return (items || []).filter((it) => {
+    const w = sigWordSet(getName(it));
+    if (!w.size) return true;
+    return !ex.some((e) => e.size === w.size && [...w].every((x) => e.has(x)));
+  });
+}
+
 export async function suggestTopics(req, res) {
   const scope = resolveScope(req.user, req.body?.mode);
   if (scope.denied) return res.status(403).json({ message: "AI access is not enabled for your account." });
@@ -3117,17 +3142,26 @@ export async function suggestTopics(req, res) {
   const alreadyList = existing.slice(0, 200).join(", ");
 
   const context = stream ? ` (part of the "${stream}" stream / course)` : "";
+  // A RE-SCAN (the "missing topics" flow) already has many topics, so ask for
+  // ONLY what's genuinely missing instead of an exhaustive list — otherwise the
+  // AI keeps padding and every scan surfaces another big batch of overlapping
+  // topics. A fresh search (no existing) still gets the full, exhaustive list.
+  const rescan = existing.length > 0;
   const userPrompt = [
     `List the TOPICS / chapters that make up the subject "${subject}"${context}.`,
     "Rules:",
-    "- BE EXHAUSTIVE: cover the FULL, COMPLETE syllabus of the subject so you BARELY MISS ANY topic a student actually studies within it (e.g. for Physics: Mechanics, Thermodynamics, Optics, Modern Physics, Electrostatics, Current Electricity, Magnetism, Waves & Oscillations, Electromagnetic Induction, Semiconductors …). Include foundational, core AND the less-obvious/advanced chapters. Do NOT stop early or return only the few headline topics.",
+    rescan
+      ? "- The user ALREADY has a good set of topics (listed below). Suggest ONLY topics that are GENUINELY MISSING and important — real, distinct parts of the syllabus that are NOT already present and do NOT overlap, restate or specialise any existing one. Do NOT try to be exhaustive, and do NOT pad the list to reach a count."
+      : "- BE EXHAUSTIVE: cover the FULL, COMPLETE syllabus of the subject so you BARELY MISS ANY topic a student actually studies within it (e.g. for Physics: Mechanics, Thermodynamics, Optics, Modern Physics, Electrostatics, Current Electricity, Magnetism, Waves & Oscillations, Electromagnetic Induction, Semiconductors …). Include foundational, core AND the less-obvious/advanced chapters. Do NOT stop early or return only the few headline topics.",
     "- Each topic has a short title (2-6 words) and a one-line description (max ~14 words).",
-    "- List as MANY topics as the subject GENUINELY contains (typically 8–50), ordered the way they are usually taught (foundational first). Never pad with filler that isn't really part of the subject.",
+    rescan
+      ? "- Return as FEW as are genuinely missing. If the subject is already well covered, return an EMPTY array []. Quality over quantity — never invent filler just to have more."
+      : "- List as MANY topics as the subject GENUINELY contains (typically 8–50), ordered the way they are usually taught (foundational first). Never pad with filler that isn't really part of the subject.",
     "- NO DUPLICATES, NO NEAR-DUPLICATES / SYNONYMS, AND NO OVERLAPS: never list the SAME topic twice under different names or wordings, never a synonym, and never a broader COMBINED wording alongside its parts. Include ONLY ONE canonical entry per topic (e.g. list ONLY \"Radiobiology\" OR \"Radiation Biology\", never both; never \"Kinematics\" said two ways; never a combined \"Work and Energy\" alongside separate \"Work\" and \"Energy\" when they mean the same coverage). Do NOT split one topic into two near-identical items. (But DO keep genuinely distinct topics separate.)",
     "- Stay STRICTLY inside the scope of this subject — do NOT drift into other subjects or list the subject itself as a topic.",
-    alreadyList ? `- These topics ALREADY EXIST — do NOT list them again or any near-duplicate/overlap of them: ${alreadyList}.` : "",
+    alreadyList ? `- These topics ALREADY EXIST — do NOT list them again, nor any near-duplicate, sub-part, synonym or CONCEPTUAL OVERLAP of them: ${alreadyList}.` : "",
     "",
-    'Return ONLY a JSON array like: [{"title":"Mechanics","description":"Kinematics, laws of motion, work and energy."}]',
+    `Return ONLY a JSON array like: [{"title":"Mechanics","description":"Kinematics, laws of motion, work and energy."}]${rescan ? " (or [] if nothing important is missing)" : ""}`,
     "No markdown, no commentary.",
   ].filter(Boolean).join("\n");
 
@@ -3150,6 +3184,10 @@ export async function suggestTopics(req, res) {
   let list = dedupeExact(parseConceptArray(r.content), (x) => x.name, existing);
   const canon = await canonicalizeConcepts({ chosen, owner: scope.owner, kind: "topic", parentName: subject, items: list, existingNames: existing });
   if (canon && canon.length) list = dedupeExact(canon, (x) => x.name, existing);
+  // Final near-duplicate guard vs what the user already has: drops suggestions
+  // that are the same topic worded differently (plural / reordered / filler
+  // words) which exact-name matching misses. Keeps genuine specialisations.
+  list = dropSameConceptAsExisting(list, (x) => x.name, existing);
   const topics = list.slice(0, 80).map((x) => ({ title: x.name, description: x.description }));
   if (!topics.length) return res.status(502).json({ message: "The AI didn't return any topics. Try again." });
   res.json({ topics });
