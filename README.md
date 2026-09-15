@@ -22,7 +22,7 @@ Blue/white/orange theme, dark + light mode, smooth animations, charts, dashboard
 cd backend
 npm install
 cp .env.example .env          # set MONGO_URI and JWT_SECRET
-npm run seed                  # sample data + admin/student logins
+npm run seed                  # sample data + admin (SEED_DEMO=true also adds demo logins)
 npm run dev                   # http://localhost:5000
 
 # 2) Frontend  (in a second terminal)
@@ -32,7 +32,13 @@ cp .env.example .env          # VITE_API_URL=http://localhost:5000/api
 npm run dev                   # http://localhost:5173
 ```
 
-Seeded logins: **admin@mystudyguide.com / admin123** · **student@mystudyguide.com / student123**
+**Seeded logins.** The admin account uses your `ADMIN_EMAIL` / `ADMIN_PASSWORD`
+from `.env`. If `ADMIN_PASSWORD` is missing or weak, the seed generates a random
+one-time password (printed in the server logs) and forces a change on first
+login — there is **no fixed default admin password**.
+Demo/sample accounts (e.g. `student@mystudyguide.com / student123`) are seeded
+**only in development or when `SEED_DEMO=true`** — never in a default production
+run — so no guessable logins end up in a live database.
 
 ## ✨ Features
 

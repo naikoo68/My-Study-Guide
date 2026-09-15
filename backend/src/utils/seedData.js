@@ -3,6 +3,7 @@
 // hosts where shell access isn't available).
 import User from "../models/User.js";
 import { isStrongPassword, generateStrongPassword } from "./passwordPolicy.js";
+import { isDev } from "./env.js";
 import Subject from "../models/Subject.js";
 import Topic from "../models/Topic.js";
 import Session from "../models/Session.js";
@@ -112,18 +113,33 @@ export async function seedDatabase({ reset = false } = {}) {
   if (!useEnvPw) {
     console.log(`🔑 No strong ADMIN_PASSWORD set — generated a one-time admin password: ${adminPassword}  (change it on first login)`);
   }
-  const student = await User.create({ name: "Demo Student", email: "student@mystudyguide.com", password: "student123", isEmailVerified: true, streak: 7, plan: "Premium" });
 
-  const extraNames = ["Aarav Sharma", "Diya Patel", "Vihaan Gupta", "Ananya Reddy", "Kabir Singh"];
-  await User.create(
-    extraNames.map((name, i) => ({
-      name,
-      email: `${slugify(name)}@example.com`,
-      password: "password123",
-      isEmailVerified: true,
-      plan: ["Free", "Premium", "Pro"][i % 3],
-    }))
-  );
+  // SECURITY: the demo student + sample users below use FIXED, weak passwords
+  // (student123 / password123). Those are convenient for local development and
+  // demos, but seeding them into a PRODUCTION database creates real, guessable
+  // logins (student@mystudyguide.com / student123 is a valid account). So they
+  // are created ONLY in development, or when SEED_DEMO=true is set explicitly.
+  // In production (the secure default) the seed still creates the admin and the
+  // sample content, but NO weak-credential accounts.
+  const seedDemo = isDev() || String(process.env.SEED_DEMO || "").toLowerCase() === "true";
+
+  let student = null;
+  if (seedDemo) {
+    student = await User.create({ name: "Demo Student", email: "student@mystudyguide.com", password: "student123", isEmailVerified: true, streak: 7, plan: "Premium" });
+
+    const extraNames = ["Aarav Sharma", "Diya Patel", "Vihaan Gupta", "Ananya Reddy", "Kabir Singh"];
+    await User.create(
+      extraNames.map((name, i) => ({
+        name,
+        email: `${slugify(name)}@example.com`,
+        password: "password123",
+        isEmailVerified: true,
+        plan: ["Free", "Premium", "Pro"][i % 3],
+      }))
+    );
+  } else {
+    console.log("🔒 SEED_DEMO not enabled — skipping demo/sample accounts (student123/password123). Set SEED_DEMO=true to seed them.");
+  }
 
   const createdQuestionsBySubject = {};
   for (const s of SUBJECTS) {
@@ -175,35 +191,39 @@ export async function seedDatabase({ reset = false } = {}) {
     { name: "Weekend Grand Test #6", category: "Full-Length", duration: 120, marks: 100, difficulty: "Medium", questions: pick(25), status: "scheduled", attempts: 0, schedule: new Date(Date.now() + 9 * 864e5) },
   ]);
 
-  student.enrolledTests = [tests[0]._id, tests[1]._id, tests[4]._id];
-  await student.save();
+  // Sample enrollment + attempt history exist only to make the demo student's
+  // dashboard look populated, so they're seeded only alongside the demo student.
+  if (student) {
+    student.enrolledTests = [tests[0]._id, tests[1]._id, tests[4]._id];
+    await student.save();
 
-  const sampleAttempts = [
-    { test: 0, correct: 22, total: 30, score: 80, pct: 73 },
-    { test: 1, correct: 16, total: 20, score: 60, pct: 80 },
-    { test: 4, correct: 20, total: 25, score: 78, pct: 84 },
-  ];
-  let day = 18;
-  for (const a of sampleAttempts) {
-    await Attempt.create({
-      user: student._id,
-      type: "test",
-      testSeries: tests[a.test]._id,
-      total: a.total,
-      attempted: a.total,
-      correct: a.correct,
-      incorrect: a.total - a.correct,
-      score: a.score,
-      percentage: a.pct,
-      timeTaken: 3600,
-      createdAt: new Date(2026, 5, day),
-    });
-    day += 3;
+    const sampleAttempts = [
+      { test: 0, correct: 22, total: 30, score: 80, pct: 73 },
+      { test: 1, correct: 16, total: 20, score: 60, pct: 80 },
+      { test: 4, correct: 20, total: 25, score: 78, pct: 84 },
+    ];
+    let day = 18;
+    for (const a of sampleAttempts) {
+      await Attempt.create({
+        user: student._id,
+        type: "test",
+        testSeries: tests[a.test]._id,
+        total: a.total,
+        attempted: a.total,
+        correct: a.correct,
+        incorrect: a.total - a.correct,
+        score: a.score,
+        percentage: a.pct,
+        timeTaken: 3600,
+        createdAt: new Date(2026, 5, day),
+      });
+      day += 3;
+    }
   }
 
   return {
     admin: useEnvPw ? `${adminEmail} / (your ADMIN_PASSWORD)` : `${adminEmail} / ${adminPassword} (one-time — change on first login)`,
-    student: "student@mystudyguide.com / student123",
+    student: student ? "student@mystudyguide.com / student123" : "(demo accounts skipped — set SEED_DEMO=true to seed them)",
   };
 }
 
