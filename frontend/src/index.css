@@ -44,14 +44,20 @@
     @apply bg-slate-50 text-slate-800 antialiased transition-colors duration-300 dark:bg-slate-950 dark:text-slate-100;
     overscroll-behavior-y: contain;
   }
-  /* Site-wide: body paragraphs are justified (flush on both edges) for a clean,
-     book-like block of text. Only WRAPPED, multi-line text is affected — a
-     single-line paragraph looks unchanged. An explicit Tailwind alignment
-     utility on the element itself (text-center / text-left / text-right) still
-     wins by specificity, so intentionally centered subtitles, buttons wrapped in
-     <p>, and labels keep their alignment. Applies in every browser. */
+  /* Site-wide paragraph rule: EVERY <p>, anywhere on the site (and any added
+     later), fills its container edge-to-edge and is justified — including
+     hero/intro paragraphs that use text-center and a max-w-* cap.
+       • max-width:100% cancels a self-imposed cap so the text spans the full
+         container width; with the cap gone, mx-auto centering collapses to 0 =
+         flush left/right.
+       • text-align:justify overrides text-center/left on the element too.
+     Both use !important so they win over Tailwind utilities on the paragraph.
+     The little side margin comes from the page container's padding, and it works
+     in every browser. Single-line paragraphs are visually unaffected by justify.
+     Headings, buttons, links, labels and table cells are untouched (only <p>). */
   p {
-    text-align: justify;
+    max-width: 100% !important;
+    text-align: justify !important;
     text-justify: inter-word;
   }
 }
