@@ -1865,8 +1865,12 @@ async function runGenerationJob(id, ctx) {
         // that emitted nothing. Try the SAME key on a DIFFERENT model (its own
         // quota) before giving up — rotating the key's models keeps it producing.
         if (await rotateModel(ep)) continue;
-        // Every model on this key returned empty this cycle. Bounded retries; the
-        // reset lets it sweep the models again on the next pass.
+        // Full sweep done — EVERY model on this key returned empty this cycle. If
+        // this key has produced NOTHING at all so far, more sweeps won't help
+        // (the provider/model is simply emitting nothing) — retire it NOW instead
+        // of burning hundreds of pointless requests. Only keep retrying a key that
+        // HAS produced before (a transient safety-block blip).
+        if ((_ks.questions || 0) === 0) break;
         if (emptyReplies >= MAX_EMPTY) break;
         emptyReplies += 1;
         resetModelCycle(ep);
