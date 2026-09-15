@@ -50,7 +50,7 @@ export default function About() {
 
   return (
     <div className="container-page py-14">
-      <div className="mx-auto max-w-3xl text-center">
+      <div className="text-center">
         <span className="badge bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">About Us</span>
         <h1 className="mt-4 text-4xl font-extrabold">{settings.aboutHeading}</h1>
         {leadBlocks.map((b, i) => (
@@ -59,7 +59,7 @@ export default function About() {
       </div>
 
       {bodyBlocks.length > 0 && (
-        <article className="mx-auto mt-10 max-w-3xl text-left">
+        <article className="mt-10 text-left">
           {bodyBlocks.map((b, i) =>
             b.type === "heading" ? (
               <h2 key={i} className="mt-10 text-2xl font-bold text-slate-800 first:mt-0 dark:text-slate-100">{b.text}</h2>
