@@ -76,7 +76,7 @@ export default function ActiveGenerationPill({ onOpen }) {
 
   // Poll the background job until it finishes (or expires on the server).
   useEffect(() => {
-    if (!job?.jobId || dismissed || status === "done" || status === "error") return;
+    if (!job?.jobId || dismissed || status === "done" || status === "error" || status === "interrupted") return;
     let cancelled = false;
     let misses = 0;
     const tick = async () => {
@@ -84,13 +84,18 @@ export default function ActiveGenerationPill({ onOpen }) {
       try {
         s = await aiService.job(job.jobId);
       } catch {
-        // 404 / network → the job may have expired on the server. After a couple
-        // of misses, assume it finished (any completed questions are already in
-        // the checkpoint) and flip the pill to "ready".
-        if (++misses >= 2) {
+        // 404 / network → the job may have expired on the server (GC / restart)
+        // OR this is just a flaky mobile connection (common on iOS). Retry a few
+        // times first; only then treat contact as LOST. Do NOT claim success —
+        // previously this silently flipped to "done", which could hide questions
+        // that were still being generated. Mark it "interrupted" instead so the
+        // user reopens to review what was already saved and Resume the rest
+        // (completed waves are checkpointed; only an in-flight wave may be short).
+        if (++misses >= 4) {
           if (!cancelled) {
-            setStatus("done");
-            patchActiveGenJob({ status: "done" });
+            setStatus("interrupted");
+            patchActiveGenJob({ status: "interrupted" });
+            notifyDone("Generation interrupted", "Open to review the questions saved so far and resume.");
           }
           return;
         }
@@ -139,6 +144,7 @@ export default function ActiveGenerationPill({ onOpen }) {
 
   const done = status === "done";
   const errored = status === "error";
+  const interrupted = status === "interrupted";
   const remaining = Math.max(0, (requested || 0) - (count || 0));
   const hasLabel = job.label && job.label !== "AI generation";
 
@@ -206,22 +212,24 @@ export default function ActiveGenerationPill({ onOpen }) {
               : "bg-brand-100 text-brand-600 dark:bg-brand-900/40 dark:text-brand-300"
           }`}
         >
-          {done ? <CheckCircle2 className="h-4 w-4" /> : errored ? <Sparkles className="h-4 w-4" /> : <Loader2 className="h-4 w-4 animate-spin" />}
+          {done ? <CheckCircle2 className="h-4 w-4" /> : (errored || interrupted) ? <Sparkles className="h-4 w-4" /> : <Loader2 className="h-4 w-4 animate-spin" />}
         </div>
         <div className="min-w-0 flex-1 pr-4">
-          <p className="text-sm font-semibold">{done ? "Questions ready" : errored ? "Generation stopped" : "Generating…"}</p>
+          <p className="text-sm font-semibold">{done ? "Questions ready" : interrupted ? "Generation interrupted" : errored ? "Generation stopped" : "Generating…"}</p>
           <p className="mt-0.5 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">
             {done
               ? `${count || ""} question(s) ready — open to insert.`
-              : errored
-                ? "Open the generator to review what was kept."
-                : `${count} of ${requested || "?"} ready${requested ? ` (${remaining} to go)` : ""}${hasLabel ? ` · ${job.label}` : ""}`}
+              : interrupted
+                ? `Lost contact with the run${count ? ` at ${count} saved` : ""} — open to review what was saved and Resume.`
+                : errored
+                  ? "Open the generator to review what was kept."
+                  : `${count} of ${requested || "?"} ready${requested ? ` (${remaining} to go)` : ""}${hasLabel ? ` · ${job.label}` : ""}`}
           </p>
         </div>
       </div>
       <div className="mt-2.5 flex gap-2">
         <button onClick={open} className="btn-primary flex-1 py-1 text-xs">
-          {done ? "Open to insert" : "Open"}
+          {done ? "Open to insert" : interrupted ? "Open to review" : "Open"}
         </button>
         {pipSupported ? (
           <button
@@ -235,7 +243,7 @@ export default function ActiveGenerationPill({ onOpen }) {
           // No PiP here (e.g. iPhone/iPad) — offer a completion notification instead.
           <NotifyWhenDoneButton />
         )}
-        {!done && !errored && (
+        {!done && !errored && !interrupted && (
           <button onClick={stop} disabled={stopping} className="btn-outline py-1 text-xs !text-rose-600 disabled:opacity-50 dark:!text-rose-400">
             <Square className="h-3.5 w-3.5" /> Stop
           </button>

@@ -287,6 +287,27 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, preview]);
 
+  // iOS-safe flush. Mobile Safari commonly FREEZES or KILLS a backgrounded tab
+  // without firing a normal unload, and `beforeunload` is unreliable there — so
+  // the correct moment to persist is `pagehide` / when the tab goes hidden.
+  // Force-save the current session to the checkpoint on those events so the
+  // generated questions + settings are never lost when you switch apps or the
+  // browser is closed mid-run. (Belt-and-suspenders on top of the save above.)
+  useEffect(() => {
+    if (!open) return;
+    const flush = () => {
+      if (preview.length) saveCk({ preview, matrix, topic, section, subtopics, dest: destSnapRef.current || null });
+    };
+    const onVisibility = () => { if (document.visibilityState === "hidden") flush(); };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, preview, matrix, topic, section, subtopics]);
+
   // On open, restore any checkpointed session (recent) so you can Insert what was
   // already generated or Resume to finish the rest — even after a full refresh.
   useEffect(() => {
