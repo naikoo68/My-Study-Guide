@@ -1,0 +1,32 @@
+# HTTP response headers for the deployed site. Read by BOTH Cloudflare Pages and
+# Netlify from the published output (dist/_headers). Vite copies public/ verbatim.
+#
+# Keep the private app areas (admin panel, client/creator workspaces, student
+# dashboard, sign-up) OUT of search engines. `X-Robots-Tag: noindex` is applied
+# at the HTTP level, so it works even though every route serves the same SPA
+# shell (index.html) and does NOT depend on the crawler executing JavaScript.
+# Google and Bing both honor it.
+#
+# IMPORTANT: for a crawler to SEE this noindex it must be allowed to fetch the
+# URL — so these same paths are intentionally NOT blocked in robots.txt. A
+# robots.txt `Disallow` would stop the crawler before it ever reads this header,
+# which is why `Disallow` + `noindex` cancel each other out.
+
+/admin
+  X-Robots-Tag: noindex, nofollow
+/admin/*
+  X-Robots-Tag: noindex, nofollow
+/client
+  X-Robots-Tag: noindex, nofollow
+/client/*
+  X-Robots-Tag: noindex, nofollow
+/creator
+  X-Robots-Tag: noindex, nofollow
+/creator/*
+  X-Robots-Tag: noindex, nofollow
+/dashboard
+  X-Robots-Tag: noindex, nofollow
+/dashboard/*
+  X-Robots-Tag: noindex, nofollow
+/register
+  X-Robots-Tag: noindex, nofollow

@@ -1,8 +1,11 @@
 User-agent: *
 Allow: /
-Disallow: /admin
-Disallow: /client
-Disallow: /creator
-Disallow: /dashboard
-Disallow: /register
+
+# The private app areas (/admin, /client, /creator, /dashboard, /register) are
+# kept OUT of search results via an `X-Robots-Tag: noindex` HTTP header (see
+# public/_headers), NOT via a Disallow here. This is deliberate: a `Disallow`
+# would stop crawlers from fetching the page, so they would never SEE the
+# noindex and could still list the bare URL. Allowing the crawl lets them read
+# the noindex and drop these pages from the index entirely.
+
 Sitemap: https://www.mystudyguide.in/sitemap.xml
