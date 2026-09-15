@@ -83,7 +83,7 @@ export default function StreamLanding() {
               className="card p-5 transition hover:-translate-y-0.5 hover:shadow-lg"
             >
               <h3 className="font-bold">{s.name}</h3>
-              {s.description && <p className="mt-1 text-justify text-sm text-slate-500 dark:text-slate-400">{s.description}</p>}
+              {s.description && <p className="desc mt-1 text-justify text-sm text-slate-500 dark:text-slate-400">{s.description}</p>}
               <span className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-brand-600 dark:text-brand-400">Practise <ArrowRight className="h-3.5 w-3.5" /></span>
             </Link>
           ))}

@@ -71,7 +71,7 @@ export default function SubjectsIndex() {
                   >
                     <h3 className="font-bold">{s.name}</h3>
                     {s.description && (
-                      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{s.description}</p>
+                      <p className="desc mt-1 text-sm text-slate-500 dark:text-slate-400">{s.description}</p>
                     )}
                     <span className="mt-3 inline-flex items-center gap-2 text-sm text-slate-400">
                       {typeof s.topics === "number" && (

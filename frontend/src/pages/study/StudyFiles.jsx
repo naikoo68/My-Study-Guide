@@ -72,7 +72,7 @@ export default function StudyFiles() {
                 <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-brand-100 text-brand-600 dark:bg-brand-900/40 dark:text-brand-300"><FileText className="h-5 w-5" /></span>
                 <div className="min-w-0">
                   <p className="truncate font-semibold">{f.title}</p>
-                  {f.description && <p className="truncate text-sm text-slate-500 dark:text-slate-400">{f.description}</p>}
+                  {f.description && <p className="desc truncate text-sm text-slate-500 dark:text-slate-400">{f.description}</p>}
                   {f.fileType && <span className="text-xs font-medium uppercase text-slate-400">{f.fileType}</span>}
                 </div>
               </div>
