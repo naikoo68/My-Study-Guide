@@ -59,6 +59,22 @@
     max-width: 100% !important;
     text-align: justify !important;
     text-justify: inter-word;
+    /* Default paragraph text size → 12px. Kept in rem (0.75rem @ 16px root) so
+       it still scales with the site zoom control. !important so it applies even
+       to paragraphs that carry a Tailwind text-* size utility. */
+    font-size: 0.75rem !important;
+  }
+  /* Small / helper paragraphs (text-xs, text-sm — incl. responsive variants like
+     sm:text-sm) → 11px. Attribute-substring match so it also covers the
+     breakpoint-prefixed forms. Higher specificity than the base rule, so it wins. */
+  p[class*="text-xs"],
+  p[class*="text-sm"] {
+    font-size: 0.6875rem !important; /* 11px */
+  }
+  /* Intro / large paragraphs (text-lg, text-xl — incl. sm:text-lg etc.) → 16px. */
+  p[class*="text-lg"],
+  p[class*="text-xl"] {
+    font-size: 1rem !important; /* 16px */
   }
 }
 
