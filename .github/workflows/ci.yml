@@ -84,3 +84,23 @@ jobs:
       # data-leak between customers.
       - name: Tests (tenant isolation & security)
         run: npm test
+
+  secrets:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the scan covers EVERY past commit, not just the tip —
+          # a secret that was committed and later removed is still a leak.
+          fetch-depth: 0
+      # Scan the whole repo + git history for hardcoded secrets (API keys, tokens,
+      # private keys, DB URIs with credentials, ...) using the official gitleaks
+      # image. This is a HARD gate: a real committed secret must block the deploy.
+      # --redact keeps the secret values out of the CI log. If gitleaks ever flags
+      # a false positive, add an allowlist entry in a committed `.gitleaks.toml`
+      # rather than disabling the job.
+      - name: Scan for hardcoded secrets
+        run: |
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:latest \
+            detect --source=/repo --redact --verbose --exit-code=1
