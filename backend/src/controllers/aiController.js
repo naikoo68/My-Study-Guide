@@ -5196,12 +5196,23 @@ async function fetchModels(key, baseUrl) {
 // never auto-select a paid model), then light "flash"/"mini" chat models.
 function pickPreferredModel(models) {
   if (!models.length) return "";
-  const pref = [/:free$/i, /gemini[.\-\d]*flash/i, /flash/i, /gpt-4o-mini/i, /mini/i, /haiku/i, /chat/i];
-  for (const rx of pref) {
-    const hit = models.find((m) => rx.test(m) && !/embed|vision|image|whisper|tts|audio/i.test(m));
-    if (hit) return hit;
+  const BAD = /embed|vision|image|whisper|tts|audio/i;
+  // Lite/thinking/preview/experimental models often return empty on generation —
+  // avoid them unless nothing else is on offer (see orderForDetection).
+  const WEAK = /lite|thinking|nano|preview|experimental|(?:^|[-_])exp(?:$|[-_])/i;
+  const pref = [/gemini-2\.5-flash(?![\w-])/i, /:free$/i, /flash/i, /gpt-4o-mini/i, /mini/i, /haiku/i, /chat/i];
+  const usable = models.filter((m) => !BAD.test(m));
+  const strong = usable.filter((m) => !WEAK.test(m));
+  // First satisfy a preference among STRONG (full) models; then any full model;
+  // then fall back to usable (incl. weak) models; finally anything.
+  for (const pool of [strong, usable]) {
+    for (const rx of pref) {
+      const hit = pool.find((m) => rx.test(m));
+      if (hit) return hit;
+    }
+    if (pool.length) return pool[0];
   }
-  return models.find((m) => !/embed|image|whisper|tts|audio/i.test(m)) || models[0];
+  return models[0];
 }
 
 // Live-test one key doc: updates lastStatus and returns whether it worked.
@@ -5304,8 +5315,19 @@ function rankModels(models) {
 // added key look "rate-limited".
 function orderForDetection(models) {
   const clean = (models || []).filter((m) => m && !/embed|vision|image|whisper|tts|audio|moderation|rerank|dall|diffusion/i.test(m));
-  const pref = [/flash[.\-]?lite/i, /flash/i, /:free$/i, /lite|nano|small/i, /mini/i, /haiku/i, /chat/i];
-  const score = (m) => { const i = pref.findIndex((rx) => rx.test(m)); return i === -1 ? pref.length : i; };
+  // Lite / thinking / preview / experimental models answer a trivial "reply ok"
+  // probe but frequently return EMPTY on real question generation — so they must
+  // NOT be what auto-detect stores when a full model is available. We prefer a
+  // full, generation-capable flash model (e.g. gemini-2.5-flash) first, and push
+  // every weak/preview model to the BACK so it's only chosen as a last resort
+  // (a key that genuinely offers nothing else still stays usable).
+  const WEAK = /lite|thinking|nano|preview|experimental|(?:^|[-_])exp(?:$|[-_])/i;
+  const pref = [/gemini-2\.5-flash(?![\w-])/i, /flash/i, /:free$/i, /gpt-4o-mini/i, /mini/i, /haiku/i, /chat/i];
+  const score = (m) => {
+    const i = pref.findIndex((rx) => rx.test(m));
+    const base = i === -1 ? pref.length : i;
+    return WEAK.test(m) ? base + 100 : base; // demote weak/preview models below every full one
+  };
   return clean.map((m) => ({ m, s: score(m) })).sort((a, b) => a.s - b.s).map((x) => x.m);
 }
 
