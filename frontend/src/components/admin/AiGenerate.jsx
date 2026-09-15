@@ -98,6 +98,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
   const wasBusyRef = useRef(false); // to detect the busy→idle transition (generation finished) for the completion notice
   const [msg, setMsg] = useState("");
   const [keyStats, setKeyStats] = useState(null); // live per-key activity this run { label: {requests,ok,limited,error,questions} }
+  const [genWarning, setGenWarning] = useState(""); // backend heads-up (e.g. keys on a lite/thinking model that may return nothing)
   const [liveWave, setLiveWave] = useState({}); // in-progress wave's per-bucket "have" counts { "type|difficulty": n }
   const [destChoice, setDestChoice] = useState("current"); // "current" | "existing" | "new" (where the batch is inserted)
   const [newName, setNewName] = useState("");
@@ -471,6 +472,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
     stopRef.current = false;
     jobIdRef.current = null;
     setKeyStats(null);
+    setGenWarning("");
     setLiveWave({});
     if (!append) setPreview([]);
     setResumeAvail(null); // any run supersedes the restored-session banner
@@ -514,9 +516,9 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
         .map((b) => ({ ...b, count: Math.max(0, b.count - (producedByBucket[`${b.type}|${b.difficulty}`] || 0)) }))
         .filter((b) => b.count > 0);
       if (!wavePlan.length) return { produced: 0, done: true };
-      let jobId, requested;
+      let jobId, requested, warning;
       try {
-        ({ jobId, requested } = await aiService.generate({
+        ({ jobId, requested, warning } = await aiService.generate({
           topic: topic.trim(),
           subject: ((section || subjectName) || "").trim() || undefined, // subject context (e.g. General English) → disambiguates the topic + language-aware
           // A per-subtopic "Generate" button passes the single subtopic to focus
@@ -537,6 +539,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
       } catch (e) { setMsg(e.message || "Generation failed."); return { produced: 0, errored: true }; }
       if (!jobId) { setMsg("Could not start generation."); return { produced: 0, errored: true }; }
       jobIdRef.current = jobId;
+      if (warning) setGenWarning(warning); // weak-model heads-up from the backend
       saveCk({ jobId }); // remember the running job so a resume can cancel the orphan
       // Publish a GLOBAL pointer to this job so the floating pill can re-attach
       // and keep showing progress even after a full page reload (e.g. a mobile
@@ -558,6 +561,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
         let s;
         try { s = await aiService.job(jobId); } catch { continue; }
         if (s.keyStats && Object.keys(s.keyStats).length) setKeyStats(s.keyStats);
+        if (s.warning) setGenWarning(s.warning);
         if (Array.isArray(s.byBucket)) {
           const m = {};
           for (const b of s.byBucket) m[`${b.type}|${b.difficulty}`] = b.have;
@@ -1561,6 +1565,14 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
         )}
 
         {msg && <p className="mt-3 text-sm font-medium">{msg}</p>}
+
+        {/* Heads-up when active keys are on a lite/thinking model (may return nothing). */}
+        {genWarning && (
+          <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-800 dark:border-amber-700/50 dark:bg-amber-900/20 dark:text-amber-300">
+            <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+            <span>{genWarning}</span>
+          </div>
+        )}
 
         {/* Live per-key activity for this run — see every key working in real time. */}
         {keyStats && Object.keys(keyStats).length > 0 && (

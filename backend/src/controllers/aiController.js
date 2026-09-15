@@ -1342,6 +1342,18 @@ function reorderNoConsecutiveTypes(list) {
 const MAX_TOTAL = 500; // absolute hard ceiling / fallback (admin can set a lower/higher per-batch cap in Settings)
 const CHUNK_SIZE = 12; // questions generated per provider call — smaller so the richer, detailed explanations don't truncate the JSON reply
 
+// Per-provider-call network timeout (ms). Lowered from the old hard-coded 90s so
+// a hung/slow key gives up sooner and the worker moves on to another chunk/key
+// instead of stalling the whole run. Tunable via env for a fast/slow provider.
+const CALL_TIMEOUT_MS = Math.min(120000, Math.max(15000, parseInt(process.env.AI_CALL_TIMEOUT_MS, 10) || 60000));
+
+// A "thinking"/lite model (e.g. gemini-2.5-flash-lite) frequently spends its
+// budget reasoning and returns an EMPTY reply for JSON generation, so keys
+// pinned to one produce nothing. Used to warn the user up-front.
+function isWeakModel(m) {
+  return /(?:lite|thinking)/i.test(String(m || ""));
+}
+
 // ---- Per-account AI generation limits (admin global cap + client plans) ----
 // Rolling-window usage kept IN MEMORY (single server instance): userId → recent
 // { at, count } events, pruned on read. A restart resets windows — acceptable
@@ -1430,7 +1442,7 @@ function quota429Message(detail = "") {
 }
 
 // One provider call with transient-error retries. Returns { ok, status, content, detail }.
-async function callProvider({ key, baseUrl, model, userPrompt, maxTokens, systemPrompt = SYSTEM_PROMPT, temperature = 0.6, timeoutMs = 90000, failOnEmpty = false }) {
+async function callProvider({ key, baseUrl, model, userPrompt, maxTokens, systemPrompt = SYSTEM_PROMPT, temperature = 0.6, timeoutMs = CALL_TIMEOUT_MS, failOnEmpty = false }) {
   // SSRF guard: never let a client-configured baseUrl make the server call an
   // internal/loopback/metadata address. Unsafe URLs skip this key gracefully.
   const safeBase = (baseUrl || "https://api.tokenlab.sh/v1").replace(/\/$/, "");
@@ -1453,7 +1465,9 @@ async function callProvider({ key, baseUrl, model, userPrompt, maxTokens, system
   // 429 is NOT retried here — it returns immediately so the caller can switch to
   // the next configured key. Only "busy" server errors are retried on this key.
   const TRANSIENT = [500, 502, 503, 504];
-  const WAITS = [1500, 3000, 6000, 9000];
+  // Fewer/shorter retries than before so a persistently-busy key fails fast and
+  // the worker moves to the next chunk/key rather than burning minutes here.
+  const WAITS = [1500, 3000, 6000];
   const TIMEOUT_MS = timeoutMs; // hard cap per call so a hung provider can't stall the whole job (short for key probes)
   for (let attempt = 0; ; attempt++) {
     let resp;
@@ -1654,7 +1668,7 @@ async function runGenerationJob(id, ctx) {
     sigList.push({ tk, ans });
     return false;
   };
-  const MAX_QUOTA_WAITS = 6; // per key: how many per-minute 429s we ride out before retiring it
+  const MAX_QUOTA_WAITS = 3; // per key: how many per-minute 429s we ride out before retiring it (lowered so a limited key frees up / the fallback pool takes over faster)
   const MAX_EMPTY = 4; // per key: empty (safety/thinking-only) replies we retry before retiring the key
   const MAX_ATTEMPTS = Math.ceil(target / chunkSize) + 12 + workerCount * (MAX_QUOTA_WAITS + MAX_EMPTY); // global safety cap
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -1815,7 +1829,7 @@ async function runGenerationJob(id, ctx) {
         // This key hit its per-minute limit. Wait it out; the other key-workers
         // keep generating in parallel meanwhile.
         if (quotaWaits >= MAX_QUOTA_WAITS) break;
-        const waitMs = Math.min(retryWaitMs(null, r.detail) || 30000, 60000);
+        const waitMs = Math.min(retryWaitMs(null, r.detail) || 20000, 30000); // cap the per-429 sleep so one limited key can't stall the run for minutes
         if (Date.now() + waitMs >= deadline) break;
         quotaWaits += 1;
         await sleep(waitMs);
@@ -2050,12 +2064,23 @@ export async function generateQuestions(req, res) {
   }
 
   cleanupJobs();
+
+  // Warn up-front when a key that will actually run is pinned to a lite/thinking
+  // model — those frequently return empty replies and produce zero questions,
+  // which is the most common reason "half the keys don't generate."
+  const runningWorkers = [...(workers || []), ...(fallbackWorkers || [])];
+  const weakWorkers = runningWorkers.filter((w) => isWeakModel(w.model));
+  const warning = weakWorkers.length
+    ? `${weakWorkers.length} of ${runningWorkers.length} active key(s) use a lite/thinking model (${[...new Set(weakWorkers.map((w) => w.model))].join(", ")}), which often returns no questions. In Admin → AI Keys, set those keys to a full model like gemini-2.5-flash, then pick it here.`
+    : null;
+
   const id = newJobId();
   genJobs.set(id, {
     status: "pending",
     questions: [],
     requested: target,
     error: null,
+    warning, // non-blocking heads-up about weak-model keys (surfaced via jobStatus too)
     model,
     plan: plan || null, // per type × difficulty buckets — powers the live breakdown
     updatedAt: Date.now(),
@@ -2070,7 +2095,7 @@ export async function generateQuestions(req, res) {
   // Fire-and-forget — the client polls /api/ai/job/:id for progress.
   guardJob(id, runGenerationJob(id, { workers, fallbackWorkers, model, topic, notes, subject, stream, plan, count, difficulty, types, target, avoid, owner: jobOwner, source, userSubtopics, numerical: !!req.body?.numerical, reshape: !!req.body?.reshape, outLang }));
 
-  res.json({ jobId: id, requested: target, model });
+  res.json({ jobId: id, requested: target, model, warning });
 }
 
 // GET /api/ai/job/:id  (admin) — poll generation progress.
@@ -2099,6 +2124,7 @@ export function jobStatus(req, res) {
     chunksDone: job.chunksDone,
     model: job.model,
     error: job.error,
+    warning: job.warning || null, // weak-model heads-up (persists across polls)
     cancelled: !!job.cancelled,
     keyStats: job.keyStats || {}, // live per-key activity this run
     waitUntil: job.waitUntil || null, // epoch ms until an auto-retry after a rate limit → UI shows a countdown
