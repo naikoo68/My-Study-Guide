@@ -1798,13 +1798,23 @@ async function runGenerationJob(id, ctx) {
       save({});
       lastError = r;
       if (r.status === 520 && r.empty) {
-        // A 200 with no usable text — a Gemini safety block, or a "thinking-only"/
-        // weak model (especially the default lite model) that spends its whole
-        // budget reasoning and emits nothing. Previously these came back as ok:true
-        // with 0 questions and silently burned the attempt budget, so a batch would
-        // stop after the few non-empty replies. Retry a bounded number of times on
-        // this key; if it KEEPS returning empty, retire the key so the other keys /
-        // the fallback pool take over instead of stalling the whole batch.
+        // A 200 with no usable text — a Gemini safety block, or (far more common)
+        // a lite/thinking/preview model that spends its whole budget reasoning and
+        // emits nothing. AUTOMATIC SELF-HEAL: the very first time a key on a WEAK
+        // model returns empty, transparently switch it to a full, generation-
+        // capable model (same mechanism as the 404 repair) and retry — so the run
+        // fixes itself mid-generation without the admin ever opening AI Keys.
+        if (!ep._repaired && isWeakModel(ep.model)) {
+          ep._repaired = true;
+          const picked = pickPreferredModel(await fetchModels(ep.key, ep.baseUrl));
+          if (picked && picked !== ep.model && !isWeakModel(picked)) {
+            ep.model = picked;
+            AiKey.updateOne({ keyHash: keyFingerprint(ep.key) }, { models: picked }).catch(() => {}); // persist so next run starts on the full model
+            continue; // retry this chunk on the upgraded model
+          }
+        }
+        // Couldn't upgrade (no full model available) — retry a bounded number of
+        // times, then retire the key so other keys / the fallback pool take over.
         if (emptyReplies >= MAX_EMPTY) break;
         emptyReplies += 1;
         continue;
