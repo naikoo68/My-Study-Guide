@@ -20,7 +20,7 @@ import { sanitizeBody, ALLOW } from "../utils/sanitizeBody.js";
 import { sendMail, isMailConfigured } from "../config/mailer.js";
 import { clientBaseFromReq } from "../config/clientUrl.js";
 import { duplicateQuestions } from "../utils/duplicateQuestions.js";
-import { groupByType, uniqueName } from "../utils/questionTypes.js";
+import { groupByType, uniqueName, balancedMixChunks } from "../utils/questionTypes.js";
 import { byNatural } from "../utils/naturalSort.js";
 import { softDeletePatch } from "../utils/softDelete.js";
 
@@ -459,7 +459,8 @@ export async function moveItem(req, res) {
 // quizzes). e.g. 300 questions at 50/quiz → Quiz 1..Quiz 6.
 export async function splitItem(req, res) {
   const per = Math.max(1, Math.min(500, parseInt(req.body?.perQuiz, 10) || 50));
-  const byType = req.body?.by === "type"; // "type" → one quiz per question type; else N-per-quiz
+  const byType = req.body?.by === "type"; // "type" → one quiz per question type
+  const byWeights = req.body?.by === "weights"; // "weights" → each quiz ~50% MCQ + rest even; else N-per-quiz
   const item = await TestSeries.findOne({ _id: req.params.id, practice: true, practiceKind: "quiz", ...ownerFilter(req) });
   if (!item) return res.status(404).json({ message: "Quiz not found" });
 
@@ -494,6 +495,14 @@ export async function splitItem(req, res) {
     }
     chunks = groups.map((g) => g.ids);
     nameFor = (k) => uniqueName(groups[k].label, usedLower);
+  } else if (byWeights) {
+    // Balanced mix: each new quiz ~50% plain MCQ + ~50% the other types, evenly.
+    if (total <= per) {
+      return res.json({ message: `No split needed — this quiz has ${total} question(s) (≤ ${per}).`, quizzes: 1, created: 0 });
+    }
+    const qdocs = await Question.find({ _id: { $in: qids } }).select("_id type").lean();
+    chunks = balancedMixChunks(qdocs, per);
+    nameFor = () => nextQuizName();
   } else {
     if (total <= per) {
       return res.json({ message: `No split needed — this quiz has ${total} question(s) (≤ ${per}).`, quizzes: 1, created: 0 });
@@ -527,7 +536,7 @@ export async function splitItem(req, res) {
     // Point each moved question at its new item.
     await Question.updateMany({ _id: { $in: chunks[k] } }, { $set: { testSeries: newItem._id } }, { timestamps: false }); // split = association only, keep updatedAt
   }
-  res.json({ message: `Split ${total} questions into ${chunks.length} quizzes${byType ? " by type" : ""}.`, quizzes: chunks.length, created: chunks.length - 1 });
+  res.json({ message: `Split ${total} questions into ${chunks.length} quizzes${byType ? " by type" : byWeights ? " by weights" : ""}.`, quizzes: chunks.length, created: chunks.length - 1 });
 }
 
 // POST /api/practice/items/:id/merge  { sourceIds: [] }
@@ -657,7 +666,8 @@ export async function copyQuestions(req, res) {
 // (questions preserved). Owner-scoped. e.g. 200 questions at 50/quiz → Quiz 1..4.
 export async function splitTopic(req, res) {
   const per = Math.max(1, Math.min(500, parseInt(req.body?.perQuiz, 10) || 50));
-  const byType = req.body?.by === "type"; // "type" → one quiz per question type; else N-per-quiz
+  const byType = req.body?.by === "type"; // "type" → one quiz per question type
+  const byWeights = req.body?.by === "weights"; // "weights" → each quiz ~50% MCQ + rest even; else N-per-quiz
   const topic = await PracticeTopic.findOne({ _id: req.params.id, ...ownerFilter(req) });
   if (!topic) return res.status(404).json({ message: "Topic not found" });
 
@@ -689,6 +699,11 @@ export async function splitTopic(req, res) {
     chunks = groups.map((g) => g.ids);
     const usedLower = new Set();
     names = groups.map((g) => uniqueName(g.label, usedLower));
+  } else if (byWeights) {
+    // Balanced mix: each quiz ~50% plain MCQ + ~50% the other types, evenly.
+    const qdocs = await Question.find({ _id: { $in: allQids } }).select("_id type").lean();
+    chunks = balancedMixChunks(qdocs, per);
+    names = chunks.map((_, k) => `Quiz ${k + 1}`);
   } else {
     chunks = [];
     for (let i = 0; i < total; i += per) chunks.push(allQids.slice(i, i + per));
@@ -712,7 +727,7 @@ export async function splitTopic(req, res) {
     });
     await Question.updateMany({ _id: { $in: chunks[k] } }, { $set: { testSeries: newItem._id } }, { timestamps: false }); // split = association only, keep updatedAt
   }
-  res.json({ message: `Split ${total} questions into ${chunks.length} quizzes${byType ? " by type" : ""}.`, quizzes: chunks.length, created: chunks.length });
+  res.json({ message: `Split ${total} questions into ${chunks.length} quizzes${byType ? " by type" : byWeights ? " by weights" : ""}.`, quizzes: chunks.length, created: chunks.length });
 }
 
 // The FIRST published quiz in a topic (natural order — "Quiz 1") is a FREE
