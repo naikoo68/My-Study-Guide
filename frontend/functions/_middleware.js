@@ -20,29 +20,42 @@
 // THE FIX
 // -------
 // Run before every request. Let the normal pipeline resolve first (static
-// assets, `_redirects`, then `404.html`). If the result is a 404 for a genuine
-// PAGE navigation (a GET that accepts text/html), serve the app shell
-// (index.html) with a 200 instead, so React Router can render the deep route.
-// Missing non-HTML assets (a stray .js/.css/image) keep their real 404.
+// assets, `_redirects`, then `404.html`). If the result is a 404 for a page
+// route, serve the app shell (index.html) with a 200 instead, so React Router
+// can render the deep route.
+//
+// Deciding "is this a page route?" by the URL SHAPE (no file extension) rather
+// than the Accept header is deliberate: Google's AdSense preview fetcher and
+// many crawlers request with `Accept: */*` (or no Accept), and some pre-check
+// the URL with a HEAD request. An Accept-based check wrongly 404s all of those.
+// Requests for real files (a stray .js/.css/.png) keep their 404, so a broken
+// asset is never masked as the HTML shell (which would be the wrong MIME type).
 export const onRequest = async (context) => {
   const { request, next, env } = context;
 
   const response = await next();
   if (response.status !== 404) return response;
 
-  // Only rewrite real page loads, never missing static assets — otherwise a
-  // broken script/style would be masked as the HTML shell (wrong MIME type).
-  const accept = request.headers.get("Accept") || "";
-  const isHtmlNavigation = request.method === "GET" && accept.includes("text/html");
-  if (!isHtmlNavigation) return response;
+  // Only page loads (GET/HEAD) are candidates — never POST/PUT/etc.
+  if (request.method !== "GET" && request.method !== "HEAD") return response;
+
+  // Treat the path as a static asset (keep the 404) when its last segment has a
+  // file extension, e.g. /assets/app.js, /favicon.ico, /sitemap.xml. Everything
+  // else is a client-side route (/choose/quiz, /public-quizzes/stream/<id>, …).
+  const url = new URL(request.url);
+  const lastSegment = url.pathname.split("/").pop() || "";
+  const looksLikeFile = lastSegment.includes(".");
+  if (looksLikeFile) return response;
 
   // Serve the SPA shell with a 200 so client-side routing takes over. env.ASSETS
   // hits the static-asset server directly (it does NOT re-enter this middleware),
-  // so there is no request loop.
-  const origin = new URL(request.url).origin;
+  // so there is no request loop. HEAD requests get the same status/headers but
+  // no body, per the HTTP spec.
+  const origin = url.origin;
   const shell = await env.ASSETS.fetch(new URL("/index.html", origin));
+  const body = request.method === "HEAD" ? null : shell.body;
 
-  return new Response(shell.body, {
+  return new Response(body, {
     status: 200,
     statusText: "OK",
     headers: shell.headers,
