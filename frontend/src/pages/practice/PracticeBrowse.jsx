@@ -76,31 +76,28 @@ export default function PracticeBrowse() {
 
   const title = level === "items" ? "Select one to start" : level === "topics" ? "Choose a topic" : level === "subjects" ? "Choose a subject" : level === "exams" ? "Choose an exam" : KIND_LABEL[kind] || "Practice";
 
-  const openItem = (item) => {
+  // Destination for an item card. Returned as a URL (not an imperative
+  // navigate) so the card can render as a REAL <Link>/<a> anchor: crawlers and
+  // the AdSense preview follow anchors but NOT JavaScript button clicks, and a
+  // free-preview quiz then becomes a genuine, discoverable content link.
+  const itemHref = (item) => {
     // Previous Papers: LOGIN required, but no subscription.
-    if (kind === "paper") {
-      if (!user) return navigate("/login");
-      return navigate(`/practice/quiz/play/${item._id}`);
-    }
+    if (kind === "paper") return user ? `/practice/quiz/play/${item._id}` : "/login";
     // My Quiz: the FIRST quiz in each topic is FREE for everyone.
     if (kind === "quiz") {
-      if (item.freePreview) {
-        // Logged-in users play the normal (progress-saving) route; guests use
-        // the public free-preview route (no login needed).
-        return navigate(user ? `/practice/quiz/play/${item._id}` : `/practice/quiz/free/${item._id}`);
-      }
-      if (!user) return navigate("/login");
-      if (item.locked) return navigate("/pricing"); // needs a subscription
-      return navigate(`/practice/quiz/play/${item._id}`);
+      // Logged-in users play the normal (progress-saving) route; guests use the
+      // public free-preview route (no login needed).
+      if (item.freePreview) return user ? `/practice/quiz/play/${item._id}` : `/practice/quiz/free/${item._id}`;
+      if (!user) return "/login";
+      if (item.locked) return "/pricing"; // needs a subscription
+      return `/practice/quiz/play/${item._id}`;
     }
-    // My Test Series → full test interface (timed, submit at end). The FIRST
-    // test in each subject is FREE for everyone; the rest need login+subscription.
-    if (item.freePreview) {
-      return navigate(user ? `/public-test-series/attempt/${item._id}` : `/practice/test/free/${item._id}`);
-    }
-    if (!user) return navigate("/login");
-    if (item.locked) return navigate("/pricing");
-    navigate(`/public-test-series/attempt/${item._id}`);
+    // My Test Series → full test interface. The FIRST test per subject is FREE;
+    // the rest need login + subscription.
+    if (item.freePreview) return user ? `/public-test-series/attempt/${item._id}` : `/practice/test/free/${item._id}`;
+    if (!user) return "/login";
+    if (item.locked) return "/pricing";
+    return `/public-test-series/attempt/${item._id}`;
   };
 
   return (
@@ -136,9 +133,9 @@ export default function PracticeBrowse() {
                   {it.difficulty && <span>{it.difficulty}</span>}
                   <span className="inline-flex items-center gap-1" title="Total views"><Eye className="h-4 w-4" /> {(it.views || 0).toLocaleString()}</span>
                 </div>
-                <button onClick={() => openItem(it)} className={`mt-4 w-full ${isLocked && !paperNeedsLogin ? "btn-outline" : "btn-primary"}`}>
+                <Link to={itemHref(it)} className={`mt-4 w-full justify-center ${isLocked && !paperNeedsLogin ? "btn-outline" : "btn-primary"}`}>
                   {isLocked ? <Lock className="h-4 w-4" /> : <Play className="h-4 w-4" />} {btnLabel}
-                </button>
+                </Link>
                 {canRecord && kind === "quiz" && (it.questionCount ?? 0) > 0 && (
                   <button
                     onClick={() => navigate(`/practice/quiz/slideshow/${it._id}`)}
