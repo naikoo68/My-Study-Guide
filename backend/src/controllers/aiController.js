@@ -1341,6 +1341,13 @@ function reorderNoConsecutiveTypes(list) {
 
 const MAX_TOTAL = 500; // absolute hard ceiling / fallback (admin can set a lower/higher per-batch cap in Settings)
 const CHUNK_SIZE = 12; // questions generated per provider call — smaller so the richer, detailed explanations don't truncate the JSON reply
+// Use EVERY enabled key on EVERY run — always on (per product decision). Even a
+// 1-question batch fans out so that each key in the active pool fires at least
+// one request: all keys are exercised and give instant redundancy if some are
+// rate-limited/dead. We still keep only the requested count — questions produced
+// beyond the target (by the "extra" keys) are discarded. Trade-off: small
+// batches spend a little quota on keys whose output isn't kept.
+const USE_ALL_KEYS = true;
 
 // Per-provider-call network timeout (ms). Lowered from the old hard-coded 90s so
 // a hung/slow key gives up sooner and the worker moves on to another chunk/key
@@ -1742,22 +1749,34 @@ async function runGenerationJob(id, ctx) {
   const avoidNow = () => [...(avoid || []), ...collected.map((q) => q.text).filter(Boolean)];
 
   // Reserve the next chunk of work so parallel key-workers don't duplicate it.
-  const reserveChunk = () => {
+  // `force` (all-keys mode): when the target is already fully reserved/collected
+  // but this key hasn't fired yet, still hand it a minimal 1-question chunk so
+  // every key contributes a request. Forced chunks are NOT tracked in the
+  // reservation accounting (they're extras beyond the target) and their output
+  // is dropped once `collected` reaches the target.
+  const reserveChunk = (force = false) => {
     if (plan) {
       const rem = planGaps(plan, collected, reserved);
-      if (!rem.length) return null;
+      if (!rem.length) {
+        if (!force) return null;
+        return { chunk: [{ ...plan[0], count: 1 }], n: 1, focus: nextFocus(1), forced: true };
+      }
       const chunk = takeChunk(rem, chunkSize);
       for (const b of chunk) reserved[`${b.type}|${b.difficulty}`] = (reserved[`${b.type}|${b.difficulty}`] || 0) + b.count;
       const n = chunk.reduce((s, b) => s + b.count, 0);
       return { chunk, n, focus: nextFocus(n) };
     }
     const remaining = target - collected.length - reservedCount;
-    if (remaining <= 0) return null;
+    if (remaining <= 0) {
+      if (!force) return null;
+      return { n: 1, focus: nextFocus(1), forced: true };
+    }
     const n = Math.min(chunkSize, remaining);
     reservedCount += n;
     return { n, focus: nextFocus(n) };
   };
   const release = (res) => {
+    if (!res || res.forced) return; // forced extra chunks aren't tracked in the reservation counters
     if (plan) for (const b of res.chunk) { const k = `${b.type}|${b.difficulty}`; reserved[k] = Math.max(0, (reserved[k] || 0) - b.count); }
     else reservedCount = Math.max(0, reservedCount - res.n);
   };
@@ -1785,9 +1804,14 @@ async function runGenerationJob(id, ctx) {
   const worker = async (ep) => {
     let quotaWaits = 0;
     let emptyReplies = 0;
-    while (collected.length < target && attempts < MAX_ATTEMPTS && Date.now() < deadline && !job.cancelled) {
-      const res = reserveChunk();
+    let didRequest = false; // all-keys mode: guarantee this key fires ≥1 request, even if the target is already met
+    // Keep looping while there's real work left OR this key still owes its
+    // mandatory first request (all-keys mode). The forced first chunk keeps
+    // every key contributing; subsequent iterations use normal target-gated work.
+    while (((collected.length < target) || (USE_ALL_KEYS && !didRequest)) && attempts < MAX_ATTEMPTS && Date.now() < deadline && !job.cancelled) {
+      const res = reserveChunk(USE_ALL_KEYS && !didRequest);
       if (!res) break; // nothing left to generate
+      didRequest = true;
       const prompt = plan
         ? buildUserPrompt({ topic, notes, subject, stream, plan: res.chunk, avoid: avoidNow(), source, focus: res.focus, numerical, reshape, outLang })
         : buildUserPrompt({ topic, notes, subject, stream, count: res.n, difficulty, types, avoid: avoidNow(), source, focus: res.focus, numerical, reshape, outLang });
