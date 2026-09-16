@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, X, Megaphone, Eye, EyeOff, BellRing } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Megaphone, Eye, EyeOff, BellRing, CalendarClock } from "lucide-react";
 import { noticeService } from "../../services";
 import { useSettings } from "../../context/SettingsContext";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
@@ -16,6 +16,9 @@ export default function AdminNotices() {
   const [saving, setSaving] = useState(false);
   const [notify, setNotify] = useState(false);
   const [notifySaving, setNotifySaving] = useState(false);
+  const [expiryDays, setExpiryDays] = useState(30); // auto-expire content notices after N days (0 = never)
+  const [expirySaving, setExpirySaving] = useState(false);
+  const [clearing, setClearing] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -23,7 +26,11 @@ export default function AdminNotices() {
     noticeService.listAll().then(setItems).catch((e) => setError(e.message)).finally(() => setLoading(false));
   };
   useEffect(load, []);
-  useEffect(() => { setNotify(settings?.notifyOnNewContent === true); }, [settings?.notifyOnNewContent]);
+  // Sync the content-notify controls from saved settings when they load.
+  useEffect(() => {
+    setNotify(settings?.notifyOnNewContent === true);
+    if (settings?.notifyExpiryDays != null) setExpiryDays(settings.notifyExpiryDays);
+  }, [settings?.notifyOnNewContent, settings?.notifyExpiryDays]);
 
   const toggleNotify = async () => {
     const next = !notify;
@@ -36,6 +43,37 @@ export default function AdminNotices() {
       setNotify(!next);
     } finally {
       setNotifySaving(false);
+    }
+  };
+
+  // Save the auto-expiry window (days) for CONTENT notices only. New content
+  // notices posted after this get an expiry that many days out; 0 = never.
+  const saveExpiry = async () => {
+    const days = Math.max(0, Math.min(365, parseInt(expiryDays, 10) || 0));
+    setExpiryDays(days);
+    setExpirySaving(true);
+    try {
+      await saveSettings({ notifyExpiryDays: days });
+    } catch (e2) {
+      setError(e2.message);
+    } finally {
+      setExpirySaving(false);
+    }
+  };
+
+  // Bulk-remove ALL auto content notices (manual announcements are untouched).
+  const clearContent = async () => {
+    const count = items.filter((n) => n.auto).length;
+    if (!count) { window.alert("There are no content notices to clear."); return; }
+    if (!window.confirm(`Clear all ${count} auto content notice(s)? Your manual notices are kept, and cleared ones go to the Recycle Bin.`)) return;
+    setClearing(true);
+    try {
+      await noticeService.clearContent();
+      load();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setClearing(false);
     }
   };
 
@@ -97,24 +135,57 @@ export default function AdminNotices() {
         </button>
       </div>
 
-      {/* Auto-notify toggle */}
-      <div className="card flex flex-wrap items-center justify-between gap-3 p-4">
-        <div className="flex items-start gap-3">
-          <BellRing className="mt-0.5 h-5 w-5 flex-shrink-0 text-accent-500" />
-          <div>
-            <p className="font-semibold">Notify students about new content</p>
-            <p className="text-sm text-slate-500 dark:text-slate-400">When on, adding a new quiz or test series automatically posts a notice here and emails every registered student.</p>
+      {/* Content notifications — their own section, separate from manual notices.
+          Auto "New … added" notices are toggled, auto-expired and bulk-cleared
+          here; the "Add Notice" button above still handles manual announcements. */}
+      <div className="card space-y-4 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <BellRing className="mt-0.5 h-5 w-5 flex-shrink-0 text-accent-500" />
+            <div>
+              <p className="font-semibold">Notify students about new content</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">When on, adding a new quiz or test series automatically posts a notice here and emails every registered student.</p>
+            </div>
           </div>
+          <button
+            type="button"
+            onClick={toggleNotify}
+            disabled={notifySaving}
+            className={`relative h-7 w-12 flex-shrink-0 rounded-full transition ${notify ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-600"}`}
+            aria-pressed={notify}
+          >
+            <span className={`absolute top-1 h-5 w-5 rounded-full bg-white transition-all ${notify ? "left-6" : "left-1"}`} />
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={toggleNotify}
-          disabled={notifySaving}
-          className={`relative h-7 w-12 flex-shrink-0 rounded-full transition ${notify ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-600"}`}
-          aria-pressed={notify}
-        >
-          <span className={`absolute top-1 h-5 w-5 rounded-full bg-white transition-all ${notify ? "left-6" : "left-1"}`} />
-        </button>
+
+        {/* Auto-expiry + bulk clear — apply to content notices ONLY, never manual */}
+        <div className="flex flex-wrap items-end justify-between gap-4 border-t border-slate-100 pt-4 dark:border-slate-800">
+          <div className="flex items-start gap-3">
+            <CalendarClock className="mt-0.5 h-5 w-5 flex-shrink-0 text-accent-500" />
+            <div>
+              <p className="font-semibold">Auto-expire content notices</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">Auto “New … added” notices stop showing to students this many days after they’re posted, so the board self-cleans. Set <b>0</b> to never expire. Your manual notices are never affected.</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <input
+                  type="number"
+                  min={0}
+                  max={365}
+                  value={expiryDays}
+                  onChange={(e) => setExpiryDays(e.target.value)}
+                  className="input w-24"
+                  aria-label="Days until content notices expire"
+                />
+                <span className="text-sm text-slate-500 dark:text-slate-400">days</span>
+                <button type="button" onClick={saveExpiry} disabled={expirySaving} className="btn-outline">
+                  {expirySaving ? "Saving…" : "Save"}
+                </button>
+              </div>
+            </div>
+          </div>
+          <button type="button" onClick={clearContent} disabled={clearing} className="btn-outline !text-rose-600 dark:!text-rose-400">
+            <Trash2 className="h-4 w-4" /> {clearing ? "Clearing…" : "Clear content notices"}
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -125,14 +196,26 @@ export default function AdminNotices() {
         <EmptyState message="No notices yet. Add one to show it in the scrolling ticker." />
       ) : (
         <div className="space-y-3">
-          {items.map((n) => (
+          {items.map((n) => {
+            const expired = n.auto && n.expiresAt && new Date(n.expiresAt) < new Date();
+            return (
             <div key={n._id} className="card flex items-start justify-between gap-3 p-4">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className={`badge ${n.active ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" : "bg-slate-100 text-slate-500 dark:bg-slate-800"}`}>
                     {n.active ? "Active" : "Hidden"}
                   </span>
+                  <span className={`badge ${n.auto ? "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300" : "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300"}`}>
+                    {n.auto ? "Content" : "Manual"}
+                  </span>
                   <span className="text-xs text-slate-400">Order: {n.order || 0}</span>
+                  {n.auto && n.expiresAt && (
+                    <span className={`text-xs font-medium ${expired ? "text-rose-500" : "text-slate-400"}`}>
+                      {expired
+                        ? "Expired — hidden from students"
+                        : `Expires ${new Date(n.expiresAt).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}`}
+                    </span>
+                  )}
                 </div>
                 <p className="mt-1.5 font-medium">{n.text}</p>
                 {n.link && <a href={n.link} target="_blank" rel="noreferrer" className="text-xs text-brand-600 hover:underline dark:text-brand-400">{n.link}</a>}
@@ -149,7 +232,8 @@ export default function AdminNotices() {
                 </button>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

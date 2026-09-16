@@ -132,7 +132,7 @@ export async function updateSettings(req, res) {
     "heroBadge", "heroTitle", "heroSubtitle",
     "fontFamily", "socialLinks", "contacts",
     "navHeight", "navBrandSize", "navFontSize", "navFontWeight", "navFontFamily", "navTextTransform", "defaultZoom",
-    "watermarkEnabled", "watermarkText", "watermarkOpacity", "watermarkSize", "watermarkMode", "restrictCopy", "screenshotGuard", "guardHoldMs", "statsAuto", "notifyOnNewContent",
+    "watermarkEnabled", "watermarkText", "watermarkOpacity", "watermarkSize", "watermarkMode", "restrictCopy", "screenshotGuard", "guardHoldMs", "statsAuto", "notifyOnNewContent", "notifyExpiryDays",
     "publicClientEnabled", "publicInstituteEnabled",
     "studentPlansEnabled", "creatorPlansEnabled", "institutePlansEnabled",
     "featureFlags", "publicFeatureFlags",

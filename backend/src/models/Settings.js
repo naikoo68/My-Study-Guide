@@ -171,6 +171,10 @@ const settingsSchema = new mongoose.Schema(
     guardHoldMs: { type: Number, default: 1500 }, // how long the screen-guard cover stays after a screenshot key (ms)
     // Email + notice-board announcement when a new quiz/test is added.
     notifyOnNewContent: { type: Boolean, default: false },
+    // Auto-expire those content notices this many days after they're posted, so
+    // the board self-cleans instead of piling up. 0 = never expire. Manual
+    // notices are unaffected (they never expire).
+    notifyExpiryDays: { type: Number, default: 30 },
     // Platform-wide public visibility switches. When OFF, the corresponding
     // account type is hidden everywhere on the PUBLIC site (sign-up tabs,
     // pricing audience, sign-in links) and its register route is blocked, so
