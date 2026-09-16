@@ -2,7 +2,7 @@
 // bookmark, auto-save, submit and result.
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   FileText,
   ChevronLeft,
@@ -78,6 +78,19 @@ export default function PracticeQuizPlay() {
   const isFree = !!freeId; // FREE first-quiz-per-topic preview (no login needed)
   const playId = itemId || token || freeId;
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // Optional deep-link / preview aid: `?timer=off|15|30|45|60` starts the quiz
+  // immediately, skipping the "choose a timer" screen. Starting is normally a
+  // state change on the SAME URL (a tap), so a non-interactive viewer like the
+  // AdSense Ad Settings Preview can never reach the question view on its own.
+  // This gives the questions a real, shareable/previewable URL. Absent/invalid
+  // values leave the normal "choose a timer" flow untouched.
+  const timerParam = searchParams.get("timer");
+  const paramTimerMode = TIMER_OPTIONS.some((o) => String(o.value) === timerParam)
+    ? timerParam === "off"
+      ? "off"
+      : Number(timerParam)
+    : null;
   const { user } = useAuth();
   const isClient = user?.role === "client"; // clients return to their own workspace
   const storageKey = `mpm-practice-quiz-${playId}`;
@@ -99,7 +112,7 @@ export default function PracticeQuizPlay() {
   const [timedOut, setTimedOut] = useState(saved.timedOut || {});
   const [bookmarks, setBookmarks] = useState(saved.bookmarks || {});
   const [seconds, setSeconds] = useState(saved.seconds || 0);
-  const [timerMode, setTimerMode] = useState(saved.timerMode ?? null); // null=not chosen, "off", or seconds
+  const [timerMode, setTimerMode] = useState(paramTimerMode ?? saved.timerMode ?? null); // null=not chosen, "off", or seconds
   const [qTime, setQTime] = useState(saved.qTime ?? 0);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -114,7 +127,9 @@ export default function PracticeQuizPlay() {
   const hasSavedSession =
     saved.timerMode != null &&
     (Object.keys(saved.answers || {}).length > 0 || (saved.current || 0) > 0 || (saved.seconds || 0) > 0);
-  const [showResume, setShowResume] = useState(hasSavedSession);
+  // When `?timer=` forces an immediate start, skip the "resume previous attempt?"
+  // prompt so the preview/deep link lands straight on the questions.
+  const [showResume, setShowResume] = useState(paramTimerMode == null && hasSavedSession);
   const [fullscreen, setFullscreen] = useState(false);
   const containerRef = useRef(null);
   const { zoom, zoomIn, zoomOut } = useZoom();
