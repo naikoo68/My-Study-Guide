@@ -33,6 +33,10 @@ const DIFFS = ["Easy", "Medium", "Hard"];
 // Max questions per generation. You can type any count in the grid up to this
 // total (they're generated in chunks, so larger batches just take longer).
 const MAX_TOTAL = 500;
+// How many preview cards to render before the "Show all" toggle. Keeps a big
+// batch from turning the modal into one endless scroll on mobile (and keeps
+// hundreds of rich cards out of the DOM until they're actually wanted).
+const PREVIEW_CAP = 25;
 
 // Reusable "Generate with AI" modal. Mirrors BulkUploadQuestions:
 // `onUpload(questions)` should return a promise (e.g. { inserted }). The AI
@@ -78,6 +82,12 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
   const [notes, setNotes] = useState("");
   const [language, setLanguage] = useState(""); // output language for generated questions ("" = English/default)
   const [preview, setPreview] = useState([]);
+  // On phones the whole preview flows into the page (see the note by the list —
+  // a nested scroll box can't be scrolled on iOS), so a big batch of hundreds of
+  // questions buries the destination + Insert controls far below. We render only
+  // the first PREVIEW_CAP cards until the user taps "Show all", keeping the page
+  // short so the controls stay within easy reach.
+  const [showAllPreview, setShowAllPreview] = useState(false);
   const [busy, setBusy] = useState(false);
   const [stopping, setStopping] = useState(false); // user asked to stop the current generation
   const [autoContinue, setAutoContinue] = useState(true); // ON by default: resume across quota windows until the full count is reached, then stop
@@ -202,6 +212,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
     if (!open) return;
     setMsg("");
     setPreview([]);
+    setShowAllPreview(false); // collapse the preview back to the first page on reopen
     setMinimized(false); // always (re)open expanded, never as the collapsed pill
     destSnapRef.current = null; // fresh destination for this session
     setCoverage(null);
@@ -495,7 +506,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
     setKeyStats(null);
     setGenWarning("");
     setLiveWave({});
-    if (!append) setPreview([]);
+    if (!append) { setPreview([]); setShowAllPreview(false); }
     setResumeAvail(null); // any run supersedes the restored-session banner
     // Resuming: cancel any orphaned background job from the interrupted session
     // (best-effort) so it stops consuming keys while we continue afresh.
@@ -715,10 +726,25 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
         }
         // Interruptible wait for the per-minute limit to refill (a touch longer
         // after an empty wave so the window has time to reset).
+        //
+        // WALL-CLOCK, not a tick countdown: iOS Safari FREEZES timers in a
+        // backgrounded tab, so a `for (k = 60; k--)` loop stalls the moment you
+        // switch apps and would resume from the SAME k when you return — the
+        // "rest timer" appears stuck and the limit never actually gets its full
+        // reset window. Waiting until a real end timestamp instead means the
+        // elapsed real time counts even while suspended: reopen the browser and
+        // if the window has already passed the next wave fires immediately,
+        // otherwise it counts down the true remaining seconds. (The current
+        // wave's questions are generated server-side under jobId, so nothing is
+        // lost while the tab is backgrounded either.)
         const waitSec = (last.produced || 0) === 0 ? 60 : 40;
-        for (let k = waitSec; k > 0 && !stopRef.current; k--) {
+        const waitUntil = Date.now() + waitSec * 1000;
+        while (!stopRef.current) {
+          const remainingMs = waitUntil - Date.now();
+          if (remainingMs <= 0) break;
+          const k = Math.ceil(remainingMs / 1000);
           setMsg(`Auto-continue: ${producedTotal} of ${target} so far${zeroWaves ? ` · ${zeroWaves} empty wave(s)` : ""}. Waiting ${k}s for the free-tier limit to reset… (press Stop to keep what you have)`);
-          await sleep(1000);
+          await sleep(Math.min(1000, remainingMs)); // re-check ~1×/s; on resume the elapsed real time is honoured
         }
         if (stopRef.current) { finalize(last, producedTotal, target); break; }
       }
@@ -1462,6 +1488,51 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
               </div>
             )}
 
+            {/* Where to save this batch: the current quiz/test, or a brand-new one.
+                Kept ABOVE the preview cards so, after a big batch, you set the
+                destination and reach Insert without scrolling past every question. */}
+            {allowNewTarget && preview.length > 0 && (
+              <div className="mt-4 rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+                <p className="mb-2 text-sm font-semibold">Where should these {preview.length} question(s) go?</p>
+                {currentTargetName && (
+                  <label className="flex cursor-pointer items-center gap-2 text-sm">
+                    <input type="radio" name="aidest" checked={destChoice === "current"} onChange={() => setDestChoice("current")} />
+                    <span>Current {newLeafLabel} — <b>{currentTargetName}</b></span>
+                  </label>
+                )}
+                {existingItems.length > 0 && (
+                  <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm">
+                    <input type="radio" name="aidest" checked={destChoice === "existing"} onChange={() => setDestChoice("existing")} />
+                    <span className="flex-shrink-0">Existing {newLeafLabel}:</span>
+                    <select
+                      value={existingId}
+                      onFocus={() => setDestChoice("existing")}
+                      onChange={(e) => { setExistingId(e.target.value); setDestChoice("existing"); }}
+                      className="input !py-1"
+                    >
+                      <option value="">Choose a {newLeafLabel}…</option>
+                      {existingItems.map((it) => <option key={it._id} value={it._id}>{it.name}{it.questionCount != null ? ` (${it.questionCount})` : ""}</option>)}
+                    </select>
+                  </label>
+                )}
+                <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm">
+                  <input type="radio" name="aidest" checked={destChoice === "new"} onChange={() => setDestChoice("new")} />
+                  <span className="flex-shrink-0">New {newLeafLabel}:</span>
+                  <input
+                    type="text"
+                    value={newName}
+                    onFocus={() => setDestChoice("new")}
+                    onChange={(e) => setNewName(e.target.value)}
+                    placeholder={`New ${newLeafLabel} name`}
+                    className="input !py-1"
+                  />
+                </label>
+                <p className="mt-1 text-xs text-slate-400">
+                  Choose <b>New {newLeafLabel}</b> to auto-create it (under the same parent) and put this batch there — then click <b>Generate</b> again for the next batch.
+                </p>
+              </div>
+            )}
+
             {preview.length > 0 && (
               <div className="mt-4">
                 <p className="mb-2 inline-flex items-center gap-1 text-sm font-semibold text-emerald-600 dark:text-emerald-400">
@@ -1473,7 +1544,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
                     outer scroll, so you'd only ever see the first question).
                     The compact fixed-height scroll box is kept from `sm:` up. */}
                 <div className="space-y-2 rounded-xl border border-slate-200 p-2 dark:border-slate-700 sm:max-h-64 sm:overflow-y-auto sm:overscroll-contain">
-                  {preview.map((q, i) => (
+                  {(showAllPreview ? preview : preview.slice(0, PREVIEW_CAP)).map((q, i) => (
                     <div key={i} className="rounded-lg bg-slate-50 p-2 text-xs dark:bg-slate-800/60">
                       <div className="flex items-center gap-2">
                         <span className="rounded bg-brand-100 px-1.5 py-0.5 font-semibold uppercase text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">{q.type}</span>
@@ -1493,6 +1564,18 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
                     </div>
                   ))}
                 </div>
+                {/* Keep the page short by default — the destination picker and the
+                    Insert button sit just below, so a huge batch no longer buries
+                    them under hundreds of cards you'd have to scroll past. */}
+                {preview.length > PREVIEW_CAP && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllPreview((v) => !v)}
+                    className="btn-outline mt-2 w-full text-xs"
+                  >
+                    {showAllPreview ? "Show fewer" : `Show all ${preview.length} questions`}
+                  </button>
+                )}
               </div>
             )}
 
@@ -1545,48 +1628,6 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
               </div>
             )}
 
-            {/* Where to save this batch: the current quiz/test, or a brand-new one. */}
-            {allowNewTarget && preview.length > 0 && (
-              <div className="mt-3 rounded-xl border border-slate-200 p-3 dark:border-slate-700">
-                <p className="mb-2 text-sm font-semibold">Where should these {preview.length} question(s) go?</p>
-                {currentTargetName && (
-                  <label className="flex cursor-pointer items-center gap-2 text-sm">
-                    <input type="radio" name="aidest" checked={destChoice === "current"} onChange={() => setDestChoice("current")} />
-                    <span>Current {newLeafLabel} — <b>{currentTargetName}</b></span>
-                  </label>
-                )}
-                {existingItems.length > 0 && (
-                  <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm">
-                    <input type="radio" name="aidest" checked={destChoice === "existing"} onChange={() => setDestChoice("existing")} />
-                    <span className="flex-shrink-0">Existing {newLeafLabel}:</span>
-                    <select
-                      value={existingId}
-                      onFocus={() => setDestChoice("existing")}
-                      onChange={(e) => { setExistingId(e.target.value); setDestChoice("existing"); }}
-                      className="input !py-1"
-                    >
-                      <option value="">Choose a {newLeafLabel}…</option>
-                      {existingItems.map((it) => <option key={it._id} value={it._id}>{it.name}{it.questionCount != null ? ` (${it.questionCount})` : ""}</option>)}
-                    </select>
-                  </label>
-                )}
-                <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm">
-                  <input type="radio" name="aidest" checked={destChoice === "new"} onChange={() => setDestChoice("new")} />
-                  <span className="flex-shrink-0">New {newLeafLabel}:</span>
-                  <input
-                    type="text"
-                    value={newName}
-                    onFocus={() => setDestChoice("new")}
-                    onChange={(e) => setNewName(e.target.value)}
-                    placeholder={`New ${newLeafLabel} name`}
-                    className="input !py-1"
-                  />
-                </label>
-                <p className="mt-1 text-xs text-slate-400">
-                  Choose <b>New {newLeafLabel}</b> to auto-create it (under the same parent) and put this batch there — then click <b>Generate</b> again for the next batch.
-                </p>
-              </div>
-            )}
           </>
         )}
 
@@ -1622,7 +1663,10 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
           </div>
         )}
 
-        <div className="mt-6 flex flex-wrap justify-end gap-3">
+        {/* Sticky action bar — the Insert/Save/Close buttons stay pinned to the
+            bottom of the viewport, so you never have to scroll to the end of a
+            long batch to insert (bleeds to the card edges over its padding). */}
+        <div className="sticky bottom-0 z-10 -mx-4 mt-6 flex flex-wrap justify-end gap-3 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur dark:border-slate-700 dark:bg-slate-900/95 sm:-mx-6 sm:px-6">
           <button type="button" onClick={onClose} className="btn-outline">Close</button>
           {preview.length > 0 && !busy && (
             <button type="button" onClick={saveSession} className="btn-outline" title="Save these questions and settings so you can close now and resume later from this topic">
