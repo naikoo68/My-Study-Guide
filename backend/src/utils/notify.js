@@ -56,8 +56,13 @@ export async function notifyNewContent(kind, doc) {
     const fallback = (kind === "test" ? doc.name : doc.title) || label;
     const path = parts.length ? parts.join(" › ") : fallback;
 
-    // 1) Notice board entry — full path + deep link to the quiz/test
-    await Notice.create({ text: `New ${label} added — ${path}`, link, active: true, order: 0 });
+    // 1) Notice board entry — full path + deep link to the quiz/test.
+    // Marked `auto` (so it's distinguishable from manual announcements) and
+    // given an expiry from the notifyExpiryDays setting so the board self-cleans.
+    // 0/blank days → never expire.
+    const expiryDays = Number(settings.notifyExpiryDays);
+    const expiresAt = Number.isFinite(expiryDays) && expiryDays > 0 ? new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000) : null;
+    await Notice.create({ text: `New ${label} added — ${path}`, link, active: true, order: 0, auto: true, expiresAt });
 
     // 2) Email all students — full path
     const users = await User.find({ role: "student" }).select("email").lean();

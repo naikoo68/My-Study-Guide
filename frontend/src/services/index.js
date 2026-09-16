@@ -418,6 +418,7 @@ export const noticeService = {
   create: (data) => api.post("/notices", data),
   update: (id, data) => api.put(`/notices/${id}`, data),
   remove: (id) => api.del(`/notices/${id}`),
+  clearContent: () => api.del("/notices/content"), // bulk-remove auto content notices
 };
 
 // ---- Documents (standalone text store; PDF text extraction) ----
