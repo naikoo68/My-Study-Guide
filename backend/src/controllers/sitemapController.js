@@ -1,6 +1,9 @@
 import Stream from "../models/Stream.js";
 import Subject from "../models/Subject.js";
 import Exam from "../models/Exam.js";
+import Topic from "../models/Topic.js";
+import Session from "../models/Session.js";
+import Quiz from "../models/Quiz.js";
 import { NOT_DELETED } from "../utils/softDelete.js";
 
 // Dynamic XML sitemap served at the site root (proxied from the frontend host
@@ -106,6 +109,73 @@ export async function sitemap(req, res) {
     // Never fail the sitemap: if the DB is unreachable, still return a valid
     // sitemap of the fixed public pages so Google always gets something usable.
     entries = [...STATIC];
+  }
+
+  // Public QUIZ hierarchy: the actual quiz content pages (Subject → Topic →
+  // Session → Quiz) under the canonical /public-quizzes/* browse tree. This is
+  // where the real content lives (2k+ quizzes, 50k+ questions), so listing them
+  // lets Google discover and index the content DIRECTLY instead of only via
+  // internal links — the discovery gap behind the "insufficient content"
+  // AdSense rejection. Mirrors the SAME visibility filters as the public browse
+  // endpoints (contentController): subjects require isActive; subjects/topics/
+  // quizzes must not be `disabled`; nothing soft-deleted; sessions just must not
+  // be deleted. Tenant scoping is handled by the model plugin (exactly like the
+  // streams/subjects queries above), so this stays limited to the platform's own
+  // public content — never institute/white-label copies.
+  //
+  // Separate try/catch so any issue here never drops the landing-page entries.
+  try {
+    entries.push({ path: "/public-quizzes", priority: "0.8", changefreq: "weekly" });
+
+    const [pubSubjects, pubTopics, allSessions, pubQuizzes] = await Promise.all([
+      Subject.find({ isActive: true, disabled: { $ne: true }, ...NOT_DELETED }).select("_id updatedAt").lean(),
+      Topic.find({ disabled: { $ne: true }, ...NOT_DELETED }).select("_id subject updatedAt").lean(),
+      Session.find({ ...NOT_DELETED }).select("_id topic updatedAt").lean(),
+      Quiz.find({ disabled: { $ne: true }, ...NOT_DELETED }).select("_id session updatedAt").lean(),
+    ]);
+
+    const subjectSet = new Set(pubSubjects.map((s) => String(s._id)));
+    // topicId -> subjectId (only topics whose subject is a live public subject)
+    const topicToSubject = new Map();
+    pubTopics.forEach((t) => {
+      const sub = String(t.subject);
+      if (subjectSet.has(sub)) topicToSubject.set(String(t._id), sub);
+    });
+    // sessionId -> { topicId, subjectId } (only sessions under a live topic)
+    const sessionInfo = new Map();
+    allSessions.forEach((s) => {
+      const tid = String(s.topic || "");
+      const sub = topicToSubject.get(tid);
+      if (sub) sessionInfo.set(String(s._id), { topicId: tid, subjectId: sub });
+    });
+
+    // Browse levels (subject → topic → session): entry points that link down to
+    // the individual quizzes.
+    pubSubjects.forEach((s) =>
+      entries.push({ path: `/public-quizzes/${s._id}`, priority: "0.6", changefreq: "weekly", lastmod: isoDay(s.updatedAt) }));
+    pubTopics.forEach((t) => {
+      const sub = topicToSubject.get(String(t._id));
+      if (sub) entries.push({ path: `/public-quizzes/${sub}/${t._id}`, priority: "0.6", changefreq: "weekly", lastmod: isoDay(t.updatedAt) });
+    });
+    allSessions.forEach((s) => {
+      const info = sessionInfo.get(String(s._id));
+      if (info) entries.push({ path: `/public-quizzes/${info.subjectId}/${info.topicId}/${s._id}`, priority: "0.5", changefreq: "weekly", lastmod: isoDay(s.updatedAt) });
+    });
+
+    // The actual quiz pages (the content). Build the full 4-segment URL from the
+    // session chain so subject/topic/session all match what the app expects.
+    pubQuizzes.forEach((q) => {
+      const info = sessionInfo.get(String(q.session));
+      if (!info) return; // orphan / hidden-session quiz → skip
+      entries.push({
+        path: `/public-quizzes/${info.subjectId}/${info.topicId}/${q.session}/${q._id}`,
+        priority: "0.6",
+        changefreq: "weekly",
+        lastmod: isoDay(q.updatedAt),
+      });
+    });
+  } catch {
+    // Skip the quiz hierarchy on any error; the landing-page sitemap still ships.
   }
 
   res.set("Content-Type", "application/xml; charset=utf-8");
