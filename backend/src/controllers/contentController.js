@@ -333,6 +333,17 @@ export async function listSubjects(req, res) {
   res.json(subjects.map((s) => ({ ...liteSub(s), topics: tMap[String(s._id)] || 0, quizzes: qzMap[String(s._id)] || 0, questions: qMap[String(s._id)] || 0 })));
 }
 
+// GET /api/subjects/:id — a SINGLE subject (for the public Topics page header).
+// The Topics page only needs the one subject's name/description/stream, so it
+// used to download the whole /subjects list (hundreds of rows, ~100KB+) just to
+// find one — slow on mobile. This returns only the requested subject. Applies
+// the same visibility filter as the list so private subjects stay hidden.
+export async function getSubject(req, res) {
+  const subject = await Subject.findOne({ _id: req.params.id, ...NOT_DELETED, ...visFilter(req) }).lean();
+  if (!subject) return res.status(404).json({ message: "Subject not found" });
+  res.json(withLiteImage(subject, "subjects", req));
+}
+
 export async function createSubject(req, res) {
   const { name } = req.body;
   const trimmed = String(name || "").trim();

@@ -9,27 +9,40 @@ import NodeStats from "../../components/ui/NodeStats";
 export default function SubjectTopics() {
   const { subjectId } = useParams();
   const [subject, setSubject] = useState(null);
+  const [subjectLoaded, setSubjectLoaded] = useState(false); // has the subject fetch settled?
   const [topics, setTopics] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const load = () => {
-    setLoading(true);
-    setError("");
-    Promise.all([contentService.subjects(), contentService.topics(subjectId)])
-      .then(([subjects, tps]) => {
-        setSubject(subjects.find((s) => s._id === subjectId) || null);
-        setTopics(tps);
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  };
+  // Bumping this key re-triggers the loader effect (used by the retry button).
+  const [reloadKey, setReloadKey] = useState(0);
+  const load = () => setReloadKey((k) => k + 1);
 
-  useEffect(load, [subjectId]);
+  useEffect(() => {
+    let alive = true; // ignore results after unmount / a newer load
+    setLoading(true);
+    setSubjectLoaded(false);
+    setError("");
+    // Fetch ONLY this subject (not the whole subjects list) so the page is fast
+    // on mobile. The topics list gates the spinner; the subject header fills in
+    // independently and never blocks the page (its failure is non-fatal — the
+    // topics are what matter).
+    contentService.subject(subjectId)
+      .then((s) => { if (alive) setSubject(s); })
+      .catch(() => { if (alive) setSubject(null); })
+      .finally(() => { if (alive) setSubjectLoaded(true); });
+    contentService.topics(subjectId)
+      .then((tps) => { if (alive) setTopics(tps); })
+      .catch((e) => { if (alive) setError(e.message); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [subjectId, reloadKey]);
 
   if (loading) return <div className="container-page"><Loading label="Loading topics..." /></div>;
   if (error) return <div className="container-page"><ErrorState message={error} onRetry={load} /></div>;
-  if (!subject) {
+  // Only show "not found" once the subject request has actually settled (avoids
+  // a flash if the subject fetch resolves slightly after the topics).
+  if (!subject && subjectLoaded) {
     return (
       <div className="container-page py-20 text-center">
         <FileQuestion className="mx-auto h-12 w-12 text-slate-400" />
@@ -39,7 +52,9 @@ export default function SubjectTopics() {
     );
   }
 
-  const backTo = subject.stream ? `/public-quizzes/stream/${subject.stream}` : "/public-quizzes";
+  // The subject header may still be loading while topics are already shown, so
+  // read every field defensively (subject can be null for a beat).
+  const backTo = subject?.stream ? `/public-quizzes/stream/${subject.stream}` : "/public-quizzes";
 
   return (
     <div className="container-page py-12">
@@ -48,10 +63,10 @@ export default function SubjectTopics() {
       </Link>
 
       <div className="flex flex-col gap-5 rounded-3xl border border-slate-200 bg-white p-6 sm:flex-row sm:items-center dark:border-slate-800 dark:bg-slate-900">
-        <SubjectLogo name={subject.name} icon={subject.icon} color={subject.color} image={subject.image} size={64} />
+        <SubjectLogo name={subject?.name} icon={subject?.icon} color={subject?.color} image={subject?.image} size={64} />
         <div className="flex-1">
-          <h1 className="text-3xl font-extrabold">{subject.name}</h1>
-          <p className="desc mt-1 text-slate-600 dark:text-slate-300">{subject.description}</p>
+          <h1 className="text-3xl font-extrabold">{subject?.name || "Topics"}</h1>
+          <p className="desc mt-1 text-slate-600 dark:text-slate-300">{subject?.description}</p>
         </div>
         <div className="text-center">
           <p className="text-2xl font-bold text-brand-600 dark:text-brand-400">{topics.length}</p>
