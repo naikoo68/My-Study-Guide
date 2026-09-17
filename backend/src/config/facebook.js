@@ -533,8 +533,13 @@ async function runTenantSchedules(tid, stats = null) {
     const defId = await getDefaultTenantId();
     const isPlatform = tid == null || (defId && String(tid) === String(defId));
     if (isPlatform) {
+      // Select the CONFIGURED platform site doc (fbEnabled). An empty
+      // placeholder "site" doc can exist under the OTHER platform id (e.g. a
+      // blank one under null while the real connection is under the default
+      // tenant), and a plain findOne could return that unconfigured doc — so
+      // require fbEnabled to land on the doc that actually holds the connection.
       cfg = await runUnscoped(() =>
-        getFacebookConfig({ tenantId: { $in: defId ? [null, defId] : [null] } })
+        getFacebookConfig({ fbEnabled: true, tenantId: { $in: defId ? [null, defId] : [null] } })
       );
     }
   }
