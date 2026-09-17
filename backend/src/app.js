@@ -246,7 +246,7 @@ app.get("/api/health", async (req, res) => {
     // Bump this whenever backend code changes so we can verify the server
     // actually redeployed: open /api/health and check `version`. If it's older
     // than the latest, the backend did NOT deploy and server-side fixes aren't live.
-    version: "2026-09-17-fb-scheduler-diag-v50",
+    version: "2026-09-17-fb-scheduler-diag-v51",
     // Auto-post scheduler heartbeat (non-sensitive). If lastTickAt is null/stale,
     // the per-minute timer isn't running. If tenants>0 but configured=0, the FB
     // config lookup for the schedule's tenant is failing (silent bail).
