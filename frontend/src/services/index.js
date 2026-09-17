@@ -344,7 +344,14 @@ export const settingsService = {
 
 // ---- Facebook scheduled auto-posting (admin) ----
 export const facebookService = {
-  schedules: () => api.get("/facebook/schedules"),
+  schedules: (params = {}) => {
+    const qs = new URLSearchParams();
+    if (params.page) qs.set("page", params.page);
+    if (params.limit) qs.set("limit", params.limit);
+    if (params.q) qs.set("q", params.q);
+    const s = qs.toString();
+    return api.get(`/facebook/schedules${s ? `?${s}` : ""}`);
+  },
   create: (data) => api.post("/facebook/schedules", data),
   update: (id, data) => api.put(`/facebook/schedules/${id}`, data),
   remove: (id) => api.del(`/facebook/schedules/${id}`),

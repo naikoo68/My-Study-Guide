@@ -37,6 +37,10 @@ const fbScheduleSchema = new mongoose.Schema(
     includeLink: { type: Boolean, default: false }, // append the site link
     hashtags: { type: String, default: "" }, // optional trailing hashtags
     order: { type: String, enum: ["random", "sequential"], default: "random" },
+    // When true (default), the schedule STOPS once every question in its source
+    // has been posted (no repeats): it disables itself and stamps `completedAt`.
+    // When false it recycles the pool and keeps posting forever (old behaviour).
+    stopWhenExhausted: { type: Boolean, default: true },
 
     // Destinations & format.
     toFacebook: { type: Boolean, default: true }, // post to the Facebook Page
@@ -50,6 +54,8 @@ const fbScheduleSchema = new mongoose.Schema(
     lastRunAt: { type: Date, default: null },
     lastResult: { type: String, default: "" }, // last outcome (ok / error) for admin visibility
     postCount: { type: Number, default: 0 },
+    poolSize: { type: Number, default: 0 }, // total questions in the source at the last run (for "X of Y posted")
+    completedAt: { type: Date, default: null }, // set when the source was fully posted (stopWhenExhausted)
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
   },
   { timestamps: true }

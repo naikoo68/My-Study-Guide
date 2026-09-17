@@ -2,6 +2,8 @@
 // auto-posts to a connected Facebook page / Instagram account.
 
 import Settings from "../models/Settings.js";
+import User from "../models/User.js";
+import { sendMail } from "./mailer.js";
 
 // Facebook Page auto-posting via the Graph API. The Page ID + long-lived Page
 // access token are stored in the singleton Settings document (entered by the
@@ -294,17 +296,20 @@ export async function pickQuestionForSchedule(sch) {
   if (!filter) return null;
   const posted = (sch.postedQuestionIds || []).map(String);
 
+  const poolSize = await Question.countDocuments(filter); // total questions in this source
+  if (poolSize === 0) return null; // no questions at all in this scope
+
   const unusedFilter = posted.length ? { ...filter, _id: { $nin: sch.postedQuestionIds } } : filter;
-  let count = await Question.countDocuments(unusedFilter);
+  let count = posted.length ? await Question.countDocuments(unusedFilter) : poolSize;
   let useFilter = unusedFilter;
   let recycled = false;
   if (count === 0) {
-    // All posted already → start over from the full pool.
-    count = await Question.countDocuments(filter);
+    // Every question has been posted. Either STOP (default) or recycle the pool.
+    if (sch.stopWhenExhausted !== false) return { exhausted: true, poolSize };
+    count = poolSize;
     useFilter = filter;
     recycled = true;
   }
-  if (count === 0) return null; // no questions at all in this scope
 
   let q;
   if (sch.order === "sequential") {
@@ -313,7 +318,34 @@ export async function pickQuestionForSchedule(sch) {
     const skip = Math.floor(Math.random() * count);
     q = await Question.findOne(useFilter).skip(skip).lean();
   }
-  return q ? { q, recycled } : null;
+  return q ? { q, recycled, poolSize } : null;
+}
+
+// Short one-line excerpt of a question stem for notification emails.
+function questionExcerpt(q, n = 120) {
+  const s = String(q?.text || "").replace(/\s+/g, " ").trim();
+  return s.length > n ? `${s.slice(0, n)}…` : s;
+}
+
+// Fire-and-forget email to the admin about a scheduler event (post / error /
+// completion). Recipient = the configured FB notify email, else NOTIFY_EMAIL,
+// else the first admin account. Never throws (must not break posting).
+async function fbNotify({ site, subject, text, html }) {
+  try {
+    let to = String(site?.fbNotifyEmail || "").trim() || process.env.NOTIFY_EMAIL || "";
+    if (!to) {
+      const admin = await User.findOne({ role: "admin" }).select("email").lean().catch(() => null);
+      to = admin?.email || "";
+    }
+    if (!to) return;
+    const siteName = site?.siteName || "My Study Guide";
+    await sendMail({
+      to,
+      subject,
+      text,
+      html: `${html}<p style="color:#94a3b8;font-size:12px;margin-top:16px">Automatic Facebook auto-post notification from ${siteName}.</p>`,
+    }).catch(() => {});
+  } catch { /* notifications must never break the scheduler */ }
 }
 
 // Time helpers ------------------------------------------------------------
@@ -357,18 +389,39 @@ function dueSlot(sch, now) {
 // Post one question from a schedule right now (used by the scheduler AND the
 // admin "Post now" button). Posts to Facebook and/or Instagram, as an image
 // card when requested (Instagram always needs one). Returns { ok, error? }.
-export async function runScheduleOnce(sch, cfgOverride) {
+export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {}) {
   const cfg = cfgOverride || (await getFacebookConfig());
   if (!isFacebookConfigured(cfg)) return { ok: false, error: "Facebook is not connected." };
+  // Load site settings up-front — used for hashtags, watermarks AND the
+  // notification preferences/recipient below.
+  const site = await Settings.findOne({ key: "site" }).lean().catch(() => null);
+  const schTitle = sch.title || sch.source?.label || "Untitled schedule";
+
   const picked = await pickQuestionForSchedule(sch);
+  // Source fully posted → STOP this schedule (unless it's set to recycle).
+  if (picked?.exhausted) {
+    sch.enabled = false;
+    sch.completedAt = new Date();
+    sch.poolSize = picked.poolSize || sch.poolSize || 0;
+    sch.lastRunAt = new Date();
+    sch.lastResult = `Completed — all ${picked.poolSize} question(s) in this source have been posted. Schedule paused.`;
+    if (notify && site?.fbNotifyOnComplete !== false) {
+      await fbNotify({
+        site,
+        subject: `✅ Auto-post complete — ${schTitle}`,
+        text: `All ${picked.poolSize} question(s) from "${sch.source?.label || schTitle}" have been posted. The schedule was paused automatically so nothing repeats.`,
+        html: `<p>✅ <b>${schTitle}</b> has finished.</p><p>All <b>${picked.poolSize}</b> question(s) from <b>${sch.source?.label || "the selected source"}</b> have been posted. The schedule was paused automatically so no questions repeat.</p>`,
+      });
+    }
+    return { ok: false, exhausted: true, completed: true, error: "All questions in this source have been posted." };
+  }
   if (!picked || !picked.q) return { ok: false, error: "No published questions found in the selected source." };
-  const { q, recycled } = picked;
+  const { q, recycled, poolSize } = picked;
 
   const wantFb = sch.toFacebook !== false;
   const wantIg = !!sch.toInstagram && cfg.igEnabled;
   // Global default + auto hashtags (from the question's subject/topic/section)
   // merged with any per-post tags — so every post is tagged consistently.
-  const site = await Settings.findOne({ key: "site" }).lean().catch(() => null);
   const finalTags = await hashtagsForQuestion(q, site, sch.hashtags);
   const message = formatQuestionPost(q, {
     includeOptions: sch.includeOptions,
@@ -474,12 +527,31 @@ export async function runScheduleOnce(sch, cfgOverride) {
   if (!wantFb && !wantIg) return { ok: false, error: "No destination selected (enable Facebook and/or Instagram)." };
 
   sch.lastRunAt = new Date();
+  if (poolSize) sch.poolSize = poolSize;
   if (anyOk) {
     sch.postedQuestionIds = recycled ? [q._id] : [...(sch.postedQuestionIds || []), q._id];
     sch.postCount = (sch.postCount || 0) + 1;
     sch.lastResult = `${notes.join(" · ")}${recycled ? " (restarted the pool)" : ""}`;
+    if (notify && site?.fbNotifyOnPost === true) {
+      const postedCount = (sch.postedQuestionIds || []).length;
+      const prog = poolSize ? `\nProgress: ${postedCount} of ${poolSize} posted.` : "";
+      await fbNotify({
+        site,
+        subject: `📢 Auto-posted — ${schTitle}`,
+        text: `Posted to ${notes.join(", ")}.\nQuestion: ${questionExcerpt(q)}${prog}`,
+        html: `<p>📢 <b>${schTitle}</b> posted a question.</p><p><b>Destinations:</b> ${notes.join(" · ")}</p><p><b>Question:</b> ${questionExcerpt(q)}</p>${poolSize ? `<p><b>Progress:</b> ${postedCount} of ${poolSize} posted.</p>` : ""}`,
+      });
+    }
   } else {
     sch.lastResult = `Failed: ${notes.join(" · ")}`;
+    if (notify && site?.fbNotifyOnError !== false) {
+      await fbNotify({
+        site,
+        subject: `⚠️ Auto-post FAILED — ${schTitle}`,
+        text: `A scheduled Facebook/Instagram post failed.\nSchedule: ${schTitle}\nSource: ${sch.source?.label || "—"}\nError: ${notes.join(" · ")}`,
+        html: `<p>⚠️ A scheduled post <b>failed</b>.</p><p><b>Schedule:</b> ${schTitle}<br/><b>Source:</b> ${sch.source?.label || "—"}</p><p><b>Details:</b> ${notes.join(" · ")}</p>`,
+      });
+    }
   }
   return { ok: anyOk, error: anyOk ? undefined : notes.join(" · "), id: undefined };
 }
@@ -606,9 +678,9 @@ async function runTenantSchedules(tid, stats = null) {
     if (sch.mode === "once") sch.enabled = false; // one-off never repeats
     await sch.save();
     try {
-      const r = await runScheduleOnce(sch, cfg);
+      const r = await runScheduleOnce(sch, cfg, { notify: true });
       if (stats && r?.ok) stats.posted += 1;
-      else if (stats && r && !r.ok) stats.lastError = r.error || "post failed";
+      else if (stats && r && !r.ok && !r.exhausted) stats.lastError = r.error || "post failed";
       await sch.save();
     } catch (e) {
       sch.lastResult = `Error: ${e.message}`;

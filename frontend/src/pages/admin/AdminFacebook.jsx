@@ -4,7 +4,7 @@
 import { useEffect, useState, useRef } from "react";
 import {
   Send, Loader2, CheckCircle2, AlertTriangle, KeyRound, Plus, Trash2, Pencil, X,
-  Clock, CalendarClock, ListChecks, Power, Save, Upload, UserCircle, Type,
+  Clock, CalendarClock, ListChecks, Power, Save, Upload, UserCircle, Type, Search, Mail,
 } from "lucide-react";
 import { Facebook, Instagram } from "../../components/ui/SocialIcons";
 import { settingsService, facebookService, contentService, practiceService } from "../../services";
@@ -370,10 +370,75 @@ function TextWatermarkSection({ settings, saveSettings }) {
   );
 }
 
+// ---- Email Notifications Section ----
+// Emails the admin about the auto-poster: failures, completion of a quiz/source,
+// and (optionally) every successful post.
+function FbNotifySection({ settings, saveSettings }) {
+  const [email, setEmail] = useState(settings?.fbNotifyEmail || "");
+  const [onPost, setOnPost] = useState(settings?.fbNotifyOnPost === true);
+  const [onError, setOnError] = useState(settings?.fbNotifyOnError !== false);
+  const [onComplete, setOnComplete] = useState(settings?.fbNotifyOnComplete !== false);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  useEffect(() => {
+    setEmail(settings?.fbNotifyEmail || "");
+    setOnPost(settings?.fbNotifyOnPost === true);
+    setOnError(settings?.fbNotifyOnError !== false);
+    setOnComplete(settings?.fbNotifyOnComplete !== false);
+  }, [settings?.fbNotifyEmail, settings?.fbNotifyOnPost, settings?.fbNotifyOnError, settings?.fbNotifyOnComplete]);
+
+  const save = async () => {
+    setSaving(true); setMsg(null);
+    try {
+      await saveSettings({ fbNotifyEmail: email, fbNotifyOnPost: onPost, fbNotifyOnError: onError, fbNotifyOnComplete: onComplete });
+      setMsg({ ok: true, text: "Settings saved." });
+    } catch (err) { setMsg({ ok: false, text: err.message || "Save failed." }); }
+    finally { setSaving(false); }
+  };
+
+  const rows = [
+    ["error", onError, setOnError, "Email me when an auto-post FAILS"],
+    ["complete", onComplete, setOnComplete, "Email me when a schedule finishes its whole quiz / source"],
+    ["post", onPost, setOnPost, "Email me on EVERY successful post (can be noisy for 100s of posts)"],
+  ];
+
+  return (
+    <div className="card p-5">
+      <h2 className="flex items-center gap-2 font-bold"><Mail className="h-5 w-5 text-[#1877F2]" /> Email notifications</h2>
+      <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
+        Get emailed about what the auto-poster is doing. Leave the address blank to use the default admin email.
+      </p>
+      <div className="mt-4 space-y-3">
+        <div>
+          <label className="mb-1 block text-xs font-semibold text-slate-500">Notification email (optional)</label>
+          <input type="email" className="input" value={email} placeholder="you@example.com — blank = admin email" onChange={(e) => setEmail(e.target.value)} />
+        </div>
+        {rows.map(([k, val, setter, label]) => (
+          <label key={k} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
+            <span className="text-sm font-medium">{label}</span>
+            <button type="button" onClick={() => setter(!val)}
+              className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${val ? "bg-[#1877F2]" : "bg-slate-300 dark:bg-slate-600"}`}>
+              <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${val ? "left-6" : "left-1"}`} />
+            </button>
+          </label>
+        ))}
+      </div>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button type="button" onClick={save} disabled={saving} className="btn-primary">
+          {saving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> Save notification settings</>}
+        </button>
+        {msg && <span className={`inline-flex items-center gap-1 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {msg.text}</span>}
+      </div>
+    </div>
+  );
+}
+
 const emptyForm = {
   title: "", source: { subject: null, session: null, quiz: null, label: "" },
   times: ["09:00"], days: [], timezone: "Asia/Kolkata",
   includeOptions: true, includeAnswer: false, includeLink: false, hashtags: "", order: "random",
+  stopWhenExhausted: true,
   toFacebook: true, toInstagram: false, asImage: false,
 };
 
@@ -425,19 +490,39 @@ export default function AdminFacebook() {
   };
 
   // ---- Schedules ----
+  const PAGE_SIZE = 20;
   const [schedules, setSchedules] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [form, setForm] = useState(null); // null = closed; else the schedule being created/edited
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState(null); // per-row action in progress
   const [rowMsg, setRowMsg] = useState({}); // id → text
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const load = () => {
     setLoading(true); setError("");
-    facebookService.schedules().then(setSchedules).catch((e) => setError(e.message)).finally(() => setLoading(false));
+    facebookService.schedules({ page, limit: PAGE_SIZE, q: search })
+      .then((r) => {
+        // Accept either the paginated { items, total } shape or a bare array.
+        const items = Array.isArray(r) ? r : (r?.items || []);
+        const tot = Array.isArray(r) ? r.length : (r?.total || 0);
+        // If a delete emptied the last page, step back a page.
+        if (items.length === 0 && page > 1 && tot > 0) { setPage((p) => Math.max(1, p - 1)); return; }
+        setSchedules(items); setTotal(tot);
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
   };
-  useEffect(load, []);
+  // Reload on page change; debounce while typing a search.
+  useEffect(() => {
+    const t = setTimeout(load, search ? 300 : 0);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, search]);
 
   const openNew = () => setForm({ ...emptyForm, times: ["09:00"] });
   const openEdit = (s) => setForm({
@@ -445,6 +530,7 @@ export default function AdminFacebook() {
     times: s.times?.length ? s.times : ["09:00"], days: s.days || [], timezone: s.timezone || "Asia/Kolkata",
     includeOptions: s.includeOptions !== false, includeAnswer: !!s.includeAnswer, includeLink: !!s.includeLink,
     hashtags: s.hashtags || "", order: s.order || "random",
+    stopWhenExhausted: s.stopWhenExhausted !== false,
     toFacebook: s.toFacebook !== false, toInstagram: !!s.toInstagram, asImage: !!s.asImage,
   });
 
@@ -604,12 +690,27 @@ export default function AdminFacebook() {
       {/* Center text Watermark */}
       <TextWatermarkSection settings={settings} saveSettings={saveSettings} />
 
+      {/* Email notifications */}
+      <FbNotifySection settings={settings} saveSettings={saveSettings} />
+
       {/* Schedules */}
       <div className="card p-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="flex items-center gap-2 font-bold"><Clock className="h-4 w-4 text-brand-600" /> Scheduled posts</h2>
+          <h2 className="flex items-center gap-2 font-bold">
+            <Clock className="h-4 w-4 text-brand-600" /> Scheduled posts
+            {total > 0 && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-300">{total}</span>}
+          </h2>
           {!form && <button onClick={openNew} className="btn-primary"><Plus className="h-4 w-4" /> New schedule</button>}
         </div>
+
+        {/* Search (shown once there are schedules or an active search) */}
+        {!form && (total > 0 || search) && (
+          <div className="mt-3 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
+            <Search className="h-4 w-4 flex-shrink-0 text-slate-400" />
+            <input value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} placeholder="Search schedules by title or source…" className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400" />
+            {search && <button onClick={() => { setSearch(""); setPage(1); }} title="Clear" className="flex-shrink-0 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><X className="h-4 w-4" /></button>}
+          </div>
+        )}
 
         {error && <p className="mt-3 text-sm font-medium text-rose-600">{error}</p>}
 
@@ -661,6 +762,11 @@ export default function AdminFacebook() {
               </div>
             </div>
 
+            <label className="mt-3 flex items-start gap-2 text-sm">
+              <input type="checkbox" className="mt-0.5 h-4 w-4 accent-brand-600" checked={form.stopWhenExhausted !== false} onChange={(e) => setForm((f) => ({ ...f, stopWhenExhausted: e.target.checked }))} />
+              <span>Stop when every question has been posted <span className="text-slate-400">(don't repeat — the schedule pauses itself and, if enabled, emails you when the whole quiz/source is done)</span></span>
+            </label>
+
             <p className="mb-1 mt-4 text-sm font-semibold">Post to</p>
             <div className="flex flex-wrap gap-4">
               <label className="flex items-center gap-2 text-sm">
@@ -699,7 +805,9 @@ export default function AdminFacebook() {
           : error && !form ? <div className="mt-6"><ErrorState message={error} onRetry={load} /></div>
           : schedules.length === 0 && !form ? (
             <div className="mt-6 rounded-xl border border-dashed border-slate-200 p-8 text-center dark:border-slate-700">
-              <p className="text-sm text-slate-500 dark:text-slate-400">No schedules yet. Create one to auto-post questions at set times.</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                {search ? `No schedules match "${search}".` : "No schedules yet. Create one to auto-post questions at set times."}
+              </p>
             </div>
           ) : (
             <div className="mt-4 space-y-3">
@@ -707,15 +815,17 @@ export default function AdminFacebook() {
                 <div key={s._id} className="rounded-xl border border-slate-200 p-4 dark:border-slate-700">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="flex items-center gap-2 font-semibold">
-                        <span className={`inline-block h-2 w-2 rounded-full ${s.enabled ? "bg-emerald-500" : "bg-slate-300"}`} />
+                      <p className="flex flex-wrap items-center gap-2 font-semibold">
+                        <span className={`inline-block h-2 w-2 rounded-full ${s.completedAt ? "bg-emerald-500" : s.enabled ? "bg-emerald-500" : "bg-slate-300"}`} />
                         {s.title || s.source?.label || "Untitled schedule"}
+                        {s.completedAt && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">Completed</span>}
+                        {!s.enabled && !s.completedAt && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">Paused</span>}
                       </p>
                       <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{s.source?.label || "—"}</p>
                       <div className="mt-1.5 flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
                         <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" /> {(s.times || []).join(", ") || "—"}</span>
                         <span className="inline-flex items-center gap-1"><CalendarClock className="h-3 w-3" /> {daysLabel(s.days)}</span>
-                        <span className="inline-flex items-center gap-1"><ListChecks className="h-3 w-3" /> {s.postCount || 0} posted</span>
+                        <span className="inline-flex items-center gap-1"><ListChecks className="h-3 w-3" /> {s.postCount || 0}{s.poolSize ? ` / ${s.poolSize}` : ""} posted</span>
                         <span className="text-slate-400">{s.timezone}</span>
                       </div>
                       {(rowMsg[s._id] || s.lastResult) && <p className="mt-1 text-xs text-slate-400">{rowMsg[s._id] || s.lastResult}</p>}
@@ -731,6 +841,20 @@ export default function AdminFacebook() {
               ))}
             </div>
           )}
+
+        {/* Pagination */}
+        {!form && !loading && total > PAGE_SIZE && (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
+            <span className="text-slate-500 dark:text-slate-400">
+              Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total}
+            </span>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1} className="btn-outline !py-1 !text-xs disabled:opacity-40">Prev</button>
+              <span className="text-slate-500 dark:text-slate-400">Page {page} of {totalPages}</span>
+              <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages} className="btn-outline !py-1 !text-xs disabled:opacity-40">Next</button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
