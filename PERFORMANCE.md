@@ -72,3 +72,40 @@ Do **not** change working code blindly — measure, then fix the biggest item.
   in the timed exam/quiz players — that could cause a visible flash mid-test.
 - Everything above is measurement-driven. Start from a live Lighthouse report
   and fix the highest-impact item rather than guessing.
+
+
+---
+
+## 📱 iOS lag / slowness audit (applied fixes)
+
+A focused audit of why the site felt laggy on iOS Safari, and what was changed.
+All items below are implemented in the codebase.
+
+### Scroll jank — the biggest "lag" source
+- **Sticky navbar no longer uses `backdrop-blur`.** A translucent
+  `backdrop-blur` bar (`frontend/src/components/layout/Navbar.jsx`) forces iOS
+  Safari to re-blur the page content behind it on *every* scroll frame — the
+  classic cause of janky scrolling. Replaced with a near-opaque
+  `bg-white/95` background: looks the same at a glance, scrolls smoothly.
+- **Notice ticker marquee** (`animate-marquee`) now sets `will-change: transform`
+  (composited off the main thread) and is fully disabled under
+  `prefers-reduced-motion: reduce` — a perpetual animation is battery- and
+  jank-heavy on phones.
+
+### First paint / download
+- **Web font moved from a CSS `@import` to `<link>` in `index.html`** with
+  `preconnect` to the Google Fonts hosts. A CSS `@import` is only discovered
+  after `index.css` downloads and parses (a render-blocking request waterfall);
+  the `<link>` is found immediately by the preload scanner and fetched in
+  parallel. Unused weight 300 dropped.
+- **Chart.js / KaTeX removed from the first-paint bundle.** They were pinned to
+  manual vendor chunks that the bundler preloaded on every page even though only
+  lazy routes (dashboards, quiz result, viz) use them. `vite.config.js` now only
+  pins the React runtime; feature libs code-split with their route. This cut the
+  initial JS payload by ~200 KB (raw) / ~60 KB (gzip).
+
+### Known remaining item (not yet changed — higher risk)
+- The **lucide-react icon set** collapses into one shared chunk (~157 KB gzip)
+  that the eager navbar pulls in on first paint. Reducing it further requires
+  per-icon deep imports across the app (large refactor) and was left out of this
+  low-risk pass. Revisit if PageSpeed flags initial JS on mobile.

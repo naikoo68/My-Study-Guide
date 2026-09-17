@@ -82,6 +82,18 @@
     <link rel="preconnect" href="https://api.mystudyguide.in" crossorigin />
     <link rel="dns-prefetch" href="https://api.mystudyguide.in" />
 
+    <!-- Inter web font. Loaded here (not via a CSS @import) so the browser's
+         preload scanner fetches it in parallel with the app instead of after
+         index.css parses — faster first paint on mobile. Preconnect warms the
+         Google Fonts hosts; display=swap shows text immediately with a fallback
+         while Inter loads. Weight 300 dropped (unused) to trim the payload. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
+    />
+
     <!-- Google Analytics (GA4). Loads ONLY when a real Measurement ID is set via
          the VITE_GA_MEASUREMENT_ID env var (set in your host's build settings).
          Vite substitutes

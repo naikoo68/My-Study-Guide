@@ -51,8 +51,12 @@ export default function Navbar() {
     navigate("/");
   };
 
+  // Near-opaque background instead of a translucent `backdrop-blur`: on iOS
+  // Safari a blurred sticky bar forces the GPU to re-blur the page behind it on
+  // every scroll frame, which was a major source of scroll lag. A solid bar
+  // looks the same at a glance and scrolls smoothly.
   return (
-    <header className="sticky top-0 z-50 border-b border-slate-200/70 bg-white/80 backdrop-blur-lg dark:border-slate-800/70 dark:bg-slate-950/80">
+    <header className="sticky top-0 z-50 border-b border-slate-200/70 bg-white/95 dark:border-slate-800/70 dark:bg-slate-950/95">
       <nav className="container-page flex items-center justify-between" style={{ minHeight: "var(--nav-height, 4rem)" }}>
         <div className="flex items-center gap-3">
           <Link to={homeTo} onClick={() => setOpen(false)}>
