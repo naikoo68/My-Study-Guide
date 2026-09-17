@@ -4,6 +4,7 @@
 import Settings from "../models/Settings.js";
 import User from "../models/User.js";
 import { sendMail } from "./mailer.js";
+import { toInstagramSafeUrl } from "../utils/instagramImage.js";
 
 // Facebook Page auto-posting via the Graph API. The Page ID + long-lived Page
 // access token are stored in the singleton Settings document (entered by the
@@ -569,7 +570,13 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   if (wantIg) {
     if (!imageUrl) notes.push(`Instagram ✗ (image failed${imageErr ? `: ${imageErr}` : ""})`);
     else {
-      const r = await postToInstagram({ imageUrl, caption: message }, cfg);
+      // Question cards render at a VARIABLE height, so a tall card falls below
+      // Instagram's minimum 4:5 aspect ratio and the API rejects it ("The aspect
+      // ratio is not supported."). Pad the (Cloudinary-hosted) image onto a 4:5
+      // canvas for Instagram only — Facebook already got the untouched image and
+      // accepts any ratio. Padding never crops, so the full card stays visible.
+      const igImageUrl = toInstagramSafeUrl(imageUrl);
+      const r = await postToInstagram({ imageUrl: igImageUrl, caption: message }, cfg);
       if (r.ok) { anyOk = true; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
     }
   }
