@@ -37,6 +37,9 @@ export const contentService = {
   streams: (opts) => api.get(`/streams${opts?.manage ? "?manage=1" : ""}`),
   subjectsByStream: (streamId, opts) => api.get(`/streams/${streamId}/subjects${opts?.manage ? "?manage=1" : ""}`),
   subjects: (opts) => api.get(`/subjects${opts?.manage ? "?manage=1" : ""}`),
+  // A SINGLE subject (Topics page header) — avoids downloading the whole
+  // subjects list just to show one subject's name.
+  subject: (subjectId) => api.get(`/subjects/${subjectId}`),
   topics: (subjectId, opts) => api.get(`/subjects/${subjectId}/topics${opts?.manage ? "?manage=1" : ""}`),
   sessions: (topicId, opts) => api.get(`/topics/${topicId}/sessions${opts?.manage ? "?manage=1" : ""}`),
   // The topic's single implicit session (the admin UI hides the Session level).

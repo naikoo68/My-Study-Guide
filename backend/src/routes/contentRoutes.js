@@ -8,6 +8,7 @@ import {
   streamImage,
   subjectImage,
   listSubjects,
+  getSubject,
   createSubject,
   updateSubject,
   deleteSubject,
@@ -65,6 +66,10 @@ router.get("/subjects/:id/image", subjectImage);
 
 // Subjects
 router.get("/subjects", optionalAuth, listSubjects);
+// A single subject (public Topics page header) — declared AFTER the more
+// specific "/subjects/:id/image" and "/subjects/:subjectId/topics" routes so
+// those still match first; ":id" only catches the bare subject path.
+router.get("/subjects/:id", optionalAuth, getSubject);
 router.post("/subjects", ...admin, createSubject);
 router.put("/subjects/:id", ...admin, updateSubject);
 router.post("/subjects/:id/link", ...admin, linkSubjectToStream);
