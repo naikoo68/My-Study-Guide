@@ -4,6 +4,7 @@ import { getCurrentTenantId } from "../utils/tenantContext.js";
 import { postToFacebookPage, verifyFacebook, getFacebookConfig, getInstagramUserId, postToInstagram } from "../config/facebook.js";
 import { renderQuestionImage } from "../config/socialImage.js";
 import { uploadToCloudinary } from "../config/cloudinary.js";
+import { toInstagramSafeUrl } from "../utils/instagramImage.js";
 
 // A freshly-provisioned institute must start as a CLEAN SLATE — it should carry
 // only its own name, never the platform's demo branding, marketing copy, fake
@@ -371,7 +372,8 @@ export async function testInstagramPost(req, res) {
     { includeOptions: true }
   );
   if (!rendered.url) return res.status(502).json({ ok: false, error: rendered.error || "Could not generate the image." });
-  const result = await postToInstagram({ imageUrl: rendered.url, caption: `${title} — Instagram auto-posting is connected. ✅` }, cfg);
+  // Pad to Instagram's 4:5 canvas so the aspect ratio is always accepted.
+  const result = await postToInstagram({ imageUrl: toInstagramSafeUrl(rendered.url), caption: `${title} — Instagram auto-posting is connected. ✅` }, cfg);
   return res.status(result.ok ? 200 : 502).json(result);
 }
 
