@@ -145,6 +145,7 @@ export async function updateSettings(req, res) {
     "fbEnabled", "fbPageId", "fbAutoOnNotice", "fbGraphVersion", "fbPageAccessToken",
     "fbDefaultHashtags", "fbAutoHashtags", "fbExtraTargets",
     "fbSelfieWatermarkUrl", "fbSelfieWatermarkEnabled", "fbSelfieWatermarkPosition", "fbSelfieWatermarkSize", "fbSelfieWatermarkOpacity", "fbSelfieWatermarkShape",
+    "fbTextWatermarkEnabled", "fbTextWatermarkText", "fbTextWatermarkSize", "fbTextWatermarkOpacity",
     "igEnabled", "igUserId",
     "googleClientId",
   ];
@@ -186,6 +187,12 @@ export async function updateSettings(req, res) {
     const sh = String(update.fbSelfieWatermarkShape || "").trim();
     update.fbSelfieWatermarkShape = ["circle", "rectangle"].includes(sh) ? sh : "circle";
   }
+
+  // Center TEXT watermark: coerce the toggle, trim the text, clamp size/opacity.
+  if ("fbTextWatermarkEnabled" in update) update.fbTextWatermarkEnabled = !!update.fbTextWatermarkEnabled;
+  if ("fbTextWatermarkText" in update) update.fbTextWatermarkText = String(update.fbTextWatermarkText || "").trim().slice(0, 80);
+  if ("fbTextWatermarkSize" in update) update.fbTextWatermarkSize = Math.max(12, Math.min(300, parseInt(update.fbTextWatermarkSize, 10) || 64));
+  if ("fbTextWatermarkOpacity" in update) update.fbTextWatermarkOpacity = Math.max(2, Math.min(100, parseInt(update.fbTextWatermarkOpacity, 10) || 12));
 
   // Admin-panel feature switches. Accept a flat { key: boolean } map, coerce
   // every value to a real boolean, and NEVER allow the core always-on features

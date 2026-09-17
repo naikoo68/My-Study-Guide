@@ -4,7 +4,7 @@
 import { useEffect, useState, useRef } from "react";
 import {
   Send, Loader2, CheckCircle2, AlertTriangle, KeyRound, Plus, Trash2, Pencil, X,
-  Clock, CalendarClock, ListChecks, Power, Save, Upload, UserCircle,
+  Clock, CalendarClock, ListChecks, Power, Save, Upload, UserCircle, Type,
 } from "lucide-react";
 import { Facebook, Instagram } from "../../components/ui/SocialIcons";
 import { settingsService, facebookService, contentService, practiceService } from "../../services";
@@ -293,6 +293,83 @@ function SelfieWatermarkSection({ settings, saveSettings }) {
   );
 }
 
+// ---- Center Text Watermark Section ----
+// A diagonal, semi-transparent line of text drawn across the MIDDLE of every
+// Facebook/Instagram question-card image (on top of the selfie/logo above).
+function TextWatermarkSection({ settings, saveSettings }) {
+  const [enabled, setEnabled] = useState(settings?.fbTextWatermarkEnabled === true);
+  const [text, setText] = useState(settings?.fbTextWatermarkText || "");
+  const [size, setSize] = useState(settings?.fbTextWatermarkSize || 64);
+  const [opacity, setOpacity] = useState(settings?.fbTextWatermarkOpacity || 12);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  useEffect(() => {
+    setEnabled(settings?.fbTextWatermarkEnabled === true);
+    setText(settings?.fbTextWatermarkText || "");
+    setSize(settings?.fbTextWatermarkSize || 64);
+    setOpacity(settings?.fbTextWatermarkOpacity || 12);
+  }, [settings?.fbTextWatermarkEnabled, settings?.fbTextWatermarkText, settings?.fbTextWatermarkSize, settings?.fbTextWatermarkOpacity]);
+
+  // What actually prints when the text field is left blank.
+  const fallback = (settings?.watermarkText || "").trim() || settings?.siteName || "My Study Guide";
+
+  const save = async () => {
+    setSaving(true); setMsg(null);
+    try {
+      await saveSettings({
+        fbTextWatermarkEnabled: enabled,
+        fbTextWatermarkText: text,
+        fbTextWatermarkSize: size,
+        fbTextWatermarkOpacity: opacity,
+      });
+      setMsg({ ok: true, text: "Settings saved." });
+    } catch (err) { setMsg({ ok: false, text: err.message || "Save failed." }); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="card p-5">
+      <h2 className="flex items-center gap-2 font-bold"><Type className="h-5 w-5 text-[#1877F2]" /> Center Text Watermark</h2>
+      <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
+        Print a diagonal line of text across the <b>middle</b> of every Facebook &amp; Instagram question-card image. Leave the text blank to use <b>{fallback}</b>.
+      </p>
+
+      <div className="mt-4 space-y-3">
+        <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
+          <span className="text-sm font-medium">Enable center text watermark</span>
+          <button type="button" onClick={() => setEnabled(!enabled)}
+            className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${enabled ? "bg-[#1877F2]" : "bg-slate-300 dark:bg-slate-600"}`}>
+            <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${enabled ? "left-6" : "left-1"}`} />
+          </button>
+        </label>
+
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="sm:col-span-2">
+            <label className="mb-1 block text-xs font-semibold text-slate-500">Text (optional)</label>
+            <input type="text" className="input" maxLength={80} value={text} placeholder={fallback} onChange={(e) => setText(e.target.value)} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-500">Size (px)</label>
+            <input type="number" className="input" min={12} max={300} value={size} onChange={(e) => setSize(+e.target.value || 64)} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-500">Opacity (%)</label>
+            <input type="number" className="input" min={2} max={100} value={opacity} onChange={(e) => setOpacity(+e.target.value || 12)} />
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button type="button" onClick={save} disabled={saving} className="btn-primary">
+          {saving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> Save watermark settings</>}
+        </button>
+        {msg && <span className={`inline-flex items-center gap-1 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {msg.text}</span>}
+      </div>
+    </div>
+  );
+}
+
 const emptyForm = {
   title: "", source: { subject: null, session: null, quiz: null, label: "" },
   times: ["09:00"], days: [], timezone: "Asia/Kolkata",
@@ -521,8 +598,11 @@ export default function AdminFacebook() {
         </div>
       </div>
 
-      {/* Selfie Watermark */}
+      {/* Selfie / logo Watermark */}
       <SelfieWatermarkSection settings={settings} saveSettings={saveSettings} />
+
+      {/* Center text Watermark */}
+      <TextWatermarkSection settings={settings} saveSettings={saveSettings} />
 
       {/* Schedules */}
       <div className="card p-5">

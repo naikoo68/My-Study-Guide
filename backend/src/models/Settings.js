@@ -233,6 +233,14 @@ const settingsSchema = new mongoose.Schema(
     fbSelfieWatermarkSize: { type: Number, default: 120 }, // px (diameter/width of the watermark)
     fbSelfieWatermarkOpacity: { type: Number, default: 90 }, // % (10–100)
     fbSelfieWatermarkShape: { type: String, default: "circle" }, // circle | rectangle
+    // Center TEXT watermark drawn diagonally across the middle of every
+    // Facebook/Instagram question-card image (in addition to the selfie/logo
+    // above). Text is optional — when blank it falls back to the site watermark
+    // text, else the site name.
+    fbTextWatermarkEnabled: { type: Boolean, default: false },
+    fbTextWatermarkText: { type: String, default: "" }, // "" = use site watermark text / site name
+    fbTextWatermarkSize: { type: Number, default: 64 }, // px (12–300)
+    fbTextWatermarkOpacity: { type: Number, default: 12 }, // % (2–100)
     // Instagram cross-posting (uses the same Page token; IG account linked to the Page)
     igEnabled: { type: Boolean, default: false },
     igUserId: { type: String, default: "" }, // Instagram Business account id (blank = auto-detect from the Page)

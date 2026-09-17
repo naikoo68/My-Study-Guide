@@ -382,8 +382,14 @@ export async function runScheduleOnce(sch, cfgOverride) {
   // Also render an image when the selfie watermark is enabled — this ensures the
   // admin's selfie branding appears on EVERY post (text + image).
   const selfieWatermarkActive = site?.fbSelfieWatermarkEnabled !== false && !!site?.fbSelfieWatermarkUrl;
+  // Center text watermark — resolve its text now (falls back to the site
+  // watermark text, then the site name) so we can tell whether it's active.
+  const textWatermarkText = String(
+    site?.fbTextWatermarkText || site?.watermarkText || site?.siteName || ""
+  ).trim();
+  const textWatermarkActive = site?.fbTextWatermarkEnabled === true && !!textWatermarkText;
   let imageUrl = null, imageErr = "";
-  if (sch.asImage || wantIg || selfieWatermarkActive) {
+  if (sch.asImage || wantIg || selfieWatermarkActive || textWatermarkActive) {
     // PREFER a pixel-identical screenshot of the REAL quiz card (matches the
     // admin Download button exactly — same React/Tailwind/Inter). Best-effort:
     // any failure falls through to the lightweight SVG card so posting never
@@ -401,6 +407,14 @@ export async function runScheduleOnce(sch, cfgOverride) {
               opacity: site.fbSelfieWatermarkOpacity || 90,
               position: site.fbSelfieWatermarkPosition || "bottom-right",
               shape: site.fbSelfieWatermarkShape || "circle",
+            }
+          : null,
+        // Bake the diagonal center text watermark into the card when enabled.
+        textWatermark: textWatermarkActive
+          ? {
+              text: textWatermarkText,
+              size: site.fbTextWatermarkSize || 64,
+              opacity: site.fbTextWatermarkOpacity || 12,
             }
           : null,
       });
