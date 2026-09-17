@@ -178,7 +178,8 @@ import Session from "../models/Session.js";
 import Topic from "../models/Topic.js";
 import Quiz from "../models/Quiz.js";
 import { renderQuestionImage } from "./socialImage.js";
-import { tenantStore } from "../utils/tenantContext.js";
+import { tenantStore, runUnscoped } from "../utils/tenantContext.js";
+import { getDefaultTenantId } from "../utils/platformScope.js";
 
 const LETTERS = ["A", "B", "C", "D", "E", "F"];
 const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"];
@@ -500,7 +501,25 @@ export async function runDueFbSchedules() {
 
 // Fire all due schedules for ONE tenant using THAT tenant's own credentials.
 async function runTenantSchedules(tid, stats = null) {
-  const cfg = await getFacebookConfig({ tenantId: tid ?? null });
+  let cfg = await getFacebookConfig({ tenantId: tid ?? null });
+  if (!cfg.enabled || !isFacebookConfigured(cfg)) {
+    // The PLATFORM's schedules can be stamped with the default-tenant id while
+    // its Facebook settings ("site" doc) live under tenantId null — or vice
+    // versa (a tenant-backfill mismatch). An exact tenantId match then finds no
+    // config and the scheduler silently bails (the real bug: manual posting,
+    // which looks up settings unscoped, still worked). For the platform space
+    // ONLY, resolve the settings across BOTH null and the default id, unscoped,
+    // so the connection is found regardless of which id it was saved under.
+    // Real institute tenants keep STRICT isolation (no fallback to the platform
+    // page) — an institute with no own connection simply doesn't post.
+    const defId = await getDefaultTenantId();
+    const isPlatform = tid == null || (defId && String(tid) === String(defId));
+    if (isPlatform) {
+      cfg = await runUnscoped(() =>
+        getFacebookConfig({ tenantId: { $in: defId ? [null, defId] : [null] } })
+      );
+    }
+  }
   if (!cfg.enabled || !isFacebookConfigured(cfg)) return; // this institute's posting is off / not connected
   if (stats) stats.configured += 1;
   const now = new Date();
