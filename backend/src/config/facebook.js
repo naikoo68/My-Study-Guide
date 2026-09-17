@@ -28,6 +28,21 @@ export async function getFacebookConfig(filter) {
 
 export const isFacebookConfigured = (cfg) => !!(cfg?.pageId && cfg?.token);
 
+// fetch() with a HARD timeout. A stalled Facebook/Instagram request used to hang
+// forever, which froze the auto-post scheduler: its "busy" guard never cleared,
+// so NO timed post ran again until the server restarted — even though the manual
+// "Post now" button (which bypasses the scheduler) still worked. Aborting after
+// `timeoutMs` turns a hang into a normal, recorded failure the tick recovers from.
+async function fbFetch(url, opts = {}, timeoutMs = 15000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...opts, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Posting to a Page requires a PAGE access token. Admins often paste a USER
 // token by mistake (which triggers the deprecated "publish_actions" error).
 // This resolves the correct Page token from whatever was saved: querying the
@@ -39,7 +54,7 @@ export async function resolvePageToken(cfg) {
   const hit = _pageTokenCache.get(key);
   if (hit && Date.now() - hit.ts < 10 * 60 * 1000) return hit.token;
   try {
-    const res = await fetch(`https://graph.facebook.com/${cfg.version}/${encodeURIComponent(cfg.pageId)}?fields=access_token&access_token=${encodeURIComponent(cfg.token)}`);
+    const res = await fbFetch(`https://graph.facebook.com/${cfg.version}/${encodeURIComponent(cfg.pageId)}?fields=access_token&access_token=${encodeURIComponent(cfg.token)}`);
     const data = await res.json().catch(() => ({}));
     const token = data?.access_token || cfg.token;
     _pageTokenCache.set(key, { token, ts: Date.now() });
@@ -71,7 +86,7 @@ export async function postToFacebookPage({ message, link, imageUrl } = {}, cfgOv
   body.set("access_token", pageToken);
 
   try {
-    const res = await fetch(url, {
+    const res = await fbFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body,
@@ -95,7 +110,7 @@ export async function getInstagramUserId(cfgOverride) {
   if (cfg.igUserId) return cfg.igUserId;
   if (!isFacebookConfigured(cfg)) return null;
   try {
-    const res = await fetch(`https://graph.facebook.com/${cfg.version}/${encodeURIComponent(cfg.pageId)}?fields=instagram_business_account&access_token=${encodeURIComponent(cfg.token)}`);
+    const res = await fbFetch(`https://graph.facebook.com/${cfg.version}/${encodeURIComponent(cfg.pageId)}?fields=instagram_business_account&access_token=${encodeURIComponent(cfg.token)}`);
     const data = await res.json().catch(() => ({}));
     return data?.instagram_business_account?.id || null;
   } catch {
@@ -121,7 +136,7 @@ export async function postToInstagram({ imageUrl, caption } = {}, cfgOverride) {
     c.set("image_url", img);
     if (caption) c.set("caption", String(caption).slice(0, 2100));
     c.set("access_token", pageToken);
-    const cRes = await fetch(`https://graph.facebook.com/${cfg.version}/${igId}/media`, { method: "POST", headers, body: c });
+    const cRes = await fbFetch(`https://graph.facebook.com/${cfg.version}/${igId}/media`, { method: "POST", headers, body: c });
     const cData = await cRes.json().catch(() => ({}));
     if (!cRes.ok || !cData.id) return { ok: false, error: cData?.error?.message || `Instagram container error (${cRes.status}).` };
 
@@ -129,7 +144,7 @@ export async function postToInstagram({ imageUrl, caption } = {}, cfgOverride) {
     const p = new URLSearchParams();
     p.set("creation_id", cData.id);
     p.set("access_token", pageToken);
-    const pRes = await fetch(`https://graph.facebook.com/${cfg.version}/${igId}/media_publish`, { method: "POST", headers, body: p });
+    const pRes = await fbFetch(`https://graph.facebook.com/${cfg.version}/${igId}/media_publish`, { method: "POST", headers, body: p });
     const pData = await pRes.json().catch(() => ({}));
     if (pRes.ok && pData.id) return { ok: true, id: pData.id };
     return { ok: false, error: pData?.error?.message || `Instagram publish error (${pRes.status}).` };
@@ -143,7 +158,7 @@ export async function verifyFacebook(cfgOverride) {
   const cfg = cfgOverride || (await getFacebookConfig());
   if (!isFacebookConfigured(cfg)) return { ok: false, error: "Add your Page ID and Page access token first." };
   try {
-    const res = await fetch(`https://graph.facebook.com/${cfg.version}/${encodeURIComponent(cfg.pageId)}?fields=name&access_token=${encodeURIComponent(cfg.token)}`);
+    const res = await fbFetch(`https://graph.facebook.com/${cfg.version}/${encodeURIComponent(cfg.pageId)}?fields=name&access_token=${encodeURIComponent(cfg.token)}`);
     const data = await res.json().catch(() => ({}));
     if (res.ok && data?.name) return { ok: true, name: data.name };
     return { ok: false, error: data?.error?.message || `Facebook API error (${res.status}).` };
@@ -429,10 +444,16 @@ export async function runScheduleOnce(sch, cfgOverride) {
 // The scheduler tick — called every minute (server interval) and, as a
 // safety net, from the throttled /api/health ping. Guarded so overlapping
 // calls can't double-post.
-let fbTickRunning = false;
+let fbTickStartedAt = 0;
+const FB_TICK_MAX_MS = 4 * 60 * 1000; // a tick can't legitimately run this long
 export async function runDueFbSchedules() {
-  if (fbTickRunning) return;
-  fbTickRunning = true;
+  // Skip only while a tick is GENUINELY still in flight (started recently). If a
+  // previous tick has been "running" longer than the max, it must have hung —
+  // so self-heal by starting a fresh one instead of staying stuck forever (the
+  // old boolean guard could latch on a hung network call and silently kill ALL
+  // timed posts until the next server restart).
+  if (fbTickStartedAt && Date.now() - fbTickStartedAt < FB_TICK_MAX_MS) return;
+  fbTickStartedAt = Date.now();
   try {
     // Every institute posts to its OWN Facebook page. Find each tenant that has
     // enabled schedules, then process each inside its own context using its own
@@ -448,7 +469,7 @@ export async function runDueFbSchedules() {
   } catch {
     /* never let the scheduler throw */
   } finally {
-    fbTickRunning = false;
+    fbTickStartedAt = 0;
   }
 }
 
