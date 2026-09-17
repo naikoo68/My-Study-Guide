@@ -444,6 +444,22 @@ export async function runScheduleOnce(sch, cfgOverride) {
 // The scheduler tick — called every minute (server interval) and, as a
 // safety net, from the throttled /api/health ping. Guarded so overlapping
 // calls can't double-post.
+// Non-sensitive scheduler heartbeat so the auto-poster can be diagnosed from
+// /api/health WITHOUT server/SSH access. Contains NO tokens or page ids — only
+// counts and timestamps. `lastTickAt` updating every ~minute proves the timer
+// runs; `configured=0` while `tenants>0` means the FB config lookup for the
+// schedule's tenant failed (the silent-bail case); `enabled>0 && due=0` means
+// the time-matching found nothing.
+export const fbSchedulerStatus = {
+  lastTickAt: null,
+  tenants: 0,        // tenants that have enabled schedules
+  configured: 0,     // of those, how many had FB connected + enabled
+  enabled: 0,        // total enabled schedules seen
+  due: 0,            // schedules whose time was due last tick
+  posted: 0,         // successful auto-posts last tick
+  lastError: "",     // last non-sensitive error, if any
+};
+
 let fbTickStartedAt = 0;
 const FB_TICK_MAX_MS = 4 * 60 * 1000; // a tick can't legitimately run this long
 export async function runDueFbSchedules() {
@@ -454,6 +470,7 @@ export async function runDueFbSchedules() {
   // timed posts until the next server restart).
   if (fbTickStartedAt && Date.now() - fbTickStartedAt < FB_TICK_MAX_MS) return;
   fbTickStartedAt = Date.now();
+  const stats = { tenants: 0, configured: 0, enabled: 0, due: 0, posted: 0, lastError: "" };
   try {
     // Every institute posts to its OWN Facebook page. Find each tenant that has
     // enabled schedules, then process each inside its own context using its own
@@ -462,23 +479,33 @@ export async function runDueFbSchedules() {
     // "" represents the platform/default space (tenantId null/absent).
     const rawTids = await FbSchedule.distinct("tenantId", { enabled: true });
     const keys = [...new Set(rawTids.map((t) => (t ? String(t) : "")))];
+    stats.tenants = keys.length;
     for (const key of keys) {
       const tid = key === "" ? null : key;
-      await tenantStore.run({ tenantId: tid, bypass: !tid }, () => runTenantSchedules(tid).catch(() => {}));
+      await tenantStore.run({ tenantId: tid, bypass: !tid }, () => runTenantSchedules(tid, stats).catch((e) => { stats.lastError = e?.message || String(e); }));
     }
-  } catch {
-    /* never let the scheduler throw */
+  } catch (e) {
+    stats.lastError = e?.message || String(e);
   } finally {
     fbTickStartedAt = 0;
+    fbSchedulerStatus.lastTickAt = new Date().toISOString();
+    fbSchedulerStatus.tenants = stats.tenants;
+    fbSchedulerStatus.configured = stats.configured;
+    fbSchedulerStatus.enabled = stats.enabled;
+    fbSchedulerStatus.due = stats.due;
+    fbSchedulerStatus.posted = stats.posted;
+    fbSchedulerStatus.lastError = stats.lastError;
   }
 }
 
 // Fire all due schedules for ONE tenant using THAT tenant's own credentials.
-async function runTenantSchedules(tid) {
+async function runTenantSchedules(tid, stats = null) {
   const cfg = await getFacebookConfig({ tenantId: tid ?? null });
   if (!cfg.enabled || !isFacebookConfigured(cfg)) return; // this institute's posting is off / not connected
+  if (stats) stats.configured += 1;
   const now = new Date();
   const schedules = await FbSchedule.find({ enabled: true, tenantId: tid ?? null });
+  if (stats) stats.enabled += schedules.length;
   for (const sch of schedules) {
     let slot = null;
     if (sch.mode === "once") {
@@ -488,16 +515,20 @@ async function runTenantSchedules(tid) {
       slot = dueSlot(sch, now);
     }
     if (!slot) continue;
+    if (stats) stats.due += 1;
     // Claim the slot FIRST (persist) so a concurrent tick won't repost it,
     // then post. If the post fails, lastResult records why.
     sch.lastSlot = slot === "once" ? "done" : slot;
     if (sch.mode === "once") sch.enabled = false; // one-off never repeats
     await sch.save();
     try {
-      await runScheduleOnce(sch, cfg);
+      const r = await runScheduleOnce(sch, cfg);
+      if (stats && r?.ok) stats.posted += 1;
+      else if (stats && r && !r.ok) stats.lastError = r.error || "post failed";
       await sch.save();
     } catch (e) {
       sch.lastResult = `Error: ${e.message}`;
+      if (stats) stats.lastError = e.message;
       await sch.save().catch(() => {});
     }
   }
