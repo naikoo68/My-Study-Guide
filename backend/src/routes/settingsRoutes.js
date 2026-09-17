@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getSettings, updateSettings, testFacebookPost, testInstagramPost, uploadSelfieWatermark, deleteSelfieWatermark } from "../controllers/settingsController.js";
+import { getSettings, getLogo, updateSettings, testFacebookPost, testInstagramPost, uploadSelfieWatermark, deleteSelfieWatermark } from "../controllers/settingsController.js";
 import { protect, authorize, optionalAuth } from "../middleware/auth.js";
 import multer from "multer";
 
@@ -15,6 +15,8 @@ const router = Router();
 // never appeared to "stick" and the setup wizard kept returning even after they
 // finished it. Unauthenticated visitors still resolve by hostname (public
 // branding), unchanged.
+// Public, cacheable logo image (kept OUT of the settings JSON — see getLogo).
+router.get("/logo", getLogo);
 router.get("/", optionalAuth, getSettings);
 router.put("/", protect, authorize("admin"), updateSettings);
 router.post("/facebook/test", protect, authorize("admin"), testFacebookPost);

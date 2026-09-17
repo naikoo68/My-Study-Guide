@@ -1,10 +1,11 @@
 import Settings from "../models/Settings.js";
 import Tenant from "../models/Tenant.js";
-import { getCurrentTenantId } from "../utils/tenantContext.js";
+import { getCurrentTenantId, runUnscoped } from "../utils/tenantContext.js";
 import { postToFacebookPage, verifyFacebook, getFacebookConfig, getInstagramUserId, postToInstagram } from "../config/facebook.js";
 import { renderQuestionImage } from "../config/socialImage.js";
 import { uploadToCloudinary } from "../config/cloudinary.js";
 import { toInstagramSafeUrl } from "../utils/instagramImage.js";
+import { publicLogoUrl, apiOriginFromRequest } from "../utils/logoUrl.js";
 
 // A freshly-provisioned institute must start as a CLEAN SLATE — it should carry
 // only its own name, never the platform's demo branding, marketing copy, fake
@@ -109,6 +110,19 @@ function safeSettings(s) {
 // GET /api/settings — public (frontend reads this to brand/theme itself)
 export async function getSettings(req, res) {
   const s = safeSettings(await getOrCreate());
+  // A base64 logo can be hundreds of KB. Shipping it inline here — on a payload
+  // the frontend fetches on EVERY page load — was a major mobile slowdown.
+  // Replace an inline logo with a cacheable /api/settings/logo URL so the heavy
+  // bytes are fetched once and cached, and the settings JSON stays small.
+  // (A logo already stored as a normal URL is left untouched.)
+  if (s.logoUrl) {
+    const version = s.updatedAt ? new Date(s.updatedAt).getTime() : 1;
+    s.logoUrl = publicLogoUrl(s.logoUrl, {
+      origin: apiOriginFromRequest(req),
+      version,
+      tenantId: getCurrentTenantId() || "",
+    });
+  }
   // Tell the frontend whether this is the platform (default) site or an
   // institute's own site. Used to hide the "Institute" sign-up/login option on
   // an institute site (registering a NEW institute belongs only on the platform
@@ -118,6 +132,40 @@ export async function getSettings(req, res) {
   // can build clean per-institute URLs (slug.rootDomain) instead of ?t=slug.
   s.rootDomain = (process.env.ROOT_DOMAIN || "").replace(/^\./, "").toLowerCase();
   res.json(s);
+}
+
+// GET /api/settings/logo — serve the site logo as a real, cacheable image so it
+// does NOT bloat the /api/settings JSON (see getSettings). Public: <img>, the
+// favicon and the PWA manifest all reference it, none of which send auth or the
+// tenant host header — so the tenant is taken from the ?t= query (added by
+// getSettings), falling back to the default/platform site's logo.
+export async function getLogo(req, res) {
+  try {
+    const tid = String(req.query.t || "").trim();
+    const readLogo = async (filter) =>
+      runUnscoped(() => Settings.findOne(filter).select("logoUrl").lean());
+
+    let doc = tid ? await readLogo({ key: "site", tenantId: tid }) : null;
+    if (!doc?.logoUrl) {
+      // Fall back to the default/platform tenant's settings.
+      const def = await runUnscoped(() => Tenant.findOne({ isDefault: true }).select("_id").lean());
+      doc = def ? await readLogo({ key: "site", tenantId: def._id }) : await readLogo({ key: "site" });
+    }
+    const logo = String(doc?.logoUrl || "").trim();
+    if (!logo) return res.status(404).end();
+    // An externally-hosted logo: just redirect to it.
+    if (/^https?:\/\//i.test(logo)) return res.redirect(302, logo);
+    // A base64 data URI: decode and stream it as a cacheable image.
+    const m = /^data:([^;]+);base64,(.*)$/s.exec(logo);
+    if (!m) return res.status(404).end();
+    const buf = Buffer.from(m[2], "base64");
+    res.set("Content-Type", m[1] || "image/png");
+    // Cache for a day; the URL carries ?v=<updatedAt> so a logo change busts it.
+    res.set("Cache-Control", "public, max-age=86400");
+    return res.end(buf);
+  } catch {
+    return res.status(404).end();
+  }
 }
 
 // PUT /api/settings — admin only
