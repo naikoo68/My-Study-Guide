@@ -72,7 +72,7 @@ import recycleBinRoutes from "./routes/recycleBinRoutes.js";
 import { shareTestPreview } from "./controllers/testController.js";
 import { sitemap } from "./controllers/sitemapController.js";
 import { releaseEndedCbtExams } from "./controllers/cbtController.js";
-import { runDueFbSchedules } from "./config/facebook.js";
+import { runDueFbSchedules, fbSchedulerStatus } from "./config/facebook.js";
 import { purgeExpiredRecycleBin } from "./controllers/recycleBinController.js";
 import { refreshPlanFlags } from "./utils/siteFlags.js";
 import { notFound, errorHandler } from "./middleware/error.js";
@@ -246,7 +246,11 @@ app.get("/api/health", async (req, res) => {
     // Bump this whenever backend code changes so we can verify the server
     // actually redeployed: open /api/health and check `version`. If it's older
     // than the latest, the backend did NOT deploy and server-side fixes aren't live.
-    version: "2026-08-29-oracle-autodeploy-v49",
+    version: "2026-09-17-fb-scheduler-diag-v50",
+    // Auto-post scheduler heartbeat (non-sensitive). If lastTickAt is null/stale,
+    // the per-minute timer isn't running. If tenants>0 but configured=0, the FB
+    // config lookup for the schedule's tenant is failing (silent bail).
+    fbScheduler: fbSchedulerStatus,
     features: ["ai-scope", "ai-key-owner", "extract-batches", "matching-labels", "documents", "extract-remaining", "notes-gen", "latex-json-repair", "no-currency-dollar", "parallel-small-chunks", "provider-timeout", "addtotest-drilldown", "mytest-subjectplan", "reshuffle-subjects-questions-options", "db-indexes", "extend-verify-numeric", "extend-verify-matching-pairs", "generate-extract-formula-verify", "regenerate-question", "wrap-numeric-options-latex", "regenerate-fixall-render", "regenerate-columns-not-in-stem", "regenerate-table-not-in-stem", "regenerate-strip-list-markers", "youtube-transcript-source", "shared-link-tracker", "shared-link-opens", "youtube-innertube-retry", "cbt-online-exams", "cbt-emailed-results", "cbt-rankings", "cbt-exam-portal", "cbt-live-toggle", "cbt-deferred-results", "cbt-otp-registration", "cbt-scheduled-window", "cbt-one-attempt", "cbt-portal-registration", "cbt-portal-login-password", "cbt-student-dashboard", "cbt-reset-password", "cbt-change-password", "cbt-admin-candidates", "cbt-late-entry-cutoff", "cbt-entry-allowlist", "cbt-student-status", "cbt-late-entry-access", "cbt-manual-result-mode", "cbt-result-autorelease-on-ping"],
     mailConfigured: isMailConfigured(),
     uploadConfigured: isCloudinaryConfigured(),
