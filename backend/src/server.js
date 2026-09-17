@@ -248,6 +248,15 @@ async function start() {
     console.log(`✔ My Study Guide API running on http://localhost:${PORT}`);
   });
 
+  // Facebook scheduled auto-posting: check every minute for due schedules.
+  // Registered HERE — right after the server starts listening and BEFORE the
+  // one-time data-migration branches below, which `return` early when a
+  // migration flag (RUN_MONGO_MIGRATION / RUN_ORACLE_IMPORT) is set. Previously
+  // this timer sat AFTER those returns, so leaving a migration flag enabled
+  // silently prevented the auto-poster from ever starting (only /api/health
+  // pings could then trigger posts). Starting it here guarantees it always runs.
+  setInterval(() => { runDueFbSchedules().catch(() => {}); }, 60 * 1000);
+
   // One-time data import from an existing MongoDB. When RUN_MONGO_MIGRATION is
   // "true" (and MONGO_URI is set), copy everything from the old MongoDB into
   // DynamoDB (replacing sample data) and SKIP the normal bootstrap. Remove the
@@ -336,10 +345,6 @@ async function start() {
   // so run it only on MongoDB. On DynamoDB it's skipped (tenant scoping is off
   // by default = single institute).
   if (!usingDynamo) backfillTenantsOnce();
-
-  // Facebook scheduled auto-posting: check every minute for due schedules.
-  // (The /api/health ping also triggers this as a safety net after downtime.)
-  setInterval(() => { runDueFbSchedules().catch(() => {}); }, 60 * 1000);
 
   // Ensure a default "JKSSB" stream exists and move any stream-less subjects in.
   ensureDefaultStream();
