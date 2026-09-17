@@ -32,9 +32,17 @@ const IG_FORMAT_TRANSFORM = `f_jpg,fl_lossy,q_auto`;
 // Each `if_…` block is closed by `if_end`; the two conditions are mutually
 // exclusive, so at most one pad is ever applied. `b_white` fills the (minimal)
 // padding to match the card background.
+//
+// SYNTAX: the `if_<condition>` MUST be its OWN URL component (separated by `/`)
+// — NOT comma-joined with the transform it guards. Writing
+// `if_ar_lt_0.8,c_pad,…` makes Cloudinary return HTTP 400 (an error page, not
+// an image), and Instagram then fails to fetch it with the misleading error
+// "Only photo or video can be accepted as media type." (subcode 2207052 =
+// "media download has failed"). Verified against Cloudinary: the `/`-separated
+// form below returns a valid JPEG and pads exactly as intended.
 const IG_CONDITIONAL_TRANSFORM =
-  `if_ar_lt_0.8,c_pad,ar_4:5,b_white/if_end/` +
-  `if_ar_gt_1.91,c_pad,ar_1.91,b_white/if_end`;
+  `if_ar_lt_0.8/c_pad,ar_4:5,b_white/if_end/` +
+  `if_ar_gt_1.91/c_pad,ar_1.91,b_white/if_end`;
 
 // Full transform chain injected for Instagram: force JPEG, then pad only if the
 // aspect ratio is out of range.

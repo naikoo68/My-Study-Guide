@@ -9,10 +9,14 @@ import {
 const CLOUD = "https://res.cloudinary.com/demo/image/upload";
 // The injected chain: force JPEG (Instagram only accepts JPEG), then pad ONLY
 // when too tall (<4:5) or too wide (>1.91), otherwise deliver the exact card.
+// NOTE: each `if_<condition>` is its OWN `/`-separated component. The earlier
+// comma-joined form (`if_ar_lt_0.8,c_pad,…`) made Cloudinary return HTTP 400,
+// so Instagram could not fetch the image. This form is verified to deliver a
+// valid JPEG.
 const TRANSFORM =
   "f_jpg,fl_lossy,q_auto/" +
-  "if_ar_lt_0.8,c_pad,ar_4:5,b_white/if_end/" +
-  "if_ar_gt_1.91,c_pad,ar_1.91,b_white/if_end";
+  "if_ar_lt_0.8/c_pad,ar_4:5,b_white/if_end/" +
+  "if_ar_gt_1.91/c_pad,ar_1.91,b_white/if_end";
 
 describe("toInstagramSafeUrl", () => {
   it("injects the JPEG + conditional pad transform into a plain Cloudinary URL", () => {
@@ -28,6 +32,16 @@ describe("toInstagramSafeUrl", () => {
   it("always forces JPEG (Instagram rejects PNG as an invalid media type)", () => {
     const out = toInstagramSafeUrl(`${CLOUD}/v1/card.png`);
     expect(out).toContain("f_jpg");
+  });
+
+  it("keeps each if_ condition as its OWN component (never comma-joined)", () => {
+    // Regression guard: `if_ar_lt_0.8,c_pad` makes Cloudinary 400 and breaks
+    // Instagram fetching. The condition must be followed by `/`, not `,`.
+    const out = toInstagramSafeUrl(`${CLOUD}/v1/card.png`);
+    expect(out).toContain("if_ar_lt_0.8/c_pad");
+    expect(out).toContain("if_ar_gt_1.91/c_pad");
+    expect(out).not.toMatch(/if_ar_lt_0\.8,/);
+    expect(out).not.toMatch(/if_ar_gt_1\.91,/);
   });
 
   it("only pads conditionally — an in-range card is a no-op at delivery", () => {
