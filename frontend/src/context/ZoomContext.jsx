@@ -17,7 +17,12 @@ export function ZoomProvider({ children }) {
   const { settings } = useSettings();
 
   // Did the visitor explicitly pick a zoom before? If so, respect it.
-  const stored = parseFloat(localStorage.getItem(KEY));
+  // Guarded: some social-media in-app browsers (Facebook / Instagram WebViews)
+  // block or throw on localStorage. Without this, the read threw and the default
+  // zoom never applied there — the page fell back to the browser-native 100%
+  // instead of the 80% every other browser gets.
+  let stored = NaN;
+  try { stored = parseFloat(localStorage.getItem(KEY)); } catch { /* storage blocked (in-app browser) */ }
   const hadStored = stored >= MIN && stored <= MAX;
 
   const [userSet, setUserSet] = useState(hadStored);
@@ -40,7 +45,7 @@ export function ZoomProvider({ children }) {
     const c = clamp(v);
     setZoomState(c);
     setUserSet(true);
-    localStorage.setItem(KEY, String(c));
+    try { localStorage.setItem(KEY, String(c)); } catch { /* storage blocked (in-app browser) */ }
     return c;
   }, []);
 
@@ -50,7 +55,7 @@ export function ZoomProvider({ children }) {
 
   // Reset clears the personal choice and returns to the admin default.
   const resetZoom = useCallback(() => {
-    localStorage.removeItem(KEY);
+    try { localStorage.removeItem(KEY); } catch { /* storage blocked (in-app browser) */ }
     setUserSet(false);
     const pct = Number(settings?.defaultZoom);
     setZoomState(pct >= 50 && pct <= 200 ? clamp(pct / 100) : DEFAULT);
