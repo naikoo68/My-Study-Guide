@@ -128,6 +128,10 @@ const CbtPortal = lazy(() => import("./pages/cbt/CbtPortal"));
 // Standalone Resume Builder (self-contained; no dependency on other features)
 const ResumeBuilder = lazy(() => import("./pages/resume/ResumeBuilder"));
 
+// Chrome-less single-question card, screenshotted by the backend for
+// pixel-identical Facebook/Instagram post images (see backend cardShot).
+const QuestionCardImage = lazy(() => import("./pages/QuestionCardImage"));
+
 // Wraps a lazily-loaded page in a Suspense boundary with a loading fallback.
 const S = (Comp) => (
   <Suspense fallback={<div className="container-page"><Loading label="Loading…" /></div>}>
@@ -249,6 +253,12 @@ const router = createBrowserRouter([
   {
     path: "/resume",
     element: S(ResumeBuilder),
+  },
+
+  // Chrome-less question card for server-side screenshotting (Facebook/IG image).
+  {
+    path: "/q-card/:id",
+    element: S(QuestionCardImage),
   },
 
   // Full-screen test interface (outside main layout). Gated: attempting a

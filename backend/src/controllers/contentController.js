@@ -842,6 +842,39 @@ export async function listQuizQuestions(req, res) {
   res.json(questions);
 }
 
+// Public: the renderable fields for ONE published question, used by the
+// /q-card image page — the server screenshots that page to produce a Facebook/
+// Instagram image that is PIXEL-IDENTICAL to the on-screen quiz card. Read
+// UNSCOPED (background image render has no tenant/request context) but limited
+// to published, non-deleted questions (the only ones auto-post ever posts), so
+// nothing private/draft is exposed. The correct answer is included ONLY when
+// ?answer=1 (mirrors the schedule's "Reveal answer" toggle).
+export async function cardQuestion(req, res) {
+  const q = await runUnscoped(() => Question.findById(req.params.id).lean());
+  if (!q || q.deleted || q.status !== "published") return res.status(404).json({ message: "Question not found." });
+  const withAnswer = req.query.answer === "1";
+  res.set("Cache-Control", "public, max-age=300");
+  res.json({
+    _id: q._id,
+    type: q.type,
+    text: q.text,
+    image: q.image,
+    options: q.options,
+    columnA: q.columnA,
+    columnB: q.columnB,
+    assertion: q.assertion,
+    reason: q.reason,
+    tableRows: q.tableRows,
+    graph: q.graph,
+    viz: q.viz,
+    difficulty: q.difficulty,
+    createdAt: q.createdAt,
+    updatedAt: q.updatedAt,
+    optionExplanations: withAnswer ? q.optionExplanations : undefined,
+    ...(withAnswer ? { correct: q.correct } : {}),
+  });
+}
+
 /* ---------------- Questions ---------------- */
 
 // GET /api/sessions/:sessionId/questions
