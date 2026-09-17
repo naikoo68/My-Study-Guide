@@ -203,7 +203,7 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="mt-10 grid grid-cols-2 items-center gap-4 sm:gap-8 md:gap-12">
+          <div className="mt-10 grid grid-cols-1 items-center gap-10 lg:grid-cols-2 lg:gap-12">
             <div className="animate-fade-in-up text-center">
             {/* Single primary CTA — the other options (Test Series, Previous
                 Papers, Study Material, My Practice) live inside the practice
