@@ -459,6 +459,12 @@ export const fbSchedulerStatus = {
   due: 0,            // schedules whose time was due last tick
   posted: 0,         // successful auto-posts last tick
   lastError: "",     // last non-sensitive error, if any
+  // Diagnostic-only (tenant ObjectIds, not secrets) — reveals the exact
+  // storage mismatch: which tenant the schedules are under vs. which tenant the
+  // configured FB "site" settings are under, plus the resolved default tenant.
+  scheduleTenants: [],
+  defaultTenantId: null,
+  configuredSiteTenants: [],
 };
 
 let fbTickStartedAt = 0;
@@ -471,7 +477,7 @@ export async function runDueFbSchedules() {
   // timed posts until the next server restart).
   if (fbTickStartedAt && Date.now() - fbTickStartedAt < FB_TICK_MAX_MS) return;
   fbTickStartedAt = Date.now();
-  const stats = { tenants: 0, configured: 0, enabled: 0, due: 0, posted: 0, lastError: "" };
+  const stats = { tenants: 0, configured: 0, enabled: 0, due: 0, posted: 0, lastError: "", scheduleTenants: [], defaultTenantId: null, configuredSiteTenants: [] };
   try {
     // Every institute posts to its OWN Facebook page. Find each tenant that has
     // enabled schedules, then process each inside its own context using its own
@@ -481,6 +487,15 @@ export async function runDueFbSchedules() {
     const rawTids = await FbSchedule.distinct("tenantId", { enabled: true });
     const keys = [...new Set(rawTids.map((t) => (t ? String(t) : "")))];
     stats.tenants = keys.length;
+    // Diagnostic: capture the actual tenant ids so the storage mismatch is
+    // visible from /api/health (schedules' tenant vs. where FB config lives).
+    stats.scheduleTenants = rawTids.map((t) => (t == null ? "null" : String(t)));
+    try {
+      const defId = await getDefaultTenantId();
+      stats.defaultTenantId = defId == null ? "null" : String(defId);
+      const sites = await runUnscoped(() => Settings.find({ key: "site", fbEnabled: true }).select("tenantId").lean());
+      stats.configuredSiteTenants = sites.map((s) => (s.tenantId == null ? "null" : String(s.tenantId)));
+    } catch { /* diagnostic only — never affects posting */ }
     for (const key of keys) {
       const tid = key === "" ? null : key;
       await tenantStore.run({ tenantId: tid, bypass: !tid }, () => runTenantSchedules(tid, stats).catch((e) => { stats.lastError = e?.message || String(e); }));
@@ -496,6 +511,9 @@ export async function runDueFbSchedules() {
     fbSchedulerStatus.due = stats.due;
     fbSchedulerStatus.posted = stats.posted;
     fbSchedulerStatus.lastError = stats.lastError;
+    fbSchedulerStatus.scheduleTenants = stats.scheduleTenants;
+    fbSchedulerStatus.defaultTenantId = stats.defaultTenantId;
+    fbSchedulerStatus.configuredSiteTenants = stats.configuredSiteTenants;
   }
 }
 
