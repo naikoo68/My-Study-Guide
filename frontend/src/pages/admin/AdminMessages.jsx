@@ -75,7 +75,7 @@ export default function AdminMessages() {
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search messages..." className="input pl-9" />
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-[1fr,1.2fr]">
+          <div className="grid gap-6 lg:grid-cols-[1fr_1.2fr]">
             {/* List */}
             <div className="space-y-2">
               {filtered.map((m) => (

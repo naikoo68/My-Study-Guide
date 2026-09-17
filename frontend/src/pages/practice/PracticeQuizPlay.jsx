@@ -704,7 +704,7 @@ export default function PracticeQuizPlay() {
         <ProgressBar value={((current + 1) / questions.length) * 100} />
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1fr,300px]">
+      <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
         <div ref={cardRef} className="card p-6">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-2">
