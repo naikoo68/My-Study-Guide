@@ -27,6 +27,7 @@ import {
   updateQuiz,
   deleteQuiz,
   listQuizQuestions,
+  cardQuestion,
   listQuestions,
   listAllQuestions,
   createQuestion,
@@ -97,6 +98,9 @@ router.post("/quizzes/:id/move-questions", ...admin, moveQuestions); // MOVE sel
 router.post("/quizzes/:id/copy-questions", ...admin, copyQuestions); // COPY selected questions into another quiz
 router.delete("/quizzes/:id", ...admin, deleteQuiz);
 router.get("/quizzes/:quizId/questions", optionalAuth, listQuizQuestions);
+// Public: renderable data for ONE published question — feeds the /q-card image
+// page that the server screenshots for pixel-identical Facebook/Instagram posts.
+router.get("/card-question/:id", cardQuestion);
 
 // Questions
 router.get("/questions", ...admin, listAllQuestions);

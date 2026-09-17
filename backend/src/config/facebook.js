@@ -178,6 +178,7 @@ import Session from "../models/Session.js";
 import Topic from "../models/Topic.js";
 import Quiz from "../models/Quiz.js";
 import { renderQuestionImage } from "./socialImage.js";
+import { renderQuestionCardShot } from "./cardShot.js";
 import { tenantStore, runUnscoped } from "../utils/tenantContext.js";
 import { getDefaultTenantId } from "../utils/platformScope.js";
 
@@ -383,19 +384,32 @@ export async function runScheduleOnce(sch, cfgOverride) {
   const selfieWatermarkActive = site?.fbSelfieWatermarkEnabled !== false && !!site?.fbSelfieWatermarkUrl;
   let imageUrl = null, imageErr = "";
   if (sch.asImage || wantIg || selfieWatermarkActive) {
-    if (sch.imageUrl && !selfieWatermarkActive) {
-      // A screenshot captured in the admin's browser — used only when no
-      // watermark is active (watermark requires server-side rendering).
-      imageUrl = sch.imageUrl;
-    } else {
-      // Server-rendered image includes the watermark overlay automatically.
-      const r = await renderQuestionImage(q, {
-        includeOptions: sch.includeOptions,
-        includeAnswer: sch.includeAnswer,
-        hashtags: finalTags,
-      });
-      imageUrl = r.url || null;
-      imageErr = r.error || "";
+    // PREFER a pixel-identical screenshot of the REAL quiz card (matches the
+    // admin Download button exactly — same React/Tailwind/Inter). Best-effort:
+    // any failure falls through to the lightweight SVG card so posting never
+    // breaks.
+    try {
+      const shot = await renderQuestionCardShot(q, { includeAnswer: sch.includeAnswer });
+      if (shot?.url) imageUrl = shot.url;
+      else imageErr = shot?.error || "";
+    } catch (e) {
+      imageErr = e?.message || String(e);
+    }
+    if (!imageUrl) {
+      if (sch.imageUrl && !selfieWatermarkActive) {
+        // A screenshot captured in the admin's browser — used only when no
+        // watermark is active (watermark requires server-side rendering).
+        imageUrl = sch.imageUrl;
+      } else {
+        // Server-rendered SVG card (fallback) — includes the watermark overlay.
+        const r = await renderQuestionImage(q, {
+          includeOptions: sch.includeOptions,
+          includeAnswer: sch.includeAnswer,
+          hashtags: finalTags,
+        });
+        imageUrl = r.url || null;
+        imageErr = imageErr || r.error || "";
+      }
     }
   }
 

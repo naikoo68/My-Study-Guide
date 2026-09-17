@@ -43,6 +43,9 @@ export const contentService = {
   topicSession: (topicId) => api.post(`/topics/${topicId}/session`, {}),
   quizzes: (sessionId, opts) => api.get(`/sessions/${sessionId}/quizzes${opts?.manage ? "?manage=1" : ""}`),
   quizQuestions: (quizId) => api.get(`/quizzes/${quizId}/questions`),
+  // Public: one published question's renderable data, for the /q-card image page
+  // (server screenshots it for pixel-identical Facebook/Instagram posts).
+  cardQuestion: (id, opts) => api.get(`/card-question/${id}${opts?.answer ? "?answer=1" : ""}`, { auth: false }),
   questions: (sessionId) => api.get(`/sessions/${sessionId}/questions`),
   allQuestions: () => api.get("/questions"),
   moveQuiz: (id, data) => api.patch(`/quizzes/${id}/move`, data), // { session, copy }
