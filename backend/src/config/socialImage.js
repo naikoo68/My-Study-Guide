@@ -224,9 +224,11 @@ async function buildQuestionSvg(q, opts = {}) {
     }
   }
 
-  const prompt = { matching: "Choose the correct matching sequence:", pair: "How many pairs are correctly matched?", pairselect: "Which pairs are correctly matched?", statement: "Which statement(s) is/are correct?" }[q.type] || "Choose the correct option:";
+  // Only the multi-part types show a prompt line — matching the on-screen quiz
+  // card, which shows NO prompt for a plain MCQ.
+  const prompt = { matching: "Choose the correct matching sequence:", pair: "How many pairs are correctly matched?", pairselect: "Which pairs are correctly matched?", statement: "Which statement(s) is/are correct?" }[q.type] || "";
   if (opts.includeOptions !== false && Array.isArray(q.options) && q.options.length) {
-    els.push(T(PAD, y + 22, 26, "#64748b", esc(prompt))); y += 44;
+    if (prompt) { els.push(T(PAD, y + 22, 26, "#64748b", esc(prompt))); y += 44; }
     for (let i = 0; i < q.options.length; i++) {
       const correct = opts.includeAnswer && i === q.correct;
       const availW = W - 2 * PAD - 76 - 24;
@@ -236,8 +238,8 @@ async function buildQuestionSvg(q, opts = {}) {
         const tbl = buildOptionTable(q.options[i], PAD + 76, y + 12, availW);
         const boxH = Math.max(66, tbl.height + 24);
         els.push(RR(PAD, y, W - 2 * PAD, boxH, 16, "#ffffff", "#e2e8f0", 2));
-        els.push(RR(PAD + 18, y + boxH / 2 - 19, 38, 38, 19, "#f1f5f9"));
-        els.push(T(PAD + 37, y + boxH / 2 + 8, 22, "#475569", `(${String.fromCharCode(97 + i)})`, { weight: "700", anchor: "middle" }));
+        els.push(RR(PAD + 18, y + boxH / 2 - 19, 38, 38, 10, "#ffffff", "#cbd5e1", 2));
+        els.push(T(PAD + 37, y + boxH / 2 + 8, 22, "#475569", LETTERS[i] || String(i + 1), { weight: "700", anchor: "middle" }));
         els.push(tbl.svg);
         y += boxH + 14;
         continue;
@@ -245,16 +247,17 @@ async function buildQuestionSvg(q, opts = {}) {
       const prep = await prepareContent(q.options[i], availW, { size: 30, color: correct ? "#065f46" : "#1e293b", weight: correct ? "700" : "500" });
       const boxH = Math.max(66, prep.height + 26);
       els.push(RR(PAD, y, W - 2 * PAD, boxH, 16, correct ? "#ecfdf5" : "#ffffff", correct ? "#059669" : "#e2e8f0", 2));
-      els.push(RR(PAD + 18, y + boxH / 2 - 19, 38, 38, 19, correct ? "#059669" : "#f1f5f9"));
-      els.push(T(PAD + 37, y + boxH / 2 + 8, 22, correct ? "#ffffff" : "#475569", `(${String.fromCharCode(97 + i)})`, { weight: "700", anchor: "middle" }));
+      els.push(RR(PAD + 18, y + boxH / 2 - 19, 38, 38, 10, correct ? "#059669" : "#ffffff", correct ? "#059669" : "#cbd5e1", 2));
+      els.push(T(PAD + 37, y + boxH / 2 + 8, 22, correct ? "#ffffff" : "#475569", LETTERS[i] || String(i + 1), { weight: "700", anchor: "middle" }));
       els.push(...prep.emit(PAD + 76, y + (boxH - prep.height) / 2));
       y += boxH + 14;
     }
   }
-  if (opts.includeAnswer && Number.isInteger(q.correct)) { els.push(T(PAD, y + 30, 30, "#059669", `✓ Answer: ${LETTERS[q.correct] || q.correct + 1}`, { weight: "800" })); y += 46; }
-  else if (opts.includeOptions !== false && !opts.hideCta) { els.push(T(PAD, y + 30, 30, brand, "👉 Comment your answer!", { weight: "700" })); y += 46; }
-
-  if (opts.hashtags) { els.push(T(PAD, y + 30, 26, brand, esc(uni(opts.hashtags)))); y += 40; }
+  // NOTE: no "Comment your answer!" CTA, no baked-in hashtags and no "✓ Answer:"
+  // text line here — the image is kept as a CLEAN question card identical to the
+  // download. The correct answer (when includeAnswer is on) is shown by the
+  // green-highlighted option, exactly like the quiz card. Hashtags still go out
+  // in the POST CAPTION (see formatQuestionPost), so nothing is lost on the post.
 
   // Card grows with content (min keeps short questions a tidy card; max allows
   // multi-row table options (journal/ledger) without being cut off).
