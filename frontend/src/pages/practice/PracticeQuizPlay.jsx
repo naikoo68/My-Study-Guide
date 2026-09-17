@@ -26,6 +26,7 @@ import {
   Trophy,
   Search,
   Eye,
+  Download,
 } from "lucide-react";
 import { practiceService, testService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
@@ -44,6 +45,7 @@ import { useZoom } from "../../context/ZoomContext";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 import { questionDateText, searchQuestions, stemText, displayOptions } from "../../lib/questions";
 import { shuffleAll, toOriginalIndex, makeSeed } from "../../lib/shuffleOptions";
+import { captureNodeToBlob, downloadBlob } from "../../lib/questionImage";
 import PaperExport from "../../components/admin/PaperExport";
 import { useSeo } from "../../lib/useSeo";
 
@@ -132,6 +134,11 @@ export default function PracticeQuizPlay() {
   const [showResume, setShowResume] = useState(paramTimerMode == null && hasSavedSession);
   const [fullscreen, setFullscreen] = useState(false);
   const containerRef = useRef(null);
+  // Admin-only: download the current question card as a JPEG. `cardRef` points
+  // at the on-screen card so the image matches exactly what's shown.
+  const isAdmin = user?.role === "admin";
+  const cardRef = useRef(null);
+  const [exporting, setExporting] = useState(false);
   const { zoom, zoomIn, zoomOut } = useZoom();
 
   const toggleFullscreen = () => {
@@ -597,6 +604,27 @@ export default function PracticeQuizPlay() {
     setAnswers((a) => ({ ...a, [current]: idx }));
   };
   const toggleBookmark = () => setBookmarks((b) => ({ ...b, [current]: !b[current] }));
+
+  // Admin: save the current question card as a JPEG. Captures the real card node
+  // (exact rendering) but skips elements marked data-noexport="1" (the
+  // Feedback/Bookmark/Download controls and the Previous/Next nav).
+  const downloadQuestionImage = async () => {
+    if (!cardRef.current || exporting) return;
+    setExporting(true);
+    try {
+      const blob = await captureNodeToBlob(cardRef.current, {
+        scale: 2,
+        type: "image/jpeg",
+        quality: 0.95,
+        filter: (n) => !(n?.dataset && n.dataset.noexport === "1"),
+      });
+      downloadBlob(blob, `question-${current + 1}.jpg`);
+    } catch {
+      /* transient (CDN/fonts) — user can retry */
+    } finally {
+      setExporting(false);
+    }
+  };
   const goTo = (i) => { setCurrent(i); setPaletteOpen(false); };
   const next = () => current < questions.length - 1 && setCurrent((c) => c + 1);
   const prev = () => current > 0 && setCurrent((c) => c - 1);
@@ -677,7 +705,7 @@ export default function PracticeQuizPlay() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1fr,300px]">
-        <div className="card p-6">
+        <div ref={cardRef} className="card p-6">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant={q.difficulty}>{q.difficulty}</Badge>
@@ -687,7 +715,17 @@ export default function PracticeQuizPlay() {
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-4">
+            <div data-noexport="1" className="flex items-center gap-4">
+              {isAdmin && (
+                <button
+                  onClick={downloadQuestionImage}
+                  disabled={exporting}
+                  title="Download this question as a JPEG image"
+                  className="flex items-center gap-1.5 text-sm font-medium text-slate-400 transition hover:text-brand-500 disabled:opacity-60"
+                >
+                  <Download className="h-5 w-5" /> {exporting ? "Saving…" : "Download"}
+                </button>
+              )}
               {!isPublic && <FeedbackButton context="question" questionText={q.text} questionNumber={current + 1} source={title} question={{ ...q, chosen: answers[current] ?? null }} label="Feedback" />}
               <button onClick={toggleBookmark} className={`flex items-center gap-1.5 text-sm font-medium transition ${bookmarks[current] ? "text-accent-600 dark:text-accent-400" : "text-slate-400 hover:text-accent-500"}`}>
                 {bookmarks[current] ? <BookmarkCheck className="h-5 w-5" /> : <Bookmark className="h-5 w-5" />}
@@ -781,7 +819,7 @@ export default function PracticeQuizPlay() {
             </div>
           )}
 
-          <div className="mt-6 flex items-center justify-between">
+          <div data-noexport="1" className="mt-6 flex items-center justify-between">
             <button onClick={prev} disabled={current === 0} className="btn-outline">
               <ChevronLeft className="h-4 w-4" /> Previous
             </button>
