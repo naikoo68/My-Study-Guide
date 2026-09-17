@@ -146,6 +146,7 @@ export async function updateSettings(req, res) {
     "fbDefaultHashtags", "fbAutoHashtags", "fbExtraTargets",
     "fbSelfieWatermarkUrl", "fbSelfieWatermarkEnabled", "fbSelfieWatermarkPosition", "fbSelfieWatermarkSize", "fbSelfieWatermarkOpacity", "fbSelfieWatermarkShape",
     "fbTextWatermarkEnabled", "fbTextWatermarkText", "fbTextWatermarkSize", "fbTextWatermarkOpacity",
+    "fbNotifyEmail", "fbNotifyOnPost", "fbNotifyOnError", "fbNotifyOnComplete",
     "igEnabled", "igUserId",
     "googleClientId",
   ];
@@ -193,6 +194,12 @@ export async function updateSettings(req, res) {
   if ("fbTextWatermarkText" in update) update.fbTextWatermarkText = String(update.fbTextWatermarkText || "").trim().slice(0, 80);
   if ("fbTextWatermarkSize" in update) update.fbTextWatermarkSize = Math.max(12, Math.min(300, parseInt(update.fbTextWatermarkSize, 10) || 64));
   if ("fbTextWatermarkOpacity" in update) update.fbTextWatermarkOpacity = Math.max(2, Math.min(100, parseInt(update.fbTextWatermarkOpacity, 10) || 12));
+
+  // Auto-post email notifications: trim the address, coerce the toggles.
+  if ("fbNotifyEmail" in update) update.fbNotifyEmail = String(update.fbNotifyEmail || "").trim().slice(0, 200);
+  if ("fbNotifyOnPost" in update) update.fbNotifyOnPost = !!update.fbNotifyOnPost;
+  if ("fbNotifyOnError" in update) update.fbNotifyOnError = !!update.fbNotifyOnError;
+  if ("fbNotifyOnComplete" in update) update.fbNotifyOnComplete = !!update.fbNotifyOnComplete;
 
   // Admin-panel feature switches. Accept a flat { key: boolean } map, coerce
   // every value to a real boolean, and NEVER allow the core always-on features

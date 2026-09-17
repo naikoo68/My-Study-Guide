@@ -53,16 +53,32 @@ function pickScheduleFields(body = {}) {
     includeLink: !!body.includeLink,
     hashtags: String(body.hashtags || "").trim(),
     order: body.order === "sequential" ? "sequential" : "random",
+    stopWhenExhausted: body.stopWhenExhausted !== false, // default true: stop once every question posted
     toFacebook: body.toFacebook !== false,
     toInstagram: !!body.toInstagram,
     asImage: !!body.asImage,
   };
 }
 
-// GET /api/facebook/schedules — list all schedules (admin)
+// GET /api/facebook/schedules — list schedules (admin), paginated + searchable.
+// Query: ?page=1&limit=20&q=<title/source search>. Returns { items, total,
+// page, limit } so the admin panel can page through 100s of schedules.
 export async function listSchedules(req, res) {
-  const schedules = await FbSchedule.find().sort({ createdAt: -1 }).lean();
-  res.json(schedules);
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const limit = Math.max(1, Math.min(100, parseInt(req.query.limit, 10) || 20));
+  const q = String(req.query.q || "").trim();
+  const filter = {};
+  if (q) {
+    const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+    filter.$or = [{ title: rx }, { "source.label": rx }];
+  }
+  const total = await FbSchedule.countDocuments(filter);
+  const items = await FbSchedule.find(filter)
+    .sort({ createdAt: -1 })
+    .skip((page - 1) * limit)
+    .limit(limit)
+    .lean();
+  res.json({ items, total, page, limit });
 }
 
 // POST /api/facebook/schedules — create (admin)

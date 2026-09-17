@@ -241,6 +241,12 @@ const settingsSchema = new mongoose.Schema(
     fbTextWatermarkText: { type: String, default: "" }, // "" = use site watermark text / site name
     fbTextWatermarkSize: { type: Number, default: 64 }, // px (12–300)
     fbTextWatermarkOpacity: { type: Number, default: 12 }, // % (2–100)
+    // Email notifications about the auto-poster. Sent to `fbNotifyEmail` (else
+    // NOTIFY_EMAIL env, else the first admin account).
+    fbNotifyEmail: { type: String, default: "" }, // where to send FB notifications ("" = admin default)
+    fbNotifyOnPost: { type: Boolean, default: false }, // email on EVERY successful auto-post (off by default — can be noisy)
+    fbNotifyOnError: { type: Boolean, default: true }, // email when an auto-post fails
+    fbNotifyOnComplete: { type: Boolean, default: true }, // email when a schedule finishes its whole source
     // Instagram cross-posting (uses the same Page token; IG account linked to the Page)
     igEnabled: { type: Boolean, default: false },
     igUserId: { type: String, default: "" }, // Instagram Business account id (blank = auto-detect from the Page)
