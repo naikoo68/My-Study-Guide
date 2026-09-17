@@ -179,6 +179,7 @@ import Subject from "../models/Subject.js";
 import Session from "../models/Session.js";
 import Topic from "../models/Topic.js";
 import Quiz from "../models/Quiz.js";
+import Stream from "../models/Stream.js";
 import { renderQuestionImage } from "./socialImage.js";
 import { renderQuestionCardShot } from "./cardShot.js";
 import { tenantStore, runUnscoped } from "../utils/tenantContext.js";
@@ -237,13 +238,59 @@ export async function hashtagsForQuestion(q, site, extra = "") {
     push(toTagWords(topicName));
     push(toTagWords(q.section));
   }
-  return out.join(" ");
+  // Cap the number of hashtags. A huge wall of tags is treated as spam by
+  // Facebook (which then stops turning the extras into blue links) and exceeds
+  // Instagram's hard 30-hashtag limit — so keep the first 30 (per-post + global
+  // defaults + auto tags), which all reliably render as clickable links.
+  return out.slice(0, MAX_HASHTAGS).join(" ");
+}
+
+// The most hashtags we emit per post. Facebook stops hyperlinking huge tag
+// walls and Instagram rejects more than 30, so 30 keeps every tag clickable.
+const MAX_HASHTAGS = 30;
+
+// Build the "Stream › Subject › Topic › Quiz" drill-down trail for a question,
+// shown as a small context line at the top of the post. Uses the same lookups
+// as the hashtag builder (subject → stream, session → topic, quiz title).
+export async function breadcrumbForQuestion(q) {
+  if (!q) return "";
+  let streamName = "", subjectName = "", topicName = "", quizTitle = "";
+  if (q.subject) {
+    const s = await Subject.findById(q.subject).select("name stream").lean().catch(() => null);
+    subjectName = s?.name || "";
+    if (s?.stream) {
+      const st = await Stream.findById(s.stream).select("name").lean().catch(() => null);
+      streamName = st?.name || "";
+    }
+  }
+  let sessionId = q.session;
+  if (!sessionId && q.quiz) {
+    const qz = await Quiz.findById(q.quiz).select("session title").lean().catch(() => null);
+    sessionId = qz?.session || null;
+    quizTitle = qz?.title || "";
+  }
+  if (sessionId) {
+    const sess = await Session.findById(sessionId).select("topic").lean().catch(() => null);
+    if (sess?.topic) {
+      const t = await Topic.findById(sess.topic).select("title").lean().catch(() => null);
+      topicName = t?.title || "";
+    }
+  }
+  if (!quizTitle && q.quiz) {
+    const qz = await Quiz.findById(q.quiz).select("title").lean().catch(() => null);
+    quizTitle = qz?.title || "";
+  }
+  if (!topicName && q.topic) topicName = q.topic;
+  return [streamName, subjectName, topicName, quizTitle].filter(Boolean).join(" › ");
 }
 
 // Build the Facebook post text for one question, honouring the schedule's
 // formatting options (show options / reveal answer / hashtags).
 export function formatQuestionPost(q, opts = {}) {
   const lines = [];
+  // Drill-down trail (Stream › Subject › Topic › Quiz) as a small context line
+  // at the very top, so viewers see where the question sits in the syllabus.
+  if (opts.breadcrumb) { lines.push(opts.breadcrumb, ""); }
   if (q.text) lines.push(plain(q.text));
 
   // Matching / pair columns.
@@ -423,10 +470,12 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   // Global default + auto hashtags (from the question's subject/topic/section)
   // merged with any per-post tags — so every post is tagged consistently.
   const finalTags = await hashtagsForQuestion(q, site, sch.hashtags);
+  const breadcrumb = await breadcrumbForQuestion(q);
   const message = formatQuestionPost(q, {
     includeOptions: sch.includeOptions,
     includeAnswer: sch.includeAnswer,
     hashtags: finalTags,
+    breadcrumb,
   });
   const link = sch.includeLink && cfg.siteUrl ? cfg.siteUrl : undefined;
 
