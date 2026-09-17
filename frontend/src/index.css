@@ -1,4 +1,9 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap");
+/* NOTE: the Inter web font is loaded via <link rel="preconnect"> + a
+   <link rel="stylesheet"> in index.html, NOT a CSS @import here. A CSS @import
+   is only discovered after this stylesheet downloads and parses, creating a
+   render-blocking request waterfall (slow first paint, especially on mobile);
+   the <link> is found immediately by the browser's preload scanner and fetched
+   in parallel. */
 
 @tailwind base;
 @tailwind components;
@@ -156,9 +161,20 @@
 }
 .animate-marquee {
   animation: marquee var(--marquee-duration, 30s) linear infinite;
+  /* Promote to its own GPU layer so the continuous scroll is composited off the
+     main thread (smoother, less main-thread work on iOS). */
+  will-change: transform;
 }
 .marquee-track:hover .animate-marquee {
   animation-play-state: paused;
+}
+/* Respect the OS "Reduce Motion" setting: stop the perpetual scroll entirely
+   (a constantly-animating banner is battery- and jank-heavy on phones). */
+@media (prefers-reduced-motion: reduce) {
+  .animate-marquee {
+    animation: none;
+    will-change: auto;
+  }
 }
 
 /* Content protection: block selection/copy for students (inputs stay usable). */
