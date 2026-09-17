@@ -13,14 +13,51 @@ export const ASSERTION_REASON_OPTIONS = [
   "A is false but R is true",
 ];
 
-// The options to DISPLAY for a question. Normally just `q.options`, but for an
-// assertion question whose options are missing/blank it falls back to the fixed
-// A/R rubric above so the answer choices always render (never bare letters).
+// Number words for reconstructing "pair" (count) options.
+const NUMBER_WORDS = ["one", "two", "three", "four", "five", "six", "seven", "eight"];
+
+// The answer choices for a "pair" question ("How many of the above pairs are
+// correctly matched?") are ORDINAL COUNTS, in a fixed order that the stored
+// `correct` index points into. So when a question was imported/saved with blank
+// option text (a data glitch in some batches), we can safely rebuild them from
+// the NUMBER OF PAIRS `n` — the correct index still lands on the right count.
+// Matches the wording the intact questions use:
+//   4 pairs → "Only one pair", "Only two pairs", "Only three pairs", "All four pairs"
+//   3 pairs → "Only one pair", "Only two pairs", "All three pairs", "None of the pairs"
+export function pairCountOptions(n) {
+  if (n >= 4) {
+    return [
+      "Only one pair", "Only two pairs", "Only three pairs",
+      `All ${NUMBER_WORDS[n - 1] || n} pairs`,
+    ];
+  }
+  // n === 3 (and a defensive n === 2): counts up to n, then "None of the pairs".
+  const out = [];
+  for (let k = 1; k < n; k++) out.push(`Only ${NUMBER_WORDS[k - 1]} pair${k === 1 ? "" : "s"}`);
+  out.push(`All ${NUMBER_WORDS[n - 1] || n} pairs`);
+  out.push("None of the pairs");
+  return out;
+}
+
+const allBlank = (opts) => opts.length === 0 || opts.every((o) => String(o || "").trim() === "");
+
+// The options to DISPLAY for a question. Normally just `q.options`, but some
+// questions were saved with missing/blank option text; for the types whose
+// options are DETERMINISTIC we rebuild them so the answer choices always render
+// (never blank boxes), keeping the stored `correct` index valid:
+//   • assertion → the fixed A/R rubric.
+//   • pair      → ordinal counts derived from the number of pairs.
+// (statement/pairselect options are specific COMBINATIONS that can't be
+// reconstructed from the data alone, so those are left exactly as stored.)
 export function displayOptions(q) {
   const opts = q?.options || [];
   if (q?.type === "assertion") {
     const hasText = opts.length === 4 && opts.every((o) => String(o || "").trim() !== "");
     if (!hasText) return ASSERTION_REASON_OPTIONS.slice();
+  }
+  if (q?.type === "pair" && allBlank(opts)) {
+    const n = Math.max((q?.columnA || []).length, (q?.columnB || []).length);
+    if (n >= 2) return pairCountOptions(n);
   }
   return opts;
 }
@@ -75,7 +112,7 @@ export const questionDateText = (item) => {
 export function stemText(q) {
   const text = q?.text || "";
   if (q?.type !== "assertion" || !(q?.assertion && q?.reason)) return text;
-  const idx = text.search(/\bAssertion\b\s*(?:\([Aa]\))?\s*[:\-]/);
+  const idx = text.search(/\bAssertion\b\s*(?:\([Aa]\))?\s*[:-]/);
   if (idx === -1) return text.trim();
   const intro = text.slice(0, idx).trim();
   return intro || "Consider the following Assertion (A) and Reason (R):";
