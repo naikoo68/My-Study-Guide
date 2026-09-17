@@ -56,12 +56,13 @@ async function launchBrowser() {
 
 // Screenshot /q-card/:id and upload it. `includeAnswer` highlights the correct
 // option (mirrors a schedule's Reveal-answer toggle).
-export async function renderQuestionCardShot(question, { includeAnswer = false, cta = false, watermark = null } = {}) {
+export async function renderQuestionCardShot(question, { includeAnswer = false, cta = false, watermark = null, textWatermark = null } = {}) {
   if (!isCloudinaryConfigured()) return { error: "Cloudinary is not configured." };
   const id = question?._id;
   if (!id) return { error: "No question id." };
-  // Build /q-card query: answer highlight, the "Comment your answer!" CTA, and
-  // the selfie/logo watermark overlay — so the screenshot bakes them in.
+  // Build /q-card query: answer highlight, the "Comment your answer!" CTA, the
+  // selfie/logo watermark overlay, and the center text watermark — so the
+  // screenshot bakes them all in.
   const p = new URLSearchParams();
   if (includeAnswer) p.set("answer", "1");
   if (cta) p.set("cta", "1");
@@ -71,6 +72,11 @@ export async function renderQuestionCardShot(question, { includeAnswer = false, 
     if (watermark.opacity) p.set("wmop", String(watermark.opacity));
     if (watermark.position) p.set("wmpos", watermark.position);
     if (watermark.shape) p.set("wmshape", watermark.shape);
+  }
+  if (textWatermark && textWatermark.text) {
+    p.set("wmt", textWatermark.text);
+    if (textWatermark.size) p.set("wmtsize", String(textWatermark.size));
+    if (textWatermark.opacity) p.set("wmtop", String(textWatermark.opacity));
   }
   const qs = p.toString();
   const url = `${siteOrigin()}/q-card/${id}${qs ? `?${qs}` : ""}`;

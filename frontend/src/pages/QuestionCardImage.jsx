@@ -43,6 +43,11 @@ export default function QuestionCardImage() {
   const wmSize = Math.max(48, Math.min(320, parseInt(sp.get("wmsize"), 10) || 120));
   const wmOp = Math.max(0, Math.min(100, parseInt(sp.get("wmop"), 10) || 90)) / 100;
   const wmShape = sp.get("wmshape") || "circle";
+  // Center TEXT watermark (drawn diagonally across the middle of the card):
+  //   ?wmt=<text>&wmtsize=<px>&wmtop=<0-100 %>
+  const wmText = (sp.get("wmt") || "").trim();
+  const wmtSize = Math.max(12, Math.min(300, parseInt(sp.get("wmtsize"), 10) || 64));
+  const wmtOp = Math.max(0, Math.min(100, parseInt(sp.get("wmtop"), 10) || 12)) / 100;
   const [q, setQ] = useState(null);
   const [error, setError] = useState("");
   const [fontsReady, setFontsReady] = useState(false);
@@ -170,6 +175,31 @@ export default function QuestionCardImage() {
               </div>
             ))}
           </div>
+
+          {/* Center TEXT watermark — a single diagonal, semi-transparent line
+              across the middle of the card. Absolutely positioned + pointer
+              events off so it overlays the content without affecting layout. */}
+          {wmText && (
+            <div
+              aria-hidden
+              style={{
+                position: "absolute", inset: 0, display: "flex",
+                alignItems: "center", justifyContent: "center",
+                overflow: "hidden", pointerEvents: "none",
+              }}
+            >
+              <span
+                style={{
+                  transform: "rotate(-24deg)", opacity: wmtOp,
+                  fontSize: wmtSize, lineHeight: 1, fontWeight: 800,
+                  textTransform: "uppercase", letterSpacing: "0.08em",
+                  color: "#64748b", whiteSpace: "nowrap", textAlign: "center",
+                }}
+              >
+                {wmText}
+              </span>
+            </div>
+          )}
 
           {/* Engagement CTA (only when the answer isn't being revealed). */}
           {cta && !showAnswer && (
