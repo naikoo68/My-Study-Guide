@@ -22,6 +22,7 @@ import {
   Minimize,
   ZoomIn,
   ZoomOut,
+  Download,
 } from "lucide-react";
 import { contentService, quizService } from "../../services";
 import ProgressBar from "../../components/ui/ProgressBar";
@@ -36,8 +37,10 @@ import AssertionReasonView from "../../components/ui/AssertionReasonView";
 import Watermark from "../../components/ui/Watermark";
 import FeedbackButton from "../../components/ui/FeedbackButton";
 import { useZoom } from "../../context/ZoomContext";
+import { useAuth } from "../../context/AuthContext";
 import { Loading, ErrorState, EmptyState } from "../../components/ui/AsyncState";
 import { questionDateText, stemText, displayOptions } from "../../lib/questions";
+import { captureNodeToBlob, downloadBlob } from "../../lib/questionImage";
 import { shuffleAll, toOriginalIndex, makeSeed } from "../../lib/shuffleOptions";
 
 const optionLabels = ["A", "B", "C", "D"];
@@ -121,6 +124,14 @@ export default function QuizPlay() {
   const [submitting, setSubmitting] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const containerRef = useRef(null);
+
+  // Admin-only: download the current question card as a JPEG image. `cardRef`
+  // points at the on-screen question card so the image looks EXACTLY like what
+  // the student sees (same KaTeX math); interactive controls are excluded.
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const cardRef = useRef(null);
+  const [exporting, setExporting] = useState(false);
 
   // Site-wide zoom (also usable here, incl. full-screen).
   const { zoom, zoomIn, zoomOut } = useZoom();
@@ -394,6 +405,28 @@ export default function QuizPlay() {
     setAnswers((a) => ({ ...a, [current]: idx }));
   };
   const toggleBookmark = () => setBookmarks((b) => ({ ...b, [current]: !b[current] }));
+
+  // Admin: save the current question card as a JPEG. We capture the real card
+  // node (exact rendering) but skip any element marked data-noexport="1" — the
+  // Feedback/Bookmark/Download controls and the Previous/Next nav — so the image
+  // is a clean question card.
+  const downloadQuestionImage = async () => {
+    if (!cardRef.current || exporting) return;
+    setExporting(true);
+    try {
+      const blob = await captureNodeToBlob(cardRef.current, {
+        scale: 2,
+        type: "image/jpeg",
+        quality: 0.95,
+        filter: (n) => !(n?.dataset && n.dataset.noexport === "1"),
+      });
+      downloadBlob(blob, `question-${current + 1}.jpg`);
+    } catch {
+      /* transient (CDN/fonts) — user can retry */
+    } finally {
+      setExporting(false);
+    }
+  };
   const goTo = (i) => {
     setCurrent(i);
     setPaletteOpen(false);
@@ -483,7 +516,7 @@ export default function QuizPlay() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1fr,300px]">
-        <div className="card p-6">
+        <div ref={cardRef} className="card p-6">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant={q.difficulty}>{q.difficulty}</Badge>
@@ -493,7 +526,17 @@ export default function QuizPlay() {
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-4">
+            <div data-noexport="1" className="flex items-center gap-4">
+              {isAdmin && (
+                <button
+                  onClick={downloadQuestionImage}
+                  disabled={exporting}
+                  title="Download this question as a JPEG image"
+                  className="flex items-center gap-1.5 text-sm font-medium text-slate-400 transition hover:text-brand-500 disabled:opacity-60"
+                >
+                  <Download className="h-5 w-5" /> {exporting ? "Saving…" : "Download"}
+                </button>
+              )}
               <FeedbackButton context="question" questionText={q.text} questionNumber={current + 1} source={crumb || subjectName || "Quiz"} question={{ ...q, chosen: answers[current] ?? null }} label="Feedback" />
               <button
                 onClick={toggleBookmark}
@@ -603,7 +646,7 @@ export default function QuizPlay() {
             </div>
           )}
 
-          <div className="mt-6 flex items-center justify-between">
+          <div data-noexport="1" className="mt-6 flex items-center justify-between">
             <button onClick={prev} disabled={current === 0} className="btn-outline">
               <ChevronLeft className="h-4 w-4" /> Previous
             </button>

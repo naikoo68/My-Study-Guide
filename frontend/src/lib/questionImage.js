@@ -26,8 +26,12 @@ function loadHtmlToImage() {
   return _loader;
 }
 
-// Render `node` to a PNG Blob. `scale` (2) gives a crisp, retina-quality image.
-export async function captureNodeToBlob(node, { scale = 2 } = {}) {
+// Render `node` to an image Blob. `scale` (2) gives a crisp, retina-quality
+// image. `type` picks the format ("image/png" default, or "image/jpeg" for a
+// smaller shareable file); `quality` (0–1) applies to JPEG only. `filter` is an
+// optional predicate `(domNode) => boolean` — return false to EXCLUDE a node
+// (and its subtree) from the capture, e.g. to drop interactive buttons.
+export async function captureNodeToBlob(node, { scale = 2, type = "image/png", quality = 0.95, filter } = {}) {
   if (!node) throw new Error("Nothing to capture.");
   const lib = await loadHtmlToImage();
   // Make sure web fonts (including the KaTeX math fonts) are ready so the
@@ -39,7 +43,24 @@ export async function captureNodeToBlob(node, { scale = 2 } = {}) {
     pixelRatio: scale,
     backgroundColor: "#ffffff",
     cacheBust: true,
+    ...(type ? { type } : {}),
+    ...(type === "image/jpeg" ? { quality } : {}),
+    ...(typeof filter === "function" ? { filter } : {}),
   });
   if (!blob) throw new Error("Could not render the image.");
   return blob;
+}
+
+// Trigger a browser download of a Blob under `filename`. Revokes the temporary
+// object URL shortly after so we don't leak it.
+export function downloadBlob(blob, filename) {
+  if (!blob) return;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename || "download";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
