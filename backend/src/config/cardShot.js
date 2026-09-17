@@ -56,11 +56,24 @@ async function launchBrowser() {
 
 // Screenshot /q-card/:id and upload it. `includeAnswer` highlights the correct
 // option (mirrors a schedule's Reveal-answer toggle).
-export async function renderQuestionCardShot(question, { includeAnswer = false } = {}) {
+export async function renderQuestionCardShot(question, { includeAnswer = false, cta = false, watermark = null } = {}) {
   if (!isCloudinaryConfigured()) return { error: "Cloudinary is not configured." };
   const id = question?._id;
   if (!id) return { error: "No question id." };
-  const url = `${siteOrigin()}/q-card/${id}${includeAnswer ? "?answer=1" : ""}`;
+  // Build /q-card query: answer highlight, the "Comment your answer!" CTA, and
+  // the selfie/logo watermark overlay — so the screenshot bakes them in.
+  const p = new URLSearchParams();
+  if (includeAnswer) p.set("answer", "1");
+  if (cta) p.set("cta", "1");
+  if (watermark && watermark.url) {
+    p.set("wm", watermark.url);
+    if (watermark.size) p.set("wmsize", String(watermark.size));
+    if (watermark.opacity) p.set("wmop", String(watermark.opacity));
+    if (watermark.position) p.set("wmpos", watermark.position);
+    if (watermark.shape) p.set("wmshape", watermark.shape);
+  }
+  const qs = p.toString();
+  const url = `${siteOrigin()}/q-card/${id}${qs ? `?${qs}` : ""}`;
 
   let browser;
   try {

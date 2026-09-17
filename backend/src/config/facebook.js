@@ -389,7 +389,21 @@ export async function runScheduleOnce(sch, cfgOverride) {
     // any failure falls through to the lightweight SVG card so posting never
     // breaks.
     try {
-      const shot = await renderQuestionCardShot(q, { includeAnswer: sch.includeAnswer });
+      const shot = await renderQuestionCardShot(q, {
+        includeAnswer: sch.includeAnswer,
+        // Ask viewers to comment when we are NOT revealing the answer.
+        cta: !sch.includeAnswer,
+        // Bake the selfie/logo watermark into the card when it's enabled.
+        watermark: selfieWatermarkActive
+          ? {
+              url: site.fbSelfieWatermarkUrl,
+              size: site.fbSelfieWatermarkSize || 120,
+              opacity: site.fbSelfieWatermarkOpacity || 90,
+              position: site.fbSelfieWatermarkPosition || "bottom-right",
+              shape: site.fbSelfieWatermarkShape || "circle",
+            }
+          : null,
+      });
       if (shot?.url) imageUrl = shot.url;
       else imageErr = shot?.error || "";
     } catch (e) {

@@ -34,9 +34,20 @@ export default function QuestionCardImage() {
   const { id } = useParams();
   const [sp] = useSearchParams();
   const showAnswer = sp.get("answer") === "1";
+  // Optional overlays the backend asks for (so the screenshot includes them):
+  //   ?cta=1                         → "👉 Comment your answer!" line
+  //   ?wm=<url>&wmpos&wmsize&wmop&wmshape → selfie/logo watermark
+  const cta = sp.get("cta") === "1";
+  const wm = sp.get("wm") || "";
+  const wmPos = sp.get("wmpos") || "bottom-right";
+  const wmSize = Math.max(48, Math.min(320, parseInt(sp.get("wmsize"), 10) || 120));
+  const wmOp = Math.max(0, Math.min(100, parseInt(sp.get("wmop"), 10) || 90)) / 100;
+  const wmShape = sp.get("wmshape") || "circle";
   const [q, setQ] = useState(null);
   const [error, setError] = useState("");
-  const [ready, setReady] = useState(false);
+  const [fontsReady, setFontsReady] = useState(false);
+  const [wmLoaded, setWmLoaded] = useState(!wm); // if no watermark, nothing to wait for
+  const ready = fontsReady && wmLoaded;
 
   // Force LIGHT theme for the capture (the posted card is always light), no
   // matter what theme preference the headless browser might otherwise pick up.
@@ -59,7 +70,7 @@ export default function QuestionCardImage() {
     const done = () => {
       if (!alive) return;
       // two frames so layout/paint settle before the screenshot
-      requestAnimationFrame(() => requestAnimationFrame(() => alive && setReady(true)));
+      requestAnimationFrame(() => requestAnimationFrame(() => alive && setFontsReady(true)));
     };
     if (typeof document !== "undefined" && document.fonts && document.fonts.ready) {
       document.fonts.ready.then(done).catch(done);
@@ -82,11 +93,25 @@ export default function QuestionCardImage() {
       ? "flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-emerald-500 bg-emerald-500 text-white text-xs font-bold"
       : "flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-slate-300 text-xs font-bold";
 
+  // Watermark overlay position/shape (inside the card).
+  const wmStyle = () => {
+    const inset = 16;
+    const base = {
+      position: "absolute", width: wmSize, height: wmSize, opacity: wmOp,
+      objectFit: "cover", borderRadius: wmShape === "rectangle" ? 12 : "50%",
+      border: "2px solid #4f46e5", background: "#ffffff", boxSizing: "border-box",
+    };
+    if (wmPos === "bottom-left") return { ...base, bottom: inset, left: inset };
+    if (wmPos === "top-right") return { ...base, top: inset, right: inset };
+    if (wmPos === "top-left") return { ...base, top: inset, left: inset };
+    return { ...base, bottom: inset, right: inset }; // bottom-right (default)
+  };
+
   return (
     <div style={{ background: "#ffffff", minHeight: "100vh", display: "flex", justifyContent: "center", padding: 24 }}>
       {/* data-card-el marks the exact node the screenshotter clips to. */}
       <div data-card-ready={ready ? "1" : "0"} style={{ width: 960 }}>
-        <div data-card-el className="card p-6">
+        <div data-card-el className="card p-6" style={{ position: "relative" }}>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant={q.difficulty}>{q.difficulty}</Badge>
@@ -145,6 +170,22 @@ export default function QuestionCardImage() {
               </div>
             ))}
           </div>
+
+          {/* Engagement CTA (only when the answer isn't being revealed). */}
+          {cta && !showAnswer && (
+            <p className="mt-4 text-base font-bold text-brand-600">👉 Comment your answer!</p>
+          )}
+
+          {/* Selfie / logo watermark overlay (loaded before we signal ready). */}
+          {wm && (
+            <img
+              src={wm}
+              alt=""
+              onLoad={() => setWmLoaded(true)}
+              onError={() => setWmLoaded(true)}
+              style={wmStyle()}
+            />
+          )}
         </div>
       </div>
     </div>
