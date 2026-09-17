@@ -7,26 +7,32 @@ import {
 } from "../../src/utils/instagramImage.js";
 
 const CLOUD = "https://res.cloudinary.com/demo/image/upload";
-// The conditional transform: pad ONLY when too tall (<4:5) or too wide (>1.91),
-// otherwise a no-op so the exact card is delivered.
-const COND =
+// The injected chain: force JPEG (Instagram only accepts JPEG), then pad ONLY
+// when too tall (<4:5) or too wide (>1.91), otherwise deliver the exact card.
+const TRANSFORM =
+  "f_jpg,fl_lossy,q_auto/" +
   "if_ar_lt_0.8,c_pad,ar_4:5,b_white/if_end/" +
   "if_ar_gt_1.91,c_pad,ar_1.91,b_white/if_end";
 
 describe("toInstagramSafeUrl", () => {
-  it("injects the conditional pad transform into a plain Cloudinary URL", () => {
+  it("injects the JPEG + conditional pad transform into a plain Cloudinary URL", () => {
     const out = toInstagramSafeUrl(`${CLOUD}/v123/mystudyguide/social/card.png`);
-    expect(out).toBe(`${CLOUD}/${COND}/v123/mystudyguide/social/card.png`);
+    expect(out).toBe(`${CLOUD}/${TRANSFORM}/v123/mystudyguide/social/card.png`);
   });
 
   it("works when there is no version segment", () => {
     const out = toInstagramSafeUrl(`${CLOUD}/mystudyguide/social/card.png`);
-    expect(out).toBe(`${CLOUD}/${COND}/mystudyguide/social/card.png`);
+    expect(out).toBe(`${CLOUD}/${TRANSFORM}/mystudyguide/social/card.png`);
+  });
+
+  it("always forces JPEG (Instagram rejects PNG as an invalid media type)", () => {
+    const out = toInstagramSafeUrl(`${CLOUD}/v1/card.png`);
+    expect(out).toContain("f_jpg");
   });
 
   it("only pads conditionally — an in-range card is a no-op at delivery", () => {
-    // The transform is guarded by if_ar_lt_0.8 / if_ar_gt_1.91, so Cloudinary
-    // applies NO padding to a card already within range (exact card delivered).
+    // The pad is guarded by if_ar_lt_0.8 / if_ar_gt_1.91, so Cloudinary applies
+    // NO padding to a card already within range (exact card delivered as JPEG).
     const out = toInstagramSafeUrl(`${CLOUD}/v1/card.png`);
     expect(out).toContain("if_ar_lt_0.8");
     expect(out).toContain("if_ar_gt_1.91");
@@ -37,7 +43,8 @@ describe("toInstagramSafeUrl", () => {
     const once = toInstagramSafeUrl(`${CLOUD}/v123/card.png`);
     const twice = toInstagramSafeUrl(once);
     expect(twice).toBe(once);
-    // Exactly one conditional block.
+    // Exactly one format + conditional block.
+    expect(twice.match(/f_jpg/g)).toHaveLength(1);
     expect(twice.match(/if_ar_lt_0\.8/g)).toHaveLength(1);
   });
 
