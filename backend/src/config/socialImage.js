@@ -152,18 +152,24 @@ function buildOptionTable(str, x, y, width, { fs = 18 } = {}) {
 }
 
 async function buildQuestionSvg(q, opts = {}) {
-  const W = 1080, PAD = 56;
+  const W = 1080, PAD = 56, CM = 24; // CM = margin of the white card on the page
   const brand = opts.brandColor || "#4f46e5";
   const accent = "#ea580c";
   const siteName = esc(uni(opts.siteName || "My Study Guide"));
   const els = [];
-  let y = 150;
+  let y = 56;
 
+  // Header row — mirrors the on-screen quiz card: a difficulty PILL on the left,
+  // with a small muted site name on the right for identity (the watermark, when
+  // set, carries the main branding). No big coloured header bar — this reads as
+  // the same white question card students see.
   const diff = q.difficulty || "Medium";
-  const dc = diff === "Hard" ? ["#fee2e2", "#dc2626"] : diff === "Easy" ? ["#dcfce7", "#16a34a"] : ["#fef9c3", "#ca8a04"];
-  els.push(RR(PAD, y, 118, 46, 12, dc[0]));
-  els.push(T(PAD + 59, y + 31, 26, dc[1], esc(diff), { weight: "700", anchor: "middle" }));
-  els.push(T(W - PAD, y + 31, 26, "#94a3b8", "Question of the day", { anchor: "end" }));
+  // Match the app's Badge palette EXACTLY (Easy=emerald, Medium=amber, Hard=rose).
+  const dc = diff === "Hard" ? ["#ffe4e6", "#be123c"] : diff === "Easy" ? ["#d1fae5", "#047857"] : ["#fef3c7", "#b45309"];
+  const dw = Math.max(112, Math.round(measure(diff, 26) + 56));
+  els.push(RR(PAD, y, dw, 46, 23, dc[0]));
+  els.push(T(PAD + dw / 2, y + 31, 26, dc[1], esc(diff), { weight: "700", anchor: "middle" }));
+  els.push(T(W - PAD, y + 30, 24, "#94a3b8", siteName, { anchor: "end", weight: "700" }));
   y += 46 + 30;
 
   // Stem.
@@ -250,8 +256,9 @@ async function buildQuestionSvg(q, opts = {}) {
 
   if (opts.hashtags) { els.push(T(PAD, y + 30, 26, brand, esc(uni(opts.hashtags)))); y += 40; }
 
-  // Allow a taller card so multi-row table options (journal/ledger) aren't cut off.
-  const H = Math.max(1080, Math.min(2600, y + 40));
+  // Card grows with content (min keeps short questions a tidy card; max allows
+  // multi-row table options (journal/ledger) without being cut off).
+  const H = Math.max(680, Math.min(2600, y + 56));
   // Selfie watermark: embed a circular clipped image if configured.
   let watermarkSvg = "";
   if (opts.selfieWatermarkUrl) {
@@ -259,12 +266,13 @@ async function buildQuestionSvg(q, opts = {}) {
     const opacity = (opts.selfieWatermarkOpacity || 90) / 100;
     const pos = opts.selfieWatermarkPosition || "bottom-right";
     const shape = opts.selfieWatermarkShape || "circle";
-    const margin = 24;
+    // Keep the watermark inside the white card (inset CM) with a little padding.
+    const margin = CM + 20;
     let cx, cy;
     if (pos === "bottom-right") { cx = W - margin - sz / 2; cy = H - margin - sz / 2; }
     else if (pos === "bottom-left") { cx = margin + sz / 2; cy = H - margin - sz / 2; }
-    else if (pos === "top-right") { cx = W - margin - sz / 2; cy = 118 + margin + sz / 2; }
-    else { cx = margin + sz / 2; cy = 118 + margin + sz / 2; } // top-left
+    else if (pos === "top-right") { cx = W - margin - sz / 2; cy = CM + 92 + sz / 2; }
+    else { cx = margin + sz / 2; cy = CM + 92 + sz / 2; } // top-left (below the header row)
     const r = sz / 2;
 
     if (shape === "rectangle") {
@@ -287,11 +295,9 @@ async function buildQuestionSvg(q, opts = {}) {
     }
   }
   return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
-    <rect width="${W}" height="${H}" fill="#f8fafc"/>
-    <rect x="0" y="0" width="${W}" height="118" fill="${brand}"/>
-    ${T(PAD, 74, 44, "#ffffff", siteName, { weight: "800" })}
+    <rect width="${W}" height="${H}" fill="#f1f5f9"/>
+    <rect x="${CM}" y="${CM}" width="${W - 2 * CM}" height="${H - 2 * CM}" rx="24" fill="#ffffff" stroke="#e2e8f0" stroke-width="2"/>
     ${els.join("\n    ")}
-    <rect x="0" y="${H - 10}" width="${W}" height="10" fill="${brand}"/>
     ${watermarkSvg}
   </svg>`;
 }
