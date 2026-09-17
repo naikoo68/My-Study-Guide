@@ -104,6 +104,7 @@ export default function PracticeQuizPlay() {
 
   const [questions, setQuestions] = useState([]);
   const [title, setTitle] = useState("Practice Quiz");
+  const [trail, setTrail] = useState([]); // Stream › [Exam] › Subject › Topic › Quiz (breadcrumb text)
   const [views, setViews] = useState(0); // total times this quiz was opened (shown to users)
   const [quizId, setQuizId] = useState(null); // the loaded quiz id (for view counting on every open)
   const [loading, setLoading] = useState(true);
@@ -166,6 +167,7 @@ export default function PracticeQuizPlay() {
       .then((data) => {
         setQuestions(shuffleAll(data.questions || [], seed)); // reshuffle options
         setTitle(data.name || "Practice Quiz");
+        setTrail(Array.isArray(data.trail) ? data.trail : []);
         setViews(data.views || 0);
         setQuizId(data._id || null);
         setPaper({ paperPdfUrl: data.paperPdfUrl || "", answerKeyPdfUrl: data.answerKeyPdfUrl || "", answerKeys: Array.isArray(data.answerKeys) ? data.answerKeys : [], additionalInfo: data.additionalInfo || "" });
@@ -689,6 +691,19 @@ export default function PracticeQuizPlay() {
           </button>
         </div>
       </div>
+
+      {/* Drill-down trail (text only, OUTSIDE the question card so it's never in
+          the downloaded/shared card image): Stream › Subject › Topic › Quiz. */}
+      {trail.length > 0 && (
+        <nav aria-label="Breadcrumb" className="mb-4 flex flex-wrap items-center gap-1 text-sm text-slate-500 dark:text-slate-400">
+          {trail.map((t, i) => (
+            <span key={i} className="flex items-center gap-1">
+              {i > 0 && <ChevronRight className="h-4 w-4 flex-shrink-0 text-slate-400" />}
+              <span className={i === trail.length - 1 ? "font-semibold text-brand-600 dark:text-brand-400" : ""}>{t}</span>
+            </span>
+          ))}
+        </nav>
+      )}
 
       <div className="mb-5">
         <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 text-sm">

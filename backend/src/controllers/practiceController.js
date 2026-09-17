@@ -790,9 +790,21 @@ export async function playQuiz(req, res) {
     }
   }
   const obj = item.toObject();
+  // Drill-down trail (names only) so the player can show a breadcrumb:
+  // Stream › [Exam] › Subject › Topic › Quiz. Fetched the same way as the
+  // disabled-check above (findById().select().lean()), so it works across DB
+  // engines and never leaks anything beyond the node names.
+  const [trStream, trExam, trSubject, trTopic] = await Promise.all([
+    obj.practiceStream ? PracticeStream.findById(obj.practiceStream).select("name").lean() : null,
+    obj.practiceExam ? PracticeExam.findById(obj.practiceExam).select("name").lean() : null,
+    obj.practiceSubject ? PracticeSubject.findById(obj.practiceSubject).select("name").lean() : null,
+    obj.practiceTopic ? PracticeTopic.findById(obj.practiceTopic).select("name").lean() : null,
+  ]);
+  const trail = [trStream?.name, trExam?.name, trSubject?.name, trTopic?.name, obj.name].filter(Boolean);
   res.json({
     _id: obj._id,
     name: obj.name,
+    trail, // ["Stream","Exam","Subject","Topic","Quiz name"] — for the play-page breadcrumb
     duration: obj.duration,
     difficulty: obj.difficulty,
     views: obj.views || 0, // total quiz opens (shown to the user)
