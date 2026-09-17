@@ -181,6 +181,7 @@ import Session from "../models/Session.js";
 import Topic from "../models/Topic.js";
 import Quiz from "../models/Quiz.js";
 import Stream from "../models/Stream.js";
+import TestSeries from "../models/TestSeries.js";
 import { renderQuestionImage } from "./socialImage.js";
 import { renderQuestionCardShot } from "./cardShot.js";
 import { tenantStore, runUnscoped } from "../utils/tenantContext.js";
@@ -256,32 +257,64 @@ const MAX_HASHTAGS = 30;
 export async function breadcrumbForQuestion(q) {
   if (!q) return "";
   let streamName = "", subjectName = "", topicName = "", quizTitle = "";
-  if (q.subject) {
-    const s = await Subject.findById(q.subject).select("name stream").lean().catch(() => null);
-    subjectName = s?.name || "";
-    if (s?.stream) {
-      const st = await Stream.findById(s.stream).select("name").lean().catch(() => null);
-      streamName = st?.name || "";
+
+  // Resolve ids from whatever the question carries, then WALK the hierarchy to
+  // fill the gaps. This matters because a question's own `subject`/`session`
+  // fields are not always populated — but the quiz ALWAYS stores subject +
+  // session, and a session stores subject + topic. So a question that only has
+  // `quiz` set can still resolve its FULL trail.
+  //
+  // (Previously the subject/stream were read ONLY from q.subject, so any
+  // question missing that field — which happens for questions added through
+  // several flows, not just plain MCQs — produced a broken, subject-less trail
+  // and looked like the "drill-down" only worked for some questions.)
+  let subjectId = q.subject || null;
+  let sessionId = q.session || null;
+  let topicId = null;
+
+  if (q.quiz) {
+    const qz = await Quiz.findById(q.quiz).select("subject session title").lean().catch(() => null);
+    if (qz) {
+      quizTitle = qz.title || "";
+      if (!subjectId && qz.subject) subjectId = qz.subject;
+      if (!sessionId && qz.session) sessionId = qz.session;
     }
-  }
-  let sessionId = q.session;
-  if (!sessionId && q.quiz) {
-    const qz = await Quiz.findById(q.quiz).select("session title").lean().catch(() => null);
-    sessionId = qz?.session || null;
-    quizTitle = qz?.title || "";
   }
   if (sessionId) {
-    const sess = await Session.findById(sessionId).select("topic").lean().catch(() => null);
-    if (sess?.topic) {
-      const t = await Topic.findById(sess.topic).select("title").lean().catch(() => null);
-      topicName = t?.title || "";
+    const sess = await Session.findById(sessionId).select("subject topic").lean().catch(() => null);
+    if (sess) {
+      if (!subjectId && sess.subject) subjectId = sess.subject;
+      if (sess.topic) topicId = sess.topic;
     }
   }
-  if (!quizTitle && q.quiz) {
-    const qz = await Quiz.findById(q.quiz).select("title").lean().catch(() => null);
-    quizTitle = qz?.title || "";
+  if (topicId) {
+    const t = await Topic.findById(topicId).select("title subject").lean().catch(() => null);
+    if (t) {
+      topicName = t.title || "";
+      if (!subjectId && t.subject) subjectId = t.subject;
+    }
   }
+  if (subjectId) {
+    const s = await Subject.findById(subjectId).select("name stream").lean().catch(() => null);
+    if (s) {
+      subjectName = s.name || "";
+      if (s.stream) {
+        const st = await Stream.findById(s.stream).select("name").lean().catch(() => null);
+        streamName = st?.name || "";
+      }
+    }
+  }
+
+  // Fallbacks for questions NOT under a quiz (e.g. test-series questions, which
+  // store a free-text topic/section and belong to a TestSeries instead): use
+  // those so the trail is still meaningful rather than empty.
   if (!topicName && q.topic) topicName = q.topic;
+  if (!quizTitle && q.testSeries) {
+    const ts = await TestSeries.findById(q.testSeries).select("name").lean().catch(() => null);
+    if (ts?.name) quizTitle = ts.name;
+  }
+  if (!topicName && q.section) topicName = q.section;
+
   return [streamName, subjectName, topicName, quizTitle].filter(Boolean).join(" › ");
 }
 
