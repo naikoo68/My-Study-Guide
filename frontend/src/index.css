@@ -36,6 +36,12 @@
   html {
     scroll-behavior: smooth;
     font-family: var(--app-font);
+    /* iOS Safari auto-INFLATES text ("text size adjust") on many layouts, so
+       cards, options and spacing came out larger/differently than on Android /
+       Chrome. Locking this to 100% makes typography render IDENTICALLY across
+       iOS and Android. Safe no-op on browsers that don't inflate. */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
     /* Stop the mobile browser's pull-to-refresh gesture from reloading the page
        (it triggers easily after pinch-zooming out and swiping at the top). */
     overscroll-behavior-y: contain;

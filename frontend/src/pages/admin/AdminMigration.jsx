@@ -358,7 +358,7 @@ export default function AdminMigration({ clientMode = false }) {
 
       {flow && (
         <div className="card p-6">
-          <div className="grid gap-6 md:grid-cols-[1fr,auto,1fr] md:items-start">
+          <div className="grid gap-6 md:grid-cols-[1fr_auto_1fr] md:items-start">
             {/* Source */}
             <div>
               <p className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">Move these (tick one or more)</p>

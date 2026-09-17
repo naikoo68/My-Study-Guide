@@ -619,7 +619,7 @@ export default function TestAttempt() {
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-7xl gap-4 p-4 lg:grid-cols-[1fr,320px]">
+      <div className="mx-auto grid max-w-7xl gap-4 p-4 lg:grid-cols-[1fr_320px]">
         <div className="card flex flex-col p-6">
           {hasSections && q.section && (
             <div className="mb-3 flex items-center gap-2">
