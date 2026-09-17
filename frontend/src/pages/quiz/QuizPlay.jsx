@@ -167,15 +167,19 @@ export default function QuizPlay() {
       contentService.topics(subjectId).catch(() => []),
       contentService.sessions(topicId).catch(() => []),
       contentService.quizzes(sessionId).catch(() => []),
+      contentService.streams().catch(() => []),
     ])
-      .then(([qs, subjects, topics, sessions, quizzes]) => {
+      .then(([qs, subjects, topics, sessions, quizzes, streams]) => {
         setQuestions(shuffleAll(qs, seed)); // reshuffle options for this attempt
         const subj = subjects.find?.((s) => s._id === subjectId);
         const top = topics.find?.((t) => t._id === topicId);
         const ses = sessions.find?.((s) => s._id === sessionId);
         const qz = quizzes.find?.((q) => q._id === quizId);
+        // The subject carries its parent stream id; resolve its NAME so the
+        // breadcrumb starts at the stream (Stream › Subject › Topic › … › Quiz).
+        const strm = subj?.stream ? streams.find?.((s) => String(s._id) === String(subj.stream)) : null;
         if (subj) setSubjectName(subj.name);
-        setCrumb([subj?.name, top?.title, ses?.title, qz?.title].filter(Boolean).join(" › "));
+        setCrumb([strm?.name, subj?.name, top?.title, ses?.title, qz?.title].filter(Boolean).join(" › "));
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -506,6 +510,19 @@ export default function QuizPlay() {
           </button>
         </div>
       </div>
+
+      {/* Drill-down trail (text only, OUTSIDE the question card so it's never in
+          the downloaded/shared card image): Stream › Subject › Topic › Quizzes › Quiz. */}
+      {crumb && (
+        <nav aria-label="Breadcrumb" className="mb-4 flex flex-wrap items-center gap-1 text-sm text-slate-500 dark:text-slate-400">
+          {crumb.split(" › ").map((t, i, arr) => (
+            <span key={i} className="flex items-center gap-1">
+              {i > 0 && <ChevronRight className="h-4 w-4 flex-shrink-0 text-slate-400" />}
+              <span className={i === arr.length - 1 ? "font-semibold text-brand-600 dark:text-brand-400" : ""}>{t}</span>
+            </span>
+          ))}
+        </nav>
+      )}
 
       <div className="mb-5">
         <div className="mb-1.5 flex justify-between text-sm">
