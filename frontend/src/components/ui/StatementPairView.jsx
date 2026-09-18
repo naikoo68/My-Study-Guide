@@ -1,4 +1,5 @@
 import MathText from "./MathText";
+import { normalizeColumn } from "../../lib/questions";
 
 const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"];
 const LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"];
@@ -37,12 +38,11 @@ export default function StatementPairView({ q }) {
 
   let rows = null;
   if (q.type === "statement" || q.type === "rearrange") {
-    rows = (q.columnA || [])
-      .filter((s) => s != null && String(s).trim() !== "")
+    rows = normalizeColumn(q.columnA)
       .map((s) => <MathText>{s}</MathText>);
   } else if (q.type === "pair" || q.type === "pairselect") {
-    const left = q.columnA || [];
-    const right = q.columnB || [];
+    const left = normalizeColumn(q.columnA);
+    const right = normalizeColumn(q.columnB);
     const n = Math.max(left.length, right.length);
     rows = Array.from({ length: n }, (_, i) => [left[i], right[i]])
       .filter(([a, b]) => (a && String(a).trim()) || (b && String(b).trim()))

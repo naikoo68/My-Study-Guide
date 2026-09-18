@@ -1,5 +1,30 @@
 // Shared helpers for question lists (used across Content, Tests, Practice).
 
+// Defensive column normaliser. Some questions were saved with a whole column
+// collapsed into ONE array element that embeds the list markers, e.g.
+//   ["First desc. II. Second desc. III. Third desc. IV. Fourth desc."]
+// which then renders as a single row (only the "I" badge shows). This splits
+// such a blob back into separate items (and strips any leading "1."/"I." marker
+// from properly-separated items). Safe: a correctly-split column is returned
+// as-is (just marker-stripped).
+const LEADING_MARKER = /^\s*(?:[IVXLC]{1,5}|\d{1,2})\s*[.)]\s*/i;
+function splitNumberedBlob(s) {
+  const str = String(s || "").replace(/\s+/g, " ").trim();
+  if (!str) return [];
+  // Split just BEFORE an inline "II. " / "3) " style marker (roman or number).
+  const parts = str.split(/\s+(?=(?:[IVXLC]{1,5}|\d{1,2})[.)]\s)/g);
+  return parts.map((p) => p.replace(LEADING_MARKER, "").trim()).filter(Boolean);
+}
+export function normalizeColumn(arr) {
+  const items = (Array.isArray(arr) ? arr : []).map((x) => String(x ?? "").trim()).filter(Boolean);
+  if (items.length >= 2) return items.map((x) => x.replace(LEADING_MARKER, "").trim());
+  if (items.length === 1) {
+    const split = splitNumberedBlob(items[0]);
+    if (split.length >= 2) return split;
+  }
+  return items;
+}
+
 // The four FIXED options for an "assertion" (Assertion & Reason) question, in
 // their canonical order — (a)…(d). Their order is meaningful (the stored
 // `correct` index points into this exact sequence), so they are never shuffled.
