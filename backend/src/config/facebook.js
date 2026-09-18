@@ -746,12 +746,26 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
 
   sch.lastRunAt = new Date();
   if (poolSize) sch.poolSize = poolSize;
+  let finishedPool = false; // true when THIS successful post just emptied the pool
   if (anyOk) {
     sch.postedQuestionIds = recycled ? [q._id] : [...(sch.postedQuestionIds || []), q._id];
     sch.postCount = (sch.postCount || 0) + 1;
-    sch.lastResult = `${notes.join(" · ")}${recycled ? " (restarted the pool)" : ""}`;
-    if (notify && site?.fbNotifyOnPost === true) {
-      const postedCount = (sch.postedQuestionIds || []).length;
+    const postedCount = (sch.postedQuestionIds || []).length;
+    // Did this post finish the WHOLE source (stop-when-exhausted, no recycle)?
+    // If so the caller removes the schedule — it "disappears" right after the
+    // final successful post (e.g. the 25th question of a 25-question quiz).
+    finishedPool = !recycled && sch.stopWhenExhausted !== false && poolSize > 0 && postedCount >= poolSize;
+    sch.lastResult = finishedPool
+      ? `Completed — all ${poolSize} question(s) posted.`
+      : `${notes.join(" · ")}${recycled ? " (restarted the pool)" : ""}`;
+    if (finishedPool && notify && site?.fbNotifyOnComplete !== false) {
+      await fbNotify({
+        site,
+        subject: `✅ Auto-post complete — ${schTitle}`,
+        text: `All ${poolSize} question(s) from "${sch.source?.label || schTitle}" have been posted. The schedule finished and was removed.`,
+        html: `<p>✅ <b>${schTitle}</b> has finished.</p><p>All <b>${poolSize}</b> question(s) from <b>${sch.source?.label || "the selected source"}</b> have been posted — the schedule was removed automatically.</p>`,
+      });
+    } else if (notify && site?.fbNotifyOnPost === true) {
       const prog = poolSize ? `\nProgress: ${postedCount} of ${poolSize} posted.` : "";
       await fbNotify({
         site,
@@ -771,7 +785,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
       });
     }
   }
-  return { ok: anyOk, error: anyOk ? undefined : notes.join(" · "), id: undefined };
+  return { ok: anyOk, error: anyOk ? undefined : notes.join(" · "), id: undefined, completed: finishedPool };
 }
 
 // The scheduler tick — called every minute (server interval) and, as a
@@ -899,10 +913,10 @@ async function runTenantSchedules(tid, stats = null) {
       const r = await runScheduleOnce(sch, cfg, { notify: true });
       if (stats && r?.ok) stats.posted += 1;
       else if (stats && r && !r.ok && !r.exhausted) stats.lastError = r.error || "post failed";
-      // A ONE-TIME post disappears once it has published SUCCESSFULLY — delete
-      // the schedule so it's gone from the list. A failed one is kept (with its
-      // error) so the admin can see it and retry.
-      if (sch.mode === "once" && r?.ok) await FbSchedule.deleteOne({ _id: sch._id });
+      // Disappear-on-success: a ONE-TIME post, OR a recurring schedule that just
+      // finished its whole pool (the final question posted), is deleted so it's
+      // gone from the list. A failed post is kept (with its error) for retry.
+      if (r?.ok && (sch.mode === "once" || r.completed)) await FbSchedule.deleteOne({ _id: sch._id });
       else await sch.save();
     } catch (e) {
       sch.lastResult = `Error: ${e.message}`;
