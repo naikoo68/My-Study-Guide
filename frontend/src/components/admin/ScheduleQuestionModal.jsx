@@ -1,10 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { X, Send, Clock, Loader2, CheckCircle2, AlertTriangle, Eye } from "lucide-react";
 import { Facebook, Instagram } from "../ui/SocialIcons";
-import { facebookService, uploadService } from "../../services";
-import { useSettings } from "../../context/SettingsContext";
-import QuestionPostCard from "./QuestionPostCard";
-import { captureNodeToBlob } from "../../lib/questionImage";
+import { facebookService } from "../../services";
 
 // Post/schedule ONE specific question to Facebook/Instagram, straight from the
 // question view. Either "Post now" or schedule at a chosen date & time.
@@ -18,9 +15,6 @@ export default function ScheduleQuestionModal({ open, question, onClose }) {
   const [msg, setMsg] = useState(null); // { ok, text }
   const [previewUrl, setPreviewUrl] = useState(null);
   const [previewing, setPreviewing] = useState(false);
-  const { settings } = useSettings();
-  const cardRef = useRef(null); // off-screen node captured into the posted image
-  const siteName = settings?.siteName || "My Study Guide";
 
   useEffect(() => {
     if (open) {
@@ -36,43 +30,25 @@ export default function ScheduleQuestionModal({ open, question, onClose }) {
     }
   }, [open, question?._id]);
 
-  // Preview = shows the image that will be posted. When a watermark is
-  // configured, use the server-rendered image (which bakes in the watermark).
-  // Otherwise, use a local screenshot of the card (exact math rendering).
+  // Preview = the EXACT image that will be posted. The server screenshots the
+  // real /q-card page (identical to the on-screen quiz card and to the auto-post
+  // schedule's card), baking in any watermark — so preview and post always match.
   const doPreview = async () => {
     setPreviewing(true); setMsg(null);
     try {
-      if (settings?.fbSelfieWatermarkEnabled !== false && settings?.fbSelfieWatermarkUrl) {
-        // Server-rendered preview (includes watermark overlay)
-        const r = await facebookService.previewImage({
-          questionId: question._id,
-          includeOptions: opts.includeOptions,
-          includeAnswer: opts.includeAnswer,
-          hashtags: opts.hashtags,
-        });
-        if (r?.url) { setPreviewUrl(r.url); return; }
-      }
-      // Fallback: client-side screenshot (no watermark)
-      const blob = await captureNodeToBlob(cardRef.current, { scale: 2 });
-      setPreviewUrl(URL.createObjectURL(blob));
+      const r = await facebookService.previewImage({
+        questionId: question._id,
+        includeOptions: opts.includeOptions,
+        includeAnswer: opts.includeAnswer,
+        hashtags: opts.hashtags,
+      });
+      if (r?.url) setPreviewUrl(r.url);
+      else throw new Error("Could not generate preview.");
     } catch (e) {
       setMsg({ ok: false, text: e.message || "Could not generate preview." });
     } finally {
       setPreviewing(false);
     }
-  };
-
-  // Capture the card and upload it to Cloudinary → the image URL to post.
-  // When watermark is active, the server ignores client screenshots and renders
-  // its own image with the watermark — so we skip the capture entirely.
-  const captureAndUpload = async () => {
-    if (settings?.fbSelfieWatermarkEnabled !== false && settings?.fbSelfieWatermarkUrl) {
-      return ""; // server will render with watermark
-    }
-    const blob = await captureNodeToBlob(cardRef.current, { scale: 2 });
-    const file = new File([blob], `question-${question._id}.png`, { type: "image/png" });
-    const r = await uploadService.file(file);
-    return r?.url || "";
   };
 
   if (!open || !question) return null;
@@ -87,14 +63,10 @@ export default function ScheduleQuestionModal({ open, question, onClose }) {
     if (scheduled && !when) { setMsg({ ok: false, text: "Pick a date & time first." }); return; }
     setBusy(true); setMsg(null);
     try {
-      // When an image is going out (Facebook image or Instagram), capture the
-      // exact card as a screenshot and post THAT. If capture/upload fails we
-      // send no imageUrl and the server falls back to its own rendering.
-      let imageUrl = "";
-      if (opts.asImage || opts.toInstagram) {
-        try { imageUrl = await captureAndUpload(); } catch { imageUrl = ""; }
-      }
-      const payload = { questionId: question._id, ...opts, imageUrl, label: (question.text || "").slice(0, 80) };
+      // Always let the server render the REAL /q-card image (identical to the
+      // auto-post schedule's card) — no client screenshot, so the posted image
+      // never falls back to the old lightweight card.
+      const payload = { questionId: question._id, ...opts, imageUrl: "", label: (question.text || "").slice(0, 80) };
       if (scheduled) {
         await facebookService.scheduleQuestion({ ...payload, runAt: new Date(when).toISOString() });
         setMsg({ ok: true, text: `Scheduled for ${new Date(when).toLocaleString()}. See it under Facebook Auto-Post.` });
@@ -158,12 +130,6 @@ export default function ScheduleQuestionModal({ open, question, onClose }) {
 
         {/* Off-screen card that gets screenshotted. Kept rendered (not hidden)
             so html2canvas can capture it; parked far off-screen. */}
-        <div aria-hidden style={{ position: "fixed", left: -100000, top: 0, pointerEvents: "none", opacity: 0 }}>
-          <div ref={cardRef}>
-            <QuestionPostCard question={question} includeOptions={opts.includeOptions} includeAnswer={opts.includeAnswer} siteName={siteName} hashtags={opts.hashtags} />
-          </div>
-        </div>
-
         <label className="mb-1 mt-4 flex items-center gap-1.5 text-sm font-semibold"><Clock className="h-4 w-4 text-slate-400" /> Schedule for (optional)</label>
         <input type="datetime-local" className="input" value={when} onChange={(e) => setWhen(e.target.value)} disabled={busy} />
         <p className="mt-1 text-xs text-slate-400">Leave empty and use “Post now”, or pick a time and use “Schedule”.</p>
