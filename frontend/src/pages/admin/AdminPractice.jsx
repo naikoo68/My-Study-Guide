@@ -37,6 +37,8 @@ import RegenerateAllModal from "../../components/admin/RegenerateAllModal";
 import ScheduleQuestionModal from "../../components/admin/ScheduleQuestionModal";
 import MigrateQuizModal from "../../components/admin/MigrateQuizModal";
 import MigrateTopicsModal from "../../components/admin/MigrateTopicsModal";
+import IncompleteQuestionsModal from "../../components/admin/IncompleteQuestionsModal";
+import FlashcardDetailsModal from "../../components/admin/FlashcardDetailsModal";
 import MoveQuestionsModal from "../../components/admin/MoveQuestionsModal";
 import { Files, ScanSearch, Loader2, Sparkles, Scissors, GitMerge, Maximize2, Minimize2, Save, CheckCircle2, Link2 } from "lucide-react";
 import PracticeLinkExistingSubjectModal from "../../components/admin/PracticeLinkExistingSubjectModal";
@@ -183,6 +185,9 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
   const [linkOpen, setLinkOpen] = useState(false); // "Add existing subject" (reuse under another exam) modal — My Quiz
   const [saving, setSaving] = useState(false);
   const [togglingId, setTogglingId] = useState(null); // node currently being enabled/disabled
+  // Per-item "Find incomplete" / "Flashcard details" modals (hold the item).
+  const [cardIncomplete, setCardIncomplete] = useState(null);
+  const [cardFlashcard, setCardFlashcard] = useState(null);
   // Split a My-Quiz item / topic into quizzes of N. { kind:"quiz"|"topic", id, name, count }
   const [splitTarget, setSplitTarget] = useState(null);
   const [splitPer, setSplitPer] = useState(50);
@@ -1294,6 +1299,8 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
                     <button onClick={() => openAccess(item)} className="btn-outline py-1.5 text-xs"><Users className="h-3.5 w-3.5" /> Visibility</button>
                   )}
                   <button onClick={() => { setDupScope({ params: { testSeries: item._id }, name: item.name }); setDupOpen(true); }} className="btn-outline py-1.5 text-xs"><Files className="h-3.5 w-3.5" /> Duplicates</button>
+                  <button onClick={() => setCardIncomplete(item)} className="btn-outline py-1.5 text-xs text-amber-600" title="Find questions missing options / correct answer / columns / statements / tables / diagram etc."><ScanSearch className="h-3.5 w-3.5" /> Find Incomplete</button>
+                  <button onClick={() => setCardFlashcard(item)} className="btn-outline py-1.5 text-xs text-emerald-600" title="Add or update Key Points, Quick Recall & Explanation for each question"><ClipboardList className="h-3.5 w-3.5" /> Flashcard Details</button>
                   <button onClick={() => toggleDisabled(item)} disabled={togglingId === item._id} className={`btn-outline py-1.5 text-xs disabled:opacity-50 ${item.disabled ? "text-amber-600" : ""}`} title={item.disabled ? "Enable — show to students again" : "Disable — hide from students (stays here in the manager)"}>{item.disabled ? <><Eye className="h-3.5 w-3.5" /> Enable</> : <><EyeOff className="h-3.5 w-3.5" /> Disable</>}</button>
                   <button onClick={() => setModal({ type: "item", mode: "edit", data: item })} className="btn-outline py-1.5 text-xs"><Pencil className="h-3.5 w-3.5" /> Edit</button>
                 </div>
@@ -1301,6 +1308,21 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
             </div>
           ))}
         </div>
+      )}
+
+      {cardIncomplete && (
+        <IncompleteQuestionsModal
+          title={cardIncomplete.name || cardIncomplete.title}
+          loadQuestions={() => testService.getQuestions(cardIncomplete._id)}
+          onClose={() => setCardIncomplete(null)}
+        />
+      )}
+      {cardFlashcard && (
+        <FlashcardDetailsModal
+          title={cardFlashcard.name || cardFlashcard.title}
+          loadQuestions={() => testService.getQuestions(cardFlashcard._id)}
+          onClose={() => setCardFlashcard(null)}
+        />
       )}
 
       {/* Split a My-Quiz item / topic into quizzes of N */}
