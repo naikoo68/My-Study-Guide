@@ -5,8 +5,8 @@
 //   • "Generate for whole quiz with AI"  → aiService.extendExplanations (job)
 // Manual editing (+ Save) still works for fine-tuning after AI.
 import { useEffect, useState, useCallback, useRef, useLayoutEffect } from "react";
-import { X, Loader2, Save, CheckCircle2, Search, Sparkles, Wand2, AlertTriangle } from "lucide-react";
-import { contentService, testService, settingsService, aiService } from "../../services";
+import { X, Loader2, Save, CheckCircle2, Search, Sparkles, Wand2, AlertTriangle, Send } from "lucide-react";
+import { contentService, testService, settingsService, aiService, facebookService } from "../../services";
 import { stemPreview } from "../../lib/questionCompleteness";
 import { TemplateOverlay, BuiltInFlashcard } from "../../pages/FlashcardCardImage";
 
@@ -184,6 +184,28 @@ export default function FlashcardDetailsModal({ title, loadQuestions, onClose, a
     }
   };
 
+  // Post THIS question's flashcard to Facebook & Instagram right now. Uses the
+  // same flashcard renderer/template as the auto-post schedule (kind: flashcard).
+  const post = async (row) => {
+    if (!window.confirm("Post this flashcard to Facebook & Instagram now?")) return;
+    setRows((rs) => rs.map((r) => (r._id === row._id ? { ...r, posting: true, postMsg: "", postErr: "" } : r)));
+    try {
+      const res = await facebookService.postQuestion({
+        questionId: row._id,
+        kind: "flashcard",
+        toFacebook: true,
+        toInstagram: true,
+      });
+      const ok = res?.ok !== false;
+      const text = res?.lastResult || res?.message || (ok ? "Posted" : "Post failed");
+      setRows((rs) => rs.map((r) => (r._id === row._id
+        ? { ...r, posting: false, postMsg: ok ? text : "", postErr: ok ? "" : text }
+        : r)));
+    } catch (e) {
+      setRows((rs) => rs.map((r) => (r._id === row._id ? { ...r, posting: false, postErr: e.message || "Post failed" } : r)));
+    }
+  };
+
   const q = search.trim().toLowerCase();
   const shown = q ? rows.filter((r) => r.text.toLowerCase().includes(q)) : rows;
 
@@ -272,8 +294,13 @@ export default function FlashcardDetailsModal({ title, loadQuestions, onClose, a
                     <button onClick={() => save(r)} disabled={r.saving || r.aiing} className="btn-primary !py-1 !text-xs">
                       {r.saving ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…</> : <><Save className="h-3.5 w-3.5" /> Save</>}
                     </button>
+                    <button onClick={() => post(r)} disabled={r.posting} className="btn-outline !py-1 !text-xs text-[#1877F2]" title="Post this flashcard to Facebook & Instagram now">
+                      {r.posting ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Posting…</> : <><Send className="h-3.5 w-3.5" /> Post</>}
+                    </button>
                     {r.saved && <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600"><CheckCircle2 className="h-4 w-4" /> Saved</span>}
+                    {r.postMsg && <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600"><CheckCircle2 className="h-4 w-4" /> {r.postMsg}</span>}
                     {r.err && <span className="text-xs font-medium text-rose-600">{r.err}</span>}
+                    {r.postErr && <span className="text-xs font-medium text-rose-600">{r.postErr}</span>}
                   </div>
                 </div>
               ))}
