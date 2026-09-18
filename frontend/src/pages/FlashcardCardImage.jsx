@@ -36,7 +36,12 @@ function toRoman(num) {
 // ---- TEMPLATE OVERLAY MODE ----------------------------------------------
 // Box coordinates in px on the 1024×660 two-panel template. These are tuned by
 // eye to the supplied template and may need small nudges after the first render.
-const TPL_W = 1024, TPL_H = 660;
+// Output canvas size for the flashcard image. SLOTS below are authored against
+// the BASE (the 1024×660 two-panel layout) and scaled to the canvas, so the
+// posted size can change without re-authoring every box.
+const TPL_W = 1536, TPL_H = 1024;
+const BASE_W = 1024, BASE_H = 660;
+const SX = TPL_W / BASE_W, SY = TPL_H / BASE_H;
 const SLOTS = {
   // front (left panel)
   subject:     { left: 40, top: 92, width: 76, height: 28, pill: "#d1fae5", color: "#047857", center: true, size: 12, bold: true },
@@ -57,8 +62,9 @@ const SLOTS = {
 
 function Slot({ rect, children }) {
   const style = {
-    position: "absolute", left: rect.left, top: rect.top, width: rect.width, height: rect.height,
-    overflow: "hidden", fontSize: rect.size, lineHeight: 1.3, color: rect.color || "#0f172a",
+    position: "absolute",
+    left: rect.left * SX, top: rect.top * SY, width: rect.width * SX, height: rect.height * SY,
+    overflow: "hidden", fontSize: (rect.size || 13) * SX, lineHeight: 1.3, color: rect.color || "#0f172a",
     fontWeight: rect.bold ? 700 : 400, display: "flex",
     alignItems: rect.vcenter || rect.center ? "center" : "flex-start",
     justifyContent: rect.center ? "center" : "flex-start",

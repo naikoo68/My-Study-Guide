@@ -539,7 +539,9 @@ function FlashcardTemplateSection({ settings, saveSettings }) {
     if (!file.type.startsWith("image/")) { setMsg({ ok: false, text: "Please select an image file." }); return; }
     setUploading(true); setMsg(null);
     try {
-      const r = await uploadService.file(file);
+      // Direct-to-Cloudinary upload: faster + avoids the free-tier relay
+      // "Cannot reach the server" cold-start failure, and shows progress.
+      const r = await uploadService.imageDirect(file);
       const u = r?.url || "";
       setUrl(u);
       await saveSettings({ fbFlashcardTemplateUrl: u, fbFlashcardTemplateEnabled: true });
@@ -560,7 +562,7 @@ function FlashcardTemplateSection({ settings, saveSettings }) {
       <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
         Upload your <b>flashcard template</b> (the boxed design). <b>Flashcard</b> auto-posts overlay each quiz question's content —
         question, options, correct answer, explanation, key points &amp; quick recall — onto it. Leave empty to use the built-in design.
-        Use a fixed <b>1024×660 two-panel</b> template so the boxes line up.
+        Use a fixed <b>1536×1024 two-panel</b> template so the boxes line up.
       </p>
       <div className="mt-4 flex flex-wrap items-start gap-6">
         <div className="flex flex-col items-center gap-2">
@@ -584,7 +586,7 @@ function FlashcardTemplateSection({ settings, saveSettings }) {
               <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${enabled ? "left-6" : "left-1"}`} />
             </button>
           </label>
-          <p className="text-xs text-slate-400">Long questions/explanations are auto-fitted and trimmed to fit the fixed boxes. Box positions are tuned to the standard 1024×660 template — tell me if any text lands off and I'll nudge them.</p>
+          <p className="text-xs text-slate-400">Long questions/explanations are auto-fitted and trimmed to fit the fixed boxes. Box positions are tuned to a <b>1536×1024</b> template — tell me if any text lands off and I'll nudge them.</p>
         </div>
       </div>
       {msg && <p className={`mt-3 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.text}</p>}

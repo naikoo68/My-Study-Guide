@@ -72,8 +72,9 @@ export async function renderFlashcardCardShot(question, { templateUrl = "" } = {
   try {
     browser = await launchBrowser();
     const page = await browser.newPage();
-    // Wider viewport — the two panels sit side by side (~968px of content).
-    await page.setViewport({ width: 1040, height: 1200, deviceScaleFactor: 2 });
+    // Wide enough for the 1536-px flashcard canvas (built-in design is narrower,
+    // still fine). deviceScaleFactor 2 keeps the text crisp.
+    await page.setViewport({ width: 1600, height: 1120, deviceScaleFactor: 2 });
     await page.goto(url, { waitUntil: "networkidle0", timeout: 25000 });
     await page.waitForSelector('[data-card-ready="1"]', { timeout: 20000 });
     const el = await page.$("[data-card-el]");
