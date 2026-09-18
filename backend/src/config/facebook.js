@@ -657,7 +657,9 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
     // headless render fails, fall back to the normal answer card so a post still
     // goes out.
     try {
-      const shot = await renderFlashcardCardShot(q);
+      // Use the admin's uploaded flashcard template (overlay mode) when set & enabled.
+      const templateUrl = site?.fbFlashcardTemplateEnabled !== false ? String(site?.fbFlashcardTemplateUrl || "").trim() : "";
+      const shot = await renderFlashcardCardShot(q, { templateUrl });
       if (shot?.url) imageUrl = shot.url;
       else imageErr = shot?.error || "";
     } catch (e) {
