@@ -1246,11 +1246,11 @@ export default function AdminContent() {
               <button onClick={() => openContentImport()} className="btn-outline text-brand-600">
                 <Globe className="h-4 w-4" /> Import from Web
               </button>
-              <button onClick={() => setExtendOpen(true)} disabled={!items.length} className="btn-outline text-brand-600" title="AI: make all explanations detailed for this quiz">
-                <Wand2 className="h-4 w-4" /> Extend Explanations
+              <button onClick={() => setExtendOpen(true)} disabled={!items.length} className="btn-outline text-brand-600" title={selected.length ? "AI: make explanations detailed for the ticked questions" : "AI: make all explanations detailed for this quiz"}>
+                <Wand2 className="h-4 w-4" /> Extend Explanations{selected.length ? ` (${selected.length})` : ""}
               </button>
-              <button onClick={() => setRegenAllOpen(true)} disabled={!items.length} className="btn-outline text-violet-600" title="AI: regenerate every question's options/answer (reshuffles pair/matching Column B)">
-                <RefreshCw className="h-4 w-4" /> Regenerate All
+              <button onClick={() => setRegenAllOpen(true)} disabled={!items.length} className="btn-outline text-violet-600" title={selected.length ? "AI: regenerate the ticked questions' options/answer" : "AI: regenerate every question's options/answer (reshuffles pair/matching Column B)"}>
+                <RefreshCw className="h-4 w-4" /> Regenerate All{selected.length ? ` (${selected.length})` : ""}
               </button>
               <button onClick={() => setIncompleteOpen(true)} disabled={!items.length} className="btn-outline text-amber-600" title="Find questions missing options / correct answer / columns / statements / tables / diagram etc.">
                 <ScanSearch className="h-4 w-4" /> Find Incomplete
@@ -1936,6 +1936,7 @@ export default function AdminContent() {
       <ExtendExplanationsModal
         open={extendOpen}
         target={{ quiz: quiz?._id }}
+        questionIds={selected}
         title={`Extend all explanations${quiz ? ` — ${quiz.title}` : ""}`}
         onClose={() => setExtendOpen(false)}
         onDone={() => load("questions")}
@@ -1947,6 +1948,7 @@ export default function AdminContent() {
           loadQuestions={() => contentService.quizQuestions(quiz._id)}
           onEdit={(qq) => { setIncompleteOpen(false); openEdit(qq); }}
           deleteQuestion={(id) => contentService.deleteQuestion(id)}
+          aiTarget={{ quiz: quiz._id }}
           onChange={() => load("questions")}
           onClose={() => setIncompleteOpen(false)}
         />
@@ -1965,6 +1967,7 @@ export default function AdminContent() {
           loadQuestions={() => contentService.quizQuestions(cardIncomplete._id)}
           onEdit={(qq) => { setCardIncomplete(null); openEdit(qq); }}
           deleteQuestion={(id) => contentService.deleteQuestion(id)}
+          aiTarget={{ quiz: cardIncomplete._id }}
           onChange={() => load("quizzes")}
           onClose={() => setCardIncomplete(null)}
         />
@@ -1981,6 +1984,7 @@ export default function AdminContent() {
       <RegenerateAllModal
         open={regenAllOpen}
         target={{ quiz: quiz?._id }}
+        questionIds={selected}
         title={`Regenerate all${quiz ? ` — ${quiz.title}` : ""}`}
         onClose={() => setRegenAllOpen(false)}
         onDone={() => load("questions")}

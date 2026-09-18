@@ -5,11 +5,18 @@
 // the site) with a select checkbox and a Delete action, plus a "Select all" +
 // "Delete selected" toolbar for cleaning up several at once.
 import { useEffect, useState } from "react";
-import { X, Loader2, AlertTriangle, CheckCircle2, RefreshCw, Trash2, Pencil } from "lucide-react";
+import { X, Loader2, AlertTriangle, CheckCircle2, RefreshCw, Trash2, Pencil, Wand2 } from "lucide-react";
 import { questionIssues } from "../../lib/questionCompleteness";
 import QuestionView from "./QuestionView";
+import ExtendExplanationsModal from "./ExtendExplanationsModal";
+import RegenerateAllModal from "./RegenerateAllModal";
 
-export default function IncompleteQuestionsModal({ title, loadQuestions, onClose, onEdit, deleteQuestion, onChange }) {
+// `aiTarget` ({ quiz } | { testSeries }) enables the Extend Explanations /
+// Regenerate buttons, which run the shared AI modals scoped to the incomplete
+// questions the admin has ticked (or ALL the listed incomplete ones when none
+// are ticked) — never the whole quiz. On finish we re-scan so fixed questions
+// drop off the list.
+export default function IncompleteQuestionsModal({ title, loadQuestions, onClose, onEdit, deleteQuestion, onChange, aiTarget }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [items, setItems] = useState([]); // [{ q, issues }]
@@ -18,6 +25,8 @@ export default function IncompleteQuestionsModal({ title, loadQuestions, onClose
   const [deletingIds, setDeletingIds] = useState(() => new Set()); // per-item delete in progress
   const [bulkBusy, setBulkBusy] = useState(false);
   const [delErr, setDelErr] = useState("");
+  const [aiModal, setAiModal] = useState(null); // "extend" | "regen" | null
+  const [aiIds, setAiIds] = useState([]); // question ids the AI run is scoped to (captured on open)
 
   const scan = () => {
     setLoading(true); setError(""); setDelErr(""); setSelected(new Set());
@@ -78,6 +87,16 @@ export default function IncompleteQuestionsModal({ title, loadQuestions, onClose
     }
   };
 
+  // Open the Extend / Regenerate modal scoped to the ticked questions, or to
+  // ALL the listed incomplete ones when none are ticked.
+  const openAi = (which) => {
+    const ids = selected.size ? allIds.filter((id) => selected.has(id)) : allIds;
+    if (!ids.length) return;
+    setAiIds(ids);
+    setAiModal(which);
+  };
+  const aiScopeCount = selected.size || items.length;
+
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4">
       <div className="mt-10 w-full max-w-4xl rounded-2xl bg-white p-5 shadow-xl dark:bg-slate-900">
@@ -108,11 +127,29 @@ export default function IncompleteQuestionsModal({ title, loadQuestions, onClose
               <p className="text-sm text-slate-500 dark:text-slate-400">
                 <b className="text-amber-600">{items.length}</b> of {total} question(s) are incomplete:
               </p>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-300">
                   <input type="checkbox" checked={allSelected} onChange={toggleAll} className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500" />
                   Select all
                 </label>
+                {aiTarget && (
+                  <>
+                    <button
+                      onClick={() => openAi("extend")}
+                      title="AI: extend the explanations of the selected (or all listed) incomplete questions"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-brand-200 px-3 py-1.5 text-xs font-semibold text-brand-600 transition hover:bg-brand-50 dark:border-brand-900/50 dark:text-brand-300 dark:hover:bg-brand-900/30"
+                    >
+                      <Wand2 className="h-3.5 w-3.5" /> Extend Explanations{aiScopeCount ? ` (${aiScopeCount})` : ""}
+                    </button>
+                    <button
+                      onClick={() => openAi("regen")}
+                      title="AI: regenerate the selected (or all listed) incomplete questions' options/answer/explanation"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 px-3 py-1.5 text-xs font-semibold text-violet-600 transition hover:bg-violet-50 dark:border-violet-900/50 dark:text-violet-300 dark:hover:bg-violet-900/30"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" /> Regenerate{aiScopeCount ? ` (${aiScopeCount})` : ""}
+                    </button>
+                  </>
+                )}
                 {deleteQuestion && (
                   <button
                     onClick={deleteSelected}
@@ -124,6 +161,11 @@ export default function IncompleteQuestionsModal({ title, loadQuestions, onClose
                 )}
               </div>
             </div>
+            {aiTarget && (
+              <p className="mb-2 text-xs text-slate-400">
+                Tip: tick specific questions to run AI on just those; with none ticked, Extend/Regenerate apply to all {items.length} listed incomplete question(s).
+              </p>
+            )}
             {delErr && <p className="mb-2 text-sm font-medium text-rose-600">{delErr}</p>}
 
             <div className="max-h-[65vh] space-y-3 overflow-y-auto pr-1">
@@ -168,6 +210,29 @@ export default function IncompleteQuestionsModal({ title, loadQuestions, onClose
           </>
         )}
       </div>
+
+      {/* Shared AI modals, scoped to the ticked/all-incomplete question ids.
+          On finish, re-scan so questions that got fixed drop off the list. */}
+      {aiTarget && (
+        <>
+          <ExtendExplanationsModal
+            open={aiModal === "extend"}
+            target={aiTarget}
+            questionIds={aiIds}
+            title={title}
+            onClose={() => setAiModal(null)}
+            onDone={() => { onChange?.(); scan(); }}
+          />
+          <RegenerateAllModal
+            open={aiModal === "regen"}
+            target={aiTarget}
+            questionIds={aiIds}
+            title={title}
+            onClose={() => setAiModal(null)}
+            onDone={() => { onChange?.(); scan(); }}
+          />
+        </>
+      )}
     </div>
   );
 }

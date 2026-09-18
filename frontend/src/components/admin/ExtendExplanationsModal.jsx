@@ -29,8 +29,11 @@ const Q_TYPE_OPTIONS = [
  *  - onClose()
  *  - onDone()  — called after a successful run so the parent can reload questions
  */
-export default function ExtendExplanationsModal({ open, target, title, onClose, onDone }) {
+export default function ExtendExplanationsModal({ open, target, title, onClose, onDone, questionIds }) {
   const { user } = useAuth();
+  // When the admin ticked specific questions, the run is limited to just those
+  // (the type filter is hidden — the selection already IS the filter).
+  const scoped = Array.isArray(questionIds) && questionIds.length > 0;
   const isClient = user?.role === "client" && user?.aiAccess;
   const canChooseSource = isClient && user?.aiAllowInbuilt !== false && user?.aiAllowSelf !== false;
   const [srcMode, setSrcMode] = useState(user?.aiMode === "self" ? "self" : "inbuilt");
@@ -91,7 +94,9 @@ export default function ExtendExplanationsModal({ open, target, title, onClose, 
         fixOptions: fixOptions || undefined,
         extendQuestion: extendQuestion || undefined,
         shuffleOptions: shuffleOptions || undefined,
-        type: qType !== "all" ? qType : undefined,
+        // A selection overrides the type filter (only the ticked questions run).
+        type: (!scoped && qType !== "all") ? qType : undefined,
+        questionIds: scoped ? questionIds : undefined,
       });
       if (!jobId) throw new Error("Could not start.");
       jobRef.current = jobId;
@@ -183,19 +188,27 @@ export default function ExtendExplanationsModal({ open, target, title, onClose, 
                 {" "}More keys spread the load, so bulk jobs hit rate-limit pauses less often.
               </p>
             )}
-            <div className="mb-3 rounded-xl bg-slate-50 p-3 text-xs text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
-              This rewrites the explanation and per-option notes for <b>every question</b> in this{" "}
-              {target?.testSeries ? "test" : "quiz"}, making them detailed and complete. The questions,
-              options and correct answers are <b>not</b> changed.
-            </div>
+            {scoped ? (
+              <div className="mb-3 rounded-xl border border-brand-200 bg-brand-50 p-3 text-xs font-medium text-brand-700 dark:border-brand-900/50 dark:bg-brand-900/20 dark:text-brand-300">
+                Applying to the <b>{questionIds.length} selected question{questionIds.length === 1 ? "" : "s"}</b> only. The questions, options and correct answers are <b>not</b> changed — only the explanations get richer.
+              </div>
+            ) : (
+              <div className="mb-3 rounded-xl bg-slate-50 p-3 text-xs text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
+                This rewrites the explanation and per-option notes for <b>every question</b> in this{" "}
+                {target?.testSeries ? "test" : "quiz"}, making them detailed and complete. The questions,
+                options and correct answers are <b>not</b> changed.
+              </div>
+            )}
 
-            <div className="mb-3">
-              <label className="mb-1 block text-sm font-semibold">Apply to</label>
-              <select className="input" value={qType} onChange={(e) => setQType(e.target.value)} disabled={busy}>
-                {Q_TYPE_OPTIONS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-              </select>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Choose a single question type to update only those (e.g. only Matching or only Pair), or leave on "All question types".</p>
-            </div>
+            {!scoped && (
+              <div className="mb-3">
+                <label className="mb-1 block text-sm font-semibold">Apply to</label>
+                <select className="input" value={qType} onChange={(e) => setQType(e.target.value)} disabled={busy}>
+                  {Q_TYPE_OPTIONS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Choose a single question type to update only those (e.g. only Matching or only Pair), or leave on "All question types".</p>
+              </div>
+            )}
 
             {status?.models && status.models.length > 1 && (
               <div className="mb-3">

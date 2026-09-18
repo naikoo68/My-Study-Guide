@@ -226,13 +226,13 @@ export default function ManageTestQuestions({
           </span>
           <div className="flex flex-wrap gap-2">
             {tq.length > 0 && onExtendExplanations && (
-              <button onClick={onExtendExplanations} className="btn-outline py-1.5 text-xs text-brand-600" title="AI: make all explanations detailed for this test">
-                <Wand2 className="h-3.5 w-3.5" /> Extend Explanations
+              <button onClick={() => onExtendExplanations(selectedTq)} className="btn-outline py-1.5 text-xs text-brand-600" title="AI: make all explanations detailed for this test">
+                <Wand2 className="h-3.5 w-3.5" /> Extend Explanations{selectedTq.length ? ` (${selectedTq.length})` : ""}
               </button>
             )}
             {tq.length > 0 && onRegenerateAll && (
-              <button onClick={onRegenerateAll} className="btn-outline py-1.5 text-xs text-violet-600" title="AI: regenerate every question's options/answer (reshuffles pair/matching Column B)">
-                <RefreshCw className="h-3.5 w-3.5" /> Regenerate All
+              <button onClick={() => onRegenerateAll(selectedTq)} className="btn-outline py-1.5 text-xs text-violet-600" title="AI: regenerate every question's options/answer (reshuffles pair/matching Column B)">
+                <RefreshCw className="h-3.5 w-3.5" /> Regenerate All{selectedTq.length ? ` (${selectedTq.length})` : ""}
               </button>
             )}
             {tq.length > 0 && (
@@ -309,10 +309,10 @@ export default function ManageTestQuestions({
             <button onClick={() => setIncompleteOpen(true)} className="btn-outline text-amber-600" title="Find questions missing options / correct answer / columns / statements / tables / diagram etc."><ScanSearch className="h-4 w-4" /> Find Incomplete</button>
             <button onClick={() => setFlashcardOpen(true)} className="btn-outline text-emerald-600" title="Add or update Key Points, Quick Recall & Explanation for each question"><ClipboardList className="h-4 w-4" /> Flashcard Details</button>
             {onExtendExplanations && (
-              <button onClick={onExtendExplanations} className="btn-outline text-brand-600" title="AI: make all explanations detailed for this test"><Wand2 className="h-4 w-4" /> Extend Explanations</button>
+              <button onClick={() => onExtendExplanations(selectedTq)} className="btn-outline text-brand-600" title="AI: make all explanations detailed for this test"><Wand2 className="h-4 w-4" /> Extend Explanations{selectedTq.length ? ` (${selectedTq.length})` : ""}</button>
             )}
             {onRegenerateAll && (
-              <button onClick={onRegenerateAll} className="btn-outline text-violet-600" title="AI: regenerate every question's options/answer (reshuffles pair/matching Column B)"><RefreshCw className="h-4 w-4" /> Regenerate All</button>
+              <button onClick={() => onRegenerateAll(selectedTq)} className="btn-outline text-violet-600" title="AI: regenerate every question's options/answer (reshuffles pair/matching Column B)"><RefreshCw className="h-4 w-4" /> Regenerate All{selectedTq.length ? ` (${selectedTq.length})` : ""}</button>
             )}
           </>
         )}
@@ -446,6 +446,7 @@ export default function ManageTestQuestions({
           loadQuestions={() => tq}
           onEdit={onEditQuestion ? (qq) => { setIncompleteOpen(false); onEditQuestion(qq); } : undefined}
           deleteQuestion={onDeleteSelected ? (id) => onDeleteSelected([id]) : undefined}
+          aiTarget={qTest?._id ? { testSeries: qTest._id } : undefined}
           onClose={() => setIncompleteOpen(false)}
         />
       )}

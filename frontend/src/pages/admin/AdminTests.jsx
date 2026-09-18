@@ -110,6 +110,8 @@ export default function AdminTests() {
   const [dupTest, setDupTest] = useState(null); // find-duplicates within a test
   const [shareTest, setShareTest] = useState(null); // public share-link modal target
   const [extendTest, setExtendTest] = useState(null); // AI extend-explanations target
+  const [extendIds, setExtendIds] = useState([]); // ticked question ids to limit extend to (empty = whole test)
+  const [regenAllIds, setRegenAllIds] = useState([]); // ticked question ids to limit regenerate to (empty = whole test)
   const [extendingQId, setExtendingQId] = useState(null); // per-question extend in progress
   const [extendOneItem, setExtendOneItem] = useState(null); // per-question extend confirm modal target
   const [regenId] = useState(null); // legacy inline spinner id — regenerate now runs in RegenerateOneModal
@@ -927,6 +929,7 @@ export default function AdminTests() {
       <ExtendExplanationsModal
         open={!!extendTest}
         target={{ testSeries: extendTest?._id }}
+        questionIds={extendIds}
         title={`Extend all explanations${extendTest ? ` — ${extendTest.name}` : ""}`}
         onClose={() => setExtendTest(null)}
         onDone={() => { if (qTest) reloadTq(); }}
@@ -949,6 +952,7 @@ export default function AdminTests() {
       <RegenerateAllModal
         open={!!regenAllTest}
         target={{ testSeries: regenAllTest?._id }}
+        questionIds={regenAllIds}
         title={`Regenerate all${regenAllTest ? ` — ${regenAllTest.name}` : ""}`}
         onClose={() => setRegenAllTest(null)}
         onDone={() => { if (qTest) reloadTq(); }}
@@ -1047,12 +1051,12 @@ export default function AdminTests() {
               onAiGenerate={(subject) => openTestGenerate({ ...qTest, _forceSection: subject })}
               onImportWeb={(subject) => openTestImport({ ...qTest, _forceSection: subject })}
               onPickFromBank={(subject) => { setBankTest({ ...qTest, _forceSection: subject }); }}
-              onExtendExplanations={() => setExtendTest(qTest)}
+              onExtendExplanations={(ids) => { setExtendIds(ids || []); setExtendTest(qTest); }}
               onExtendQuestion={(item) => setExtendOneItem(item)}
               extendingId={extendingQId}
               onRegenerateQuestion={(item) => regenerateQ(item)}
               regeneratingId={regenId}
-              onRegenerateAll={() => setRegenAllTest(qTest)}
+              onRegenerateAll={(ids) => { setRegenAllIds(ids || []); setRegenAllTest(qTest); }}
             />
           </div>
         </div>
