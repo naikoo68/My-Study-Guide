@@ -4508,6 +4508,191 @@ export async function extendOneExplanation(req, res) {
 }
 
 
+/* ----------------- FAST flashcard-details generation (BATCHED) -------------
+   Fills Key Points + Quick Recall + Explanation for a WHOLE quiz/test — but,
+   unlike extend-explanations (ONE question per API call), this sends a BATCH of
+   ~10 questions per call and gets all their flashcard notes back at once. That
+   is ~10x fewer calls, so it finishes as fast as AI question generation even
+   for 300+ questions. Batches run in parallel across every API key. */
+
+const FLASHCARD_BATCH_SYSTEM_PROMPT = `You are an expert exam teacher. You are given SEVERAL exam questions (each with its stem, its options and the CORRECT option marked). For EACH question, write concise FLASHCARD study notes.
+Output ONLY valid JSON — no markdown, no commentary — of the EXACT shape:
+{"items":[{"i":1,"explanation":"...","keyPoints":["...","..."],"quickRecall":"..."}, ...]}
+Return ONE object for EVERY question, reusing the SAME "i" number shown for it. For each:
+- "explanation": a clear, self-contained explanation of the correct answer (2-5 sentences); put each sentence/point on its OWN line.
+- "keyPoints": a JSON array of 3 to 5 SHORT exam-ready takeaways (the decisive fact behind the correct answer PLUS the facts that distinguish the other options); no leading bullets/numbers, no markdown.
+- "quickRecall": ONE short memory hook / mnemonic for instant recall (one line, under ~12 words, e.g. "Malaria = female Anopheles").
+Wrap any math/number in $...$ and NEVER use "$" for money. Do NOT skip any question.`;
+
+function buildFlashcardBatchPrompt(batch) {
+  const lines = ['Write flashcard notes for EACH question below. Return one item per question using its number as "i".', ""];
+  batch.forEach((q, idx) => {
+    const i = idx + 1;
+    lines.push(`### Question ${i} (type: ${q.type || "mcq"})`);
+    if (q.text) lines.push(`Stem: ${q.text}`);
+    if (q.assertion) lines.push(`Assertion (A): ${q.assertion}`);
+    if (q.reason) lines.push(`Reason (R): ${q.reason}`);
+    if (Array.isArray(q.columnA) && q.columnA.length) lines.push(`Column A: ${q.columnA.join(" | ")}`);
+    if (Array.isArray(q.columnB) && q.columnB.length) lines.push(`Column B: ${q.columnB.join(" | ")}`);
+    const opts = Array.isArray(q.options) ? q.options : [];
+    opts.forEach((o, k) => lines.push(`  ${String.fromCharCode(65 + k)}. ${o}${k === q.correct ? "   <-- CORRECT ANSWER" : ""}`));
+    lines.push("");
+  });
+  return lines.join("\n");
+}
+
+// Lenient parse of the batch reply → array of { i, explanation, keyPoints, quickRecall }.
+function parseFlashcardItems(content) {
+  let s = String(content || "").trim();
+  if (!s) return [];
+  s = s.replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
+  const tryParse = (txt) => { try { return JSON.parse(txt); } catch { return null; } };
+  let obj = tryParse(s);
+  if (!obj) {
+    // Extract the first {...} or [...] block.
+    const start = s.search(/[[{]/);
+    const lastObj = s.lastIndexOf("}");
+    const lastArr = s.lastIndexOf("]");
+    const end = Math.max(lastObj, lastArr);
+    if (start >= 0 && end > start) obj = tryParse(s.slice(start, end + 1));
+  }
+  if (!obj) return [];
+  const arr = Array.isArray(obj) ? obj : (Array.isArray(obj.items) ? obj.items : []);
+  return Array.isArray(arr) ? arr : [];
+}
+
+async function runFlashcardJob(id, { endpoints, model, batches, owner = null }) {
+  const job = genJobs.get(id);
+  const deadline = Date.now() + 12 * 60 * 1000;
+  const save = (patch) => Object.assign(job, patch, { updatedAt: Date.now() });
+  if (!job.keyStats) job.keyStats = {};
+  let updated = 0;
+  let lastError = null;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const MAX_QUOTA_WAITS = 6;
+  const MAX_BATCH_RETRIES = 3;
+
+  const queue = [...batches];
+  const tries = new Map(); // batch index -> retry count
+  const reserveOne = () => (queue.length ? queue.shift() : null);
+  const requeue = (b) => {
+    const n = (tries.get(b) || 0) + 1;
+    tries.set(b, n);
+    if (n <= MAX_BATCH_RETRIES) queue.push(b);
+  };
+
+  const runBatchOnKey = async (batch, ep, ks) => {
+    ks.requests += 1; save({});
+    const r = await callProvider({
+      key: ep.key,
+      baseUrl: ep.baseUrl,
+      model: ep.model || model,
+      systemPrompt: FLASHCARD_BATCH_SYSTEM_PROMPT,
+      userPrompt: buildFlashcardBatchPrompt(batch),
+      maxTokens: 8000,
+      failOnEmpty: true,
+    });
+    if (r.ok) {
+      const items = parseFlashcardItems(r.content);
+      if (!items.length) { ks.error += 1; save({}); return "soft"; }
+      let any = 0;
+      for (const it of items) {
+        const idx = Number(it.i) - 1;
+        const q = batch[idx];
+        if (!q) continue;
+        const set = {};
+        if (Array.isArray(it.keyPoints) && it.keyPoints.length) set.keyPoints = it.keyPoints.map((x) => String(x || "").trim()).filter(Boolean).slice(0, 6);
+        if (typeof it.quickRecall === "string" && it.quickRecall.trim()) set.quickRecall = it.quickRecall.trim();
+        if (typeof it.explanation === "string" && it.explanation.trim()) set.explanation = it.explanation.trim();
+        if (!Object.keys(set).length) continue;
+        await Question.updateOne({ _id: q._id }, { $set: set }).catch(() => {});
+        updated += 1; any += 1;
+        job.questions.push(1); // progress = questions filled (jobStatus reports count)
+      }
+      ks.ok += 1; ks.questions += any; save({});
+      AiKey.updateOne({ keyHash: keyFingerprint(ep.key), owner: owner ?? null }, { $inc: { usedRequests: 1, usedTokens: r.tokens || 0 } }).catch(() => {});
+      return any ? "ok" : "soft";
+    }
+    lastError = r;
+    if (r.status === 429) { ks.limited += 1; save({}); return "limited"; }
+    if ([401, 403, 404].includes(r.status)) { ks.error += 1; save({}); return "dead"; }
+    ks.error += 1; save({});
+    return "soft";
+  };
+
+  const worker = async (ep) => {
+    let quotaWaits = 0;
+    const _kl = ep.label || `••••${String(ep.key).slice(-4)}`;
+    const ks = job.keyStats[_kl] || (job.keyStats[_kl] = { requests: 0, ok: 0, limited: 0, error: 0, questions: 0 });
+    while (Date.now() < deadline && !job.cancelled) {
+      const batch = reserveOne();
+      if (!batch) break;
+      let outcome;
+      try { outcome = await runBatchOnKey(batch, ep, ks); } catch { outcome = "soft"; }
+      if (outcome === "ok") continue;
+      if (outcome === "dead") { queue.push(batch); break; }
+      if (outcome === "limited") {
+        queue.push(batch);
+        if (quotaWaits >= MAX_QUOTA_WAITS) break;
+        const waitMs = Math.min(retryWaitMs(null, lastError?.detail) || 30000, 60000);
+        if (Date.now() + waitMs >= deadline) break;
+        quotaWaits += 1;
+        await sleep(waitMs);
+        continue;
+      }
+      requeue(batch);
+    }
+  };
+
+  try {
+    await Promise.all((endpoints || []).map((ep) => worker(ep)));
+    if (updated === 0) {
+      save({ status: "error", error: lastError
+        ? (lastError.status === 429 ? "AI quota/rate limit reached before anything was generated. Wait a minute and try again." : `AI provider error (${lastError.status || 0}).`)
+        : "The AI didn't return usable flashcard notes. Try again." });
+    } else {
+      save({ status: "done", updatedCount: updated, requested: job.requested });
+    }
+  } catch (err) {
+    save(updated ? { status: "done", updatedCount: updated } : { status: "error", error: err?.message || "Failed to generate flashcard details." });
+  }
+}
+
+// POST /api/ai/flashcard-details (admin or owning client)
+// Body: { quiz? | testSeries?, model?, mode? } — fills Key Points + Quick Recall
+// + Explanation for EVERY question in that quiz/test, in fast parallel BATCHES.
+// Poll /api/ai/job/:id for progress.
+export async function generateFlashcardDetails(req, res) {
+  const scope = resolveScope(req.user, req.body?.mode);
+  if (scope.denied) return res.status(403).json({ message: "AI access is not enabled for your account. Please contact the administrator." });
+  const chosen = await resolveModel(String(req.body?.model || "").trim(), scope);
+  if (!chosen || !chosen.endpoints.length) {
+    return res.status(400).json({ message: scope.mode === "self" ? "No API keys added yet. Add at least one key in the AI tab." : "AI is not configured. Add an API key in Admin → AI Keys." });
+  }
+  const own = ownerFilter(req);
+  let filter = null;
+  if (req.body?.testSeries) filter = { testSeries: req.body.testSeries, ...own };
+  else if (req.body?.quiz) filter = { quiz: req.body.quiz, ...own };
+  if (!filter) return res.status(400).json({ message: "Provide a quiz or test to update." });
+
+  const questions = await Question.find(filter)
+    .sort("updatedAt")
+    .select("_id type text options correct columnA columnB assertion reason")
+    .lean();
+  if (!questions.length) return res.status(400).json({ message: "No questions found to update (or not your content)." });
+
+  const BATCH = 10;
+  const batches = [];
+  for (let i = 0; i < questions.length; i += BATCH) batches.push(questions.slice(i, i + BATCH));
+
+  cleanupJobs();
+  const id = newJobId();
+  genJobs.set(id, { status: "pending", questions: [], requested: questions.length, error: null, model: chosen.model, updatedAt: Date.now() });
+  guardJob(id, runFlashcardJob(id, { endpoints: chosen.endpoints, model: chosen.model, batches, owner: scope.owner }));
+  res.json({ jobId: id, requested: questions.length, model: chosen.model });
+}
+
+
 /* --------------------- Regenerate a question's options ---------------------
    Takes the WHOLE existing question, analyses the stem/structure, and rebuilds
    fresh, correct OPTIONS + answer + explanations that actually fit it — fixing

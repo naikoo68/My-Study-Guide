@@ -1,6 +1,6 @@
 import { Router } from "express";
 import {
-  aiStatus, generateQuestions, jobStatus, cancelJob, extractQuestions, generateNotes, visualizeSpec, extendExplanations, extendOneExplanation, regenerateQuestion, regenerateAll,
+  aiStatus, generateQuestions, jobStatus, cancelJob, extractQuestions, generateNotes, visualizeSpec, extendExplanations, extendOneExplanation, generateFlashcardDetails, regenerateQuestion, regenerateAll,
   listKeys, createKey, bulkCreateKeys, updateKey, deleteKey, revealKey, testKey, importEnvKeys, testAllKeys, listKeyModels, autoDetectKeyModel,
   getAiAccess, setAiMode, inferTopic, coverageGaps, outlineUnits, classifyUnits, parseSyllabus, autoDetectAllKeys, setAllKeysEnabled,
   checkQuestionsSemantic, suggestSubjects, suggestTopics, findDuplicates, generateLogo, generateLogoEmoji, generateDescription,
@@ -35,6 +35,7 @@ router.post("/parse-syllabus", ...manage, parseSyllabus); // parse a full syllab
 router.post("/classify-units", ...manage, classifyUnits); // file question stems under the right unit
 router.post("/extend-explanations", ...manage, extendExplanations); // AI-enrich all explanations in a quiz/test
 router.post("/extend-explanation", ...manage, extendOneExplanation); // AI-enrich ONE question's explanation
+router.post("/flashcard-details", ...manage, generateFlashcardDetails); // FAST batched Key Points + Quick Recall + Explanation for a whole quiz/test
 router.post("/regenerate-question", ...manage, regenerateQuestion); // analyse ONE question and rebuild its options/answer
 router.post("/regenerate-all", ...manage, regenerateAll); // regenerate EVERY question in a quiz/test (background job)
 router.post("/check-semantic", ...manage, checkQuestionsSemantic); // AI "deep check": match pasted questions to the bank BY MEANING, across formats
