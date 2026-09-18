@@ -5,7 +5,7 @@
 //   • "Generate for whole quiz with AI"  → aiService.extendExplanations (job)
 // Manual editing (+ Save) still works for fine-tuning after AI.
 import { useEffect, useState, useCallback, useRef, useLayoutEffect } from "react";
-import { X, Loader2, Save, CheckCircle2, Search, Sparkles, Wand2, AlertTriangle, Send, Download, ChevronLeft, ChevronRight } from "lucide-react";
+import { X, Loader2, Save, CheckCircle2, Search, Sparkles, Wand2, AlertTriangle, Send, Download, ChevronLeft, ChevronRight, Eye, ArrowLeft } from "lucide-react";
 import { contentService, testService, settingsService, aiService, facebookService } from "../../services";
 import { stemPreview } from "../../lib/questionCompleteness";
 import { TemplateOverlay, BuiltInFlashcard } from "../../pages/FlashcardCardImage";
@@ -89,6 +89,7 @@ export default function FlashcardDetailsModal({ title, loadQuestions, onClose, a
   const [error, setError] = useState("");
   const [rows, setRows] = useState([]);
   const [search, setSearch] = useState("");
+  const [viewIdx, setViewIdx] = useState(null); // null = list view; number = focused single card (index into `shown`)
   const [tpl, setTpl] = useState(""); // uploaded flashcard template URL ("" = built-in design)
   // Whole-quiz AI job state.
   const [bulk, setBulk] = useState({ running: false, done: 0, total: 0, err: "", finished: false });
@@ -232,14 +233,54 @@ export default function FlashcardDetailsModal({ title, loadQuestions, onClose, a
     }
   };
 
-  // Previous / Next — scroll to the adjacent card within the current list.
-  const goTo = (idx) => {
-    const el = document.getElementById(`fcd-card-${idx}`);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
-
   const q = search.trim().toLowerCase();
   const shown = q ? rows.filter((r) => r.text.toLowerCase().includes(q)) : rows;
+  // The card open in the focused single-card view (null = the list).
+  const focus = viewIdx != null && viewIdx >= 0 && viewIdx < shown.length ? shown[viewIdx] : null;
+
+  // The full editor + actions for ONE card, shared by the focused view.
+  const CardEditor = (r, i) => (
+    <>
+      <div className="mb-3">
+        <FlashcardPreview q={previewQuestion(r)} tpl={tpl} />
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-xs font-semibold text-amber-600">Key Points (one per line)</label>
+          <textarea className="input min-h-[80px] text-sm" value={r.keyPointsText} onChange={(e) => setField(r._id, "keyPointsText", e.target.value)} placeholder="First key point&#10;Second key point" />
+        </div>
+        <div className="flex flex-col gap-2">
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-indigo-600">Quick Recall (one-line hook)</label>
+            <input className="input text-sm" value={r.quickRecall} onChange={(e) => setField(r._id, "quickRecall", e.target.value)} placeholder="e.g. Malaria = female Anopheles" />
+          </div>
+          <div className="flex-1">
+            <label className="mb-1 block text-xs font-semibold text-sky-600">Explanation</label>
+            <textarea className="input min-h-[44px] text-sm" value={r.explanation} onChange={(e) => setField(r._id, "explanation", e.target.value)} />
+          </div>
+        </div>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-3">
+        <button onClick={() => aiOne(r)} disabled={r.aiing || r.saving} className="btn-outline !py-1 !text-xs text-violet-600" title="Use AI to fill this question's flashcard details">
+          {r.aiing ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating…</> : <><Sparkles className="h-3.5 w-3.5" /> Generate with AI</>}
+        </button>
+        <button onClick={() => save(r)} disabled={r.saving || r.aiing} className="btn-primary !py-1 !text-xs">
+          {r.saving ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…</> : <><Save className="h-3.5 w-3.5" /> Save</>}
+        </button>
+        <button onClick={() => download(r)} disabled={r.downloading} className="btn-outline !py-1 !text-xs text-slate-600 dark:text-slate-300" title="Download this flashcard as an image">
+          {r.downloading ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Rendering…</> : <><Download className="h-3.5 w-3.5" /> Download</>}
+        </button>
+        <button onClick={() => post(r)} disabled={r.posting} className="btn-outline !py-1 !text-xs text-[#1877F2]" title="Post this flashcard to Facebook & Instagram now">
+          {r.posting ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Posting…</> : <><Send className="h-3.5 w-3.5" /> Post</>}
+        </button>
+        {r.saved && <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600"><CheckCircle2 className="h-4 w-4" /> Saved</span>}
+        {r.postMsg && <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600"><CheckCircle2 className="h-4 w-4" /> {r.postMsg}</span>}
+        {r.err && <span className="text-xs font-medium text-rose-600">{r.err}</span>}
+        {r.postErr && <span className="text-xs font-medium text-rose-600">{r.postErr}</span>}
+        {r.dlErr && <span className="text-xs font-medium text-rose-600">{r.dlErr}</span>}
+      </div>
+    </>
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-2 sm:p-4">
@@ -283,71 +324,63 @@ export default function FlashcardDetailsModal({ title, loadQuestions, onClose, a
         ) : error ? (
           <p className="py-6 text-sm font-medium text-rose-600">{error}</p>
         ) : (
-          <>
-            {rows.length > 6 && (
-              <div className="mb-3 flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
-                <Search className="h-4 w-4 flex-shrink-0 text-slate-400" />
-                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Filter questions…" className="w-full bg-transparent text-sm outline-none" />
+          focus ? (
+            /* FOCUSED single-card view — opened from a card's "View" button. */
+            <div>
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <button onClick={() => setViewIdx(null)} className="btn-outline !py-1 !text-xs" title="Back to all questions">
+                  <ArrowLeft className="h-4 w-4" /> All questions
+                </button>
+                <span className="text-sm font-medium text-slate-500 dark:text-slate-400">Question {viewIdx + 1} of {shown.length}</span>
               </div>
-            )}
-            <div className="max-h-[70vh] space-y-4 overflow-y-auto pr-1">
-              {shown.map((r, i) => (
-                <div key={r._id} id={`fcd-card-${i}`} className="scroll-mt-2 rounded-xl border border-slate-200 p-3 dark:border-slate-700">
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <p className="text-sm font-medium text-slate-800 dark:text-slate-100">
-                      <span className="mr-1.5 text-slate-400">{i + 1} / {shown.length}</span>{stemPreview(r, 100)}
-                      <span className="ml-2 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-bold uppercase text-slate-600 dark:bg-slate-700 dark:text-slate-300">{r.type}</span>
-                    </p>
-                    <div className="flex flex-shrink-0 items-center gap-1">
-                      <button onClick={() => goTo(i - 1)} disabled={i === 0} className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-40 dark:border-slate-700 dark:hover:bg-slate-800" title="Previous"><ChevronLeft className="h-4 w-4" /></button>
-                      <button onClick={() => goTo(i + 1)} disabled={i === shown.length - 1} className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-40 dark:border-slate-700 dark:hover:bg-slate-800" title="Next"><ChevronRight className="h-4 w-4" /></button>
-                    </div>
-                  </div>
 
-                  {/* Live flashcard preview */}
-                  <div className="mb-3">
-                    <FlashcardPreview q={previewQuestion(r)} tpl={tpl} />
-                  </div>
+              <p className="mb-2 text-sm font-medium text-slate-800 dark:text-slate-100">
+                {stemPreview(focus, 160)}
+                <span className="ml-2 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-bold uppercase text-slate-600 dark:bg-slate-700 dark:text-slate-300">{focus.type}</span>
+              </p>
 
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <div>
-                      <label className="mb-1 block text-xs font-semibold text-amber-600">Key Points (one per line)</label>
-                      <textarea className="input min-h-[80px] text-sm" value={r.keyPointsText} onChange={(e) => setField(r._id, "keyPointsText", e.target.value)} placeholder="First key point&#10;Second key point" />
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <div>
-                        <label className="mb-1 block text-xs font-semibold text-indigo-600">Quick Recall (one-line hook)</label>
-                        <input className="input text-sm" value={r.quickRecall} onChange={(e) => setField(r._id, "quickRecall", e.target.value)} placeholder="e.g. Malaria = female Anopheles" />
-                      </div>
-                      <div className="flex-1">
-                        <label className="mb-1 block text-xs font-semibold text-sky-600">Explanation</label>
-                        <textarea className="input min-h-[44px] text-sm" value={r.explanation} onChange={(e) => setField(r._id, "explanation", e.target.value)} />
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-2 flex flex-wrap items-center gap-3">
-                    <button onClick={() => aiOne(r)} disabled={r.aiing || r.saving} className="btn-outline !py-1 !text-xs text-violet-600" title="Use AI to fill this question's flashcard details">
-                      {r.aiing ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating…</> : <><Sparkles className="h-3.5 w-3.5" /> Generate with AI</>}
-                    </button>
-                    <button onClick={() => save(r)} disabled={r.saving || r.aiing} className="btn-primary !py-1 !text-xs">
-                      {r.saving ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…</> : <><Save className="h-3.5 w-3.5" /> Save</>}
-                    </button>
-                    <button onClick={() => download(r)} disabled={r.downloading} className="btn-outline !py-1 !text-xs text-slate-600 dark:text-slate-300" title="Download this flashcard as an image">
-                      {r.downloading ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Rendering…</> : <><Download className="h-3.5 w-3.5" /> Download</>}
-                    </button>
-                    <button onClick={() => post(r)} disabled={r.posting} className="btn-outline !py-1 !text-xs text-[#1877F2]" title="Post this flashcard to Facebook & Instagram now">
-                      {r.posting ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Posting…</> : <><Send className="h-3.5 w-3.5" /> Post</>}
-                    </button>
-                    {r.saved && <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600"><CheckCircle2 className="h-4 w-4" /> Saved</span>}
-                    {r.postMsg && <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600"><CheckCircle2 className="h-4 w-4" /> {r.postMsg}</span>}
-                    {r.err && <span className="text-xs font-medium text-rose-600">{r.err}</span>}
-                    {r.postErr && <span className="text-xs font-medium text-rose-600">{r.postErr}</span>}
-                    {r.dlErr && <span className="text-xs font-medium text-rose-600">{r.dlErr}</span>}
-                  </div>
-                </div>
-              ))}
+              <div className="max-h-[62vh] overflow-y-auto pr-1">
+                {CardEditor(focus, viewIdx)}
+              </div>
+
+              {/* Previous / Next — jump between question cards */}
+              <div className="mt-4 flex items-center justify-between border-t border-slate-200 pt-3 dark:border-slate-700">
+                <button onClick={() => setViewIdx((v) => Math.max(0, v - 1))} disabled={viewIdx === 0} className="btn-outline disabled:opacity-40">
+                  <ChevronLeft className="h-4 w-4" /> Previous
+                </button>
+                <button onClick={() => setViewIdx((v) => Math.min(shown.length - 1, v + 1))} disabled={viewIdx === shown.length - 1} className="btn-primary disabled:opacity-40">
+                  Next <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
             </div>
-          </>
+          ) : (
+            /* LIST view — one row per question, each with a "View" button. */
+            <>
+              {rows.length > 6 && (
+                <div className="mb-3 flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
+                  <Search className="h-4 w-4 flex-shrink-0 text-slate-400" />
+                  <input value={search} onChange={(e) => { setSearch(e.target.value); setViewIdx(null); }} placeholder="Filter questions…" className="w-full bg-transparent text-sm outline-none" />
+                </div>
+              )}
+              <div className="max-h-[70vh] space-y-2 overflow-y-auto pr-1">
+                {shown.map((r, i) => {
+                  const filled = (Array.isArray(r.q.keyPoints) && r.q.keyPoints.length) || (r.q.quickRecall || "").trim() || (r.q.explanation || "").trim();
+                  return (
+                    <div key={r._id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+                      <p className="min-w-0 text-sm font-medium text-slate-800 dark:text-slate-100">
+                        <span className="mr-1.5 text-slate-400">{i + 1}.</span>{stemPreview(r, 90)}
+                        <span className="ml-2 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-bold uppercase text-slate-600 dark:bg-slate-700 dark:text-slate-300">{r.type}</span>
+                        {filled ? <span className="ml-2 inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-600"><CheckCircle2 className="h-3 w-3" /> filled</span> : null}
+                      </p>
+                      <button onClick={() => setViewIdx(i)} className="btn-outline !py-1 !text-xs flex-shrink-0 text-brand-600" title="Open this flashcard">
+                        <Eye className="h-3.5 w-3.5" /> View
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )
         )}
       </div>
     </div>
