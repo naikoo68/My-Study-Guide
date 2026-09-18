@@ -5,9 +5,10 @@
 // Recall), on the admin's uploaded template when one is set, else the built-in
 // design. Auto-scaled to fit the screen.
 import { useRef, useState, useLayoutEffect } from "react";
-import { X, GraduationCap } from "lucide-react";
+import { X, GraduationCap, Download, Loader2 } from "lucide-react";
 import { TemplateOverlay, BuiltInFlashcard } from "../../pages/FlashcardCardImage";
 import { useSettings } from "../../context/SettingsContext";
+import { captureNodeToBlob, downloadBlob } from "../../lib/questionImage";
 
 // Scales a fixed-size flashcard down to fit `width` (never up), setting the
 // wrapper height so it doesn't reserve the full un-scaled height.
@@ -36,7 +37,10 @@ function ScaledPreview({ width, children }) {
 export default function FlashcardModal({ q, onClose }) {
   const { settings } = useSettings();
   const boxRef = useRef(null);
+  const captureRef = useRef(null); // off-screen FULL-SIZE flashcard, captured for Download
   const [w, setW] = useState(0);
+  const [downloading, setDownloading] = useState(false);
+  const [dlErr, setDlErr] = useState("");
   useLayoutEffect(() => {
     const el = boxRef.current;
     if (!el) return;
@@ -46,6 +50,21 @@ export default function FlashcardModal({ q, onClose }) {
     if (typeof ResizeObserver !== "undefined") { ro = new ResizeObserver(measure); ro.observe(el); }
     return () => ro?.disconnect();
   }, []);
+
+  // Download the flashcard as a PNG — captured client-side (no login needed) at
+  // FULL size from the off-screen copy, so it's crisp, not the scaled preview.
+  const download = async () => {
+    setDownloading(true); setDlErr("");
+    try {
+      const blob = await captureNodeToBlob(captureRef.current, { scale: 2 });
+      downloadBlob(blob, `flashcard-${q?._id || "card"}.png`);
+    } catch (e) {
+      setDlErr(e.message || "Could not download the image.");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   if (!q) return null;
 
   // Same source of truth as the auto-post: use the uploaded template when set &
@@ -53,6 +72,7 @@ export default function FlashcardModal({ q, onClose }) {
   const tpl = settings?.fbFlashcardTemplateEnabled !== false && settings?.fbFlashcardTemplateUrl
     ? settings.fbFlashcardTemplateUrl
     : "";
+  const card = tpl ? <TemplateOverlay q={q} tpl={tpl} onImg={() => {}} /> : <BuiltInFlashcard q={q} ready />;
 
   return (
     <div className="fixed inset-0 z-[90] flex items-start justify-center overflow-y-auto bg-black/50 p-2 sm:p-4" onClick={onClose}>
@@ -60,22 +80,29 @@ export default function FlashcardModal({ q, onClose }) {
         onClick={(e) => e.stopPropagation()}
         className="my-6 w-full max-w-3xl animate-scale-in rounded-2xl bg-white p-3 shadow-xl dark:bg-slate-900 sm:p-5"
       >
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-3 flex items-center justify-between gap-2">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-3 py-1 text-sm font-bold text-brand-700 dark:bg-brand-900/30 dark:text-brand-300">
             <GraduationCap className="h-4 w-4" /> Flashcard
           </span>
-          <button onClick={onClose} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Close">
-            <X className="h-5 w-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={download} disabled={downloading} className="btn-outline !py-1.5 text-sm" title="Download this flashcard as an image">
+              {downloading ? <><Loader2 className="h-4 w-4 animate-spin" /> Preparing…</> : <><Download className="h-4 w-4" /> Download</>}
+            </button>
+            <button onClick={onClose} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Close">
+              <X className="h-5 w-5" />
+            </button>
+          </div>
         </div>
 
         {/* The real flashcard (same renderer as the auto-post), scaled to fit. */}
         <div ref={boxRef} className="overflow-hidden rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-700">
-          {w > 0 && (
-            <ScaledPreview width={w}>
-              {tpl ? <TemplateOverlay q={q} tpl={tpl} onImg={() => {}} /> : <BuiltInFlashcard q={q} ready />}
-            </ScaledPreview>
-          )}
+          {w > 0 && <ScaledPreview width={w}>{card}</ScaledPreview>}
+        </div>
+        {dlErr && <p className="mt-2 text-center text-xs font-medium text-rose-600">{dlErr}</p>}
+
+        {/* Off-screen FULL-SIZE copy used only for a crisp Download capture. */}
+        <div aria-hidden style={{ position: "fixed", left: -100000, top: 0, pointerEvents: "none", opacity: 0 }}>
+          <div ref={captureRef} style={{ background: "#ffffff", display: "inline-block" }}>{card}</div>
         </div>
       </div>
     </div>
