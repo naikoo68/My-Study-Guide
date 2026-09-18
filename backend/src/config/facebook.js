@@ -511,6 +511,81 @@ function dueSlot(sch, now) {
   return null;
 }
 
+// Post a CUSTOM schedule (admin-written text + optional uploaded media) once, to
+// Facebook and/or Instagram. Unlike a question schedule there's no pool/exhaust
+// logic — a recurring custom schedule simply re-posts the same content at each
+// slot. Returns { ok, error? } and mutates `sch` bookkeeping (caller saves it).
+async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false } = {}) {
+  const wantFb = sch.toFacebook !== false;
+  const wantIg = !!sch.toInstagram && cfg.igEnabled;
+  if (!wantFb && !wantIg) return { ok: false, error: "No destination selected (enable Facebook and/or Instagram)." };
+
+  // Build the message: the admin's text, plus any trailing hashtags on the schedule.
+  const text = String(sch.customText || "").trim();
+  const tags = String(sch.hashtags || "").trim();
+  const message = [text, tags].filter(Boolean).join("\n\n").slice(0, 5000);
+  const media = (Array.isArray(sch.customMedia) ? sch.customMedia : []).map((u) => String(u || "").trim()).filter(Boolean);
+  const rawImageUrl = media[0] || "";
+
+  if (!message && !rawImageUrl) {
+    sch.lastRunAt = new Date();
+    sch.lastResult = "Failed: a custom post needs text or an image.";
+    return { ok: false, error: "A custom post needs text or an image." };
+  }
+
+  const notes = [];
+  let anyOk = false;
+
+  if (wantFb) {
+    // Pad an ultra-wide image to Facebook's limit so it isn't side-cropped.
+    const fbImageUrl = rawImageUrl ? toFacebookSafeUrl(rawImageUrl) : undefined;
+    const r = await postToFacebookPage({ message, imageUrl: fbImageUrl }, cfg);
+    if (r.ok) { anyOk = true; notes.push("Facebook ✓"); } else notes.push(`Facebook ✗ (${r.error})`);
+
+    for (const t of site?.fbExtraTargets || []) {
+      const pageId = String(t?.pageId || "").trim();
+      const token = String(t?.token || "").trim();
+      if (!pageId || !token) continue;
+      const rr = await postToFacebookPage({ message, imageUrl: fbImageUrl }, { ...cfg, pageId, token });
+      const name = t.label || pageId;
+      if (rr.ok) { anyOk = true; notes.push(`${name} ✓`); } else notes.push(`${name} ✗ (${rr.error})`);
+    }
+  }
+  if (wantIg) {
+    if (!rawImageUrl) notes.push("Instagram ✗ (a custom Instagram post needs an image)");
+    else {
+      const igImageUrl = toInstagramSafeUrl(rawImageUrl);
+      const r = await postToInstagram({ imageUrl: igImageUrl, caption: message }, cfg);
+      if (r.ok) { anyOk = true; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
+    }
+  }
+
+  sch.lastRunAt = new Date();
+  if (anyOk) {
+    sch.postCount = (sch.postCount || 0) + 1;
+    sch.lastResult = notes.join(" · ");
+    if (notify && site?.fbNotifyOnPost === true) {
+      await fbNotify({
+        site,
+        subject: `📢 Auto-posted — ${schTitle}`,
+        text: `Posted a custom update to ${notes.join(", ")}.${text ? `\n${text.slice(0, 160)}` : ""}`,
+        html: `<p>📢 <b>${schTitle}</b> posted a custom update.</p><p><b>Destinations:</b> ${notes.join(" · ")}</p>${text ? `<p>${String(text.slice(0, 300)).replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>` : ""}`,
+      });
+    }
+    return { ok: true, notes };
+  }
+  sch.lastResult = `Failed: ${notes.join(" · ")}`;
+  if (notify && site?.fbNotifyOnError !== false) {
+    await fbNotify({
+      site,
+      subject: `⚠️ Auto-post failed — ${schTitle}`,
+      text: `Could not post the custom update. ${notes.join(" · ")}`,
+      html: `<p>⚠️ <b>${schTitle}</b> failed to post.</p><p>${notes.join(" · ")}</p>`,
+    });
+  }
+  return { ok: false, error: notes.join(" · ") || "Failed to post." };
+}
+
 // Post one question from a schedule right now (used by the scheduler AND the
 // admin "Post now" button). Posts to Facebook and/or Instagram, as an image
 // card when requested (Instagram always needs one). Returns { ok, error? }.
@@ -521,6 +596,9 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   // notification preferences/recipient below.
   const site = await Settings.findOne({ key: "site" }).lean().catch(() => null);
   const schTitle = sch.title || sch.source?.label || "Untitled schedule";
+
+  // Custom post (admin-written text + uploaded media) — not a quiz question.
+  if (sch.kind === "custom") return runCustomScheduleOnce(sch, cfg, site, schTitle, { notify });
 
   const picked = await pickQuestionForSchedule(sch);
   // Source fully posted → STOP this schedule (unless it's set to recycle).

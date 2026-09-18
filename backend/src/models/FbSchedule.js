@@ -8,6 +8,14 @@ const fbScheduleSchema = new mongoose.Schema(
     title: { type: String, default: "" }, // admin label, e.g. "Daily Accountancy question"
     enabled: { type: Boolean, default: true },
 
+    // Post type:
+    //   "question" (default) — draw a question from `source` and post it (existing behaviour).
+    //   "custom"             — post a fixed admin-written text + uploaded media (no question).
+    kind: { type: String, enum: ["question", "custom"], default: "question" },
+    // Custom-post content (used only when kind === "custom").
+    customText: { type: String, default: "" }, // the post text / caption
+    customMedia: { type: [String], default: [] }, // hosted image URLs; the first image is attached
+
     // Where questions are drawn from. The DEEPEST set id wins (quiz > session >
     // subject > testSeries). `label` is a human-readable trail for the UI.
     source: {
