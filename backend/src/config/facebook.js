@@ -47,6 +47,36 @@ async function fbFetch(url, opts = {}, timeoutMs = 15000) {
   }
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Instagram creates media ASYNCHRONOUSLY: after a container is created, Instagram
+// must finish DOWNLOADING and PROCESSING the image (from image_url) before the
+// container can be published. Calling media_publish too early fails with
+// "Media ID is not available" — an intermittent error that hits whichever post
+// loses the race. Poll the container's status_code until it reports FINISHED
+// (or a terminal ERROR/EXPIRED) before we attempt to publish.
+async function waitForIgContainerReady(cfg, containerId, token, { tries = 15, delayMs = 2000 } = {}) {
+  for (let i = 0; i < tries; i++) {
+    let data = {};
+    try {
+      const res = await fbFetch(
+        `https://graph.facebook.com/${cfg.version}/${encodeURIComponent(containerId)}?fields=status_code,status&access_token=${encodeURIComponent(token)}`
+      );
+      data = await res.json().catch(() => ({}));
+    } catch {
+      /* transient network hiccup — fall through and retry */
+    }
+    const code = data?.status_code;
+    if (code === "FINISHED") return { ok: true };
+    if (code === "ERROR" || code === "EXPIRED") {
+      return { ok: false, error: data?.status || `Instagram could not process the media (${String(code).toLowerCase()}).` };
+    }
+    // IN_PROGRESS / unknown — wait and poll again.
+    await sleep(delayMs);
+  }
+  return { ok: false, error: "Instagram media did not finish processing in time." };
+}
+
 // Posting to a Page requires a PAGE access token. Admins often paste a USER
 // token by mistake (which triggers the deprecated "publish_actions" error).
 // This resolves the correct Page token from whatever was saved: querying the
@@ -144,14 +174,27 @@ export async function postToInstagram({ imageUrl, caption } = {}, cfgOverride) {
     const cData = await cRes.json().catch(() => ({}));
     if (!cRes.ok || !cData.id) return { ok: false, error: cData?.error?.message || `Instagram container error (${cRes.status}).` };
 
-    // 2) Publish the container.
+    // 2) Wait for the container to finish processing BEFORE publishing —
+    // publishing early is what triggers the "Media ID is not available" error.
+    const ready = await waitForIgContainerReady(cfg, cData.id, pageToken);
+    if (!ready.ok) return { ok: false, error: ready.error };
+
+    // 3) Publish the container. Even once FINISHED, Instagram can briefly report
+    // "Media ID is not available" due to propagation lag, so retry a few times.
     const p = new URLSearchParams();
     p.set("creation_id", cData.id);
     p.set("access_token", pageToken);
-    const pRes = await fbFetch(`https://graph.facebook.com/${cfg.version}/${igId}/media_publish`, { method: "POST", headers, body: p });
-    const pData = await pRes.json().catch(() => ({}));
-    if (pRes.ok && pData.id) return { ok: true, id: pData.id };
-    return { ok: false, error: pData?.error?.message || `Instagram publish error (${pRes.status}).` };
+    let pData = {};
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const pRes = await fbFetch(`https://graph.facebook.com/${cfg.version}/${igId}/media_publish`, { method: "POST", headers, body: p });
+      pData = await pRes.json().catch(() => ({}));
+      if (pRes.ok && pData.id) return { ok: true, id: pData.id };
+      const msg = String(pData?.error?.message || "");
+      // Only retry the transient "not available/ready" case; bail on real errors.
+      if (!/not available|not ready/i.test(msg)) break;
+      await sleep(2000);
+    }
+    return { ok: false, error: pData?.error?.message || `Instagram publish error.` };
   } catch (err) {
     return { ok: false, error: err.message || "Could not reach Instagram." };
   }
