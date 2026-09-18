@@ -1,54 +1,82 @@
 // Student-facing FLASHCARD viewer. Opened from the "Flashcard" button that
-// appears once a question's answer/explanation is revealed. Shows the full
-// two-sided flashcard for ONE question:
-//   • Front  → the question (real quiz renderer: every type supported)
-//   • Back   → the full answer (Correct Answer + Explanation + Key Points +
-//              Quick Recall), via the shared FlashcardAnswer component.
-// Tap "Show Answer" / "Show Question" to flip. Responsive + theme-aware, so it
-// reads well on mobile and in dark mode.
-import { useState } from "react";
-import { X, Eye, RotateCcw, GraduationCap, BookOpenCheck, CheckCircle2 } from "lucide-react";
-import { FrontContent } from "../../pages/FlashcardCardImage";
-import FlashcardAnswer from "./FlashcardAnswer";
+// appears once a question's answer is revealed. Shows the EXACT flashcard that
+// the site renders for Facebook/Instagram auto-posts: the two-panel card
+// (question | answer with Correct Answer + Explanation + Key Points + Quick
+// Recall), on the admin's uploaded template when one is set, else the built-in
+// design. Auto-scaled to fit the screen.
+import { useRef, useState, useLayoutEffect } from "react";
+import { X, GraduationCap } from "lucide-react";
+import { TemplateOverlay, BuiltInFlashcard } from "../../pages/FlashcardCardImage";
+import { useSettings } from "../../context/SettingsContext";
+
+// Scales a fixed-size flashcard down to fit `width` (never up), setting the
+// wrapper height so it doesn't reserve the full un-scaled height.
+function ScaledPreview({ width, children }) {
+  const ref = useRef(null);
+  const [dims, setDims] = useState({ scale: 1, h: 0 });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || !width) return;
+    const nw = el.offsetWidth || el.scrollWidth;
+    const nh = el.offsetHeight || el.scrollHeight;
+    if (!nw) return;
+    const scale = Math.min(1, width / nw);
+    const h = nh * scale;
+    if (Math.abs(scale - dims.scale) > 0.004 || Math.abs(h - dims.h) > 1) setDims({ scale, h });
+  });
+  return (
+    <div style={{ width, height: dims.h, overflow: "hidden" }}>
+      <div ref={ref} style={{ transformOrigin: "top left", transform: `scale(${dims.scale})`, width: "max-content" }}>
+        {children}
+      </div>
+    </div>
+  );
+}
 
 export default function FlashcardModal({ q, onClose }) {
-  const [showBack, setShowBack] = useState(false);
+  const { settings } = useSettings();
+  const boxRef = useRef(null);
+  const [w, setW] = useState(0);
+  useLayoutEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const measure = () => setW(el.clientWidth);
+    measure();
+    let ro;
+    if (typeof ResizeObserver !== "undefined") { ro = new ResizeObserver(measure); ro.observe(el); }
+    return () => ro?.disconnect();
+  }, []);
   if (!q) return null;
 
+  // Same source of truth as the auto-post: use the uploaded template when set &
+  // enabled, otherwise the built-in flashcard design.
+  const tpl = settings?.fbFlashcardTemplateEnabled !== false && settings?.fbFlashcardTemplateUrl
+    ? settings.fbFlashcardTemplateUrl
+    : "";
+
   return (
-    <div className="fixed inset-0 z-[90] flex items-start justify-center overflow-y-auto bg-black/50 p-3 sm:p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[90] flex items-start justify-center overflow-y-auto bg-black/50 p-2 sm:p-4" onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
-        className="my-6 w-full max-w-2xl animate-scale-in rounded-2xl bg-white p-4 shadow-xl dark:bg-slate-900 sm:p-6"
+        className="my-6 w-full max-w-3xl animate-scale-in rounded-2xl bg-white p-3 shadow-xl dark:bg-slate-900 sm:p-5"
       >
-        {/* Header */}
         <div className="mb-3 flex items-center justify-between">
-          <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-bold ${
-            showBack ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
-                     : "bg-brand-50 text-brand-700 dark:bg-brand-900/30 dark:text-brand-300"}`}>
-            {showBack ? <CheckCircle2 className="h-4 w-4" /> : <BookOpenCheck className="h-4 w-4" />}
-            {showBack ? "Answer" : "Flashcard"}
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-3 py-1 text-sm font-bold text-brand-700 dark:bg-brand-900/30 dark:text-brand-300">
+            <GraduationCap className="h-4 w-4" /> Flashcard
           </span>
           <button onClick={onClose} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Close">
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        {/* Card body */}
-        <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700 sm:p-5">
-          {showBack ? <FlashcardAnswer q={q} /> : <FrontContent q={q} />}
+        {/* The real flashcard (same renderer as the auto-post), scaled to fit. */}
+        <div ref={boxRef} className="overflow-hidden rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-700">
+          {w > 0 && (
+            <ScaledPreview width={w}>
+              {tpl ? <TemplateOverlay q={q} tpl={tpl} onImg={() => {}} /> : <BuiltInFlashcard q={q} ready />}
+            </ScaledPreview>
+          )}
         </div>
-
-        {/* Flip control */}
-        <div className="mt-4 flex justify-center">
-          <button onClick={() => setShowBack((v) => !v)} className={showBack ? "btn-outline" : "btn-primary"}>
-            {showBack ? <><RotateCcw className="h-4 w-4" /> Show Question</> : <><Eye className="h-4 w-4" /> Show Answer</>}
-          </button>
-        </div>
-
-        <p className="mt-3 flex items-center justify-center gap-1.5 text-xs text-slate-400">
-          <GraduationCap className="h-3.5 w-3.5" /> Study this question as a flashcard
-        </p>
       </div>
     </div>
   );
