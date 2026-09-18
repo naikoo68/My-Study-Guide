@@ -3,13 +3,14 @@
 //
 // Two render modes:
 //  • DEFAULT (no ?tpl): a built-in two-panel branded flashcard (question | answer).
-//  • TEMPLATE OVERLAY (?tpl=<image url>): the admin's uploaded template image is
-//    the background, and the quiz content is placed into its boxes at fixed
-//    coordinates (tuned to the 1024×660 two-panel template).
+//  • TEMPLATE (?tpl=<image url>): the admin's uploaded template image is the
+//    background (its header/footer branding), and the SAME content is rendered
+//    into the two empty middle REGIONS, auto-scaled to fit. Because it renders
+//    the real content components (not fixed boxes), it works for EVERY question
+//    type (matching, assertion, statement, table, diagram…) and never overflows.
 //
 // Always fetches WITH the answer so the answer side can render. Sets
-// data-card-ready="1" once the question + web fonts (+ template image, in overlay
-// mode) have loaded so the screenshot is never captured half-styled.
+// data-card-ready="1" once the question + web fonts (+ template image) load.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { GraduationCap, BookOpenCheck, CheckCircle2, Eye } from "lucide-react";
@@ -26,107 +27,106 @@ import FlashcardAnswer from "../components/ui/FlashcardAnswer";
 import { stemText, displayOptions } from "../lib/questions";
 
 const optionLabels = ["A", "B", "C", "D", "E", "F"];
+const pill = "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold";
 function toRoman(num) {
   const map = [["X", 10], ["IX", 9], ["V", 5], ["IV", 4], ["I", 1]];
   let r = "";
   for (const [s, v] of map) while (num >= v) { r += s; num -= v; }
   return r;
 }
+const subjectOf = (q) => q.subjectName || q.topic || "";
 
-// ---- TEMPLATE OVERLAY MODE ----------------------------------------------
-// Box coordinates in px on the 1024×660 two-panel template. These are tuned by
-// eye to the supplied template and may need small nudges after the first render.
-// Output canvas size for the flashcard image. SLOTS below are authored against
-// the BASE (the 1024×660 two-panel layout) and scaled to the canvas, so the
-// posted size can change without re-authoring every box.
-const TPL_W = 1536, TPL_H = 1024;
-const BASE_W = 1024, BASE_H = 660;
-const SX = TPL_W / BASE_W, SY = TPL_H / BASE_H;
-const SLOTS = {
-  // front (left panel)
-  subject:     { left: 40, top: 92, width: 76, height: 28, pill: "#d1fae5", color: "#047857", center: true, size: 12, bold: true },
-  difficulty:  { left: 120, top: 92, width: 92, height: 28, pill: "#e0e7ff", color: "#4f46e5", center: true, size: 12, bold: true },
-  question:    { left: 34, top: 142, width: 452, height: 88, size: 15, bold: true, color: "#0f172a" },
-  optA:        { left: 88, top: 262, width: 388, height: 40, size: 13, color: "#1e293b", vcenter: true },
-  optB:        { left: 88, top: 329, width: 388, height: 40, size: 13, color: "#1e293b", vcenter: true },
-  optC:        { left: 88, top: 396, width: 388, height: 40, size: 13, color: "#1e293b", vcenter: true },
-  optD:        { left: 88, top: 463, width: 388, height: 40, size: 13, color: "#1e293b", vcenter: true },
-  // back (right panel)
-  subjectR:    { left: 548, top: 92, width: 76, height: 28, pill: "#d1fae5", color: "#047857", center: true, size: 12, bold: true },
-  difficultyR: { left: 628, top: 92, width: 92, height: 28, pill: "#e0e7ff", color: "#4f46e5", center: true, size: 12, bold: true },
-  correct:     { left: 604, top: 150, width: 398, height: 40, size: 13, bold: true, color: "#065f46", vcenter: true },
-  explanation: { left: 558, top: 264, width: 452, height: 90, size: 12, color: "#334155" },
-  keypoints:   { left: 558, top: 410, width: 452, height: 52, size: 11.5, color: "#92400e" },
-  quickrecall: { left: 558, top: 508, width: 452, height: 52, size: 12, color: "#3730a3" },
-};
-
-function Slot({ rect, children }) {
-  const ref = useRef(null);
-  const base = (rect.size || 13) * SX;
-  // AUTO-FIT: shrink the font until the content fits its fixed box (both height
-  // and width), so long questions/explanations never spill out of the box.
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    let size = base;
-    el.style.fontSize = `${size}px`;
-    let guard = 80;
-    while ((el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1) && size > 7 && guard-- > 0) {
-      size -= 0.5;
-      el.style.fontSize = `${size}px`;
-    }
-  });
-  const style = {
-    position: "absolute",
-    left: rect.left * SX, top: rect.top * SY, width: rect.width * SX, height: rect.height * SY,
-    overflow: "hidden", fontSize: base, lineHeight: 1.28, color: rect.color || "#0f172a",
-    fontWeight: rect.bold ? 700 : 400, display: "flex",
-    alignItems: rect.vcenter || rect.center ? "center" : "flex-start",
-    justifyContent: rect.center ? "center" : "flex-start",
-    textAlign: rect.center ? "center" : "left",
-    ...(rect.pill ? { background: rect.pill, borderRadius: 999, padding: "0 8px" } : {}),
-    fontFamily: "Inter, Arial, sans-serif",
-  };
-  return <div ref={ref} style={style}>{children}</div>;
+// ---- Shared panel content (used by BOTH the built-in card and the template
+//      overlay). No header/footer here — those come from the card frame / the
+//      uploaded template image. -----------------------------------------------
+function FrontContent({ q }) {
+  const isMatching = q?.type === "matching";
+  const subj = subjectOf(q);
+  return (
+    <>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        {subj && <span className={`${pill} bg-emerald-50 text-emerald-700`}>{subj}</span>}
+        <Badge variant={q.difficulty}>{q.difficulty}</Badge>
+      </div>
+      <h2 className="text-lg font-bold leading-relaxed"><MathText>{stemText(q)}</MathText></h2>
+      {isMatching && (
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <div className="rounded-xl border border-slate-200 p-2.5">
+            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-brand-600">Column A</p>
+            <div className="space-y-1.5">{(q.columnA || []).map((item, i) => (<div key={i} className="flex items-start gap-1.5 text-xs"><span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-brand-100 text-[10px] font-bold text-brand-700">{i + 1}</span><MathText>{item}</MathText></div>))}</div>
+          </div>
+          <div className="rounded-xl border border-slate-200 p-2.5">
+            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-accent-600">Column B</p>
+            <div className="space-y-1.5">{(q.columnB || []).map((item, i) => (<div key={i} className="flex items-start gap-1.5 text-xs"><span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-accent-100 text-[10px] font-bold text-accent-700">{toRoman(i + 1)}</span><MathText>{item}</MathText></div>))}</div>
+          </div>
+        </div>
+      )}
+      <StatementPairView q={q} /><TableView q={q} /><GraphView q={q} /><VizView q={q} /><AssertionReasonView q={q} />
+      <div className="mt-3 space-y-2">
+        {isMatching && <p className="text-xs font-medium text-slate-500">Choose the correct matching sequence:</p>}
+        {displayOptions(q).map((opt, idx) => (
+          <div key={idx} className="flex w-full items-center gap-2.5 rounded-lg border-2 border-slate-200 bg-white px-3 py-2 text-left text-sm">
+            <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md border border-slate-300 text-xs font-bold">{isMatching ? `(${String.fromCharCode(97 + idx)})` : optionLabels[idx]}</span>
+            <span className="flex-1"><OptionContent>{opt}</OptionContent></span>
+          </div>
+        ))}
+      </div>
+    </>
+  );
 }
 
-function TemplateOverlay({ q, tpl, onImg }) {
-  const opts = displayOptions(q) || [];
-  const correctIdx = typeof q.correct === "number" ? q.correct : -1;
-  const correctText = correctIdx >= 0 ? opts[correctIdx] : "";
-  const subj = q.subjectName || q.topic || "";
-  const kp = (Array.isArray(q.keyPoints) ? q.keyPoints : []).map((s) => String(s || "").trim()).filter(Boolean);
+function BackContent({ q }) {
+  const subj = subjectOf(q);
   return (
-    <div data-card-el style={{ position: "relative", width: TPL_W, height: TPL_H }}>
-      <img src={tpl} alt="" onLoad={onImg} onError={onImg}
-        style={{ position: "absolute", inset: 0, width: TPL_W, height: TPL_H, objectFit: "contain" }} />
-      {subj && <Slot rect={SLOTS.subject}>{subj}</Slot>}
-      {q.difficulty && <Slot rect={SLOTS.difficulty}>{q.difficulty}</Slot>}
-      <Slot rect={SLOTS.question}><MathText>{stemText(q)}</MathText></Slot>
-      {opts[0] != null && <Slot rect={SLOTS.optA}><OptionContent>{opts[0]}</OptionContent></Slot>}
-      {opts[1] != null && <Slot rect={SLOTS.optB}><OptionContent>{opts[1]}</OptionContent></Slot>}
-      {opts[2] != null && <Slot rect={SLOTS.optC}><OptionContent>{opts[2]}</OptionContent></Slot>}
-      {opts[3] != null && <Slot rect={SLOTS.optD}><OptionContent>{opts[3]}</OptionContent></Slot>}
+    <>
+      <div className="mb-1 flex flex-wrap items-center gap-2">
+        {subj && <span className={`${pill} bg-emerald-50 text-emerald-700`}>{subj}</span>}
+        <Badge variant={q.difficulty}>{q.difficulty}</Badge>
+      </div>
+      <FlashcardAnswer q={q} />
+    </>
+  );
+}
 
-      {subj && <Slot rect={SLOTS.subjectR}>{subj}</Slot>}
-      {q.difficulty && <Slot rect={SLOTS.difficultyR}>{q.difficulty}</Slot>}
-      {correctIdx >= 0 && (
-        <Slot rect={SLOTS.correct}>
-          <span>Correct Answer: {optionLabels[correctIdx] || correctIdx + 1}{correctText ? " — " : ""}<span style={{ fontWeight: 400 }}><MathText>{correctText}</MathText></span></span>
-        </Slot>
-      )}
-      {q.explanation && <Slot rect={SLOTS.explanation}><MathText>{q.explanation}</MathText></Slot>}
-      {kp.length > 0 && (
-        <Slot rect={SLOTS.keypoints}>
-          <span>{kp.map((p, i) => <span key={i} style={{ display: "block" }}>• <MathText>{p}</MathText></span>)}</span>
-        </Slot>
-      )}
-      {q.quickRecall && <Slot rect={SLOTS.quickrecall}><MathText>{q.quickRecall}</MathText></Slot>}
+// ---- TEMPLATE OVERLAY: content rendered into the empty middle regions of the
+//      uploaded template, auto-scaled to fit. Region rects are in the template's
+//      own 1536×1024 space (tuned to the header/footer of the supplied template).
+const TPL_W = 1536, TPL_H = 1024;
+const FRONT_REGION = { left: 56, top: 160, width: 672, height: 690 };
+const BACK_REGION = { left: 808, top: 160, width: 672, height: 690 };
+
+// Scales its content DOWN (never up) so it fits within the fixed region height —
+// so long questions/explanations shrink to fit instead of overflowing.
+function FitRegion({ rect, children }) {
+  const innerRef = useRef(null);
+  const [scale, setScale] = useState(1);
+  useLayoutEffect(() => {
+    const el = innerRef.current;
+    if (!el) return;
+    const sh = el.scrollHeight; // untransformed layout height (transform doesn't affect it)
+    const k = sh > rect.height ? rect.height / sh : 1;
+    if (Math.abs(k - scale) > 0.004) setScale(k);
+  });
+  return (
+    <div style={{ position: "absolute", left: rect.left, top: rect.top, width: rect.width, height: rect.height, overflow: "hidden" }}>
+      <div ref={innerRef} style={{ width: rect.width, transformOrigin: "top left", transform: `scale(${scale})` }}>
+        {children}
+      </div>
     </div>
   );
 }
 
-// ---- BUILT-IN DESIGN (no template uploaded) ------------------------------
+function TemplateOverlay({ q, tpl, onImg }) {
+  return (
+    <div data-card-el style={{ position: "relative", width: TPL_W, height: TPL_H, fontFamily: "Inter, Arial, sans-serif" }}>
+      <img src={tpl} alt="" onLoad={onImg} onError={onImg} style={{ position: "absolute", inset: 0, width: TPL_W, height: TPL_H, objectFit: "contain" }} />
+      <FitRegion rect={FRONT_REGION}><FrontContent q={q} /></FitRegion>
+      <FitRegion rect={BACK_REGION}><BackContent q={q} /></FitRegion>
+    </div>
+  );
+}
+
+// ---- BUILT-IN design (no template uploaded) ------------------------------
 function Brand({ badge, badgeColor }) {
   return (
     <div className="mb-3 flex items-center justify-between">
@@ -142,39 +142,11 @@ function Brand({ badge, badgeColor }) {
 }
 
 function BuiltInFlashcard({ q, ready }) {
-  const isMatching = q?.type === "matching";
-  const pill = "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold";
   return (
     <div data-card-ready={ready ? "1" : "0"} data-card-el style={{ display: "flex", gap: 20, width: 968 }}>
       <div className="card flex flex-col p-5" style={{ width: 474, position: "relative" }}>
         <Brand badge="Flashcard" badgeColor="bg-brand-50 text-brand-700" />
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          {q.subjectName && <span className={`${pill} bg-emerald-50 text-emerald-700`}>{q.subjectName}</span>}
-          <Badge variant={q.difficulty}>{q.difficulty}</Badge>
-        </div>
-        <h2 className="text-base font-bold leading-relaxed"><MathText>{stemText(q)}</MathText></h2>
-        {isMatching && (
-          <div className="mt-3 grid grid-cols-2 gap-3">
-            <div className="rounded-xl border border-slate-200 p-2.5">
-              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-brand-600">Column A</p>
-              <div className="space-y-1.5">{(q.columnA || []).map((item, i) => (<div key={i} className="flex items-start gap-1.5 text-xs"><span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-brand-100 text-[10px] font-bold text-brand-700">{i + 1}</span><MathText>{item}</MathText></div>))}</div>
-            </div>
-            <div className="rounded-xl border border-slate-200 p-2.5">
-              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-accent-600">Column B</p>
-              <div className="space-y-1.5">{(q.columnB || []).map((item, i) => (<div key={i} className="flex items-start gap-1.5 text-xs"><span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-accent-100 text-[10px] font-bold text-accent-700">{toRoman(i + 1)}</span><MathText>{item}</MathText></div>))}</div>
-            </div>
-          </div>
-        )}
-        <StatementPairView q={q} /><TableView q={q} /><GraphView q={q} /><VizView q={q} /><AssertionReasonView q={q} />
-        <div className="mt-3 space-y-2">
-          {isMatching && <p className="text-xs font-medium text-slate-500">Choose the correct matching sequence:</p>}
-          {displayOptions(q).map((opt, idx) => (
-            <div key={idx} className="flex w-full items-center gap-2.5 rounded-lg border-2 border-slate-200 bg-white px-3 py-2 text-left text-sm">
-              <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md border border-slate-300 text-xs font-bold">{isMatching ? `(${String.fromCharCode(97 + idx)})` : optionLabels[idx]}</span>
-              <span className="flex-1"><OptionContent>{opt}</OptionContent></span>
-            </div>
-          ))}
-        </div>
+        <FrontContent q={q} />
         <div className="mt-auto pt-4">
           <div className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3 text-sm font-bold text-white"><Eye className="h-4 w-4" /> Show Answer</div>
           <div className="mt-3 flex items-center justify-between text-[11px] text-slate-400"><span className="italic">“Small Steps Big Results”</span><span>Learn • Practice • Succeed</span></div>
@@ -182,11 +154,7 @@ function BuiltInFlashcard({ q, ready }) {
       </div>
       <div className="card flex flex-col p-5" style={{ width: 474 }}>
         <Brand badge="Answer" badgeColor="bg-emerald-50 text-emerald-700" />
-        <div className="mb-1 flex flex-wrap items-center gap-2">
-          {q.subjectName && <span className={`${pill} bg-emerald-50 text-emerald-700`}>{q.subjectName}</span>}
-          <Badge variant={q.difficulty}>{q.difficulty}</Badge>
-        </div>
-        <FlashcardAnswer q={q} />
+        <BackContent q={q} />
       </div>
     </div>
   );
@@ -199,8 +167,9 @@ export default function FlashcardCardImage() {
   const [q, setQ] = useState(null);
   const [error, setError] = useState("");
   const [fontsReady, setFontsReady] = useState(false);
-  const [imgReady, setImgReady] = useState(!tpl); // template image loaded (or none)
-  const ready = fontsReady && imgReady;
+  const [imgReady, setImgReady] = useState(false);
+  const useTemplate = !!tpl && !!q; // region rendering handles every question type
+  const ready = fontsReady && (!useTemplate || imgReady);
 
   useEffect(() => { document.documentElement.classList.remove("dark"); }, []);
 
@@ -224,7 +193,7 @@ export default function FlashcardCardImage() {
   if (error) return <div data-card-error="1" style={{ padding: 24, fontFamily: "sans-serif" }}>{error}</div>;
   if (!q) return <div style={{ padding: 24, fontFamily: "sans-serif" }}>Loading…</div>;
 
-  if (tpl) {
+  if (useTemplate) {
     return (
       <div data-card-ready={ready ? "1" : "0"} style={{ background: "#ffffff", display: "inline-block" }}>
         <TemplateOverlay q={q} tpl={tpl} onImg={() => setImgReady(true)} />
