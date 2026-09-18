@@ -63,6 +63,16 @@ export default function ExtendExplanationsModal({ open, target, title, onClose, 
     setQType("all");
   }, [open]);
 
+  // Lock background page scroll while the modal is open, so scrolling inside
+  // the modal (which can be taller than the screen on mobile) doesn't move the
+  // page behind it. Same pattern as the admin mobile drawer.
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     aiService
@@ -150,7 +160,7 @@ export default function ExtendExplanationsModal({ open, target, title, onClose, 
   const pct = progress && progress.total ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-0 sm:p-4" onClick={busy ? undefined : onClose}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto overscroll-contain bg-black/50 p-0 sm:p-4" onClick={busy ? undefined : onClose}>
       <div onClick={(e) => e.stopPropagation()} className="min-h-full w-full max-w-none animate-scale-in card m-0 rounded-none p-4 sm:rounded-2xl sm:p-6">
         <div className="mb-1 flex items-center justify-between">
           <h3 className="flex items-center gap-2 text-lg font-bold"><Wand2 className="h-5 w-5 text-brand-600" /> Extend Explanations</h3>
