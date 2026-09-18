@@ -10,7 +10,7 @@ import { displayOptions } from "../../lib/questions";
 
 const LETTERS = ["A", "B", "C", "D", "E", "F"];
 
-export default function FlashcardAnswer({ q }) {
+export default function FlashcardAnswer({ q, explanationOnly = false }) {
   if (!q) return null;
   const opts = displayOptions(q) || [];
   const correctIdx = typeof q.correct === "number" ? q.correct : -1;
@@ -24,7 +24,7 @@ export default function FlashcardAnswer({ q }) {
   return (
     <div className="mt-4 animate-fade-in space-y-3">
       {/* Correct answer */}
-      {correctIdx >= 0 && (
+      {!explanationOnly && correctIdx >= 0 && (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/50 dark:bg-emerald-900/20">
           <div className="flex items-start gap-2">
             <CheckCircle2 className="mt-0.5 h-5 w-5 flex-shrink-0 text-emerald-600 dark:text-emerald-400" />
@@ -60,7 +60,7 @@ export default function FlashcardAnswer({ q }) {
       )}
 
       {/* Key points (only when the question has them) */}
-      {keyPoints.length > 0 && (
+      {!explanationOnly && keyPoints.length > 0 && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-900/20">
           <div className="flex items-center gap-2 font-semibold text-amber-700 dark:text-amber-300">
             <Lightbulb className="h-5 w-5" /> Key Points
@@ -74,7 +74,7 @@ export default function FlashcardAnswer({ q }) {
       )}
 
       {/* Quick recall memory hook (only when present) */}
-      {quickRecall && (
+      {!explanationOnly && quickRecall && (
         <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4 dark:border-indigo-900/50 dark:bg-indigo-900/20">
           <div className="flex items-center gap-2 font-semibold text-indigo-700 dark:text-indigo-300">
             <GraduationCap className="h-5 w-5" /> Quick Recall

@@ -657,7 +657,9 @@ export default function QuizPlay() {
             </div>
           )}
 
-          {locked && <FlashcardAnswer q={q} />}
+          {/* Inline reveal shows ONLY the explanation — the correct answer,
+              key points and quick recall live in the full flashcard below. */}
+          {locked && <FlashcardAnswer q={q} explanationOnly />}
 
           {/* Once the answer/explanation is revealed, offer the full flashcard. */}
           {locked && (
