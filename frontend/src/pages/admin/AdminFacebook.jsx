@@ -5,9 +5,10 @@ import { useEffect, useState, useRef } from "react";
 import {
   Send, Loader2, CheckCircle2, AlertTriangle, KeyRound, Plus, Trash2, Pencil, X,
   Clock, CalendarClock, ListChecks, Power, Save, Upload, UserCircle, Type, Search, Mail,
+  ImagePlus, FileText,
 } from "lucide-react";
 import { Facebook, Instagram } from "../../components/ui/SocialIcons";
-import { settingsService, facebookService, contentService, practiceService } from "../../services";
+import { settingsService, facebookService, contentService, practiceService, uploadService } from "../../services";
 import { useSettings } from "../../context/SettingsContext";
 import { Loading, ErrorState } from "../../components/ui/AsyncState";
 
@@ -434,8 +435,62 @@ function FbNotifySection({ settings, saveSettings }) {
   );
 }
 
+// Uploads images for a CUSTOM post (reuses the shared /upload → Cloudinary
+// endpoint) and shows removable thumbnails. `media` is an array of hosted URLs.
+function CustomMediaUploader({ media, onChange }) {
+  const fileRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
+  const [err, setErr] = useState("");
+
+  const pick = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    setUploading(true); setErr("");
+    try {
+      const urls = [];
+      for (const file of files) {
+        if (!file.type.startsWith("image/")) { setErr("Only image files are allowed."); continue; }
+        if (file.size > 10 * 1024 * 1024) { setErr("Each image must be under 10MB."); continue; }
+        const r = await uploadService.file(file);
+        if (r?.url) urls.push(r.url);
+      }
+      if (urls.length) onChange([...(media || []), ...urls].slice(0, 10));
+    } catch (e2) { setErr(e2.message || "Upload failed."); }
+    finally { setUploading(false); if (fileRef.current) fileRef.current.value = ""; }
+  };
+  const removeAt = (i) => onChange((media || []).filter((_, k) => k !== i));
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-3">
+        {(media || []).map((url, i) => (
+          <div key={i} className="relative">
+            <img src={url} alt="" className="h-20 w-20 rounded-lg border border-slate-200 object-cover dark:border-slate-700" />
+            <button type="button" onClick={() => removeAt(i)} title="Remove"
+              className="absolute -right-2 -top-2 rounded-full bg-rose-100 p-1 text-rose-600 shadow hover:bg-rose-200 dark:bg-rose-900/40">
+              <X className="h-3.5 w-3.5" />
+            </button>
+            {i === 0 && <span className="absolute bottom-0 left-0 rounded-tr-lg rounded-bl-lg bg-brand-600 px-1.5 py-0.5 text-[9px] font-bold text-white">1st</span>}
+          </div>
+        ))}
+        <label className={`flex h-20 w-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-slate-300 text-xs text-slate-500 hover:border-brand-400 dark:border-slate-600 ${uploading ? "pointer-events-none opacity-60" : ""}`}>
+          {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ImagePlus className="h-5 w-5" />}
+          {uploading ? "Uploading" : "Add image"}
+          <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={pick} disabled={uploading} />
+        </label>
+      </div>
+      <p className="mt-1.5 text-xs text-slate-400">
+        The <b>first</b> image is attached to the post. Instagram needs at least one image; Facebook can post text-only.
+      </p>
+      {err && <p className="mt-1 text-xs text-rose-600">{err}</p>}
+    </div>
+  );
+}
+
 const emptyForm = {
+  kind: "question",
   title: "", source: { subject: null, session: null, quiz: null, label: "" },
+  customText: "", customMedia: [],
   times: ["09:00"], days: [], timezone: "Asia/Kolkata",
   includeOptions: true, includeAnswer: false, includeLink: false, hashtags: "", order: "random",
   stopWhenExhausted: true,
@@ -527,7 +582,9 @@ export default function AdminFacebook() {
 
   const openNew = () => setForm({ ...emptyForm, times: ["09:00"] });
   const openEdit = (s) => setForm({
-    _id: s._id, title: s.title || "", source: s.source || emptyForm.source,
+    _id: s._id, kind: s.kind === "custom" ? "custom" : "question",
+    title: s.title || "", source: s.source || emptyForm.source,
+    customText: s.customText || "", customMedia: Array.isArray(s.customMedia) ? s.customMedia : [],
     times: s.times?.length ? s.times : ["09:00"], days: s.days || [], timezone: s.timezone || "Asia/Kolkata",
     includeOptions: s.includeOptions !== false, includeAnswer: !!s.includeAnswer, includeLink: !!s.includeLink,
     hashtags: s.hashtags || "", order: s.order || "random",
@@ -541,7 +598,17 @@ export default function AdminFacebook() {
   const toggleDay = (v) => setForm((f) => ({ ...f, days: f.days.includes(v) ? f.days.filter((d) => d !== v) : [...f.days, v] }));
 
   const saveForm = async () => {
-    if (!form.source.subject && !form.source.session && !form.source.quiz && !form.source.testSeries) { setError("Pick a source (subject, session or quiz)."); return; }
+    const isCustom = form.kind === "custom";
+    if (isCustom) {
+      if (!String(form.customText || "").trim() && !(form.customMedia || []).length) {
+        setError("Write some text or add an image for the custom post."); return;
+      }
+      if (form.toInstagram && !(form.customMedia || []).length) {
+        setError("Instagram needs an image — add one, or turn off Instagram."); return;
+      }
+    } else if (!form.source.subject && !form.source.session && !form.source.quiz && !form.source.testSeries) {
+      setError("Pick a source (subject, session or quiz)."); return;
+    }
     if (!form.times.filter(Boolean).length) { setError("Add at least one time."); return; }
     if (!form.toFacebook && !form.toInstagram) { setError("Choose at least one destination (Facebook and/or Instagram)."); return; }
     setSaving(true); setError("");
@@ -575,7 +642,7 @@ export default function AdminFacebook() {
     <div className="space-y-6">
       <div>
         <h1 className="flex items-center gap-2 text-2xl font-extrabold"><Facebook className="h-6 w-6 text-[#1877F2]" /> Facebook Auto-Post</h1>
-        <p className="text-slate-500 dark:text-slate-400">Connect your Facebook Page and schedule questions from any topic/quiz to post automatically at set times. Independent of the Notice Board.</p>
+        <p className="text-slate-500 dark:text-slate-400">Connect your Facebook Page and schedule quiz questions — or your own custom text &amp; media posts — to publish automatically at set times. Independent of the Notice Board.</p>
       </div>
 
       {/* Connection */}
@@ -723,15 +790,41 @@ export default function AdminFacebook() {
               <button onClick={() => { setForm(null); setError(""); }}><X className="h-5 w-5" /></button>
             </div>
 
+            {/* Post type: draw a quiz question, or a fixed custom text/media post. */}
+            <p className="mb-1 block text-sm font-semibold">Post type</p>
+            <div className="mb-3 flex gap-2">
+              <button type="button" onClick={() => setForm((f) => ({ ...f, kind: "question" }))}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${form.kind !== "custom" ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"}`}>
+                <ListChecks className="h-3.5 w-3.5" /> Quiz question
+              </button>
+              <button type="button" onClick={() => setForm((f) => ({ ...f, kind: "custom" }))}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${form.kind === "custom" ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"}`}>
+                <FileText className="h-3.5 w-3.5" /> Custom (text / media)
+              </button>
+            </div>
+
             <label className="mb-1 block text-sm font-medium">Title (optional)</label>
-            <input className="input" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="e.g. Daily Accountancy question" />
+            <input className="input" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder={form.kind === "custom" ? "e.g. Weekly announcement" : "e.g. Daily Accountancy question"} />
 
-            <p className="mb-1 mt-4 text-sm font-semibold">Source — where questions come from</p>
-            {form._id && form.source?.label && <p className="mb-2 rounded-lg bg-slate-50 px-3 py-1.5 text-xs text-slate-500 dark:bg-slate-800/60">Current: <b>{form.source.label}</b> — re-pick below to change it.</p>}
-            <SourcePicker onPick={(source) => setForm((f) => ({ ...f, source }))} />
-            {form.source?.label && <p className="mt-2 text-xs text-emerald-600">Selected: {form.source.label}</p>}
+            {form.kind === "custom" ? (
+              <>
+                <label className="mb-1 mt-4 block text-sm font-semibold">Post text</label>
+                <textarea className="input min-h-[110px]" value={form.customText}
+                  onChange={(e) => setForm((f) => ({ ...f, customText: e.target.value }))}
+                  maxLength={5000} placeholder="Write your post caption here…" />
+                <p className="mb-1 mt-4 flex items-center gap-1.5 text-sm font-semibold"><ImagePlus className="h-4 w-4 text-slate-400" /> Media (images)</p>
+                <CustomMediaUploader media={form.customMedia} onChange={(customMedia) => setForm((f) => ({ ...f, customMedia }))} />
+              </>
+            ) : (
+              <>
+                <p className="mb-1 mt-4 text-sm font-semibold">Source — where questions come from</p>
+                {form._id && form.source?.label && <p className="mb-2 rounded-lg bg-slate-50 px-3 py-1.5 text-xs text-slate-500 dark:bg-slate-800/60">Current: <b>{form.source.label}</b> — re-pick below to change it.</p>}
+                <SourcePicker onPick={(source) => setForm((f) => ({ ...f, source }))} />
+                {form.source?.label && <p className="mt-2 text-xs text-emerald-600">Selected: {form.source.label}</p>}
+              </>
+            )}
 
-            <p className="mb-1 mt-4 flex items-center gap-1.5 text-sm font-semibold"><Clock className="h-4 w-4 text-slate-400" /> Times (posts one question at each)</p>
+            <p className="mb-1 mt-4 flex items-center gap-1.5 text-sm font-semibold"><Clock className="h-4 w-4 text-slate-400" /> {form.kind === "custom" ? "Times (posts at each)" : "Times (posts one question at each)"}</p>
             <div className="flex flex-wrap items-center gap-2">
               {form.times.map((t, i) => (
                 <span key={i} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 dark:border-slate-700">
@@ -754,19 +847,23 @@ export default function AdminFacebook() {
                 <label className="mb-1 block text-sm font-medium">Timezone</label>
                 <input className="input" value={form.timezone} onChange={(e) => setForm((f) => ({ ...f, timezone: e.target.value }))} placeholder="Asia/Kolkata" />
               </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium">Order</label>
-                <select className="input" value={form.order} onChange={(e) => setForm((f) => ({ ...f, order: e.target.value }))}>
-                  <option value="random">Random (no repeats until all used)</option>
-                  <option value="sequential">Sequential (oldest first)</option>
-                </select>
-              </div>
+              {form.kind !== "custom" && (
+                <div>
+                  <label className="mb-1 block text-sm font-medium">Order</label>
+                  <select className="input" value={form.order} onChange={(e) => setForm((f) => ({ ...f, order: e.target.value }))}>
+                    <option value="random">Random (no repeats until all used)</option>
+                    <option value="sequential">Sequential (oldest first)</option>
+                  </select>
+                </div>
+              )}
             </div>
 
-            <label className="mt-3 flex items-start gap-2 text-sm">
-              <input type="checkbox" className="mt-0.5 h-4 w-4 accent-brand-600" checked={form.stopWhenExhausted !== false} onChange={(e) => setForm((f) => ({ ...f, stopWhenExhausted: e.target.checked }))} />
-              <span>Stop when every question has been posted <span className="text-slate-400">(don't repeat — the schedule pauses itself and, if enabled, emails you when the whole quiz/source is done)</span></span>
-            </label>
+            {form.kind !== "custom" && (
+              <label className="mt-3 flex items-start gap-2 text-sm">
+                <input type="checkbox" className="mt-0.5 h-4 w-4 accent-brand-600" checked={form.stopWhenExhausted !== false} onChange={(e) => setForm((f) => ({ ...f, stopWhenExhausted: e.target.checked }))} />
+                <span>Stop when every question has been posted <span className="text-slate-400">(don't repeat — the schedule pauses itself and, if enabled, emails you when the whole quiz/source is done)</span></span>
+              </label>
+            )}
 
             <p className="mb-1 mt-4 text-sm font-semibold">Post to</p>
             <div className="flex flex-wrap gap-4">
@@ -776,20 +873,32 @@ export default function AdminFacebook() {
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" className="h-4 w-4 accent-[#E1306C]" checked={form.toInstagram} onChange={(e) => setForm((f) => ({ ...f, toInstagram: e.target.checked }))} /> Instagram <span className="text-slate-400">(image)</span>
               </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={form.asImage} onChange={(e) => setForm((f) => ({ ...f, asImage: e.target.checked }))} /> Post as image on Facebook
-              </label>
-            </div>
-            {form.toInstagram && <p className="mt-1 text-xs text-slate-400">Instagram always posts an image, so a question image is generated automatically.</p>}
-
-            <p className="mb-1 mt-4 text-sm font-semibold">Public Quizzes</p>
-            <div className="flex flex-wrap gap-4">
-              {[["includeOptions", "Show A/B/C/D options"], ["includeAnswer", "Reveal the answer + explanation"], ["includeLink", "Append site link"]].map(([k, l]) => (
-                <label key={k} className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={form[k]} onChange={(e) => setForm((f) => ({ ...f, [k]: e.target.checked }))} /> {l}
+              {form.kind !== "custom" && (
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={form.asImage} onChange={(e) => setForm((f) => ({ ...f, asImage: e.target.checked }))} /> Post as image on Facebook
                 </label>
-              ))}
+              )}
             </div>
+            {form.toInstagram && (
+              <p className="mt-1 text-xs text-slate-400">
+                {form.kind === "custom"
+                  ? "Instagram needs an image — the first uploaded image is used."
+                  : "Instagram always posts an image, so a question image is generated automatically."}
+              </p>
+            )}
+
+            {form.kind !== "custom" && (
+              <>
+                <p className="mb-1 mt-4 text-sm font-semibold">Public Quizzes</p>
+                <div className="flex flex-wrap gap-4">
+                  {[["includeOptions", "Show A/B/C/D options"], ["includeAnswer", "Reveal the answer + explanation"], ["includeLink", "Append site link"]].map(([k, l]) => (
+                    <label key={k} className="flex items-center gap-2 text-sm">
+                      <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={form[k]} onChange={(e) => setForm((f) => ({ ...f, [k]: e.target.checked }))} /> {l}
+                    </label>
+                  ))}
+                </div>
+              </>
+            )}
 
             <label className="mb-1 mt-4 block text-sm font-medium">Hashtags (optional)</label>
             <input className="input" value={form.hashtags} onChange={(e) => setForm((f) => ({ ...f, hashtags: e.target.value }))} placeholder="#GK #JKSSB #Quiz" />
@@ -807,7 +916,7 @@ export default function AdminFacebook() {
           : schedules.length === 0 && !form ? (
             <div className="mt-6 rounded-xl border border-dashed border-slate-200 p-8 text-center dark:border-slate-700">
               <p className="text-sm text-slate-500 dark:text-slate-400">
-                {search ? `No schedules match "${search}".` : "No schedules yet. Create one to auto-post questions at set times."}
+                {search ? `No schedules match "${search}".` : "No schedules yet. Create one to auto-post questions or custom text/media at set times."}
               </p>
             </div>
           ) : (
@@ -818,11 +927,19 @@ export default function AdminFacebook() {
                     <div className="min-w-0">
                       <p className="flex flex-wrap items-center gap-2 font-semibold">
                         <span className={`inline-block h-2 w-2 rounded-full ${s.completedAt ? "bg-emerald-500" : s.enabled ? "bg-emerald-500" : "bg-slate-300"}`} />
-                        {s.title || s.source?.label || "Untitled schedule"}
+                        {s.title || (s.kind === "custom" ? "Custom post" : s.source?.label) || "Untitled schedule"}
+                        {s.kind === "custom" && <span className="rounded-full bg-brand-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">Custom</span>}
                         {s.completedAt && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">Completed</span>}
                         {!s.enabled && !s.completedAt && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">Paused</span>}
                       </p>
-                      <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{s.source?.label || "—"}</p>
+                      <div className="mt-0.5 flex items-center gap-2">
+                        {s.kind === "custom" && Array.isArray(s.customMedia) && s.customMedia[0] && (
+                          <img src={s.customMedia[0]} alt="" className="h-8 w-8 flex-shrink-0 rounded border border-slate-200 object-cover dark:border-slate-700" />
+                        )}
+                        <p className="truncate text-xs text-slate-500 dark:text-slate-400">
+                          {s.kind === "custom" ? (s.customText || "(image only)") : (s.source?.label || "—")}
+                        </p>
+                      </div>
                       <div className="mt-1.5 flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
                         <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" /> {(s.times || []).join(", ") || "—"}</span>
                         <span className="inline-flex items-center gap-1"><CalendarClock className="h-3 w-3" /> {daysLabel(s.days)}</span>

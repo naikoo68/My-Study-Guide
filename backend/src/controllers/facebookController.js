@@ -30,12 +30,20 @@ function postOpts(body = {}) {
 }
 
 // Only the fields an admin may set on a schedule (whitelist).
-function pickScheduleFields(body = {}) {
+// Exported for unit tests (pure, no I/O).
+export function pickScheduleFields(body = {}) {
   const src = body.source || {};
   const cleanId = (v) => (v ? v : null);
+  const kind = body.kind === "custom" ? "custom" : "question";
+  const mode = body.mode === "once" ? "once" : "recurring";
+  // Custom media: keep only well-formed http(s) URLs (from the Cloudinary uploader), max 10.
+  const customMedia = Array.isArray(body.customMedia)
+    ? body.customMedia.map((u) => String(u || "").trim()).filter((u) => /^https?:\/\//i.test(u)).slice(0, 10)
+    : [];
   return {
     title: String(body.title || "").trim(),
     enabled: body.enabled !== false,
+    kind,
     source: {
       label: String(src.label || "").trim(),
       subject: cleanId(src.subject),
@@ -43,6 +51,11 @@ function pickScheduleFields(body = {}) {
       quiz: cleanId(src.quiz),
       testSeries: cleanId(src.testSeries),
     },
+    customText: String(body.customText || "").trim().slice(0, 5000),
+    customMedia,
+    mode,
+    // One-off run time (only meaningful when mode === "once").
+    runAt: mode === "once" && body.runAt && !isNaN(new Date(body.runAt).getTime()) ? new Date(body.runAt) : null,
     times: Array.isArray(body.times)
       ? body.times.map((t) => String(t).trim()).filter((t) => /^\d{1,2}:\d{2}$/.test(t)).slice(0, 20)
       : [],
@@ -58,6 +71,24 @@ function pickScheduleFields(body = {}) {
     toInstagram: !!body.toInstagram,
     asImage: !!body.asImage,
   };
+}
+
+// Shared validation for create/update. Returns an error message string, or "".
+// Exported for unit tests (pure, no I/O).
+export function validateScheduleData(data) {
+  if (data.kind === "custom") {
+    if (!data.customText && !data.customMedia.length) {
+      return "Add some text or upload media for the custom post.";
+    }
+  } else if (!data.source.subject && !data.source.session && !data.source.quiz && !data.source.testSeries) {
+    return "Pick a source (a subject, session, quiz or test) to draw questions from.";
+  }
+  if (data.mode === "once") {
+    if (!data.runAt) return "Pick a valid date & time for the one-off post.";
+  } else if (!data.times.length) {
+    return "Add at least one time (HH:MM).";
+  }
+  return "";
 }
 
 // GET /api/facebook/schedules — list schedules (admin), paginated + searchable.
@@ -84,10 +115,8 @@ export async function listSchedules(req, res) {
 // POST /api/facebook/schedules — create (admin)
 export async function createSchedule(req, res) {
   const data = pickScheduleFields(req.body);
-  if (!data.source.subject && !data.source.session && !data.source.quiz && !data.source.testSeries) {
-    return res.status(400).json({ message: "Pick a source (a subject, session, quiz or test) to draw questions from." });
-  }
-  if (!data.times.length) return res.status(400).json({ message: "Add at least one time (HH:MM)." });
+  const err = validateScheduleData(data);
+  if (err) return res.status(400).json({ message: err });
   const sch = await FbSchedule.create({ ...data, createdBy: req.user?._id || null });
   res.status(201).json(sch);
 }
@@ -95,7 +124,8 @@ export async function createSchedule(req, res) {
 // PUT /api/facebook/schedules/:id — update (admin)
 export async function updateSchedule(req, res) {
   const data = pickScheduleFields(req.body);
-  if (!data.times.length) return res.status(400).json({ message: "Add at least one time (HH:MM)." });
+  const err = validateScheduleData(data);
+  if (err) return res.status(400).json({ message: err });
   const sch = await FbSchedule.findByIdAndUpdate(req.params.id, data, { new: true });
   if (!sch) return res.status(404).json({ message: "Schedule not found." });
   res.json(sch);
