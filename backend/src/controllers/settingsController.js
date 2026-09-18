@@ -109,7 +109,22 @@ function safeSettings(s) {
 
 // GET /api/settings — public (frontend reads this to brand/theme itself)
 export async function getSettings(req, res) {
-  const s = safeSettings(await getOrCreate());
+  const doc = await getOrCreate();
+  // SELF-HEAL a logo corrupted by the old round-trip bug. That bug could store
+  // the logo as its OWN /api/settings/logo proxy URL — a self-referential link
+  // that getLogo must 404 (it can't redirect to itself), so the logo renders as
+  // a permanently BROKEN image (the <img> alt text shows) until someone
+  // re-uploads. If we detect that corrupted value here, clear it: the UI then
+  // falls back to the default icon and the bad value is gone for good. The
+  // original base64 is unrecoverable (the bug overwrote it), so a fresh upload
+  // is still needed to set a logo — but it now saves and sticks cleanly. This
+  // only fires for the corrupted pattern, so healthy logos are untouched, and
+  // once cleared the condition never matches again (a one-time write).
+  if (doc?.logoUrl && /\/api\/settings\/logo(\?|$)/i.test(String(doc.logoUrl))) {
+    doc.logoUrl = "";
+    runUnscoped(() => Settings.updateOne({ _id: doc._id }, { $set: { logoUrl: "" } })).catch(() => {});
+  }
+  const s = safeSettings(doc);
   // A base64 logo can be hundreds of KB. Shipping it inline here — on a payload
   // the frontend fetches on EVERY page load — was a major mobile slowdown.
   // Replace an inline logo with a cacheable /api/settings/logo URL so the heavy
