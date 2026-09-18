@@ -10,7 +10,7 @@
 // Always fetches WITH the answer so the answer side can render. Sets
 // data-card-ready="1" once the question + web fonts (+ template image, in overlay
 // mode) have loaded so the screenshot is never captured half-styled.
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { GraduationCap, BookOpenCheck, CheckCircle2, Eye } from "lucide-react";
 import { contentService } from "../services";
@@ -61,30 +61,46 @@ const SLOTS = {
 };
 
 function Slot({ rect, children }) {
+  const ref = useRef(null);
+  const base = (rect.size || 13) * SX;
+  // AUTO-FIT: shrink the font until the content fits its fixed box (both height
+  // and width), so long questions/explanations never spill out of the box.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let size = base;
+    el.style.fontSize = `${size}px`;
+    let guard = 80;
+    while ((el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1) && size > 7 && guard-- > 0) {
+      size -= 0.5;
+      el.style.fontSize = `${size}px`;
+    }
+  });
   const style = {
     position: "absolute",
     left: rect.left * SX, top: rect.top * SY, width: rect.width * SX, height: rect.height * SY,
-    overflow: "hidden", fontSize: (rect.size || 13) * SX, lineHeight: 1.3, color: rect.color || "#0f172a",
+    overflow: "hidden", fontSize: base, lineHeight: 1.28, color: rect.color || "#0f172a",
     fontWeight: rect.bold ? 700 : 400, display: "flex",
     alignItems: rect.vcenter || rect.center ? "center" : "flex-start",
     justifyContent: rect.center ? "center" : "flex-start",
     textAlign: rect.center ? "center" : "left",
-    ...(rect.pill ? { background: rect.pill, borderRadius: 999, padding: "0 6px" } : {}),
+    ...(rect.pill ? { background: rect.pill, borderRadius: 999, padding: "0 8px" } : {}),
     fontFamily: "Inter, Arial, sans-serif",
   };
-  return <div style={style}>{children}</div>;
+  return <div ref={ref} style={style}>{children}</div>;
 }
 
 function TemplateOverlay({ q, tpl, onImg }) {
   const opts = displayOptions(q) || [];
   const correctIdx = typeof q.correct === "number" ? q.correct : -1;
   const correctText = correctIdx >= 0 ? opts[correctIdx] : "";
+  const subj = q.subjectName || q.topic || "";
   const kp = (Array.isArray(q.keyPoints) ? q.keyPoints : []).map((s) => String(s || "").trim()).filter(Boolean);
   return (
     <div data-card-el style={{ position: "relative", width: TPL_W, height: TPL_H }}>
       <img src={tpl} alt="" onLoad={onImg} onError={onImg}
         style={{ position: "absolute", inset: 0, width: TPL_W, height: TPL_H, objectFit: "contain" }} />
-      {q.subjectName && <Slot rect={SLOTS.subject}>{q.subjectName}</Slot>}
+      {subj && <Slot rect={SLOTS.subject}>{subj}</Slot>}
       {q.difficulty && <Slot rect={SLOTS.difficulty}>{q.difficulty}</Slot>}
       <Slot rect={SLOTS.question}><MathText>{stemText(q)}</MathText></Slot>
       {opts[0] != null && <Slot rect={SLOTS.optA}><OptionContent>{opts[0]}</OptionContent></Slot>}
@@ -92,7 +108,7 @@ function TemplateOverlay({ q, tpl, onImg }) {
       {opts[2] != null && <Slot rect={SLOTS.optC}><OptionContent>{opts[2]}</OptionContent></Slot>}
       {opts[3] != null && <Slot rect={SLOTS.optD}><OptionContent>{opts[3]}</OptionContent></Slot>}
 
-      {q.subjectName && <Slot rect={SLOTS.subjectR}>{q.subjectName}</Slot>}
+      {subj && <Slot rect={SLOTS.subjectR}>{subj}</Slot>}
       {q.difficulty && <Slot rect={SLOTS.difficultyR}>{q.difficulty}</Slot>}
       {correctIdx >= 0 && (
         <Slot rect={SLOTS.correct}>
