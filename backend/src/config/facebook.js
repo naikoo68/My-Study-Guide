@@ -583,11 +583,11 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
 
   if (wantFb) {
     // Always attach the image when a selfie watermark is active (ensures branding on every post).
-    // Question cards render at a VARIABLE height: a plain MCQ is SHORT and WIDE,
-    // so Facebook's portrait-ish feed window center-crops its sides and cuts off
-    // the option letters / start of each line. Pad a wide card onto a portrait
-    // 4:5 canvas so Facebook shows it in FULL (padding never crops; portrait/
-    // square cards — statements, matching — are left untouched). See
+    // A very SHORT/WIDE card (e.g. a plain MCQ) can exceed Facebook's widest
+    // supported ratio (1.91:1) and get its sides cropped in the feed, cutting off
+    // the option letters / start of each line. Pad only such a card DOWN to
+    // 1.91:1 (a tiny white sliver, NOT a tall canvas) so Facebook shows it in
+    // full. Cards already within range are left untouched. See
     // utils/facebookImage.js.
     const fbRawImageUrl = (sch.asImage || selfieWatermarkActive) ? imageUrl : undefined;
     const fbImageUrl = fbRawImageUrl ? toFacebookSafeUrl(fbRawImageUrl) : undefined;

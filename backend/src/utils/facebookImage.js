@@ -1,41 +1,37 @@
-// Facebook's mobile feed displays a single PHOTO inside a PORTRAIT-ish window
-// and center-crops anything that doesn't fit that window to FILL it. Our question
-// cards render at a VARIABLE height (config/cardShot.js screenshots the real
-// /q-card page, whose height grows with the content):
+// Facebook's feed only shows a single PHOTO in FULL when its aspect ratio
+// (width / height) is within the supported range — up to 1.91:1 on the WIDE
+// side. A card that is WIDER than 1.91:1 gets cropped on the sides in the feed
+// (the option letters A/B/C/D and the first characters of each line are cut off).
 //
-//   • Statement / matching / assertion cards carry extra boxes (a statements
-//     list or two columns), so they render TALL/PORTRAIT and sit inside the feed
-//     window — Facebook shows them in FULL.
-//   • A PLAIN MCQ is just a stem + four short options, so it renders SHORT and
-//     WIDE (landscape / near-square). That card is WIDER than the feed window, so
-//     Facebook crops the SIDES to fill it — the option letters (A/B/C/D) and the
-//     first few characters of every line get cut off on the LEFT/RIGHT.
+// Our question cards render at a VARIABLE height (config/cardShot.js screenshots
+// the real /q-card page, whose height grows with content). Most cards —
+// statements, matching, and even normal MCQs — are already within range and
+// must be posted EXACTLY as-is. Only a very SHORT/WIDE card (e.g. a plain MCQ
+// with a one-line stem and four short options) can exceed 1.91:1.
 //
 // Unlike Instagram (which REJECTS out-of-range images with an API error),
-// Facebook happily ACCEPTS any ratio — it just crops it on DISPLAY. So the post
-// succeeds but the plain-MCQ card looks clipped in the feed.
+// Facebook ACCEPTS any ratio — it just crops on DISPLAY. So the post succeeds
+// but an ultra-wide card looks clipped in the feed.
 //
-// Fix: before handing the (Cloudinary-hosted) image to Facebook, pad a wide /
-// short card up to a PORTRAIT canvas so it matches the tall cards Facebook
-// already shows in full. Padding NEVER crops — the whole card stays visible —
-// and because the card background is white the bars blend in. Cards that are
-// already portrait/square are left completely untouched.
+// Fix: pad a too-wide card DOWN to exactly 1.91:1 with white bars, so Facebook
+// shows it in full. We pad only the tiny amount needed to reach 1.91:1 — NOT a
+// tall portrait canvas — so there are no big empty margins. Padding never crops,
+// the card background is white so the sliver blends in, and any card already
+// within range is left completely untouched.
 
-// Widest aspect ratio (width / height) Facebook's mobile feed shows without
-// cropping the sides. Anything wider than this is a landscape/short card that
-// gets side-cropped, so we pad it. Square (1.0) and portrait cards are safe.
-export const FB_MAX_AR = 1.0;
+// Widest aspect ratio (width / height) Facebook's feed shows without cropping.
+// Cards wider than this get padded down to it; everything else is untouched.
+export const FB_MAX_AR = 1.91; // 1.91:1 — Facebook's widest supported ratio
 
-// The portrait canvas we pad a too-wide card onto (4:5 = 0.8) — the same tall
-// shape as the statement/matching cards Facebook already displays in full, and
-// Facebook's own recommended feed ratio. `b_white` fills the bars to match the
-// card background so they're invisible on the white card.
+// Cloudinary conditional transform: pad ONLY when the card is WIDER than 1.91:1,
+// down to a 1.91:1 canvas (`b_white` fills the small bars to match the white
+// card). Otherwise the exact card is delivered.
 //
 // SYNTAX (verified against Cloudinary — see utils/instagramImage.js): the
 // `if_<condition>` MUST be its OWN `/`-separated URL component. Comma-joining it
-// with the guarded transform (`if_ar_gt_1.0,c_pad,…`) makes Cloudinary return
+// with the guarded transform (`if_ar_gt_1.91,c_pad,…`) makes Cloudinary return
 // HTTP 400 (an error page, not an image) and Facebook then fails to fetch it.
-const FB_CONDITIONAL_TRANSFORM = `if_ar_gt_1.0/c_pad,ar_4:5,b_white/if_end`;
+const FB_CONDITIONAL_TRANSFORM = `if_ar_gt_1.91/c_pad,ar_1.91,b_white/if_end`;
 
 // Recognise a Cloudinary delivery URL and split it at `/upload/`.
 //   https://res.cloudinary.com/<cloud>/image/upload/<transforms?>/v123/<public_id>.<fmt>
@@ -43,8 +39,8 @@ const CLOUDINARY_UPLOAD_RE = /^(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/up
 
 // Given ANY image URL, return one whose aspect ratio Facebook's feed shows in
 // FULL. For a Cloudinary URL we inject the CONDITIONAL pad transform (a no-op
-// for portrait/square cards, which deliver at their exact size). Non-Cloudinary
-// URLs and already-processed URLs are returned unchanged.
+// for any card already within range, which delivers at its exact size).
+// Non-Cloudinary URLs and already-processed URLs are returned unchanged.
 export function toFacebookSafeUrl(url) {
   const u = String(url || "").trim();
   if (!u) return u;
@@ -53,17 +49,17 @@ export function toFacebookSafeUrl(url) {
   if (!m) return u; // not a Cloudinary URL — leave it untouched
 
   // Idempotent: if we already inserted our transform, don't stack another one.
-  if (u.includes("if_ar_gt_1.0")) return u;
+  if (u.includes("if_ar_gt_1.91")) return u;
 
   return `${m[1]}${FB_CONDITIONAL_TRANSFORM}/${m[2]}`;
 }
 
 // True when a width/height is already inside Facebook's fully-shown window (i.e.
-// no padding is needed — the card is square or portrait). Exposed for tests and
-// any future caller that knows the exact dimensions up front.
+// no padding is needed — the card is not wider than 1.91:1). Exposed for tests
+// and any future caller that knows the exact dimensions up front.
 export function isFacebookAspectOk(width, height) {
   const w = Number(width), h = Number(height);
   if (!(w > 0) || !(h > 0)) return false;
-  // A tiny epsilon avoids padding an image sitting exactly on the square boundary.
+  // A tiny epsilon avoids padding an image sitting exactly on the boundary.
   return w / h <= FB_MAX_AR + 1e-6;
 }
