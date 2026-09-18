@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { CheckCircle2, Clock, Eye, EyeOff, RefreshCw, Loader2, Wand2, Send, Pencil } from "lucide-react";
+import { CheckCircle2, Clock, Eye, EyeOff, RefreshCw, Loader2, Wand2, Send, Pencil, GraduationCap } from "lucide-react";
 import MathText from "../ui/MathText";
+import FlashcardModal from "../ui/FlashcardModal";
 import OptionContent from "../ui/OptionContent";
 import { questionDateText, stemText, displayOptions } from "../../lib/questions";
 import StatementPairView from "../ui/StatementPairView";
@@ -26,6 +27,7 @@ const toRoman = (n) => ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"][n] || 
 // `extending` toggles its in-progress spinner.
 export default function QuestionView({ q, index, studentView = false, onRegenerate, regenerating = false, onExtend, extending = false, onSchedule, onEdit, onPrev, onNext, position }) {
   const [revealed, setRevealed] = useState(false);
+  const [showFlash, setShowFlash] = useState(false); // per-question flashcard viewer (real template)
   if (!q) return null;
   const showAnswer = !studentView || revealed;
 
@@ -125,8 +127,22 @@ export default function QuestionView({ q, index, studentView = false, onRegenera
           "View all"). Extend enriches the explanation (with an optional
           fix-options popup); Regenerate rebuilds options/answer to fit the
           stem (fixes wrong-format questions). */}
-      {(onExtend || onRegenerate || onSchedule || onEdit) && (
+      {(showAnswer || onExtend || onRegenerate || onSchedule || onEdit) && (
         <div className="mt-3 flex flex-wrap gap-2">
+          {/* Per-question FLASHCARD viewer — the real card on the admin's
+              uploaded template (falls back to the built-in design). Available
+              everywhere QuestionView renders. Gated on showAnswer so it never
+              leaks the answer in a student's pre-reveal view. */}
+          {showAnswer && (
+            <button
+              type="button"
+              onClick={() => setShowFlash(true)}
+              title="View this question as a flashcard on your real template"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-600 transition hover:bg-emerald-50 dark:border-emerald-900/50 dark:text-emerald-300 dark:hover:bg-emerald-900/30"
+            >
+              <GraduationCap className="h-3.5 w-3.5" /> Flashcard
+            </button>
+          )}
           {onEdit && (
             <button
               type="button"
@@ -171,6 +187,10 @@ export default function QuestionView({ q, index, studentView = false, onRegenera
           )}
         </div>
       )}
+
+      {/* The flashcard itself — same renderer as the Facebook/Instagram
+          auto-post, on the uploaded template when one is set. */}
+      {showFlash && <FlashcardModal q={q} onClose={() => setShowFlash(false)} />}
     </div>
   );
 }
