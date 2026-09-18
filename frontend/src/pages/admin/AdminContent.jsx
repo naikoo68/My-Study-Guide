@@ -26,6 +26,8 @@ import { useAiModal } from "../../context/AiModalContext";
 import ExtendExplanationsModal from "../../components/admin/ExtendExplanationsModal";
 import ExtendOneQuestionModal from "../../components/admin/ExtendOneQuestionModal";
 import RegenerateAllModal from "../../components/admin/RegenerateAllModal";
+import IncompleteQuestionsModal from "../../components/admin/IncompleteQuestionsModal";
+import FlashcardDetailsModal from "../../components/admin/FlashcardDetailsModal";
 import RegenerateOneModal from "../../components/admin/RegenerateOneModal";
 import ScheduleQuestionModal from "../../components/admin/ScheduleQuestionModal";
 import RecycleBinModal from "../../components/admin/RecycleBinModal";
@@ -108,6 +110,8 @@ export default function AdminContent() {
   const [scheduleQ, setScheduleQ] = useState(null); // question to post/schedule to Facebook
   const [extendingQId, setExtendingQId] = useState(null); // per-question extend in progress
   const [extendOneItem, setExtendOneItem] = useState(null); // per-question extend confirm modal target
+  const [incompleteOpen, setIncompleteOpen] = useState(false); // "Find incomplete questions" modal
+  const [flashcardOpen, setFlashcardOpen] = useState(false); // "Flashcard details" editor modal
   const [regenId] = useState(null); // legacy inline spinner id — regenerate now runs in RegenerateOneModal
   const [regenOneItem, setRegenOneItem] = useState(null); // per-question regenerate dialog target
   const [dupOpen, setDupOpen] = useState(false);
@@ -1246,6 +1250,12 @@ export default function AdminContent() {
               <button onClick={() => setRegenAllOpen(true)} disabled={!items.length} className="btn-outline text-violet-600" title="AI: regenerate every question's options/answer (reshuffles pair/matching Column B)">
                 <RefreshCw className="h-4 w-4" /> Regenerate All
               </button>
+              <button onClick={() => setIncompleteOpen(true)} disabled={!items.length} className="btn-outline text-amber-600" title="Find questions missing options / correct answer / columns / statements / tables / diagram etc.">
+                <ScanSearch className="h-4 w-4" /> Find Incomplete
+              </button>
+              <button onClick={() => setFlashcardOpen(true)} disabled={!items.length} className="btn-outline text-emerald-600" title="Add or update Key Points, Quick Recall & Explanation for each question">
+                <ClipboardList className="h-4 w-4" /> Flashcard Details
+              </button>
               <button onClick={() => copyCsv(selected.length ? items.filter((q) => selected.includes(q._id)) : items)} disabled={!items.length} className="btn-outline">
                 <Copy className="h-4 w-4" /> Copy CSV{selected.length ? ` (${selected.length})` : ""}
               </button>
@@ -1922,6 +1932,22 @@ export default function AdminContent() {
         onClose={() => setExtendOpen(false)}
         onDone={() => load("questions")}
       />
+
+      {incompleteOpen && quiz && (
+        <IncompleteQuestionsModal
+          title={quiz.title}
+          loadQuestions={() => contentService.quizQuestions(quiz._id)}
+          onEdit={(qq) => { setIncompleteOpen(false); openEdit(qq); }}
+          onClose={() => setIncompleteOpen(false)}
+        />
+      )}
+      {flashcardOpen && quiz && (
+        <FlashcardDetailsModal
+          title={quiz.title}
+          loadQuestions={() => contentService.quizQuestions(quiz._id)}
+          onClose={() => setFlashcardOpen(false)}
+        />
+      )}
 
       <RegenerateAllModal
         open={regenAllOpen}
