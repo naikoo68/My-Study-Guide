@@ -27,6 +27,7 @@ import {
   Search,
   Eye,
   Download,
+  Layers,
 } from "lucide-react";
 import { practiceService, testService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
@@ -40,6 +41,7 @@ import GraphView from "../../components/ui/GraphView";
 import VizView from "../../components/ui/VizView";
 import AssertionReasonView from "../../components/ui/AssertionReasonView";
 import FlashcardAnswer from "../../components/ui/FlashcardAnswer";
+import FlashcardModal from "../../components/ui/FlashcardModal";
 import Watermark from "../../components/ui/Watermark";
 import FeedbackButton from "../../components/ui/FeedbackButton";
 import { useZoom } from "../../context/ZoomContext";
@@ -104,6 +106,7 @@ export default function PracticeQuizPlay() {
   })();
 
   const [questions, setQuestions] = useState([]);
+  const [flashcardQ, setFlashcardQ] = useState(null); // question shown in the flashcard viewer
   const [title, setTitle] = useState("Practice Quiz");
   const [trail, setTrail] = useState([]); // Stream › [Exam] › Subject › Topic › Quiz (breadcrumb text)
   const [views, setViews] = useState(0); // total times this quiz was opened (shown to users)
@@ -489,6 +492,11 @@ export default function PracticeQuizPlay() {
                   </div>
 
                   <FlashcardAnswer q={q} />
+                  <div data-noexport="1" className="mt-3">
+                    <button onClick={() => setFlashcardQ(q)} className="btn-outline text-brand-600">
+                      <Layers className="h-4 w-4" /> Flashcard
+                    </button>
+                  </div>
                 </div>
               );
             })}
@@ -821,6 +829,14 @@ export default function PracticeQuizPlay() {
 
           {locked && <FlashcardAnswer q={q} />}
 
+          {locked && (
+            <div data-noexport="1" className="mt-4">
+              <button onClick={() => setFlashcardQ(q)} className="btn-outline text-brand-600">
+                <Layers className="h-4 w-4" /> Flashcard
+              </button>
+            </div>
+          )}
+
           <div data-noexport="1" className="mt-6 flex items-center justify-between">
             <button onClick={prev} disabled={current === 0} className="btn-outline">
               <ChevronLeft className="h-4 w-4" /> Previous
@@ -870,6 +886,8 @@ export default function PracticeQuizPlay() {
           </div>
         </div>
       )}
+
+      {flashcardQ && <FlashcardModal q={flashcardQ} onClose={() => setFlashcardQ(null)} />}
     </div>
   );
 }

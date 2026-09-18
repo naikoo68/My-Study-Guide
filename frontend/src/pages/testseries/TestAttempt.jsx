@@ -22,6 +22,7 @@ import {
   LogOut,
   Mail,
   Eye,
+  Layers,
 } from "lucide-react";
 import { testService, cbtService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
@@ -35,6 +36,7 @@ import GraphView from "../../components/ui/GraphView";
 import AssertionReasonView from "../../components/ui/AssertionReasonView";
 import Watermark from "../../components/ui/Watermark";
 import FeedbackButton from "../../components/ui/FeedbackButton";
+import FlashcardModal from "../../components/ui/FlashcardModal";
 import { useZoom } from "../../context/ZoomContext";
 import { questionDateText, searchQuestions, stemText, displayOptions } from "../../lib/questions";
 import { shuffleAll, shuffleQuestion, shuffleQuestionOrder, toOriginalIndex, toDisplayIndex, makeSeed } from "../../lib/shuffleOptions";
@@ -138,6 +140,7 @@ export default function TestAttempt() {
   const [result, setResult] = useState(null);
   const [showReview, setShowReview] = useState(false);
   const [reviewSearch, setReviewSearch] = useState("");
+  const [flashcardQ, setFlashcardQ] = useState(null); // question shown in the flashcard viewer
   const [submitting, setSubmitting] = useState(false);
   const [seed] = useState(makeSeed()); // per-attempt option shuffle
   const [candidate, setCandidate] = useState(null); // CBT: { name, email } (sign-in gate)
@@ -567,12 +570,19 @@ export default function TestAttempt() {
                       <MathText>{r.explanation}</MathText>
                     </div>
                   )}
+                  <div className="mt-3">
+                    <button onClick={() => setFlashcardQ(r)} className="btn-outline text-brand-600">
+                      <Layers className="h-4 w-4" /> Flashcard
+                    </button>
+                  </div>
                 </div>
                 );
               })}
             </div>
           )}
         </div>
+
+        {flashcardQ && <FlashcardModal q={flashcardQ} onClose={() => setFlashcardQ(null)} />}
       </div>
     );
   }
