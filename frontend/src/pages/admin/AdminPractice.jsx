@@ -1013,6 +1013,29 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
       setDelProgress(null);
     }
   };
+  // Bulk-delete the TICKED questions (the "Select all" / per-question checkboxes).
+  const deleteSelectedQ = async () => {
+    if (delProgress || !qItem || !selQ.size) return;
+    const ids = [...selQ];
+    if (!window.confirm(`Delete ${ids.length} selected question(s)? This cannot be undone.`)) return;
+    const before = tq.length;
+    setDelProgress({ total: ids.length, done: 0 });
+    try {
+      let done = 0;
+      for (const id of ids) {
+        await testService.deleteQuestion(qItem._id, id);
+        setDelProgress({ total: ids.length, done: ++done });
+      }
+      setSelQ(new Set());
+      await reloadTq();
+      load("items");
+      setDelProgress({ total: ids.length, done: ids.length, finished: true, remaining: Math.max(0, before - ids.length) });
+      setTimeout(() => setDelProgress(null), 5000);
+    } catch (e) {
+      setError(e.message);
+      setDelProgress(null);
+    }
+  };
   // CSV helpers now receive the exact list of questions to export.
   const copyCsv = async (list) => {
     if (!list?.length) return;
@@ -1563,6 +1586,9 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
                     </button>
                     <button type="button" onClick={() => openMove(selQ)} disabled={!selQ.size} className="btn-primary py-1 text-xs disabled:opacity-50">
                       <ArrowRightLeft className="h-3.5 w-3.5" /> Move selected…
+                    </button>
+                    <button type="button" onClick={deleteSelectedQ} disabled={!selQ.size || !!delProgress} className="btn-outline py-1 text-xs text-rose-600 disabled:opacity-50" title="Delete the selected questions (cannot be undone)">
+                      <Trash2 className="h-3.5 w-3.5" /> Delete selected
                     </button>
                   </span>
                 </div>
