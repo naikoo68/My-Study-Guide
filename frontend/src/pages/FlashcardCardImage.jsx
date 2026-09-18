@@ -24,7 +24,7 @@ import GraphView from "../components/ui/GraphView";
 import VizView from "../components/ui/VizView";
 import AssertionReasonView from "../components/ui/AssertionReasonView";
 import FlashcardAnswer from "../components/ui/FlashcardAnswer";
-import { stemText, displayOptions } from "../lib/questions";
+import { stemText, displayOptions, normalizeColumn } from "../lib/questions";
 
 const optionLabels = ["A", "B", "C", "D", "E", "F"];
 const pill = "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold";
@@ -53,11 +53,11 @@ function FrontContent({ q }) {
         <div className="mt-3 grid grid-cols-2 gap-3">
           <div className="rounded-xl border border-slate-200 p-2.5">
             <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-brand-600">Column A</p>
-            <div className="space-y-1.5">{(q.columnA || []).map((item, i) => (<div key={i} className="flex items-start gap-1.5 text-xs"><span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-brand-100 text-[10px] font-bold text-brand-700">{i + 1}</span><MathText>{item}</MathText></div>))}</div>
+            <div className="space-y-1.5">{normalizeColumn(q.columnA).map((item, i) => (<div key={i} className="flex items-start gap-1.5 text-xs"><span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-brand-100 text-[10px] font-bold text-brand-700">{i + 1}</span><MathText>{item}</MathText></div>))}</div>
           </div>
           <div className="rounded-xl border border-slate-200 p-2.5">
             <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-accent-600">Column B</p>
-            <div className="space-y-1.5">{(q.columnB || []).map((item, i) => (<div key={i} className="flex items-start gap-1.5 text-xs"><span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-accent-100 text-[10px] font-bold text-accent-700">{toRoman(i + 1)}</span><MathText>{item}</MathText></div>))}</div>
+            <div className="space-y-1.5">{normalizeColumn(q.columnB).map((item, i) => (<div key={i} className="flex items-start gap-1.5 text-xs"><span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-accent-100 text-[10px] font-bold text-accent-700">{toRoman(i + 1)}</span><MathText>{item}</MathText></div>))}</div>
           </div>
         </div>
       )}
