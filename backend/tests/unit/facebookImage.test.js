@@ -6,11 +6,12 @@ import {
 } from "../../src/utils/facebookImage.js";
 
 const CLOUD = "https://res.cloudinary.com/demo/image/upload";
-// The injected chain: pad ONLY when the card is WIDER than square (>1:1), onto a
-// portrait 4:5 canvas so Facebook's feed shows it in full. A portrait/square
-// card is a no-op at delivery (exact card served). NOTE: the `if_` condition is
-// its OWN `/`-separated component — the comma-joined form makes Cloudinary 400.
-const TRANSFORM = "if_ar_gt_1.0/c_pad,ar_4:5,b_white/if_end";
+// The injected chain: pad ONLY when the card is WIDER than 1.91:1, down to a
+// 1.91:1 canvas (a tiny white sliver) so Facebook shows it in full. Any card
+// already within range is a no-op at delivery (exact card served). NOTE: the
+// `if_` condition is its OWN `/`-separated component — the comma-joined form
+// makes Cloudinary 400.
+const TRANSFORM = "if_ar_gt_1.91/c_pad,ar_1.91,b_white/if_end";
 
 describe("toFacebookSafeUrl", () => {
   it("injects the conditional pad transform into a plain Cloudinary URL", () => {
@@ -29,17 +30,26 @@ describe("toFacebookSafeUrl", () => {
     expect(out).not.toContain("f_jpg");
   });
 
-  it("keeps the if_ condition as its OWN component (never comma-joined)", () => {
-    // Regression guard: `if_ar_gt_1.0,c_pad` makes Cloudinary 400 and Facebook
-    // then can't fetch the image. The condition must be followed by `/`.
+  it("only pads WIDE cards — never adds a tall portrait canvas / big bars", () => {
+    // Regression guard for the bad first attempt (padded to 4:5, which stuffed
+    // short cards into a tall canvas with huge white margins).
     const out = toFacebookSafeUrl(`${CLOUD}/v1/card.png`);
-    expect(out).toContain("if_ar_gt_1.0/c_pad");
-    expect(out).not.toMatch(/if_ar_gt_1\.0,/);
+    expect(out).toContain("ar_1.91");
+    expect(out).not.toContain("ar_4:5");
+    expect(out).not.toContain("ar_1:1");
   });
 
-  it("only pads conditionally — a portrait/square card is a no-op at delivery", () => {
+  it("keeps the if_ condition as its OWN component (never comma-joined)", () => {
+    // Regression guard: `if_ar_gt_1.91,c_pad` makes Cloudinary 400 and Facebook
+    // then can't fetch the image. The condition must be followed by `/`.
     const out = toFacebookSafeUrl(`${CLOUD}/v1/card.png`);
-    expect(out).toContain("if_ar_gt_1.0");
+    expect(out).toContain("if_ar_gt_1.91/c_pad");
+    expect(out).not.toMatch(/if_ar_gt_1\.91,/);
+  });
+
+  it("only pads conditionally — an in-range card is a no-op at delivery", () => {
+    const out = toFacebookSafeUrl(`${CLOUD}/v1/card.png`);
+    expect(out).toContain("if_ar_gt_1.91");
     expect(out).toContain("if_end");
   });
 
@@ -47,7 +57,7 @@ describe("toFacebookSafeUrl", () => {
     const once = toFacebookSafeUrl(`${CLOUD}/v123/card.png`);
     const twice = toFacebookSafeUrl(once);
     expect(twice).toBe(once);
-    expect(twice.match(/if_ar_gt_1\.0/g)).toHaveLength(1);
+    expect(twice.match(/if_ar_gt_1\.91/g)).toHaveLength(1);
   });
 
   it("leaves non-Cloudinary URLs untouched", () => {
@@ -61,8 +71,8 @@ describe("toFacebookSafeUrl", () => {
     expect(toFacebookSafeUrl(undefined)).toBe("");
   });
 
-  it("targets the square boundary as the widest fully-shown ratio", () => {
-    expect(FB_MAX_AR).toBeCloseTo(1.0, 5);
+  it("targets Facebook's widest supported ratio (1.91:1)", () => {
+    expect(FB_MAX_AR).toBeCloseTo(1.91, 5);
   });
 });
 
@@ -75,13 +85,18 @@ describe("isFacebookAspectOk", () => {
     expect(isFacebookAspectOk(1080, 1350)).toBe(true);
   });
 
-  it("rejects a wide/short plain-MCQ card (the real bug)", () => {
-    // A short MCQ card: ~1040 wide, 700 tall -> 1.49, wider than square.
-    expect(isFacebookAspectOk(1040, 700)).toBe(false);
+  it("accepts a normal landscape-ish MCQ card (in range — NOT padded)", () => {
+    // A card that is landscape but within 1.91:1 must be delivered untouched
+    // (no white bars added).
+    expect(isFacebookAspectOk(1040, 700)).toBe(true); // 1.49:1
   });
 
-  it("rejects a landscape banner", () => {
-    expect(isFacebookAspectOk(1200, 630)).toBe(false);
+  it("accepts the 1.91:1 boundary", () => {
+    expect(isFacebookAspectOk(1910, 1000)).toBe(true);
+  });
+
+  it("rejects an ultra-wide/short card (the real bug — wider than 1.91:1)", () => {
+    expect(isFacebookAspectOk(1040, 430)).toBe(false); // ~2.42:1
   });
 
   it("rejects invalid dimensions", () => {
