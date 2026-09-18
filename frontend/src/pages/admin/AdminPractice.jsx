@@ -1337,6 +1337,8 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
         <IncompleteQuestionsModal
           title={cardIncomplete.name || cardIncomplete.title}
           loadQuestions={() => testService.getQuestions(cardIncomplete._id)}
+          deleteQuestion={(id) => testService.deleteQuestion(cardIncomplete._id, id)}
+          onChange={() => load("items")}
           onClose={() => setCardIncomplete(null)}
         />
       )}

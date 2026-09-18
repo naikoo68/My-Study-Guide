@@ -1946,6 +1946,8 @@ export default function AdminContent() {
           title={quiz.title}
           loadQuestions={() => contentService.quizQuestions(quiz._id)}
           onEdit={(qq) => { setIncompleteOpen(false); openEdit(qq); }}
+          deleteQuestion={(id) => contentService.deleteQuestion(id)}
+          onChange={() => load("questions")}
           onClose={() => setIncompleteOpen(false)}
         />
       )}
@@ -1962,6 +1964,8 @@ export default function AdminContent() {
           title={cardIncomplete.title || cardIncomplete.name}
           loadQuestions={() => contentService.quizQuestions(cardIncomplete._id)}
           onEdit={(qq) => { setCardIncomplete(null); openEdit(qq); }}
+          deleteQuestion={(id) => contentService.deleteQuestion(id)}
+          onChange={() => load("quizzes")}
           onClose={() => setCardIncomplete(null)}
         />
       )}

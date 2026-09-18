@@ -445,6 +445,7 @@ export default function ManageTestQuestions({
           title={qTest?.name || qTest?.title}
           loadQuestions={() => tq}
           onEdit={onEditQuestion ? (qq) => { setIncompleteOpen(false); onEditQuestion(qq); } : undefined}
+          deleteQuestion={onDeleteSelected ? (id) => onDeleteSelected([id]) : undefined}
           onClose={() => setIncompleteOpen(false)}
         />
       )}
