@@ -17,6 +17,7 @@ import {
   Award,
   Search,
   X,
+  Layers,
 } from "lucide-react";
 import PaperExport from "../../components/admin/PaperExport";
 import StatCard from "../../components/ui/StatCard";
@@ -28,6 +29,7 @@ import GraphView from "../../components/ui/GraphView";
 import AssertionReasonView from "../../components/ui/AssertionReasonView";
 import Watermark from "../../components/ui/Watermark";
 import FeedbackButton from "../../components/ui/FeedbackButton";
+import FlashcardModal from "../../components/ui/FlashcardModal";
 import { questionDateText, searchQuestions, stemText, displayOptions } from "../../lib/questions";
 
 function toRomanLite(n) {
@@ -45,6 +47,7 @@ export default function QuizResult() {
   const { subjectId, topicId, sessionId, quizId } = useParams();
   const [showReview, setShowReview] = useState(false);
   const [reviewSearch, setReviewSearch] = useState("");
+  const [flashcardQ, setFlashcardQ] = useState(null); // question shown in the flashcard viewer
 
   if (!state) {
     // Direct visit without a submission — redirect back.
@@ -312,6 +315,11 @@ export default function QuizResult() {
                     <span className="font-semibold">Explanation: </span>
                     <MathText>{r.explanation}</MathText>
                   </div>
+                  <div className="mt-3">
+                    <button onClick={() => setFlashcardQ(r)} className="btn-outline text-brand-600">
+                      <Layers className="h-4 w-4" /> Flashcard
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -319,6 +327,8 @@ export default function QuizResult() {
           })}
         </div>
       )}
+
+      {flashcardQ && <FlashcardModal q={flashcardQ} onClose={() => setFlashcardQ(null)} />}
     </div>
   );
 }

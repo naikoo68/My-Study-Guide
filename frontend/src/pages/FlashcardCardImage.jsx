@@ -39,7 +39,7 @@ const subjectOf = (q) => q.subjectName || q.topic || "";
 // ---- Shared panel content (used by BOTH the built-in card and the template
 //      overlay). No header/footer here — those come from the card frame / the
 //      uploaded template image. -----------------------------------------------
-function FrontContent({ q }) {
+export function FrontContent({ q }) {
   const isMatching = q?.type === "matching";
   const subj = subjectOf(q);
   return (
