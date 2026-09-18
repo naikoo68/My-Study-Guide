@@ -520,9 +520,11 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
   const wantIg = !!sch.toInstagram && cfg.igEnabled;
   if (!wantFb && !wantIg) return { ok: false, error: "No destination selected (enable Facebook and/or Instagram)." };
 
-  // Build the message: the admin's text, plus any trailing hashtags on the schedule.
+  // Build the message: the admin's text, plus hashtags. Apply the site-wide
+  // Default hashtags (+ this schedule's own), exactly like question posts — a
+  // custom post has no question, so there are no auto subject/topic tags.
   const text = String(sch.customText || "").trim();
-  const tags = String(sch.hashtags || "").trim();
+  const tags = await hashtagsForQuestion(null, site, sch.hashtags);
   const message = [text, tags].filter(Boolean).join("\n\n").slice(0, 5000);
   const media = (Array.isArray(sch.customMedia) ? sch.customMedia : []).map((u) => String(u || "").trim()).filter(Boolean);
   const rawImageUrl = media[0] || "";
