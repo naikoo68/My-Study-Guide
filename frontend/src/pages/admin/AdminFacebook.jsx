@@ -457,11 +457,11 @@ function CustomMediaUploader({ media, onChange }) {
         if (file.size > 10 * 1024 * 1024) { setErr("Each image must be under 10MB."); continue; }
         setBatch({ i: idx + 1, n: files.length });
         setPhase("uploading"); setProgress(0);
-        const r = await uploadService.fileWithProgress(file, (p) => {
+        // Direct browser → Cloudinary upload: fast, accurate progress, and it
+        // can't hit the server's request timeout ("Cannot reach the server").
+        const r = await uploadService.imageDirect(file, (p) => {
           setProgress(p);
-          // Once the browser→server transfer completes, the server is still
-          // relaying the file to Cloudinary — show a "processing" state.
-          if (p >= 100) setPhase("processing");
+          if (p >= 100) setPhase("processing"); // Cloudinary finalising
         });
         if (r?.url) urls.push(r.url);
       }
