@@ -3,6 +3,7 @@ import Question from "../models/Question.js";
 import Settings from "../models/Settings.js";
 import { runScheduleOnce, getFacebookConfig, hashtagsForQuestion } from "../config/facebook.js";
 import { renderQuestionImage } from "../config/socialImage.js";
+import { renderQuestionCardShot } from "../config/cardShot.js";
 
 // GET /api/facebook/suggest-tags/:id — hashtags for one question (global default
 // + auto tags from its subject/topic/section). Used to pre-fill the post modal.
@@ -180,12 +181,45 @@ export async function previewQuestionImage(req, res) {
   if (!questionId) return res.status(400).json({ message: "Missing questionId." });
   const q = await Question.findById(questionId).lean();
   if (!q) return res.status(404).json({ message: "Question not found." });
+
+  const includeAnswer = !!req.body.includeAnswer;
+  const hashtags = String(req.body.hashtags || "").trim();
+
+  // Preview the SAME image that actually gets posted: a screenshot of the REAL
+  // /q-card page (pixel-identical to the on-screen quiz card and to what the
+  // auto-post schedule posts), with the same selfie/text watermarks baked in.
+  // Fall back to the lightweight SVG card ONLY if the headless screenshot is
+  // unavailable, so the preview never simply fails.
+  const site = await Settings.findOne({ key: "site" }).lean().catch(() => null);
+  const selfieOn = site?.fbSelfieWatermarkEnabled !== false && !!site?.fbSelfieWatermarkUrl;
+  const textWmText = String(site?.fbTextWatermarkText || site?.watermarkText || site?.siteName || "").trim();
+  const textOn = site?.fbTextWatermarkEnabled === true && !!textWmText;
+
+  const shot = await renderQuestionCardShot(q, {
+    includeAnswer,
+    cta: !includeAnswer, // "Comment your answer!" when the answer is hidden — mirrors the post
+    watermark: selfieOn
+      ? {
+          url: site.fbSelfieWatermarkUrl,
+          size: site.fbSelfieWatermarkSize || 120,
+          opacity: site.fbSelfieWatermarkOpacity || 90,
+          position: site.fbSelfieWatermarkPosition || "bottom-right",
+          shape: site.fbSelfieWatermarkShape || "circle",
+        }
+      : null,
+    textWatermark: textOn
+      ? { text: textWmText, size: site.fbTextWatermarkSize || 64, opacity: site.fbTextWatermarkOpacity || 12 }
+      : null,
+  }).catch((e) => ({ error: e?.message || String(e) }));
+  if (shot?.url) return res.json({ url: shot.url });
+
+  // Fallback: server-drawn SVG card (also honours the "Show options" toggle).
   const r = await renderQuestionImage(q, {
     includeOptions: req.body.includeOptions !== false,
-    includeAnswer: !!req.body.includeAnswer,
-    hashtags: String(req.body.hashtags || "").trim(),
+    includeAnswer,
+    hashtags,
   });
-  if (!r.url) return res.status(502).json({ message: r.error || "Could not generate the image." });
+  if (!r.url) return res.status(502).json({ message: r.error || shot?.error || "Could not generate the image." });
   res.json({ url: r.url });
 }
 
