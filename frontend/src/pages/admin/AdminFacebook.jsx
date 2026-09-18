@@ -511,8 +511,17 @@ function CustomMediaUploader({ media, onChange }) {
   );
 }
 
+// Format a Date/ms into the value a <input type="datetime-local"> expects
+// ("YYYY-MM-DDTHH:MM", in the browser's local time).
+const pad2 = (n) => String(n).padStart(2, "0");
+const toLocalInput = (d) => {
+  const x = new Date(d);
+  return `${x.getFullYear()}-${pad2(x.getMonth() + 1)}-${pad2(x.getDate())}T${pad2(x.getHours())}:${pad2(x.getMinutes())}`;
+};
+
 const emptyForm = {
   kind: "question",
+  mode: "recurring", runAt: "", // one-off (mode "once") uses runAt; recurring uses times/days
   title: "", source: { subject: null, session: null, quiz: null, label: "" },
   customText: "", customMedia: [],
   times: ["09:00"], days: [], timezone: "Asia/Kolkata",
@@ -607,6 +616,8 @@ export default function AdminFacebook() {
   const openNew = () => setForm({ ...emptyForm, times: ["09:00"] });
   const openEdit = (s) => setForm({
     _id: s._id, kind: s.kind === "custom" ? "custom" : "question",
+    mode: s.mode === "once" ? "once" : "recurring",
+    runAt: s.runAt ? toLocalInput(s.runAt) : "",
     title: s.title || "", source: s.source || emptyForm.source,
     customText: s.customText || "", customMedia: Array.isArray(s.customMedia) ? s.customMedia : [],
     times: s.times?.length ? s.times : ["09:00"], days: s.days || [], timezone: s.timezone || "Asia/Kolkata",
@@ -633,11 +644,19 @@ export default function AdminFacebook() {
     } else if (!form.source.subject && !form.source.session && !form.source.quiz && !form.source.testSeries) {
       setError("Pick a source (subject, session or quiz)."); return;
     }
-    if (!form.times.filter(Boolean).length) { setError("Add at least one time."); return; }
+    const isOnce = form.mode === "once";
+    if (isOnce) {
+      if (!form.runAt) { setError("Pick a date & time for the one-time post."); return; }
+    } else if (!form.times.filter(Boolean).length) { setError("Add at least one time."); return; }
     if (!form.toFacebook && !form.toInstagram) { setError("Choose at least one destination (Facebook and/or Instagram)."); return; }
     setSaving(true); setError("");
     try {
-      const payload = { ...form, times: form.times.filter(Boolean) };
+      const payload = {
+        ...form,
+        times: form.times.filter(Boolean),
+        mode: isOnce ? "once" : "recurring",
+        runAt: isOnce && form.runAt ? new Date(form.runAt).toISOString() : null,
+      };
       if (form._id) await facebookService.update(form._id, payload);
       else await facebookService.create(payload);
       setForm(null); load();
@@ -817,11 +836,11 @@ export default function AdminFacebook() {
             {/* Post type: draw a quiz question, or a fixed custom text/media post. */}
             <p className="mb-1 block text-sm font-semibold">Post type</p>
             <div className="mb-3 flex gap-2">
-              <button type="button" onClick={() => setForm((f) => ({ ...f, kind: "question" }))}
+              <button type="button" onClick={() => setForm((f) => ({ ...f, kind: "question", mode: "recurring" }))}
                 className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${form.kind !== "custom" ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"}`}>
                 <ListChecks className="h-3.5 w-3.5" /> Quiz question
               </button>
-              <button type="button" onClick={() => setForm((f) => ({ ...f, kind: "custom" }))}
+              <button type="button" onClick={() => setForm((f) => ({ ...f, kind: "custom", mode: "once", runAt: f.runAt || toLocalInput(Date.now() + 10 * 60000) }))}
                 className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${form.kind === "custom" ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"}`}>
                 <FileText className="h-3.5 w-3.5" /> Custom (text / media)
               </button>
@@ -838,6 +857,15 @@ export default function AdminFacebook() {
                   maxLength={5000} placeholder="Write your post caption here…" />
                 <p className="mb-1 mt-4 flex items-center gap-1.5 text-sm font-semibold"><ImagePlus className="h-4 w-4 text-slate-400" /> Media (images)</p>
                 <CustomMediaUploader media={form.customMedia} onChange={(customMedia) => setForm((f) => ({ ...f, customMedia }))} />
+
+                <label className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
+                  <span className="text-sm font-medium">Post one time only <span className="font-normal text-slate-400">(don't repeat — publishes once at the time you set)</span></span>
+                  <button type="button"
+                    onClick={() => setForm((f) => ({ ...f, mode: f.mode === "once" ? "recurring" : "once", runAt: f.mode === "once" ? f.runAt : (f.runAt || toLocalInput(Date.now() + 10 * 60000)) }))}
+                    className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${form.mode === "once" ? "bg-[#1877F2]" : "bg-slate-300 dark:bg-slate-600"}`}>
+                    <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${form.mode === "once" ? "left-6" : "left-1"}`} />
+                  </button>
+                </label>
               </>
             ) : (
               <>
@@ -848,23 +876,33 @@ export default function AdminFacebook() {
               </>
             )}
 
-            <p className="mb-1 mt-4 flex items-center gap-1.5 text-sm font-semibold"><Clock className="h-4 w-4 text-slate-400" /> {form.kind === "custom" ? "Times (posts at each)" : "Times (posts one question at each)"}</p>
-            <div className="flex flex-wrap items-center gap-2">
-              {form.times.map((t, i) => (
-                <span key={i} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 dark:border-slate-700">
-                  <input type="time" value={t} onChange={(e) => setTime(i, e.target.value)} className="bg-transparent text-sm outline-none" />
-                  {form.times.length > 1 && <button onClick={() => removeTime(i)} className="text-slate-400 hover:text-rose-600"><X className="h-3.5 w-3.5" /></button>}
-                </span>
-              ))}
-              <button onClick={addTime} className="btn-outline !py-1 !text-xs"><Plus className="h-3.5 w-3.5" /> Add time</button>
-            </div>
+            {form.mode === "once" ? (
+              <>
+                <p className="mb-1 mt-4 flex items-center gap-1.5 text-sm font-semibold"><CalendarClock className="h-4 w-4 text-slate-400" /> Post date &amp; time</p>
+                <input type="datetime-local" className="input" value={form.runAt} onChange={(e) => setForm((f) => ({ ...f, runAt: e.target.value }))} />
+                <p className="mt-1 text-xs text-slate-400">Publishes once at this time, then the schedule pauses itself. Uses your device's local time.</p>
+              </>
+            ) : (
+              <>
+                <p className="mb-1 mt-4 flex items-center gap-1.5 text-sm font-semibold"><Clock className="h-4 w-4 text-slate-400" /> {form.kind === "custom" ? "Times (posts at each)" : "Times (posts one question at each)"}</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  {form.times.map((t, i) => (
+                    <span key={i} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 dark:border-slate-700">
+                      <input type="time" value={t} onChange={(e) => setTime(i, e.target.value)} className="bg-transparent text-sm outline-none" />
+                      {form.times.length > 1 && <button onClick={() => removeTime(i)} className="text-slate-400 hover:text-rose-600"><X className="h-3.5 w-3.5" /></button>}
+                    </span>
+                  ))}
+                  <button onClick={addTime} className="btn-outline !py-1 !text-xs"><Plus className="h-3.5 w-3.5" /> Add time</button>
+                </div>
 
-            <p className="mb-1 mt-4 flex items-center gap-1.5 text-sm font-semibold"><CalendarClock className="h-4 w-4 text-slate-400" /> Days <span className="font-normal text-slate-400">(none = every day)</span></p>
-            <div className="flex flex-wrap gap-1.5">
-              {WEEKDAYS.map((w) => (
-                <button key={w.v} onClick={() => toggleDay(w.v)} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${form.days.includes(w.v) ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"}`}>{w.l}</button>
-              ))}
-            </div>
+                <p className="mb-1 mt-4 flex items-center gap-1.5 text-sm font-semibold"><CalendarClock className="h-4 w-4 text-slate-400" /> Days <span className="font-normal text-slate-400">(none = every day)</span></p>
+                <div className="flex flex-wrap gap-1.5">
+                  {WEEKDAYS.map((w) => (
+                    <button key={w.v} onClick={() => toggleDay(w.v)} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${form.days.includes(w.v) ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"}`}>{w.l}</button>
+                  ))}
+                </div>
+              </>
+            )}
 
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <div>
@@ -965,10 +1003,16 @@ export default function AdminFacebook() {
                         </p>
                       </div>
                       <div className="mt-1.5 flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
-                        <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" /> {(s.times || []).join(", ") || "—"}</span>
-                        <span className="inline-flex items-center gap-1"><CalendarClock className="h-3 w-3" /> {daysLabel(s.days)}</span>
+                        {s.mode === "once" ? (
+                          <span className="inline-flex items-center gap-1"><CalendarClock className="h-3 w-3" /> One-time{s.runAt ? ` · ${new Date(s.runAt).toLocaleString()}` : ""}</span>
+                        ) : (
+                          <>
+                            <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" /> {(s.times || []).join(", ") || "—"}</span>
+                            <span className="inline-flex items-center gap-1"><CalendarClock className="h-3 w-3" /> {daysLabel(s.days)}</span>
+                          </>
+                        )}
                         <span className="inline-flex items-center gap-1"><ListChecks className="h-3 w-3" /> {s.postCount || 0}{s.poolSize ? ` / ${s.poolSize}` : ""} posted</span>
-                        <span className="text-slate-400">{s.timezone}</span>
+                        {s.mode !== "once" && <span className="text-slate-400">{s.timezone}</span>}
                       </div>
                       {(rowMsg[s._id] || s.lastResult) && <p className="mt-1 text-xs text-slate-400">{rowMsg[s._id] || s.lastResult}</p>}
                     </div>
