@@ -262,7 +262,7 @@ export async function listAllTests(req, res) {
 // GET /api/tests/:id  (questions without correct answers for taking the test)
 export async function getTest(req, res) {
   const test = await TestSeries.findById(req.params.id)
-    .populate({ path: "questions", select: "-correct -explanation -optionExplanations" })
+    .populate({ path: "questions", select: "-correct -explanation -optionExplanations -keyPoints -quickRecall" })
     .populate("exam", "name")
     .populate("post", "name");
   if (!test) return res.status(404).json({ message: "Test not found" });
@@ -301,7 +301,7 @@ async function isFreePreviewTest(test) {
 // (exam-style, answers stripped). Any non-free test needs the normal auth path.
 export async function getFreeTest(req, res) {
   const test = await TestSeries.findById(req.params.id)
-    .populate({ path: "questions", select: "-correct -explanation -optionExplanations" });
+    .populate({ path: "questions", select: "-correct -explanation -optionExplanations -keyPoints -quickRecall" });
   if (!test) return res.status(404).json({ message: "Test not found" });
   // Paywall OFF site-wide → any test is free for everyone (incl. guests), so the
   // free (no-auth) route may serve/grade it, not just the first-in-subject preview.

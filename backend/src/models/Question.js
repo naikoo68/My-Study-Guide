@@ -74,6 +74,12 @@ const questionSchema = new mongoose.Schema(
     // Optional brief explanation for each option (parallel to `options`), shown
     // after answering so the student learns why each choice is right/wrong.
     optionExplanations: { type: [String], default: undefined },
+    // Flashcard extras (shown on the answer "flashcard" after the student
+    // reveals the answer). `keyPoints` are 3–5 crisp takeaways/bullets;
+    // `quickRecall` is a short mnemonic / one-line memory hook. Both are
+    // AI-generated (and backfilled for existing questions) and editable by admins.
+    keyPoints: { type: [String], default: undefined },
+    quickRecall: { type: String, default: "" },
     status: { type: String, enum: ["draft", "published"], default: "draft" },
     // Total times this question has been viewed by end users (aggregated across
     // every quiz/test it appears in). Shown to users, not just admin.
