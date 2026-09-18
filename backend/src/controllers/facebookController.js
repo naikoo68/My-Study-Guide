@@ -34,7 +34,7 @@ function postOpts(body = {}) {
 export function pickScheduleFields(body = {}) {
   const src = body.source || {};
   const cleanId = (v) => (v ? v : null);
-  const kind = body.kind === "custom" ? "custom" : "question";
+  const kind = ["custom", "flashcard"].includes(body.kind) ? body.kind : "question";
   const mode = body.mode === "once" ? "once" : "recurring";
   // Custom media: keep only well-formed http(s) URLs (from the Cloudinary uploader), max 10.
   const customMedia = Array.isArray(body.customMedia)

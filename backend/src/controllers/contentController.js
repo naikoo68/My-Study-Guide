@@ -864,6 +864,12 @@ export async function cardQuestion(req, res) {
   const q = await runUnscoped(() => Question.findById(req.params.id).lean());
   if (!q || q.deleted || q.status !== "published") return res.status(404).json({ message: "Question not found." });
   const withAnswer = req.query.answer === "1";
+  // Subject name for the card header/label (e.g. "Biology"). Cheap single lookup.
+  let subjectName = "";
+  if (q.subject) {
+    const s = await runUnscoped(() => Subject.findById(q.subject).select("name").lean()).catch(() => null);
+    subjectName = s?.name || "";
+  }
   res.set("Cache-Control", "public, max-age=300");
   res.json({
     _id: q._id,
@@ -879,9 +885,16 @@ export async function cardQuestion(req, res) {
     graph: q.graph,
     viz: q.viz,
     difficulty: q.difficulty,
+    subjectName,
+    topic: q.topic,
     createdAt: q.createdAt,
     updatedAt: q.updatedAt,
     optionExplanations: withAnswer ? q.optionExplanations : undefined,
+    // The flashcard answer panel needs these; only sent with ?answer=1 so the
+    // plain (front) card never leaks the answer/explanation.
+    explanation: withAnswer ? q.explanation : undefined,
+    keyPoints: withAnswer ? q.keyPoints : undefined,
+    quickRecall: withAnswer ? q.quickRecall : undefined,
     ...(withAnswer ? { correct: q.correct } : {}),
   });
 }

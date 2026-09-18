@@ -227,7 +227,7 @@ import Quiz from "../models/Quiz.js";
 import Stream from "../models/Stream.js";
 import TestSeries from "../models/TestSeries.js";
 import { renderQuestionImage } from "./socialImage.js";
-import { renderQuestionCardShot } from "./cardShot.js";
+import { renderQuestionCardShot, renderFlashcardCardShot } from "./cardShot.js";
 import { tenantStore, runUnscoped } from "../utils/tenantContext.js";
 import { getDefaultTenantId } from "../utils/platformScope.js";
 
@@ -625,13 +625,16 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
 
   const wantFb = sch.toFacebook !== false;
   const wantIg = !!sch.toInstagram && cfg.igEnabled;
+  // A "flashcard" post publishes a combined question+answer IMAGE, so the caption
+  // stays light (stem + breadcrumb + hashtags) — the options/answer live in the image.
+  const isFlashcard = sch.kind === "flashcard";
   // Global default + auto hashtags (from the question's subject/topic/section)
   // merged with any per-post tags — so every post is tagged consistently.
   const finalTags = await hashtagsForQuestion(q, site, sch.hashtags);
   const breadcrumb = await breadcrumbForQuestion(q);
   const message = formatQuestionPost(q, {
-    includeOptions: sch.includeOptions,
-    includeAnswer: sch.includeAnswer,
+    includeOptions: isFlashcard ? false : sch.includeOptions,
+    includeAnswer: isFlashcard ? false : sch.includeAnswer,
     hashtags: finalTags,
     breadcrumb,
   });
@@ -649,7 +652,23 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   ).trim();
   const textWatermarkActive = site?.fbTextWatermarkEnabled === true && !!textWatermarkText;
   let imageUrl = null, imageErr = "";
-  if (sch.asImage || wantIg || selfieWatermarkActive || textWatermarkActive) {
+  if (isFlashcard) {
+    // Combined two-panel flashcard image (question + answer). Best-effort: if the
+    // headless render fails, fall back to the normal answer card so a post still
+    // goes out.
+    try {
+      const shot = await renderFlashcardCardShot(q);
+      if (shot?.url) imageUrl = shot.url;
+      else imageErr = shot?.error || "";
+    } catch (e) {
+      imageErr = e?.message || String(e);
+    }
+    if (!imageUrl) {
+      const r = await renderQuestionImage(q, { includeOptions: sch.includeOptions, includeAnswer: true, hashtags: finalTags });
+      imageUrl = r.url || null;
+      imageErr = imageErr || r.error || "";
+    }
+  } else if (sch.asImage || wantIg || selfieWatermarkActive || textWatermarkActive) {
     // PREFER a pixel-identical screenshot of the REAL quiz card (matches the
     // admin Download button exactly — same React/Tailwind/Inter). Best-effort:
     // any failure falls through to the lightweight SVG card so posting never
@@ -712,7 +731,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
     // 1.91:1 (a tiny white sliver, NOT a tall canvas) so Facebook shows it in
     // full. Cards already within range are left untouched. See
     // utils/facebookImage.js.
-    const fbRawImageUrl = (sch.asImage || selfieWatermarkActive) ? imageUrl : undefined;
+    const fbRawImageUrl = (sch.asImage || selfieWatermarkActive || isFlashcard) ? imageUrl : undefined;
     const fbImageUrl = fbRawImageUrl ? toFacebookSafeUrl(fbRawImageUrl) : undefined;
     const r = await postToFacebookPage({ message, link, imageUrl: fbImageUrl }, cfg);
     if (r.ok) { anyOk = true; notes.push("Facebook ✓"); } else notes.push(`Facebook ✗ (${r.error})`);
