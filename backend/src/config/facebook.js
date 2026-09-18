@@ -5,6 +5,7 @@ import Settings from "../models/Settings.js";
 import User from "../models/User.js";
 import { sendMail } from "./mailer.js";
 import { toInstagramSafeUrl } from "../utils/instagramImage.js";
+import { toFacebookSafeUrl } from "../utils/facebookImage.js";
 
 // Facebook Page auto-posting via the Graph API. The Page ID + long-lived Page
 // access token are stored in the singleton Settings document (entered by the
@@ -582,7 +583,14 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
 
   if (wantFb) {
     // Always attach the image when a selfie watermark is active (ensures branding on every post).
-    const fbImageUrl = (sch.asImage || selfieWatermarkActive) ? imageUrl : undefined;
+    // Question cards render at a VARIABLE height: a plain MCQ is SHORT and WIDE,
+    // so Facebook's portrait-ish feed window center-crops its sides and cuts off
+    // the option letters / start of each line. Pad a wide card onto a portrait
+    // 4:5 canvas so Facebook shows it in FULL (padding never crops; portrait/
+    // square cards — statements, matching — are left untouched). See
+    // utils/facebookImage.js.
+    const fbRawImageUrl = (sch.asImage || selfieWatermarkActive) ? imageUrl : undefined;
+    const fbImageUrl = fbRawImageUrl ? toFacebookSafeUrl(fbRawImageUrl) : undefined;
     const r = await postToFacebookPage({ message, link, imageUrl: fbImageUrl }, cfg);
     if (r.ok) { anyOk = true; notes.push("Facebook ✓"); } else notes.push(`Facebook ✗ (${r.error})`);
 
