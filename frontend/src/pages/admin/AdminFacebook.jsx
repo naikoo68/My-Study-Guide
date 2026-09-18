@@ -519,6 +519,79 @@ const toLocalInput = (d) => {
   return `${x.getFullYear()}-${pad2(x.getMonth() + 1)}-${pad2(x.getDate())}T${pad2(x.getHours())}:${pad2(x.getMinutes())}`;
 };
 
+// Upload a custom flashcard TEMPLATE image. Flashcard auto-posts overlay each
+// quiz question's content onto it (question, options, answer, explanation, key
+// points, quick recall). Empty = the built-in flashcard design is used.
+function FlashcardTemplateSection({ settings, saveSettings }) {
+  const fileRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const [url, setUrl] = useState(settings?.fbFlashcardTemplateUrl || "");
+  const [enabled, setEnabled] = useState(settings?.fbFlashcardTemplateEnabled !== false);
+
+  useEffect(() => {
+    setUrl(settings?.fbFlashcardTemplateUrl || "");
+    setEnabled(settings?.fbFlashcardTemplateEnabled !== false);
+  }, [settings?.fbFlashcardTemplateUrl, settings?.fbFlashcardTemplateEnabled]);
+
+  const upload = async (e) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    if (!file.type.startsWith("image/")) { setMsg({ ok: false, text: "Please select an image file." }); return; }
+    setUploading(true); setMsg(null);
+    try {
+      const r = await uploadService.file(file);
+      const u = r?.url || "";
+      setUrl(u);
+      await saveSettings({ fbFlashcardTemplateUrl: u, fbFlashcardTemplateEnabled: true });
+      setEnabled(true);
+      setMsg({ ok: true, text: "Template uploaded & saved." });
+    } catch (err) { setMsg({ ok: false, text: err.message || "Upload failed." }); }
+    finally { setUploading(false); if (fileRef.current) fileRef.current.value = ""; }
+  };
+  const remove = async () => {
+    if (!window.confirm("Remove the flashcard template? Flashcards will use the built-in design.")) return;
+    setUrl(""); try { await saveSettings({ fbFlashcardTemplateUrl: "" }); setMsg({ ok: true, text: "Template removed." }); } catch (err) { setMsg({ ok: false, text: err.message || "Failed." }); }
+  };
+  const toggle = async () => { const next = !enabled; setEnabled(next); try { await saveSettings({ fbFlashcardTemplateEnabled: next }); } catch { /* ignore */ } };
+
+  return (
+    <div className="card p-5">
+      <h2 className="flex items-center gap-2 font-bold"><ImagePlus className="h-5 w-5 text-[#1877F2]" /> Flashcard template image</h2>
+      <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
+        Upload your <b>flashcard template</b> (the boxed design). <b>Flashcard</b> auto-posts overlay each quiz question's content —
+        question, options, correct answer, explanation, key points &amp; quick recall — onto it. Leave empty to use the built-in design.
+        Use a fixed <b>1024×660 two-panel</b> template so the boxes line up.
+      </p>
+      <div className="mt-4 flex flex-wrap items-start gap-6">
+        <div className="flex flex-col items-center gap-2">
+          {url ? (
+            <div className="relative">
+              <img src={url} alt="template" className="h-28 w-44 rounded-lg border border-slate-200 object-contain" />
+              <button type="button" onClick={remove} title="Remove" className="absolute -right-2 -top-2 rounded-full bg-rose-100 p-1.5 text-rose-600 shadow hover:bg-rose-200 dark:bg-rose-900/40"><Trash2 className="h-4 w-4" /></button>
+            </div>
+          ) : (
+            <div className="flex h-28 w-44 items-center justify-center rounded-lg border-2 border-dashed border-slate-300 text-slate-300 dark:border-slate-600"><ImagePlus className="h-8 w-8" /></div>
+          )}
+          <label className={`btn-outline cursor-pointer text-sm ${uploading ? "pointer-events-none opacity-60" : ""}`}>
+            {uploading ? <><Loader2 className="h-4 w-4 animate-spin" /> Uploading…</> : <><Upload className="h-4 w-4" /> Upload template</>}
+            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={upload} disabled={uploading} />
+          </label>
+        </div>
+        <div className="flex-1 space-y-3">
+          <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
+            <span className="text-sm font-medium">Use my template for flashcard posts</span>
+            <button type="button" onClick={toggle} className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${enabled ? "bg-[#1877F2]" : "bg-slate-300 dark:bg-slate-600"}`}>
+              <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${enabled ? "left-6" : "left-1"}`} />
+            </button>
+          </label>
+          <p className="text-xs text-slate-400">Long questions/explanations are auto-fitted and trimmed to fit the fixed boxes. Box positions are tuned to the standard 1024×660 template — tell me if any text lands off and I'll nudge them.</p>
+        </div>
+      </div>
+      {msg && <p className={`mt-3 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.text}</p>}
+    </div>
+  );
+}
+
 const emptyForm = {
   kind: "question",
   mode: "recurring", runAt: "", // one-off (mode "once") uses runAt; recurring uses times/days
@@ -800,6 +873,9 @@ export default function AdminFacebook() {
 
       {/* Center text Watermark */}
       <TextWatermarkSection settings={settings} saveSettings={saveSettings} />
+
+      {/* Flashcard template image (for the Flashcard post type) */}
+      <FlashcardTemplateSection settings={settings} saveSettings={saveSettings} />
 
       {/* Email notifications */}
       <FbNotifySection settings={settings} saveSettings={saveSettings} />

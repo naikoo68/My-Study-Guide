@@ -58,11 +58,15 @@ async function launchBrowser() {
 // left, answer (correct option + explanation + key points + quick recall) on the
 // right — and upload it as a single combined image. Best-effort: any failure
 // returns { error } and the caller falls back to the normal card.
-export async function renderFlashcardCardShot(question) {
+export async function renderFlashcardCardShot(question, { templateUrl = "" } = {}) {
   if (!isCloudinaryConfigured()) return { error: "Cloudinary is not configured." };
   const id = question?._id;
   if (!id) return { error: "No question id." };
-  const url = `${siteOrigin()}/flashcard/${id}`;
+  // When a custom template image is configured, the /flashcard page renders in
+  // "template overlay" mode: the uploaded image is the background and the quiz
+  // content is placed into its boxes.
+  const tpl = String(templateUrl || "").trim();
+  const url = `${siteOrigin()}/flashcard/${id}${tpl ? `?tpl=${encodeURIComponent(tpl)}` : ""}`;
 
   let browser;
   try {

@@ -195,6 +195,7 @@ export async function updateSettings(req, res) {
     "fbDefaultHashtags", "fbAutoHashtags", "fbExtraTargets",
     "fbSelfieWatermarkUrl", "fbSelfieWatermarkEnabled", "fbSelfieWatermarkPosition", "fbSelfieWatermarkSize", "fbSelfieWatermarkOpacity", "fbSelfieWatermarkShape",
     "fbTextWatermarkEnabled", "fbTextWatermarkText", "fbTextWatermarkSize", "fbTextWatermarkOpacity",
+    "fbFlashcardTemplateUrl", "fbFlashcardTemplateEnabled",
     "fbNotifyEmail", "fbNotifyOnPost", "fbNotifyOnError", "fbNotifyOnComplete",
     "igEnabled", "igUserId",
     "googleClientId",
@@ -227,6 +228,8 @@ export async function updateSettings(req, res) {
 
   // Selfie watermark: validate position and clamp size/opacity.
   if ("fbSelfieWatermarkUrl" in update) update.fbSelfieWatermarkUrl = String(update.fbSelfieWatermarkUrl || "").trim();
+  if ("fbFlashcardTemplateUrl" in update) update.fbFlashcardTemplateUrl = String(update.fbFlashcardTemplateUrl || "").trim();
+  if ("fbFlashcardTemplateEnabled" in update) update.fbFlashcardTemplateEnabled = !!update.fbFlashcardTemplateEnabled;
   if ("fbSelfieWatermarkPosition" in update) {
     const pos = String(update.fbSelfieWatermarkPosition || "").trim();
     update.fbSelfieWatermarkPosition = ["bottom-right", "bottom-left", "top-right", "top-left"].includes(pos) ? pos : "bottom-right";
