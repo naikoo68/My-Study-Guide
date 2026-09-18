@@ -3804,7 +3804,7 @@ export async function visualizeSpec(req, res) {
 const EXTEND_SYSTEM_PROMPT = `You are an expert exam teacher. You are given ONE existing exam question (its stem, options, the CORRECT option, its type, and any columns/assertion/reason). Your ONLY job is to write a richer, clearer EXPLANATION and per-option notes for it.
 
 CRITICAL — you MUST ALWAYS respond, for EVERY question, with ONE single valid JSON object and NOTHING else: no markdown, no code fences, no text before or after. The exact shape is:
-{"explanation":"...","optionExplanations":["","","",""]}
+{"explanation":"...","optionExplanations":["","","",""],"keyPoints":["","",""],"quickRecall":"..."}
 (Whenever you determine the stored answer is WRONG — whether it is a numerical, a FACTUAL/conceptual, or a count-based question — ALSO include "correct":<0-3>, and, if the true answer is not among the current options, "options":["A","B","C","D"] — see the verification rules below.)
 JSON VALIDITY RULES (follow exactly or the answer is discarded):
 - Escape any double quote inside a string as \\". You MAY use normal line breaks inside the strings for readability.
@@ -3819,6 +3819,8 @@ Content rules:
 - LOCAL / ALTERNATIVE NAMES: whenever a term/place/concept/person/disease/chemical/unit/law has a common local or vernacular (Hindi/regional) name, synonym, abbreviation's full form or old name, add it in brackets right after it.
 - "optionExplanations": a real JSON array of EXACTLY 4 SEPARATE strings, in the same order as the options (entry 0 = option A, 1 = B, 2 = C, 3 = D). For EACH option state clearly whether it is correct or incorrect and WHY (for a wrong numeric option, show what mistake produces that value). This applies to EVERY type INCLUDING plain "mcq" — for an mcq each incorrect option MUST still get its own note here even though the "explanation" box stays focused only on the correct option. Keep each to 1-2 short sentences; do NOT prefix an entry with a label such as "A)", "(A)", "A." or "Option A", and do NOT put more than one option's note inside a single entry; leave the truly-CORRECT option's entry an empty string "".
 - CALCULATION-BASED questions: if the question is answered by CALCULATION (arithmetic, applying a formula, or solving an equation), ALSO include "numerical":true and leave ALL FOUR "optionExplanations" as empty strings "" — the step-by-step working in "explanation" is the full justification, so do NOT write any per-option "why it's wrong" notes.
+- "keyPoints": a real JSON array of 3 to 5 SHORT strings — the crisp, exam-ready takeaways for this question's concept (each a compact phrase or one short sentence, NOT a paragraph): the decisive fact behind the correct answer plus the facts that distinguish the other options. No leading bullets/numbers, no markdown; wrap any math/number in $...$.
+- "quickRecall": a SINGLE short memory hook / mnemonic for instant recall — one line, ideally under ~12 words (e.g. "Malaria = female Anopheles"). Punchy and specific to this question; no markdown; wrap math in $...$.
 VERIFY THE ANSWER — do this for EVERY question, not only calculations: work out the correct answer yourself FIRST, then compare it with the option currently marked correct before writing the notes.
 FACTUAL / CONCEPTUAL QUESTIONS (dates, years, names, places, capitals, definitions, discoveries, science & general-knowledge facts, etc.):
 - Recall the ACTUAL established fact and decide which option is truly correct.
@@ -3875,6 +3877,7 @@ function buildExtendPrompt(q, notes, fixOptions = false, extendQuestion = false)
   if (q.explanation) lines.push(`Existing explanation (improve and expand it — keep anything correct): ${q.explanation}`);
   if (notes) lines.push(`MANDATORY user instructions (follow EXACTLY): ${notes}`);
   lines.push(`Write a THOROUGH "explanation". For a plain mcq, the "explanation" box must explain ONLY the correct option (do NOT discuss the incorrect options in it), but STILL fill each of the 4 "optionExplanations" with why that option is right or wrong (leaving the correct option's entry ""). For every OTHER type (matching, statement, pair, pairselect, assertion, table, journal), the "explanation" walks through all options AND fill each of the 4 "optionExplanations" — state whether each option is correct or wrong and why — leaving the correct option's entry "" (for journal, name the accounts debited & credited, their classification and the rule applied, and confirm debit total = credit total). If this is a numerical/quantitative question, SOLVE it yourself step by step — put each calculation step on its own line in the explanation — then check which option is truly correct. If this is a matching / "how many pairs are correctly matched" / statement question, evaluate EACH pair or statement one by one and COUNT the correct ones. If this is a plain FACTUAL/knowledge question, recall the actual established fact and decide which option is truly correct. In EVERY case, if the marked CORRECT answer is wrong, return the corrected "correct" index (0-3); if a value/fact is wrong or no option matches the true answer (e.g. zero pairs match but there is no "None" option, or the correct fact is not listed), return a fixed "options" array of 4 that includes the right choice. Only make such a correction when you are genuinely confident it is wrong; if unsure, leave the answer as-is and just explain. Do NOT change the question's wording. Write any math as inline LaTeX between $...$ (never \\( \\) or \\[ \\]). If the question is CALCULATION-based, set "numerical": true and leave all four "optionExplanations" empty "" (the step-by-step working in the explanation is enough — no per-option notes). Return ONLY one valid JSON object.`);
+  lines.push(`ALSO produce flashcard extras: "keyPoints" — a JSON array of 3 to 5 SHORT exam-ready takeaways (the decisive fact behind the correct answer, plus what distinguishes the other options) — and "quickRecall" — ONE short memory hook / mnemonic (under ~12 words, e.g. "Malaria = female Anopheles"). No markdown or leading bullets; wrap any math in $...$.`);
   if (q.type === "assertion") {
     lines.push(`ENSURE THE DEDICATED ASSERTION–REASON FORMAT: return a NON-EMPTY "assertion" (the full Assertion A sentence) and a NON-EMPTY "reason" (the full Reason R sentence) as SEPARATE fields — if A and/or R are currently packed into the stem, the options, or written inline as "Assertion (A): … Reason (R): …", SPLIT them out into these two fields. Keep "text" as ONLY the short intro line with NO A/R copy inside it. The 4 "options" MUST remain EXACTLY the four standard choices in this order: "Both A and R are true and R is the correct explanation of A", "Both A and R are true but R is NOT the correct explanation of A", "A is true but R is false", "A is false but R is true"; keep the same correct answer unless it is genuinely wrong, in which case return the corrected 0-based "correct" index.`);
   }
@@ -4108,7 +4111,12 @@ function parseExplanationJson(content) {
     const pairFacts = Array.isArray(obj.pairFacts) ? obj.pairFacts.map((x) => (x == null ? "" : String(x))) : null;
     // Calculation-based flag — when true, callers drop the per-option notes.
     const numerical = obj.numerical === true || obj.numerical === "true";
-    if (explanation || oe || options || text || tableRows) return { explanation, optionExplanations: oe, correct, options, text, columnA, columnB, tableRows, pairFacts, numerical };
+    // Flashcard extras (optional): crisp key points + a one-line quick-recall hook.
+    const keyPoints = Array.isArray(obj.keyPoints)
+      ? obj.keyPoints.map((x) => (x == null ? "" : String(x).trim())).filter(Boolean).slice(0, 6)
+      : null;
+    const quickRecall = typeof obj.quickRecall === "string" ? obj.quickRecall.trim() : null;
+    if (explanation || oe || options || text || tableRows) return { explanation, optionExplanations: oe, correct, options, text, columnA, columnB, tableRows, pairFacts, numerical, keyPoints, quickRecall };
   }
 
   // Couldn't parse as JSON at all — salvage the explanation with regex (from the
@@ -4160,6 +4168,14 @@ function applyOptionShuffle(set, q) {
 // position changes, correctness preserved) as the LAST step.
 function buildExtendSet(q, parsed, extendQuestion = false, shuffleOptions = false) {
   const set = { explanation: parsed.explanation };
+  // Flashcard extras — persist when the AI returned them (additive; a flow that
+  // doesn't produce them, e.g. Regenerate, leaves any existing values intact).
+  if (Array.isArray(parsed?.keyPoints) && parsed.keyPoints.length) {
+    set.keyPoints = parsed.keyPoints.map((s) => String(s || "").trim()).filter(Boolean).slice(0, 6);
+  }
+  if (typeof parsed?.quickRecall === "string" && parsed.quickRecall.trim()) {
+    set.quickRecall = parsed.quickRecall.trim();
+  }
   // When the caller asked to extend the question length, apply the AI's longer
   // rewrite of the stem (same meaning/answer) — sanitising any $...$ the model
   // wrongly wrapped around plain words. Ignored otherwise so Extend never
@@ -4485,6 +4501,8 @@ export async function extendOneExplanation(req, res) {
     text: set.text ?? q.text, // reflect any extended/longer stem so the UI updates
     assertion: set.assertion ?? q.assertion, // reflect recovered A/R so the UI updates
     reason: set.reason ?? q.reason,
+    keyPoints: set.keyPoints ?? q.keyPoints, // flashcard extras (if generated)
+    quickRecall: set.quickRecall ?? q.quickRecall,
   });
 }
 
