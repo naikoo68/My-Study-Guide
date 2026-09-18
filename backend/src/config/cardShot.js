@@ -54,6 +54,41 @@ async function launchBrowser() {
   throw lastErr || new Error("No Chromium executable found.");
 }
 
+// Screenshot the TWO-PANEL flashcard page (/flashcard/:id) — question on the
+// left, answer (correct option + explanation + key points + quick recall) on the
+// right — and upload it as a single combined image. Best-effort: any failure
+// returns { error } and the caller falls back to the normal card.
+export async function renderFlashcardCardShot(question) {
+  if (!isCloudinaryConfigured()) return { error: "Cloudinary is not configured." };
+  const id = question?._id;
+  if (!id) return { error: "No question id." };
+  const url = `${siteOrigin()}/flashcard/${id}`;
+
+  let browser;
+  try {
+    browser = await launchBrowser();
+    const page = await browser.newPage();
+    // Wider viewport — the two panels sit side by side (~968px of content).
+    await page.setViewport({ width: 1040, height: 1200, deviceScaleFactor: 2 });
+    await page.goto(url, { waitUntil: "networkidle0", timeout: 25000 });
+    await page.waitForSelector('[data-card-ready="1"]', { timeout: 20000 });
+    const el = await page.$("[data-card-el]");
+    if (!el) throw new Error("Flashcard element not found.");
+    const buf = await el.screenshot({ type: "png" });
+    await browser.close();
+    browser = null;
+
+    const dataUri = `data:image/png;base64,${Buffer.from(buf).toString("base64")}`;
+    const { url: hosted } = await uploadImage(dataUri, { format: "png", folder: "mystudyguide/social" });
+    if (hosted) return { url: hosted };
+    return { error: "Cloudinary returned no URL." };
+  } catch (err) {
+    return { error: `Flashcard screenshot failed: ${err?.message || err}` };
+  } finally {
+    if (browser) { try { await browser.close(); } catch { /* ignore */ } }
+  }
+}
+
 // Screenshot /q-card/:id and upload it. `includeAnswer` highlights the correct
 // option (mirrors a schedule's Reveal-answer toggle).
 export async function renderQuestionCardShot(question, { includeAnswer = false, cta = false, watermark = null, textWatermark = null } = {}) {

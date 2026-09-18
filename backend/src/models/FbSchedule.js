@@ -9,9 +9,11 @@ const fbScheduleSchema = new mongoose.Schema(
     enabled: { type: Boolean, default: true },
 
     // Post type:
-    //   "question" (default) — draw a question from `source` and post it (existing behaviour).
-    //   "custom"             — post a fixed admin-written text + uploaded media (no question).
-    kind: { type: String, enum: ["question", "custom"], default: "question" },
+    //   "question"  (default) — draw a question from `source` and post it (existing behaviour).
+    //   "custom"              — post a fixed admin-written text + uploaded media (no question).
+    //   "flashcard"           — draw a question from `source` and post it as a combined
+    //                           flashcard image (question panel + answer panel).
+    kind: { type: String, enum: ["question", "custom", "flashcard"], default: "question" },
     // Custom-post content (used only when kind === "custom").
     customText: { type: String, default: "" }, // the post text / caption
     customMedia: { type: [String], default: [] }, // hosted image URLs; the first image is attached

@@ -131,6 +131,7 @@ const ResumeBuilder = lazy(() => import("./pages/resume/ResumeBuilder"));
 // Chrome-less single-question card, screenshotted by the backend for
 // pixel-identical Facebook/Instagram post images (see backend cardShot).
 const QuestionCardImage = lazy(() => import("./pages/QuestionCardImage"));
+const FlashcardCardImage = lazy(() => import("./pages/FlashcardCardImage"));
 
 // Wraps a lazily-loaded page in a Suspense boundary with a loading fallback.
 const S = (Comp) => (
@@ -259,6 +260,11 @@ const router = createBrowserRouter([
   {
     path: "/q-card/:id",
     element: S(QuestionCardImage),
+  },
+  // Chrome-less TWO-PANEL flashcard (question + answer) for the Flashcard auto-post.
+  {
+    path: "/flashcard/:id",
+    element: S(FlashcardCardImage),
   },
 
   // Full-screen test interface (outside main layout). Gated: attempting a

@@ -615,7 +615,7 @@ export default function AdminFacebook() {
 
   const openNew = () => setForm({ ...emptyForm, times: ["09:00"] });
   const openEdit = (s) => setForm({
-    _id: s._id, kind: s.kind === "custom" ? "custom" : "question",
+    _id: s._id, kind: ["custom", "flashcard"].includes(s.kind) ? s.kind : "question",
     mode: s.mode === "once" ? "once" : "recurring",
     runAt: s.runAt ? toLocalInput(s.runAt) : "",
     title: s.title || "", source: s.source || emptyForm.source,
@@ -837,8 +837,12 @@ export default function AdminFacebook() {
             <p className="mb-1 block text-sm font-semibold">Post type</p>
             <div className="mb-3 flex gap-2">
               <button type="button" onClick={() => setForm((f) => ({ ...f, kind: "question", mode: "recurring" }))}
-                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${form.kind !== "custom" ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"}`}>
+                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${form.kind === "question" ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"}`}>
                 <ListChecks className="h-3.5 w-3.5" /> Quiz question
+              </button>
+              <button type="button" onClick={() => setForm((f) => ({ ...f, kind: "flashcard", mode: "recurring" }))}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${form.kind === "flashcard" ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"}`}>
+                <ImagePlus className="h-3.5 w-3.5" /> Flashcard
               </button>
               <button type="button" onClick={() => setForm((f) => ({ ...f, kind: "custom", mode: "once", runAt: f.runAt || toLocalInput(Date.now() + 10 * 60000) }))}
                 className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${form.kind === "custom" ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"}`}>
@@ -847,7 +851,13 @@ export default function AdminFacebook() {
             </div>
 
             <label className="mb-1 block text-sm font-medium">Title (optional)</label>
-            <input className="input" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder={form.kind === "custom" ? "e.g. Weekly announcement" : "e.g. Daily Accountancy question"} />
+            <input className="input" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder={form.kind === "custom" ? "e.g. Weekly announcement" : form.kind === "flashcard" ? "e.g. Daily Biology flashcard" : "e.g. Daily Accountancy question"} />
+
+            {form.kind === "flashcard" && (
+              <p className="mt-2 rounded-lg bg-brand-50 px-3 py-2 text-xs text-brand-700 dark:bg-brand-900/30 dark:text-brand-300">
+                Posts a combined <b>flashcard image</b> — the question on one side, and the correct answer, explanation, key points &amp; quick recall on the other. Pick a source below to draw questions from.
+              </p>
+            )}
 
             {form.kind === "custom" ? (
               <>
@@ -935,7 +945,7 @@ export default function AdminFacebook() {
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" className="h-4 w-4 accent-[#E1306C]" checked={form.toInstagram} onChange={(e) => setForm((f) => ({ ...f, toInstagram: e.target.checked }))} /> Instagram <span className="text-slate-400">(image)</span>
               </label>
-              {form.kind !== "custom" && (
+              {form.kind === "question" && (
                 <label className="flex items-center gap-2 text-sm">
                   <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={form.asImage} onChange={(e) => setForm((f) => ({ ...f, asImage: e.target.checked }))} /> Post as image on Facebook
                 </label>
@@ -949,7 +959,7 @@ export default function AdminFacebook() {
               </p>
             )}
 
-            {form.kind !== "custom" && (
+            {form.kind === "question" && (
               <>
                 <p className="mb-1 mt-4 text-sm font-semibold">Public Quizzes</p>
                 <div className="flex flex-wrap gap-4">
@@ -991,6 +1001,7 @@ export default function AdminFacebook() {
                         <span className={`inline-block h-2 w-2 rounded-full ${s.completedAt ? "bg-emerald-500" : s.enabled ? "bg-emerald-500" : "bg-slate-300"}`} />
                         {s.title || (s.kind === "custom" ? "Custom post" : s.source?.label) || "Untitled schedule"}
                         {s.kind === "custom" && <span className="rounded-full bg-brand-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">Custom</span>}
+                        {s.kind === "flashcard" && <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">Flashcard</span>}
                         {s.completedAt && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">Completed</span>}
                         {!s.enabled && !s.completedAt && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">Paused</span>}
                       </p>
