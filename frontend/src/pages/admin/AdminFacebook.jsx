@@ -560,9 +560,9 @@ function FlashcardTemplateSection({ settings, saveSettings }) {
     <div className="card p-5">
       <h2 className="flex items-center gap-2 font-bold"><ImagePlus className="h-5 w-5 text-[#1877F2]" /> Flashcard template image</h2>
       <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-        Upload your <b>flashcard template</b> (the boxed design). <b>Flashcard</b> auto-posts overlay each quiz question's content —
-        question, options, correct answer, explanation, key points &amp; quick recall — onto it. Leave empty to use the built-in design.
-        Use a fixed <b>1536×1024 two-panel</b> template so the boxes line up.
+        Upload your <b>flashcard template</b> — the branded frame (header + footer) with an <b>empty middle</b>. Flashcard auto-posts render each
+        quiz question's content (question, options, correct answer, explanation, key points &amp; quick recall) into the empty area and
+        <b>auto-fit</b> it — so it works for <b>every question type</b>. Leave empty to use the built-in design. Use a <b>1536×1024 two-panel</b> image.
       </p>
       <div className="mt-4 flex flex-wrap items-start gap-6">
         <div className="flex flex-col items-center gap-2">
@@ -586,7 +586,7 @@ function FlashcardTemplateSection({ settings, saveSettings }) {
               <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${enabled ? "left-6" : "left-1"}`} />
             </button>
           </label>
-          <p className="text-xs text-slate-400">Long questions/explanations are auto-fitted and trimmed to fit the fixed boxes. Box positions are tuned to a <b>1536×1024</b> template — tell me if any text lands off and I'll nudge them.</p>
+          <p className="text-xs text-slate-400">Content renders into the two empty middle regions and auto-scales to fit any length or question type. Regions are tuned to a <b>1536×1024</b> template with a header at the top and footer at the bottom — tell me if content sits off and I'll adjust the regions.</p>
         </div>
       </div>
       {msg && <p className={`mt-3 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.text}</p>}
