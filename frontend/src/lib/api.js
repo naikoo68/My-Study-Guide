@@ -4,6 +4,8 @@
 // - Retries automatically while a sleeping free-tier server wakes up.
 // - Parses JSON and throws a useful Error on non-2xx responses.
 
+import { beginUpload, updateUpload, endUpload } from "./uploadProgress";
+
 const BASE_URL =
   import.meta.env.VITE_API_URL?.replace(/\/$/, "") || "http://localhost:5000/api";
 
@@ -212,6 +214,10 @@ function safeJson(text) {
 // to Cloudinary, so callers should show a "processing" state once it hits 100%.
 export function uploadWithProgress(path, file, { field = "file", onProgress, timeout = 180000 } = {}) {
   return new Promise((resolve, reject) => {
+    // Feed the site-wide upload progress bar (in addition to any local onProgress).
+    const upId = beginUpload();
+    const report = (pct) => { updateUpload(upId, pct); if (typeof onProgress === "function") onProgress(pct); };
+    const finish = () => endUpload(upId);
     try {
       const fd = new FormData();
       fd.append(field, file);
@@ -240,12 +246,13 @@ export function uploadWithProgress(path, file, { field = "file", onProgress, tim
         if (slug) xhr.setRequestHeader("X-Tenant", slug);
       } catch { /* ignore */ }
 
-      if (xhr.upload && typeof onProgress === "function") {
+      if (xhr.upload) {
         xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+          if (e.lengthComputable) report(Math.round((e.loaded / e.total) * 100));
         };
       }
       xhr.onload = () => {
+        finish();
         const text = xhr.responseText || "";
         let data = null;
         try { data = text ? JSON.parse(text) : null; } catch { data = null; }
@@ -254,10 +261,11 @@ export function uploadWithProgress(path, file, { field = "file", onProgress, tim
         err.status = xhr.status; err.data = data;
         reject(err);
       };
-      xhr.onerror = () => reject(new Error("Network error during upload."));
-      xhr.ontimeout = () => reject(new Error("Upload timed out — try a smaller image or check your connection."));
+      xhr.onerror = () => { finish(); reject(new Error("Network error during upload.")); };
+      xhr.ontimeout = () => { finish(); reject(new Error("Upload timed out — try a smaller image or check your connection.")); };
       xhr.send(fd);
     } catch (e) {
+      finish();
       reject(e);
     }
   });

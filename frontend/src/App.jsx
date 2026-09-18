@@ -16,6 +16,7 @@ import { AiModalProvider } from "./context/AiModalContext";
 import ProtectedRoute from "./components/auth/ProtectedRoute";
 import StudentGate from "./components/auth/StudentGate";
 import ContentProtection from "./components/ui/ContentProtection";
+import UploadProgressBar from "./components/ui/UploadProgressBar";
 import ErrorBoundary from "./components/ui/ErrorBoundary";
 import Layout from "./components/layout/Layout";
 import { Loading } from "./components/ui/AsyncState";
@@ -405,6 +406,7 @@ export default function App() {
         <AuthProvider>
           <ZoomProvider>
             <ContentProtection />
+            <UploadProgressBar />
             <ErrorBoundary>
               {/* AiModalProvider sits ABOVE the router so a minimized AI
                   generation keeps running and its pill stays visible across
