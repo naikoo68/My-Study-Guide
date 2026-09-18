@@ -3,6 +3,7 @@
 // token and normalise responses/errors.
 
 import { api, uploadWithProgress } from "../lib/api";
+import { beginUpload, updateUpload, endUpload } from "../lib/uploadProgress";
 
 // ---- Auth ----
 export const authService = {
@@ -337,11 +338,7 @@ export const settingsService = {
   update: (data) => api.put("/settings", data),
   testFacebook: (data) => api.post("/settings/facebook/test", data || {}), // verify/send a test Page post (admin)
   testInstagram: (data) => api.post("/settings/instagram/test", data || {}), // verify/send a test Instagram post (admin)
-  uploadSelfieWatermark: (file) => {
-    const fd = new FormData();
-    fd.append("image", file);
-    return api.post("/settings/selfie-watermark", fd);
-  },
+  uploadSelfieWatermark: (file, onProgress) => uploadWithProgress("/settings/selfie-watermark", file, { field: "image", onProgress }),
   deleteSelfieWatermark: () => api.del("/settings/selfie-watermark"),
 };
 
@@ -510,12 +507,10 @@ export const aiService = {
 
 // ---- File upload (Cloudinary) ----
 export const uploadService = {
-  file: (file) => {
-    const fd = new FormData();
-    fd.append("file", file);
-    return api.post("/upload", fd);
-  },
-  // Same upload but reports a 0–100 progress percentage via onProgress(percent).
+  // Routed through uploadWithProgress so EVERY upload feeds the site-wide
+  // progress bar (and callers can still pass an onProgress for a local %).
+  file: (file, onProgress) => uploadWithProgress("/upload", file, { field: "file", onProgress }),
+  // Explicit alias kept for callers that want a local percentage callback.
   fileWithProgress: (file, onProgress) => uploadWithProgress("/upload", file, { field: "file", onProgress }),
 
   // DIRECT browser → Cloudinary signed upload (images). Skips our server, so it's
@@ -540,13 +535,21 @@ export const uploadService = {
     fd.append("folder", sig.folder);
     const url = `https://api.cloudinary.com/v1_1/${sig.cloudName}/image/upload`;
     return new Promise((resolve, reject) => {
+      const upId = beginUpload(); // feed the site-wide progress bar
+      const done = () => endUpload(upId);
       const xhr = new XMLHttpRequest();
       xhr.open("POST", url);
       xhr.timeout = 180000;
-      if (xhr.upload && typeof onProgress === "function") {
-        xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100)); };
+      if (xhr.upload) {
+        xhr.upload.onprogress = (e) => {
+          if (!e.lengthComputable) return;
+          const pct = Math.round((e.loaded / e.total) * 100);
+          updateUpload(upId, pct);
+          if (typeof onProgress === "function") onProgress(pct);
+        };
       }
       xhr.onload = () => {
+        done();
         let data = null;
         try { data = xhr.responseText ? JSON.parse(xhr.responseText) : null; } catch { data = null; }
         if (xhr.status >= 200 && xhr.status < 300 && data?.secure_url) {
@@ -555,8 +558,8 @@ export const uploadService = {
           reject(new Error(data?.error?.message || `Cloudinary upload failed (${xhr.status}).`));
         }
       };
-      xhr.onerror = () => reject(new Error("Could not reach Cloudinary."));
-      xhr.ontimeout = () => reject(new Error("Upload timed out — try a smaller image or check your connection."));
+      xhr.onerror = () => { done(); reject(new Error("Could not reach Cloudinary.")); };
+      xhr.ontimeout = () => { done(); reject(new Error("Upload timed out — try a smaller image or check your connection.")); };
       xhr.send(fd);
     });
   },
