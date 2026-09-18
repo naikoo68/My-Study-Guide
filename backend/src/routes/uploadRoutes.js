@@ -1,9 +1,32 @@
 import { Router } from "express";
 import multer from "multer";
-import { uploadToCloudinary, isCloudinaryConfigured } from "../config/cloudinary.js";
+import cloudinary, { uploadToCloudinary, isCloudinaryConfigured } from "../config/cloudinary.js";
 import { protect, authorize } from "../middleware/auth.js";
 
 const router = Router();
+
+// GET /api/upload/signature (admin) — returns the params for a SIGNED, DIRECT
+// browser → Cloudinary upload. This lets big media go straight to Cloudinary
+// instead of relaying through our (free-tier) server, which is slow and can
+// time out ("Cannot reach the server"). The api_secret never leaves the server
+// — it's only used here to sign; the api_key it returns is public by design.
+router.get("/signature", protect, authorize("admin"), (req, res) => {
+  if (!isCloudinaryConfigured()) {
+    return res.status(503).json({ message: "Image uploads aren't set up yet (Cloudinary keys missing)." });
+  }
+  const timestamp = Math.round(Date.now() / 1000);
+  const folder = "mystudyguide/social";
+  // The signature must cover every param sent to Cloudinary EXCEPT file,
+  // api_key, resource_type and cloud_name — here that's folder + timestamp.
+  const signature = cloudinary.utils.api_sign_request({ folder, timestamp }, process.env.CLOUDINARY_API_SECRET);
+  res.json({
+    cloudName: process.env.CLOUDINARY_CLOUD_NAME,
+    apiKey: process.env.CLOUDINARY_API_KEY,
+    timestamp,
+    folder,
+    signature,
+  });
+});
 
 // Allowlist of accepted upload content types (images + PDF + common docs). Only
 // these MIME types are accepted; anything else (scripts, HTML, SVG, executables)

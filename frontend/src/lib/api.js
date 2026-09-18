@@ -204,6 +204,65 @@ function safeJson(text) {
   }
 }
 
+// Upload a file with REAL progress. `fetch` can't report upload progress, so
+// this uses XMLHttpRequest and calls `onProgress(percent)` (0–100) as the
+// browser → server transfer proceeds. Resolves with the parsed JSON body and
+// rejects with an Error carrying .status/.data (same shape as request()). Note:
+// the percentage covers the browser→server leg; the server then relays the file
+// to Cloudinary, so callers should show a "processing" state once it hits 100%.
+export function uploadWithProgress(path, file, { field = "file", onProgress, timeout = 180000 } = {}) {
+  return new Promise((resolve, reject) => {
+    try {
+      const fd = new FormData();
+      fd.append(field, file);
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `${BASE_URL}${path}`);
+      xhr.timeout = timeout;
+
+      // Mirror request()'s auth + tenant headers so the upload authorises and
+      // is scoped to the right institute. (Content-Type is set by the browser
+      // for FormData, incl. the multipart boundary — don't set it manually.)
+      try {
+        const token = getToken();
+        if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+      } catch { /* ignore */ }
+      try {
+        if (typeof window !== "undefined" && window.location?.hostname) {
+          xhr.setRequestHeader("X-Tenant-Host", window.location.hostname);
+        }
+      } catch { /* ignore */ }
+      try {
+        let slug = "";
+        const fromUrl = (typeof window !== "undefined" && window.location?.search)
+          ? new URLSearchParams(window.location.search).get("t") : null;
+        if (fromUrl && fromUrl.trim()) slug = fromUrl.trim().toLowerCase();
+        else { try { slug = sessionStorage.getItem("mpm-tenant-slug") || ""; } catch { /* storage blocked */ } }
+        if (slug) xhr.setRequestHeader("X-Tenant", slug);
+      } catch { /* ignore */ }
+
+      if (xhr.upload && typeof onProgress === "function") {
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+        };
+      }
+      xhr.onload = () => {
+        const text = xhr.responseText || "";
+        let data = null;
+        try { data = text ? JSON.parse(text) : null; } catch { data = null; }
+        if (xhr.status >= 200 && xhr.status < 300) { resolve(data); return; }
+        const err = new Error(data?.message || `Upload failed (${xhr.status})`);
+        err.status = xhr.status; err.data = data;
+        reject(err);
+      };
+      xhr.onerror = () => reject(new Error("Network error during upload."));
+      xhr.ontimeout = () => reject(new Error("Upload timed out — try a smaller image or check your connection."));
+      xhr.send(fd);
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
 export const api = {
   get: (path, opts) => request(path, { ...opts, method: "GET" }),
   post: (path, body, opts) => request(path, { ...opts, method: "POST", body }),

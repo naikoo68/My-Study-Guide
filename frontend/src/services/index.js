@@ -2,7 +2,7 @@
 // content, practice, tests, AI, users, settings, …) that attach the JWT bearer
 // token and normalise responses/errors.
 
-import { api } from "../lib/api";
+import { api, uploadWithProgress } from "../lib/api";
 
 // ---- Auth ----
 export const authService = {
@@ -514,6 +514,51 @@ export const uploadService = {
     const fd = new FormData();
     fd.append("file", file);
     return api.post("/upload", fd);
+  },
+  // Same upload but reports a 0–100 progress percentage via onProgress(percent).
+  fileWithProgress: (file, onProgress) => uploadWithProgress("/upload", file, { field: "file", onProgress }),
+
+  // DIRECT browser → Cloudinary signed upload (images). Skips our server, so it's
+  // faster, can't hit the server's request timeout, and reports accurate 0–100%
+  // progress end-to-end. Falls back to the server relay if signing/CORS fails.
+  imageDirect: async (file, onProgress) => {
+    let sig;
+    try {
+      sig = await api.get("/upload/signature"); // { cloudName, apiKey, timestamp, folder, signature }
+    } catch (e) {
+      // Signing endpoint unreachable → fall back to the server relay upload.
+      return uploadWithProgress("/upload", file, { field: "file", onProgress });
+    }
+    if (!sig?.cloudName || !sig?.signature) {
+      return uploadWithProgress("/upload", file, { field: "file", onProgress });
+    }
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("api_key", sig.apiKey);
+    fd.append("timestamp", sig.timestamp);
+    fd.append("signature", sig.signature);
+    fd.append("folder", sig.folder);
+    const url = `https://api.cloudinary.com/v1_1/${sig.cloudName}/image/upload`;
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", url);
+      xhr.timeout = 180000;
+      if (xhr.upload && typeof onProgress === "function") {
+        xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100)); };
+      }
+      xhr.onload = () => {
+        let data = null;
+        try { data = xhr.responseText ? JSON.parse(xhr.responseText) : null; } catch { data = null; }
+        if (xhr.status >= 200 && xhr.status < 300 && data?.secure_url) {
+          resolve({ url: data.secure_url, bytes: data.bytes, format: data.format });
+        } else {
+          reject(new Error(data?.error?.message || `Cloudinary upload failed (${xhr.status}).`));
+        }
+      };
+      xhr.onerror = () => reject(new Error("Could not reach Cloudinary."));
+      xhr.ontimeout = () => reject(new Error("Upload timed out — try a smaller image or check your connection."));
+      xhr.send(fd);
+    });
   },
 };
 
