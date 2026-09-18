@@ -4561,7 +4561,7 @@ function parseFlashcardItems(content) {
   return Array.isArray(arr) ? arr : [];
 }
 
-async function runFlashcardJob(id, { endpoints, model, batches, owner = null }) {
+async function runFlashcardJob(id, { endpoints, model, questions, owner = null }) {
   const job = genJobs.get(id);
   const deadline = Date.now() + 12 * 60 * 1000;
   const save = (patch) => Object.assign(job, patch, { updatedAt: Date.now() });
@@ -4570,69 +4570,86 @@ async function runFlashcardJob(id, { endpoints, model, batches, owner = null }) 
   let lastError = null;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const MAX_QUOTA_WAITS = 6;
-  const MAX_BATCH_RETRIES = 3;
+  const MAX_ITEM_RETRIES = 4; // per question: soft failures before we give up on that one
+  const CHUNK = 4;            // small chunks → the reply always fits the token budget (no truncation)
 
-  const queue = [...batches];
-  const tries = new Map(); // batch index -> retry count
-  const reserveOne = () => (queue.length ? queue.shift() : null);
-  const requeue = (b) => {
-    const n = (tries.get(b) || 0) + 1;
-    tries.set(b, n);
-    if (n <= MAX_BATCH_RETRIES) queue.push(b);
+  // Shared work queue of INDIVIDUAL questions — the SAME model the question
+  // generator / extend job use: every key pulls chunks from one queue, and any
+  // question the AI SKIPS or leaves blank (an omitted item, or the truncated
+  // tail of a batch reply) is put BACK on the queue so another pass fills it.
+  // That's what stops the run stalling at 0 AND stops questions staying empty.
+  const queue = [...questions];
+  const itemTries = new Map(); // q._id -> soft-retry count
+  const reserveChunk = () => (queue.length ? queue.splice(0, CHUNK) : null); // atomic: no await between check & splice
+  const requeue = (q) => {
+    const k = String(q._id);
+    const n = (itemTries.get(k) || 0) + 1;
+    itemTries.set(k, n);
+    if (n <= MAX_ITEM_RETRIES) queue.push(q); // else give up on this ONE question
   };
 
-  const runBatchOnKey = async (batch, ep, ks) => {
+  // Run ONE chunk on ONE key. Returns the outcome plus the set of question ids
+  // that were actually filled, so the worker can re-queue the rest.
+  const runChunkOnKey = async (chunk, ep, ks) => {
     ks.requests += 1; save({});
+    // Scale the token budget with the chunk size (like the question generator's
+    // `1800 + n*1000`) so several rich notes never get truncated mid-JSON — the
+    // root cause of dropped/empty questions with the old flat 8000 cap.
+    const maxTokens = Math.min(16000, 2000 + chunk.length * 1400);
+    const filled = new Set();
     const r = await callProvider({
       key: ep.key,
       baseUrl: ep.baseUrl,
       model: ep.model || model,
       systemPrompt: FLASHCARD_BATCH_SYSTEM_PROMPT,
-      userPrompt: buildFlashcardBatchPrompt(batch),
-      maxTokens: 8000,
+      userPrompt: buildFlashcardBatchPrompt(chunk),
+      maxTokens,
       failOnEmpty: true,
     });
     if (r.ok) {
       const items = parseFlashcardItems(r.content);
-      if (!items.length) { ks.error += 1; save({}); return "soft"; }
-      let any = 0;
+      if (!items.length) { ks.error += 1; save({}); return { outcome: "soft", filled }; }
       for (const it of items) {
         const idx = Number(it.i) - 1;
-        const q = batch[idx];
-        if (!q) continue;
+        const q = chunk[idx];
+        if (!q || filled.has(String(q._id))) continue;
         const set = {};
         if (Array.isArray(it.keyPoints) && it.keyPoints.length) set.keyPoints = it.keyPoints.map((x) => String(x || "").trim()).filter(Boolean).slice(0, 6);
         if (typeof it.quickRecall === "string" && it.quickRecall.trim()) set.quickRecall = it.quickRecall.trim();
         if (typeof it.explanation === "string" && it.explanation.trim()) set.explanation = it.explanation.trim();
         if (!Object.keys(set).length) continue;
         await Question.updateOne({ _id: q._id }, { $set: set }).catch(() => {});
-        updated += 1; any += 1;
+        updated += 1;
+        filled.add(String(q._id));
         job.questions.push(1); // progress = questions filled (jobStatus reports count)
       }
-      ks.ok += 1; ks.questions += any; save({});
+      ks.ok += 1; ks.questions += filled.size; save({});
       AiKey.updateOne({ keyHash: keyFingerprint(ep.key), owner: owner ?? null }, { $inc: { usedRequests: 1, usedTokens: r.tokens || 0 } }).catch(() => {});
-      return any ? "ok" : "soft";
+      return { outcome: filled.size ? "ok" : "soft", filled };
     }
     lastError = r;
-    if (r.status === 429) { ks.limited += 1; save({}); return "limited"; }
-    if ([401, 403, 404].includes(r.status)) { ks.error += 1; save({}); return "dead"; }
+    if (r.status === 429) { ks.limited += 1; save({}); return { outcome: "limited", filled }; }
+    if ([401, 403, 404].includes(r.status)) { ks.error += 1; save({}); return { outcome: "dead", filled }; }
     ks.error += 1; save({});
-    return "soft";
+    return { outcome: "soft", filled };
   };
 
+  // ONE worker PER API KEY → every key runs SIMULTANEOUSLY (same pattern as the
+  // question generator). A key rides out its own per-minute limit (429) while
+  // the others keep going; there is no whole-job pause.
   const worker = async (ep) => {
     let quotaWaits = 0;
     const _kl = ep.label || `••••${String(ep.key).slice(-4)}`;
     const ks = job.keyStats[_kl] || (job.keyStats[_kl] = { requests: 0, ok: 0, limited: 0, error: 0, questions: 0 });
     while (Date.now() < deadline && !job.cancelled) {
-      const batch = reserveOne();
-      if (!batch) break;
-      let outcome;
-      try { outcome = await runBatchOnKey(batch, ep, ks); } catch { outcome = "soft"; }
-      if (outcome === "ok") continue;
-      if (outcome === "dead") { queue.push(batch); break; }
+      const chunk = reserveChunk();
+      if (!chunk) break; // queue drained — this key retires cleanly
+      let outcome, filled;
+      try { ({ outcome, filled } = await runChunkOnKey(chunk, ep, ks)); }
+      catch { outcome = "soft"; filled = new Set(); }
+      if (outcome === "dead") { for (const q of chunk) queue.push(q); break; } // key unauthorized/invalid — hand its work back, retire it
       if (outcome === "limited") {
-        queue.push(batch);
+        for (const q of chunk) queue.push(q); // let a free key take these right away
         if (quotaWaits >= MAX_QUOTA_WAITS) break;
         const waitMs = Math.min(retryWaitMs(null, lastError?.detail) || 30000, 60000);
         if (Date.now() + waitMs >= deadline) break;
@@ -4640,7 +4657,9 @@ async function runFlashcardJob(id, { endpoints, model, batches, owner = null }) 
         await sleep(waitMs);
         continue;
       }
-      requeue(batch);
+      // ok / soft: re-queue every question in this chunk the AI did NOT fill
+      // (skipped item or truncated tail) so it gets another pass (bounded).
+      for (const q of chunk) if (!filled.has(String(q._id))) requeue(q);
     }
   };
 
@@ -4681,14 +4700,12 @@ export async function generateFlashcardDetails(req, res) {
     .lean();
   if (!questions.length) return res.status(400).json({ message: "No questions found to update (or not your content)." });
 
-  const BATCH = 10;
-  const batches = [];
-  for (let i = 0; i < questions.length; i += BATCH) batches.push(questions.slice(i, i + BATCH));
-
   cleanupJobs();
   const id = newJobId();
   genJobs.set(id, { status: "pending", questions: [], requested: questions.length, error: null, model: chosen.model, updatedAt: Date.now() });
-  guardJob(id, runFlashcardJob(id, { endpoints: chosen.endpoints, model: chosen.model, batches, owner: scope.owner }));
+  // The job chunks the questions internally (small chunks + per-question retry),
+  // mirroring the question generator so nothing is dropped or left empty.
+  guardJob(id, runFlashcardJob(id, { endpoints: chosen.endpoints, model: chosen.model, questions, owner: scope.owner }));
   res.json({ jobId: id, requested: questions.length, model: chosen.model });
 }
 
