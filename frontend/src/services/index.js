@@ -2,7 +2,7 @@
 // content, practice, tests, AI, users, settings, …) that attach the JWT bearer
 // token and normalise responses/errors.
 
-import { api } from "../lib/api";
+import { api, uploadWithProgress } from "../lib/api";
 
 // ---- Auth ----
 export const authService = {
@@ -515,6 +515,8 @@ export const uploadService = {
     fd.append("file", file);
     return api.post("/upload", fd);
   },
+  // Same upload but reports a 0–100 progress percentage via onProgress(percent).
+  fileWithProgress: (file, onProgress) => uploadWithProgress("/upload", file, { field: "file", onProgress }),
 };
 
 // ---- User Manual (public read, admin write) ----

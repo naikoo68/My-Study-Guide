@@ -441,6 +441,9 @@ function CustomMediaUploader({ media, onChange }) {
   const fileRef = useRef(null);
   const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState("");
+  const [progress, setProgress] = useState(0); // 0–100 for the current file
+  const [phase, setPhase] = useState(""); // "" | "uploading" | "processing"
+  const [batch, setBatch] = useState({ i: 0, n: 0 }); // current file index / total
 
   const pick = async (e) => {
     const files = Array.from(e.target.files || []);
@@ -448,15 +451,23 @@ function CustomMediaUploader({ media, onChange }) {
     setUploading(true); setErr("");
     try {
       const urls = [];
-      for (const file of files) {
+      for (let idx = 0; idx < files.length; idx++) {
+        const file = files[idx];
         if (!file.type.startsWith("image/")) { setErr("Only image files are allowed."); continue; }
         if (file.size > 10 * 1024 * 1024) { setErr("Each image must be under 10MB."); continue; }
-        const r = await uploadService.file(file);
+        setBatch({ i: idx + 1, n: files.length });
+        setPhase("uploading"); setProgress(0);
+        const r = await uploadService.fileWithProgress(file, (p) => {
+          setProgress(p);
+          // Once the browser→server transfer completes, the server is still
+          // relaying the file to Cloudinary — show a "processing" state.
+          if (p >= 100) setPhase("processing");
+        });
         if (r?.url) urls.push(r.url);
       }
       if (urls.length) onChange([...(media || []), ...urls].slice(0, 10));
     } catch (e2) { setErr(e2.message || "Upload failed."); }
-    finally { setUploading(false); if (fileRef.current) fileRef.current.value = ""; }
+    finally { setUploading(false); setPhase(""); setProgress(0); setBatch({ i: 0, n: 0 }); if (fileRef.current) fileRef.current.value = ""; }
   };
   const removeAt = (i) => onChange((media || []).filter((_, k) => k !== i));
 
@@ -473,9 +484,22 @@ function CustomMediaUploader({ media, onChange }) {
             {i === 0 && <span className="absolute bottom-0 left-0 rounded-tr-lg rounded-bl-lg bg-brand-600 px-1.5 py-0.5 text-[9px] font-bold text-white">1st</span>}
           </div>
         ))}
-        <label className={`flex h-20 w-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-slate-300 text-xs text-slate-500 hover:border-brand-400 dark:border-slate-600 ${uploading ? "pointer-events-none opacity-60" : ""}`}>
-          {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ImagePlus className="h-5 w-5" />}
-          {uploading ? "Uploading" : "Add image"}
+        <label className={`relative flex h-20 w-20 cursor-pointer flex-col items-center justify-center gap-1 overflow-hidden rounded-lg border-2 border-dashed border-slate-300 text-center text-[11px] leading-tight text-slate-500 hover:border-brand-400 dark:border-slate-600 ${uploading ? "pointer-events-none opacity-90" : ""}`}>
+          {uploading ? (
+            <>
+              <Loader2 className="h-5 w-5 animate-spin text-brand-600" />
+              <span className="font-semibold text-brand-600">
+                {phase === "processing" ? "Processing…" : `${progress}%`}
+              </span>
+              {batch.n > 1 && <span className="text-[9px] text-slate-400">{batch.i} of {batch.n}</span>}
+              {/* progress bar along the bottom */}
+              <span className="absolute inset-x-0 bottom-0 h-1 bg-slate-200 dark:bg-slate-700">
+                <span className="block h-full bg-brand-600 transition-all" style={{ width: `${phase === "processing" ? 100 : progress}%` }} />
+              </span>
+            </>
+          ) : (
+            <><ImagePlus className="h-5 w-5" /> Add image</>
+          )}
           <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={pick} disabled={uploading} />
         </label>
       </div>
