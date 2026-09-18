@@ -63,15 +63,9 @@ export default function ExtendExplanationsModal({ open, target, title, onClose, 
     setQType("all");
   }, [open]);
 
-  // Lock background page scroll while the modal is open, so scrolling inside
-  // the modal (which can be taller than the screen on mobile) doesn't move the
-  // page behind it. Same pattern as the admin mobile drawer.
-  useEffect(() => {
-    if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = prev; };
-  }, [open]);
+  // Background page-scroll lock is handled globally by <ModalScrollLock/> (it
+  // detects this modal's `fixed inset-0 … bg-black/50` backdrop), so every modal
+  // on the site gets the behaviour without wiring it in one-by-one.
 
   useEffect(() => {
     if (!open) return;

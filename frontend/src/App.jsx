@@ -16,6 +16,7 @@ import { AiModalProvider } from "./context/AiModalContext";
 import ProtectedRoute from "./components/auth/ProtectedRoute";
 import StudentGate from "./components/auth/StudentGate";
 import ContentProtection from "./components/ui/ContentProtection";
+import ModalScrollLock from "./components/ui/ModalScrollLock";
 import UploadProgressBar from "./components/ui/UploadProgressBar";
 import ErrorBoundary from "./components/ui/ErrorBoundary";
 import Layout from "./components/layout/Layout";
@@ -406,6 +407,7 @@ export default function App() {
         <AuthProvider>
           <ZoomProvider>
             <ContentProtection />
+            <ModalScrollLock />
             <UploadProgressBar />
             <ErrorBoundary>
               {/* AiModalProvider sits ABOVE the router so a minimized AI
