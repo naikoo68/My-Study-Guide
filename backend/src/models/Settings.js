@@ -233,6 +233,11 @@ const settingsSchema = new mongoose.Schema(
     fbSelfieWatermarkSize: { type: Number, default: 120 }, // px (diameter/width of the watermark)
     fbSelfieWatermarkOpacity: { type: Number, default: 90 }, // % (10–100)
     fbSelfieWatermarkShape: { type: String, default: "circle" }, // circle | rectangle
+    // Custom flashcard TEMPLATE image (for the "Flashcard" auto-post type). When
+    // set & enabled, the flashcard render overlays the quiz question's content
+    // onto this uploaded image instead of the built-in design. Cloudinary URL.
+    fbFlashcardTemplateUrl: { type: String, default: "" },
+    fbFlashcardTemplateEnabled: { type: Boolean, default: true },
     // Center TEXT watermark drawn diagonally across the middle of every
     // Facebook/Instagram question-card image (in addition to the selfie/logo
     // above). Text is optional — when blank it falls back to the site watermark
