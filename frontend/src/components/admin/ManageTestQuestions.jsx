@@ -306,6 +306,8 @@ export default function ManageTestQuestions({
               <Download className="h-4 w-4" /> CSV{selectedTq.length ? ` (${selectedTq.length})` : ""}
             </button>
             <button onClick={onDuplicates} className="btn-outline"><Files className="h-4 w-4" /> Duplicates</button>
+            <button onClick={() => setIncompleteOpen(true)} className="btn-outline text-amber-600" title="Find questions missing options / correct answer / columns / statements / tables / diagram etc."><ScanSearch className="h-4 w-4" /> Find Incomplete</button>
+            <button onClick={() => setFlashcardOpen(true)} className="btn-outline text-emerald-600" title="Add or update Key Points, Quick Recall & Explanation for each question"><ClipboardList className="h-4 w-4" /> Flashcard Details</button>
             {onExtendExplanations && (
               <button onClick={onExtendExplanations} className="btn-outline text-brand-600" title="AI: make all explanations detailed for this test"><Wand2 className="h-4 w-4" /> Extend Explanations</button>
             )}
