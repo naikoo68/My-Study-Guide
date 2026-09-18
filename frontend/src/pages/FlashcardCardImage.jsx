@@ -199,8 +199,14 @@ export default function FlashcardCardImage() {
   const [q, setQ] = useState(null);
   const [error, setError] = useState("");
   const [fontsReady, setFontsReady] = useState(false);
-  const [imgReady, setImgReady] = useState(!tpl); // template image loaded (or none)
-  const ready = fontsReady && imgReady;
+  const [imgReady, setImgReady] = useState(false); // template image loaded
+  // The uploaded template only has boxes for a plain MCQ (stem + 4 options +
+  // answer). Types with extra structures (matching columns, assertion/reason,
+  // statements, tables, diagrams…) don't fit fixed boxes, so those fall back to
+  // the built-in design, which renders every type in full.
+  const TEMPLATE_TYPES = new Set(["mcq", "numericalmcq"]);
+  const useTemplate = !!tpl && !!q && TEMPLATE_TYPES.has(q.type || "mcq");
+  const ready = fontsReady && (!useTemplate || imgReady);
 
   useEffect(() => { document.documentElement.classList.remove("dark"); }, []);
 
@@ -224,7 +230,7 @@ export default function FlashcardCardImage() {
   if (error) return <div data-card-error="1" style={{ padding: 24, fontFamily: "sans-serif" }}>{error}</div>;
   if (!q) return <div style={{ padding: 24, fontFamily: "sans-serif" }}>Loading…</div>;
 
-  if (tpl) {
+  if (useTemplate) {
     return (
       <div data-card-ready={ready ? "1" : "0"} style={{ background: "#ffffff", display: "inline-block" }}>
         <TemplateOverlay q={q} tpl={tpl} onImg={() => setImgReady(true)} />
@@ -232,6 +238,8 @@ export default function FlashcardCardImage() {
     );
   }
 
+  // Built-in design — used when no template is set, OR for question types the
+  // fixed template can't hold (matching, assertion, statement, table, …).
   return (
     <div style={{ background: "#ffffff", minHeight: "100vh", display: "flex", justifyContent: "center", padding: 24 }}>
       <BuiltInFlashcard q={q} ready={ready} />
