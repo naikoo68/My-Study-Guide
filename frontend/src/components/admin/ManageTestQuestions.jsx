@@ -451,6 +451,7 @@ export default function ManageTestQuestions({
       {flashcardOpen && (
         <FlashcardDetailsModal
           title={qTest?.name || qTest?.title}
+          aiTarget={qTest?._id ? { testSeries: qTest._id } : undefined}
           loadQuestions={() => tq}
           onClose={() => setFlashcardOpen(false)}
         />

@@ -1320,6 +1320,7 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
       {cardFlashcard && (
         <FlashcardDetailsModal
           title={cardFlashcard.name || cardFlashcard.title}
+          aiTarget={{ testSeries: cardFlashcard._id }}
           loadQuestions={() => testService.getQuestions(cardFlashcard._id)}
           onClose={() => setCardFlashcard(null)}
         />
