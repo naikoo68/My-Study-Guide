@@ -4321,7 +4321,14 @@ async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = n
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const MAX_QUOTA_WAITS = 6;
   const MAX_ITEM_RETRIES = 4; // per question: soft failures before we give up on that one
-  const CHUNK = 4;            // questions per AI call — small enough to avoid truncation
+  // Only 2 questions per AI call. Bulk used to pack 4 per call sharing one token
+  // budget (~3.2k tokens/question), which forced the model to compress every
+  // explanation and truncate long ones — so "Extend/Regenerate all" came out far
+  // thinner than the single-question action (8k tokens/question). With CHUNK=2
+  // and the budget below, each question gets the SAME ~8k-token allowance as the
+  // single path, so bulk output is just as detailed. Multiple API keys still run
+  // in parallel, so throughput stays high.
+  const CHUNK = 2;
 
   const sysPrompt = String(systemPrompt || "") + BATCH_REWRITE_SUFFIX;
   const queue = [...questions];
@@ -4338,9 +4345,11 @@ async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = n
   // the worker can re-queue whatever the reply skipped or truncated.
   const runChunkOnKey = async (chunk, ep, ks) => {
     ks.requests += 1; save({});
-    // Scale the token budget with the chunk size (like the question generator)
-    // so several rich results never get truncated mid-JSON.
-    const maxTokens = Math.min(16000, 2500 + chunk.length * 2600);
+    // Give EACH question in the chunk roughly the same output budget the
+    // single-question path uses (8k tokens), so rich explanations are never
+    // squeezed or truncated mid-JSON. Capped at 16k to stay within provider
+    // output limits (with CHUNK=2 that's a full ~8k per question).
+    const maxTokens = Math.min(16000, 2000 + chunk.length * 7000);
     const filled = new Set();
     const r = await callProvider({
       key: ep.key,
