@@ -3,7 +3,7 @@ import Question from "../models/Question.js";
 import Settings from "../models/Settings.js";
 import { runScheduleOnce, getFacebookConfig, hashtagsForQuestion } from "../config/facebook.js";
 import { renderQuestionImage } from "../config/socialImage.js";
-import { renderQuestionCardShot } from "../config/cardShot.js";
+import { renderQuestionCardShot, renderFlashcardCardShot } from "../config/cardShot.js";
 
 // GET /api/facebook/suggest-tags/:id — hashtags for one question (global default
 // + auto tags from its subject/topic/section). Used to pre-fill the post modal.
@@ -187,13 +187,22 @@ export async function previewQuestionImage(req, res) {
 
   const includeAnswer = !!req.body.includeAnswer;
   const hashtags = String(req.body.hashtags || "").trim();
+  const site = await Settings.findOne({ key: "site" }).lean().catch(() => null);
+
+  // Flashcard image (for the admin's Flashcard Details "Download") — the SAME
+  // two-panel flashcard the auto-post produces, on the uploaded template.
+  if (req.body.kind === "flashcard") {
+    const templateUrl = site?.fbFlashcardTemplateEnabled !== false ? String(site?.fbFlashcardTemplateUrl || "").trim() : "";
+    const fc = await renderFlashcardCardShot(q, { templateUrl }).catch((e) => ({ error: e?.message || String(e) }));
+    if (fc?.url) return res.json({ url: fc.url });
+    return res.status(502).json({ message: fc?.error || "Could not generate the flashcard image." });
+  }
 
   // Preview the SAME image that actually gets posted: a screenshot of the REAL
   // /q-card page (pixel-identical to the on-screen quiz card and to what the
   // auto-post schedule posts), with the same selfie/text watermarks baked in.
   // Fall back to the lightweight SVG card ONLY if the headless screenshot is
   // unavailable, so the preview never simply fails.
-  const site = await Settings.findOne({ key: "site" }).lean().catch(() => null);
   const selfieOn = site?.fbSelfieWatermarkEnabled !== false && !!site?.fbSelfieWatermarkUrl;
   const textWmText = String(site?.fbTextWatermarkText || site?.watermarkText || site?.siteName || "").trim();
   const textOn = site?.fbTextWatermarkEnabled === true && !!textWmText;

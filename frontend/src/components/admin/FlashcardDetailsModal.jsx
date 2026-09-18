@@ -5,7 +5,7 @@
 //   • "Generate for whole quiz with AI"  → aiService.extendExplanations (job)
 // Manual editing (+ Save) still works for fine-tuning after AI.
 import { useEffect, useState, useCallback, useRef, useLayoutEffect } from "react";
-import { X, Loader2, Save, CheckCircle2, Search, Sparkles, Wand2, AlertTriangle, Send } from "lucide-react";
+import { X, Loader2, Save, CheckCircle2, Search, Sparkles, Wand2, AlertTriangle, Send, Download, ChevronLeft, ChevronRight } from "lucide-react";
 import { contentService, testService, settingsService, aiService, facebookService } from "../../services";
 import { stemPreview } from "../../lib/questionCompleteness";
 import { TemplateOverlay, BuiltInFlashcard } from "../../pages/FlashcardCardImage";
@@ -165,7 +165,9 @@ export default function FlashcardDetailsModal({ title, loadQuestions, onClose, a
     if (!aiTarget || bulk.running) return;
     setBulk({ running: true, done: 0, total: rows.length, err: "", finished: false });
     try {
-      const { jobId, requested } = await aiService.extendExplanations(aiTarget);
+      // FAST batched generator (~10 questions per AI call, parallel across keys)
+      // — as quick as AI question generation, even for 300+ questions.
+      const { jobId, requested } = await aiService.flashcardDetails(aiTarget);
       setBulk((b) => ({ ...b, total: requested || rows.length }));
       let done = false;
       for (let i = 0; i < 300 && !done; i++) {
@@ -204,6 +206,36 @@ export default function FlashcardDetailsModal({ title, loadQuestions, onClose, a
     } catch (e) {
       setRows((rs) => rs.map((r) => (r._id === row._id ? { ...r, posting: false, postErr: e.message || "Post failed" } : r)));
     }
+  };
+
+  // Download THIS question's flashcard as a PNG — the exact image the auto-post
+  // renders (question + answer on the template).
+  const download = async (row) => {
+    setRows((rs) => rs.map((r) => (r._id === row._id ? { ...r, downloading: true, dlErr: "" } : r)));
+    try {
+      const res = await facebookService.previewImage({ questionId: row._id, kind: "flashcard" });
+      const url = res?.url;
+      if (!url) throw new Error("Could not render the flashcard image.");
+      try {
+        const blob = await fetch(url).then((r) => r.blob());
+        const obj = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = obj; a.download = `flashcard-${row._id}.png`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(obj), 5000);
+      } catch {
+        window.open(url, "_blank"); // cross-origin fallback
+      }
+      setRows((rs) => rs.map((r) => (r._id === row._id ? { ...r, downloading: false } : r)));
+    } catch (e) {
+      setRows((rs) => rs.map((r) => (r._id === row._id ? { ...r, downloading: false, dlErr: e.message || "Download failed" } : r)));
+    }
+  };
+
+  // Previous / Next — scroll to the adjacent card within the current list.
+  const goTo = (idx) => {
+    const el = document.getElementById(`fcd-card-${idx}`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const q = search.trim().toLowerCase();
@@ -260,11 +292,17 @@ export default function FlashcardDetailsModal({ title, loadQuestions, onClose, a
             )}
             <div className="max-h-[70vh] space-y-4 overflow-y-auto pr-1">
               {shown.map((r, i) => (
-                <div key={r._id} className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
-                  <p className="mb-2 text-sm font-medium text-slate-800 dark:text-slate-100">
-                    <span className="mr-1.5 text-slate-400">{i + 1}.</span>{stemPreview(r, 120)}
-                    <span className="ml-2 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-bold uppercase text-slate-600 dark:bg-slate-700 dark:text-slate-300">{r.type}</span>
-                  </p>
+                <div key={r._id} id={`fcd-card-${i}`} className="scroll-mt-2 rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                      <span className="mr-1.5 text-slate-400">{i + 1} / {shown.length}</span>{stemPreview(r, 100)}
+                      <span className="ml-2 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-bold uppercase text-slate-600 dark:bg-slate-700 dark:text-slate-300">{r.type}</span>
+                    </p>
+                    <div className="flex flex-shrink-0 items-center gap-1">
+                      <button onClick={() => goTo(i - 1)} disabled={i === 0} className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-40 dark:border-slate-700 dark:hover:bg-slate-800" title="Previous"><ChevronLeft className="h-4 w-4" /></button>
+                      <button onClick={() => goTo(i + 1)} disabled={i === shown.length - 1} className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-40 dark:border-slate-700 dark:hover:bg-slate-800" title="Next"><ChevronRight className="h-4 w-4" /></button>
+                    </div>
+                  </div>
 
                   {/* Live flashcard preview */}
                   <div className="mb-3">
@@ -294,6 +332,9 @@ export default function FlashcardDetailsModal({ title, loadQuestions, onClose, a
                     <button onClick={() => save(r)} disabled={r.saving || r.aiing} className="btn-primary !py-1 !text-xs">
                       {r.saving ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…</> : <><Save className="h-3.5 w-3.5" /> Save</>}
                     </button>
+                    <button onClick={() => download(r)} disabled={r.downloading} className="btn-outline !py-1 !text-xs text-slate-600 dark:text-slate-300" title="Download this flashcard as an image">
+                      {r.downloading ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Rendering…</> : <><Download className="h-3.5 w-3.5" /> Download</>}
+                    </button>
                     <button onClick={() => post(r)} disabled={r.posting} className="btn-outline !py-1 !text-xs text-[#1877F2]" title="Post this flashcard to Facebook & Instagram now">
                       {r.posting ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Posting…</> : <><Send className="h-3.5 w-3.5" /> Post</>}
                     </button>
@@ -301,6 +342,7 @@ export default function FlashcardDetailsModal({ title, loadQuestions, onClose, a
                     {r.postMsg && <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600"><CheckCircle2 className="h-4 w-4" /> {r.postMsg}</span>}
                     {r.err && <span className="text-xs font-medium text-rose-600">{r.err}</span>}
                     {r.postErr && <span className="text-xs font-medium text-rose-600">{r.postErr}</span>}
+                    {r.dlErr && <span className="text-xs font-medium text-rose-600">{r.dlErr}</span>}
                   </div>
                 </div>
               ))}

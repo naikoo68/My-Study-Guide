@@ -479,6 +479,7 @@ export const aiService = {
   parseSyllabus: (data) => api.post("/ai/parse-syllabus", data, { timeout: 180000 }), // full syllabus → { subject, topics:[{title,subtopics}] }
   classifyUnits: (data) => api.post("/ai/classify-units", data), // file question stems under units → { assign: [...] }
   extendExplanations: (data) => api.post("/ai/extend-explanations", data), // enrich all explanations in a quiz/test → { jobId, requested }
+  flashcardDetails: (data) => api.post("/ai/flashcard-details", data), // FAST batched Key Points + Quick Recall + Explanation for a whole quiz/test → { jobId, requested }
   extendOne: (data, opts) => withRateLimitRetry(() => api.post("/ai/extend-explanation", data, opts)), // enrich ONE question's explanation → { explanation, optionExplanations }; opts.signal supports Stop
   regenerate: (data, opts) => withRateLimitRetry(() => api.post("/ai/regenerate-question", data, opts)), // analyse ONE question → rebuild options/answer → { options, correct, explanation }; opts.signal supports Stop
   regenerateAll: (data) => api.post("/ai/regenerate-all", data), // regenerate EVERY question in a quiz/test → { jobId, requested }
