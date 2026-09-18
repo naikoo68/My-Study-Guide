@@ -153,6 +153,10 @@ export async function getLogo(req, res) {
     }
     const logo = String(doc?.logoUrl || "").trim();
     if (!logo) return res.status(404).end();
+    // Guard against a logo that was accidentally saved as this very endpoint's
+    // URL (an older round-trip bug): redirecting would loop forever. Treat it as
+    // "no logo" so the UI falls back to the default icon.
+    if (/\/api\/settings\/logo(\?|$)/i.test(logo)) return res.status(404).end();
     // An externally-hosted logo: just redirect to it.
     if (/^https?:\/\//i.test(logo)) return res.redirect(302, logo);
     // A base64 data URI: decode and stream it as a cacheable image.
@@ -202,6 +206,19 @@ export async function updateSettings(req, res) {
   ];
   const update = {};
   for (const k of allowed) if (k in req.body) update[k] = req.body[k];
+
+  // LOGO GUARD. The browser receives the logo as a cacheable /api/settings/logo
+  // PROXY URL (see getSettings — the heavy base64 is stripped out of the JSON).
+  // When the admin just saves the Customization form without touching the logo,
+  // that proxy URL is submitted back here. Writing it would REPLACE the real
+  // (base64/hosted) logo with a self-referential link that 302-redirects to
+  // itself — an infinite loop that breaks the logo everywhere. So if the
+  // incoming logoUrl points at our own logo endpoint, drop it and keep the
+  // stored logo untouched. (A genuine new upload is a data: URI or an external
+  // URL, which is saved normally.)
+  if ("logoUrl" in update && /\/api\/settings\/logo(\?|$)/i.test(String(update.logoUrl || ""))) {
+    delete update.logoUrl;
+  }
 
   // Facebook: keep the token server-side. Only overwrite it when a NEW non-empty
   // value is provided (the admin UI submits it blank to keep the saved one).

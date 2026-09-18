@@ -290,6 +290,13 @@ export default function AdminCustomization() {
           institute: (form.faqs.institute || []).filter((f) => f.q?.trim() || f.a?.trim()),
         },
       };
+      // The logo loads as a cacheable /api/settings/logo PROXY url. Never send
+      // that back — it would overwrite the real (base64/hosted) logo with a
+      // self-referential link that breaks it. Only send logoUrl for a real
+      // change: a data: URI (new upload) or "" (removed).
+      if (payload.logoUrl && /\/api\/settings\/logo(\?|$)/i.test(payload.logoUrl)) {
+        delete payload.logoUrl;
+      }
       await save(payload);
       flash("Saved! Your changes are now live across the site.");
     } catch (err) {
