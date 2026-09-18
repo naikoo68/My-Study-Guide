@@ -17,6 +17,9 @@ export async function suggestTags(req, res) {
 // Common post-format fields from the per-question modal.
 function postOpts(body = {}) {
   return {
+    // "flashcard" posts the two-panel flashcard image (question + answer on the
+    // uploaded template); "question" posts the normal question card.
+    kind: body.kind === "flashcard" ? "flashcard" : "question",
     toFacebook: body.toFacebook !== false,
     toInstagram: !!body.toInstagram,
     asImage: !!body.asImage,
