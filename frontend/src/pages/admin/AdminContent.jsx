@@ -1952,6 +1952,7 @@ export default function AdminContent() {
       {flashcardOpen && quiz && (
         <FlashcardDetailsModal
           title={quiz.title}
+          aiTarget={{ quiz: quiz._id }}
           loadQuestions={() => contentService.quizQuestions(quiz._id)}
           onClose={() => setFlashcardOpen(false)}
         />
@@ -1967,6 +1968,7 @@ export default function AdminContent() {
       {cardFlashcard && (
         <FlashcardDetailsModal
           title={cardFlashcard.title || cardFlashcard.name}
+          aiTarget={{ quiz: cardFlashcard._id }}
           loadQuestions={() => contentService.quizQuestions(cardFlashcard._id)}
           onClose={() => setCardFlashcard(null)}
         />

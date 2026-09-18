@@ -91,7 +91,7 @@ function BackContent({ q }) {
 // ---- TEMPLATE OVERLAY: content rendered into the empty middle regions of the
 //      uploaded template, auto-scaled to fit. Region rects are in the template's
 //      own 1536×1024 space (tuned to the header/footer of the supplied template).
-const TPL_W = 1536, TPL_H = 1024;
+export const TPL_W = 1536, TPL_H = 1024;
 const FRONT_REGION = { left: 56, top: 160, width: 672, height: 690 };
 const BACK_REGION = { left: 808, top: 160, width: 672, height: 690 };
 
@@ -116,7 +116,7 @@ function FitRegion({ rect, children }) {
   );
 }
 
-function TemplateOverlay({ q, tpl, onImg }) {
+export function TemplateOverlay({ q, tpl, onImg }) {
   return (
     <div data-card-el style={{ position: "relative", width: TPL_W, height: TPL_H, fontFamily: "Inter, Arial, sans-serif" }}>
       <img src={tpl} alt="" onLoad={onImg} onError={onImg} style={{ position: "absolute", inset: 0, width: TPL_W, height: TPL_H, objectFit: "contain" }} />
@@ -141,7 +141,7 @@ function Brand({ badge, badgeColor }) {
   );
 }
 
-function BuiltInFlashcard({ q, ready }) {
+export function BuiltInFlashcard({ q, ready }) {
   return (
     <div data-card-ready={ready ? "1" : "0"} data-card-el style={{ display: "flex", gap: 20, width: 968 }}>
       <div className="card flex flex-col p-5" style={{ width: 474, position: "relative" }}>
