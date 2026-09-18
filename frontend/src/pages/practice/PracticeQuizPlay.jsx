@@ -39,6 +39,7 @@ import TableView from "../../components/ui/TableView";
 import GraphView from "../../components/ui/GraphView";
 import VizView from "../../components/ui/VizView";
 import AssertionReasonView from "../../components/ui/AssertionReasonView";
+import FlashcardAnswer from "../../components/ui/FlashcardAnswer";
 import Watermark from "../../components/ui/Watermark";
 import FeedbackButton from "../../components/ui/FeedbackButton";
 import { useZoom } from "../../context/ZoomContext";
@@ -487,14 +488,7 @@ export default function PracticeQuizPlay() {
                     })}
                   </div>
 
-                  {q.explanation && (
-                    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-900/20">
-                      <div className="flex items-center gap-2 font-semibold text-amber-700 dark:text-amber-300">
-                        <Lightbulb className="h-4 w-4" /> Explanation
-                      </div>
-                      <p className="mt-1 text-sm text-amber-900/90 dark:text-amber-100/90"><MathText>{q.explanation}</MathText></p>
-                    </div>
-                  )}
+                  <FlashcardAnswer q={q} />
                 </div>
               );
             })}
@@ -825,14 +819,7 @@ export default function PracticeQuizPlay() {
             </div>
           )}
 
-          {locked && q.explanation && (
-            <div className="mt-4 animate-fade-in rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-900/20">
-              <div className="flex items-center gap-2 font-semibold text-amber-700 dark:text-amber-300">
-                <Lightbulb className="h-5 w-5" /> Explanation
-              </div>
-              <p className="mt-2 text-sm text-amber-900/90 dark:text-amber-100/90"><MathText>{q.explanation}</MathText></p>
-            </div>
-          )}
+          {locked && <FlashcardAnswer q={q} />}
 
           <div data-noexport="1" className="mt-6 flex items-center justify-between">
             <button onClick={prev} disabled={current === 0} className="btn-outline">
