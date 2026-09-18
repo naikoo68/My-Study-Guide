@@ -254,16 +254,22 @@ export default function AdminCustomization() {
     set("aboutStats", form.aboutStats.map((s, idx) => (idx === i ? { ...s, [key]: val } : s)));
   const removeStat = (i) => set("aboutStats", form.aboutStats.filter((_, idx) => idx !== i));
 
-  // ---- Logo file → base64 ----
-  const onLogoFile = (e) => {
+  // ---- Logo file → RESIZED base64 ----
+  // Resize/compress the logo to a small data URI (matching the onboarding
+  // wizard). Storing the raw file made the logo hundreds of KB, and it ships in
+  // the settings payload the frontend loads on every visit — so an un-resized
+  // logo badly slowed down page loads, especially on mobile. A logo never needs
+  // to be larger than ~400px.
+  const onLogoFile = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith("image/")) { setError("Please choose an image file."); return; }
-    if (file.size > 800 * 1024) { setError("Logo must be under 800 KB. Try a smaller image."); return; }
     setError("");
-    const reader = new FileReader();
-    reader.onload = () => set("logoUrl", reader.result);
-    reader.readAsDataURL(file);
+    try {
+      set("logoUrl", await fileToResizedDataUrl(file, 400, 0.9));
+    } catch {
+      setError("Could not read that image. Try another file.");
+    }
   };
 
   const submit = async (e) => {
