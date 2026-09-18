@@ -4243,134 +4243,183 @@ function buildExtendSet(q, parsed, extendQuestion = false, shuffleOptions = fals
   return set;
 }
 
-async function runExtendJob(id, { endpoints, model, questions, owner = null, notes = "", fixOptions = false, extendQuestion = false, shuffleOptions = false }) {
+// ── FAST BATCHED bulk rewrite (Extend / Regenerate) ────────────────────────
+// Mirrors the QUESTION GENERATOR's speed trick: instead of one AI call per
+// question (slow), it sends SEVERAL questions per call and gets back an array
+// of results — so a whole quiz finishes in a few calls, across all keys at
+// once. Each question is described with the SAME per-question prompt and its
+// result applied with the SAME per-question builder as the single-question
+// path, so quality is unchanged; only the transport is batched. Any question a
+// reply skips or truncates is re-queued, so completeness is guaranteed.
+const BATCH_REWRITE_SUFFIX = `
+
+=== BATCH MODE — READ CAREFULLY ===
+You are being given SEVERAL questions at once, each under a header "### QUESTION <n>". Each block repeats the single-question rules and may tell you to return "ONE JSON object" — in BATCH MODE you MUST IGNORE that "one object" wording. Apply each block's rules to ITS OWN question, doing the SAME rigorous verification for each as if it were the only one.
+Then respond with ONE single valid JSON object and NOTHING else (no markdown, no code fences), of EXACTLY this shape:
+{"items":[{"i":<n>, <all the JSON fields that question's block asks for>}, ...]}
+- Include EXACTLY one entry per question and set "i" to that question's <n> from its header.
+- Each entry must be a COMPLETE result obeying every rule in that question's block (its explanation, optionExplanations, and any correct/options/text/columnA/columnB/assertion/reason/keyPoints/quickRecall exactly as specified).
+- Do NOT skip any question, do NOT merge answers, and keep all the JSON validity/math/currency rules.`;
+
+// Concatenate each question's normal single-question prompt under a numbered
+// header, so every per-type / toggle instruction is preserved verbatim.
+function buildBatchRewritePrompt(chunk, perQuestionPrompt) {
+  const out = [
+    'You are given MULTIPLE exam questions below, each under a header "### QUESTION <n>". Treat each COMPLETELY INDEPENDENTLY and apply that block\'s instructions to it, then return the single {"items":[...]} object described in the system message.',
+    "",
+  ];
+  chunk.forEach((q, i) => {
+    out.push(`### QUESTION ${i + 1}`);
+    out.push(perQuestionPrompt(q));
+    out.push("");
+  });
+  return out.join("\n");
+}
+
+// Pull the results array out of a batch reply (tolerates code fences, stray
+// text, single-backslash LaTeX and a TRUNCATED tail — salvaging the complete
+// items, whose missing siblings simply get re-queued).
+function parseBatchItems(content) {
+  let t = String(content || "").trim();
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) t = fence[1].trim();
+  let obj = null;
+  try { obj = JSON.parse(t); } catch { /* try repairs below */ }
+  if (!obj) {
+    const repaired = repairJson(t);
+    try { obj = JSON.parse(repaired); } catch { /* keep trying */ }
+    if (!obj) {
+      const s = repaired.indexOf("{"), e = repaired.lastIndexOf("}");
+      if (s !== -1 && e > s) { try { obj = JSON.parse(repaired.slice(s, e + 1)); } catch { /* fall through */ } }
+    }
+  }
+  if (obj) {
+    obj = deepReviveLatex(obj);
+    if (Array.isArray(obj)) return obj;
+    if (Array.isArray(obj.items)) return obj.items;
+    return [];
+  }
+  // Truncated reply — recover every complete {...} object; keep the item-shaped
+  // ones (they carry an "i" index). The rest are re-queued for another pass.
+  const salvaged = deepReviveLatex(salvageObjects(repairJson(t)));
+  return Array.isArray(salvaged) ? salvaged.filter((o) => o && typeof o === "object" && "i" in o) : [];
+}
+
+// The shared batched worker used by BOTH Extend and Regenerate.
+//   systemPrompt      — the base single-question system prompt (BATCH_REWRITE_SUFFIX is appended)
+//   perQuestionPrompt — (q) => the normal single-question user prompt for q
+//   buildSet          — (q, parsed) => the $set object to persist (buildExtendSet / buildRegenSet)
+//   isUsable          — (parsed) => whether the parsed result is good enough to apply
+async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = null, systemPrompt, perQuestionPrompt, buildSet, isUsable, failLabel = "updated" }) {
   const job = genJobs.get(id);
-  const deadline = Date.now() + 12 * 60 * 1000; // overall time budget
+  const deadline = Date.now() + 12 * 60 * 1000;
   const save = (patch) => Object.assign(job, patch, { updatedAt: Date.now() });
   const total = questions.length;
-  if (!job.keyStats) job.keyStats = {}; // live per-key activity for THIS run
+  if (!job.keyStats) job.keyStats = {};
   let updated = 0;
   let lastError = null;
-  let parseFails = 0;   // calls that succeeded (HTTP ok) but yielded no usable explanation
-  let emptyReplies = 0; // of those, how many returned empty content (safety filter / blank completion)
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const MAX_QUOTA_WAITS = 6;
+  const MAX_ITEM_RETRIES = 4; // per question: soft failures before we give up on that one
+  const CHUNK = 4;            // questions per AI call — small enough to avoid truncation
 
-  const MAX_QUOTA_WAITS = 6;  // per key: 429s we ride out before retiring the key
-  const MAX_EMPTY = 4;        // per key: empty replies we retry before retiring it
-  const MAX_ITEM_RETRIES = 4; // per question: soft failures before we give up on it
-
-  // Shared work queue — every worker (one per key) pulls from the SAME queue, so
-  // whichever key is free grabs the next question. Soft failures (bad JSON /
-  // empty / transient) are re-queued (bounded) so one blip doesn't drop a
-  // question. This mirrors the question generator, which uses all keys smoothly.
+  const sysPrompt = String(systemPrompt || "") + BATCH_REWRITE_SUFFIX;
   const queue = [...questions];
-  const itemTries = new Map(); // q._id -> soft-retry count
-  const reserveOne = () => (queue.length ? queue.shift() : null); // atomic: no await between check & shift
+  const itemTries = new Map();
+  const reserveChunk = () => (queue.length ? queue.splice(0, CHUNK) : null); // atomic: no await between check & splice
   const requeue = (q) => {
     const k = String(q._id);
     const n = (itemTries.get(k) || 0) + 1;
     itemTries.set(k, n);
-    if (n <= MAX_ITEM_RETRIES) queue.push(q); // else give up on this ONE question
+    if (n <= MAX_ITEM_RETRIES) queue.push(q);
   };
 
-  // Run ONE question on ONE key. Returns an outcome the worker acts on.
-  const extendOnKey = async (q, ep, ks) => {
-    ks.requests += 1; save({}); // reflect the in-flight request immediately
+  // Run ONE chunk on ONE key. Returns the outcome + the ids actually filled, so
+  // the worker can re-queue whatever the reply skipped or truncated.
+  const runChunkOnKey = async (chunk, ep, ks) => {
+    ks.requests += 1; save({});
+    // Scale the token budget with the chunk size (like the question generator)
+    // so several rich results never get truncated mid-JSON.
+    const maxTokens = Math.min(16000, 2500 + chunk.length * 2600);
+    const filled = new Set();
     const r = await callProvider({
       key: ep.key,
       baseUrl: ep.baseUrl,
       model: ep.model || model,
-      systemPrompt: fixOptions ? EXTEND_FIXOPTS_SYSTEM_PROMPT : EXTEND_SYSTEM_PROMPT,
-      userPrompt: buildExtendPrompt(q, notes, fixOptions, extendQuestion),
-      maxTokens: 8000, // the verified/step-by-step replies are long — avoid truncation
-      failOnEmpty: true, // an empty reply → retry/roll over instead of counting as done
+      systemPrompt: sysPrompt,
+      userPrompt: buildBatchRewritePrompt(chunk, perQuestionPrompt),
+      maxTokens,
+      failOnEmpty: true,
     });
     if (r.ok) {
-      const parsed = parseExplanationJson(r.content);
-      if (!parsed || !parsed.explanation) {
-        // Call succeeded but the reply couldn't be turned into an explanation —
-        // track it so a 0-updated run can report the REAL reason.
-        parseFails += 1;
-        if (!String(r.content || "").trim()) emptyReplies += 1;
-        ks.error += 1; save({});
-        return "soft";
+      const items = parseBatchItems(r.content);
+      if (!items.length) { ks.error += 1; save({}); return { outcome: "soft", filled }; }
+      for (const it of items) {
+        const idx = Number(it.i) - 1;
+        const q = chunk[idx];
+        if (!q || filled.has(String(q._id))) continue;
+        // Reuse the EXACT single-question normalizer + set-builder so quality is
+        // identical to the one-at-a-time path.
+        const parsed = parseExplanationJson(JSON.stringify(it));
+        if (!parsed || !isUsable(parsed)) continue;
+        const set = buildSet(q, parsed);
+        if (!set || !Object.keys(set).length) continue;
+        await Question.updateOne({ _id: q._id }, { $set: set }).catch(() => {});
+        updated += 1;
+        filled.add(String(q._id));
+        job.questions.push(1); // progress = questions filled (jobStatus reports count)
       }
-      const set = buildExtendSet(q, parsed, extendQuestion, shuffleOptions); // may fix a wrong answer/options, lengthen the stem, and/or reshuffle options
-      await Question.updateOne({ _id: q._id }, { $set: set }).catch(() => {});
-      updated += 1;
-      ks.ok += 1; ks.questions += 1;
-      AiKey.updateOne({ keyHash: keyFingerprint(ep.key), owner: owner ?? null }, { $inc: { usedRequests: 1, usedTokens: r.tokens || 0 } }).catch(() => {}); // match by key fingerprint, not the encrypted value
-      job.questions.push(1); // progress = actual successes (jobStatus reports count)
-      save({});
-      return "ok";
+      ks.ok += 1; ks.questions += filled.size; save({});
+      AiKey.updateOne({ keyHash: keyFingerprint(ep.key), owner: owner ?? null }, { $inc: { usedRequests: 1, usedTokens: r.tokens || 0 } }).catch(() => {});
+      return { outcome: filled.size ? "ok" : "soft", filled };
     }
     lastError = r;
-    if (r.status === 429) { ks.limited += 1; save({}); return "limited"; }
-    if (r.status === 520 && r.empty) { ks.error += 1; save({}); return "empty"; }
-    if ([401, 403, 404].includes(r.status)) { ks.error += 1; save({}); return "dead"; }
+    if (r.status === 429) { ks.limited += 1; save({}); return { outcome: "limited", filled }; }
+    if ([401, 403, 404].includes(r.status)) { ks.error += 1; save({}); return { outcome: "dead", filled }; }
     ks.error += 1; save({});
-    return "soft";
+    return { outcome: "soft", filled };
   };
 
-  // ONE worker PER API KEY → every key runs SIMULTANEOUSLY (same model as the
-  // question generator, which works smoothly with all keys). Each worker sticks
-  // to its OWN key; when that key hits its per-minute limit (429) it waits it out
-  // ALONE while every OTHER key keeps extending. There is NO global barrier and
-  // NO whole-job pause, so a rate limit on a few keys can't freeze the run.
+  // ONE worker PER API KEY → every key runs SIMULTANEOUSLY, each pulling chunks
+  // from the shared queue. A 429 parks only that key while the others keep going.
   const worker = async (ep) => {
     let quotaWaits = 0;
-    let emptyOnKey = 0;
     const _kl = ep.label || `••••${String(ep.key).slice(-4)}`;
     const ks = job.keyStats[_kl] || (job.keyStats[_kl] = { requests: 0, ok: 0, limited: 0, error: 0, questions: 0 });
     while (Date.now() < deadline && !job.cancelled) {
-      const q = reserveOne();
-      if (!q) break; // queue drained — this key retires cleanly
-      let outcome;
-      try { outcome = await extendOnKey(q, ep, ks); } catch { outcome = "soft"; }
-      if (outcome === "ok") continue;
-      if (outcome === "dead") { queue.push(q); break; } // key unauthorized / model invalid — retire it, let others take the question
+      const chunk = reserveChunk();
+      if (!chunk) break;
+      let outcome, filled;
+      try { ({ outcome, filled } = await runChunkOnKey(chunk, ep, ks)); }
+      catch { outcome = "soft"; filled = new Set(); }
+      if (outcome === "dead") { for (const q of chunk) queue.push(q); break; }
       if (outcome === "limited") {
-        // Hand this question to another (free) key right away, then ride out THIS
-        // key's per-minute limit. The other workers keep going meanwhile.
-        queue.push(q);
-        if (quotaWaits >= MAX_QUOTA_WAITS) break; // this key keeps getting limited — retire it
+        for (const q of chunk) queue.push(q);
+        if (quotaWaits >= MAX_QUOTA_WAITS) break;
         const waitMs = Math.min(retryWaitMs(null, lastError?.detail) || 30000, 60000);
         if (Date.now() + waitMs >= deadline) break;
         quotaWaits += 1;
         await sleep(waitMs);
         continue;
       }
-      if (outcome === "empty") {
-        requeue(q);
-        if (++emptyOnKey >= MAX_EMPTY) break; // key keeps emitting empty — retire it
-        continue;
-      }
-      requeue(q); // soft / transient — let any free key retry it (bounded)
+      // ok / soft: re-queue every question the reply did NOT fill (skipped item
+      // or truncated tail) so it gets another pass (bounded).
+      for (const q of chunk) if (!filled.has(String(q._id))) requeue(q);
     }
   };
 
   try {
-    // Launch EVERY key at once; join only when the queue is drained (or every
-    // key has retired / the time budget is spent).
     await Promise.all((endpoints || []).map((ep) => worker(ep)));
-
     if (updated === 0) {
       save({
         status: "error",
         error: lastError
           ? (lastError.status === 429
-            ? "AI quota/rate limit reached before any explanation was updated. Wait a minute and try again."
-            : lastError.empty
-              ? `Every key returned an empty reply for all ${total} question(s) — usually a safety filter or a thinking-only/weak model. Try again, or set the key's model to gemini-2.5-flash (or gemini-2.5-pro).`
-              : `AI provider error (${lastError.status || 0}). ${(lastError.detail || "").slice(0, 150)}`)
-          : parseFails
-            ? (emptyReplies >= parseFails
-              ? `The AI returned empty replies for all ${total} question(s) — usually a safety filter or an overloaded/weak model. Try again, or set the key's model to gemini-2.5-flash.`
-              : `The AI replied but its answers weren't valid JSON for all ${total} question(s). Try again, or switch to a stronger model (gemini-2.5-flash / gemini-2.5-pro).`)
-            : "No explanations could be updated. Try again.",
+            ? "AI quota/rate limit reached before anything was updated. Wait a minute and try again."
+            : `AI provider error (${lastError.status || 0}). ${(lastError.detail || "").slice(0, 150)}`)
+          : `The AI didn't return usable results. Try again, or switch to a stronger model (gemini-2.5-flash / gemini-2.5-pro).`,
       });
     } else {
-      // If some remain, tell the caller so they can simply run it again.
       const short = updated < total;
       save({
         status: "done",
@@ -4381,8 +4430,22 @@ async function runExtendJob(id, { endpoints, model, questions, owner = null, not
       });
     }
   } catch (err) {
-    save(updated ? { status: "done", updatedCount: updated } : { status: "error", error: err?.message || "Failed to extend explanations." });
+    save(updated ? { status: "done", updatedCount: updated, requested: total } : { status: "error", error: err?.message || `Failed to ${failLabel === "regenerated" ? "regenerate" : "extend"}.` });
   }
+}
+
+// Extend explanations for a whole quiz/test — now runs as a FAST batched job
+// (several questions per AI call across all keys), reusing the same per-question
+// prompt + set-builder so results match the single-question "Extend" exactly.
+async function runExtendJob(id, { endpoints, model, questions, owner = null, notes = "", fixOptions = false, extendQuestion = false, shuffleOptions = false }) {
+  return runBatchedRewriteJob(id, {
+    endpoints, model, questions, owner,
+    systemPrompt: fixOptions ? EXTEND_FIXOPTS_SYSTEM_PROMPT : EXTEND_SYSTEM_PROMPT,
+    perQuestionPrompt: (q) => buildExtendPrompt(q, notes, fixOptions, extendQuestion),
+    buildSet: (q, parsed) => buildExtendSet(q, parsed, extendQuestion, shuffleOptions),
+    isUsable: (parsed) => !!(parsed && parsed.explanation),
+    failLabel: "updated",
+  });
 }
 
 // POST /api/ai/extend-explanations  (admin or owning client)
@@ -5122,122 +5185,18 @@ function buildRegenSet(q, parsed, { fixOptions = true, extendQuestion = false, s
 
 // Background job: regenerate EVERY question in a quiz/test (mirrors runExtendJob).
 // Multi-pass, one worker per key, so the whole set gets through despite quota.
+// Regenerate a whole quiz/test — now a FAST batched job (several questions per
+// AI call across all keys), reusing the same per-question prompt + set-builder
+// (incl. the pair/matching reshuffle) so results match single "Regenerate".
 async function runRegenAllJob(id, { endpoints, model, questions, owner = null, notes = "", fixOptions = true, extendQuestion = false, shuffleOptions = true }) {
-  const job = genJobs.get(id);
-  const deadline = Date.now() + 12 * 60 * 1000;
-  const save = (patch) => Object.assign(job, patch, { updatedAt: Date.now() });
-  const total = questions.length;
-  if (!job.keyStats) job.keyStats = {}; // live per-key activity for THIS run
-  let updated = 0;
-  let lastError = null;
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-  const MAX_QUOTA_WAITS = 6;
-  const MAX_EMPTY = 4;
-  const MAX_ITEM_RETRIES = 4;
-
-  // Shared work queue + one worker per key (see runExtendJob for the rationale).
-  const queue = [...questions];
-  const itemTries = new Map();
-  const reserveOne = () => (queue.length ? queue.shift() : null);
-  const requeue = (q) => {
-    const k = String(q._id);
-    const n = (itemTries.get(k) || 0) + 1;
-    itemTries.set(k, n);
-    if (n <= MAX_ITEM_RETRIES) queue.push(q);
-  };
-
-  const regenOnKey = async (q, ep, ks) => {
-    ks.requests += 1; save({});
-    const r = await callProvider({
-      key: ep.key,
-      baseUrl: ep.baseUrl,
-      model: ep.model || model,
-      systemPrompt: REGEN_SYSTEM_PROMPT,
-      userPrompt: buildRegenPrompt(q, notes, { fixOptions, extendQuestion }),
-      maxTokens: 8000,
-      failOnEmpty: true,
-    });
-    if (r.ok) {
-      const parsed = parseExplanationJson(r.content);
-      if (!parsed || !(parsed.explanation || (Array.isArray(parsed.options) && parsed.options.length === 4) || parsed.text || parsed.tableRows)) {
-        ks.error += 1; save({});
-        return "soft";
-      }
-      const set = buildRegenSet(q, parsed, { fixOptions, extendQuestion, shuffleOptions });
-      if (!Object.keys(set).length) { ks.error += 1; save({}); return "soft"; }
-      await Question.updateOne({ _id: q._id }, { $set: set }).catch(() => {});
-      updated += 1;
-      ks.ok += 1; ks.questions += 1;
-      AiKey.updateOne({ keyHash: keyFingerprint(ep.key), owner: owner ?? null }, { $inc: { usedRequests: 1, usedTokens: r.tokens || 0 } }).catch(() => {}); // match by key fingerprint, not the encrypted value
-      job.questions.push(1);
-      save({});
-      return "ok";
-    }
-    lastError = r;
-    if (r.status === 429) { ks.limited += 1; save({}); return "limited"; }
-    if (r.status === 520 && r.empty) { ks.error += 1; save({}); return "empty"; }
-    if ([401, 403, 404].includes(r.status)) { ks.error += 1; save({}); return "dead"; }
-    ks.error += 1; save({});
-    return "soft";
-  };
-
-  // ONE worker PER API KEY — every key regenerates simultaneously; a 429 parks
-  // only that key while the others keep working (no global barrier/pause).
-  const worker = async (ep) => {
-    let quotaWaits = 0;
-    let emptyOnKey = 0;
-    const _kl = ep.label || `••••${String(ep.key).slice(-4)}`;
-    const ks = job.keyStats[_kl] || (job.keyStats[_kl] = { requests: 0, ok: 0, limited: 0, error: 0, questions: 0 });
-    while (Date.now() < deadline && !job.cancelled) {
-      const q = reserveOne();
-      if (!q) break;
-      let outcome;
-      try { outcome = await regenOnKey(q, ep, ks); } catch { outcome = "soft"; }
-      if (outcome === "ok") continue;
-      if (outcome === "dead") { queue.push(q); break; }
-      if (outcome === "limited") {
-        queue.push(q);
-        if (quotaWaits >= MAX_QUOTA_WAITS) break;
-        const waitMs = Math.min(retryWaitMs(null, lastError?.detail) || 30000, 60000);
-        if (Date.now() + waitMs >= deadline) break;
-        quotaWaits += 1;
-        await sleep(waitMs);
-        continue;
-      }
-      if (outcome === "empty") {
-        requeue(q);
-        if (++emptyOnKey >= MAX_EMPTY) break;
-        continue;
-      }
-      requeue(q);
-    }
-  };
-
-  try {
-    await Promise.all((endpoints || []).map((ep) => worker(ep)));
-    if (updated === 0) {
-      save({
-        status: "error",
-        error: lastError
-          ? (lastError.status === 429
-            ? "AI quota/rate limit reached before any question was regenerated. Wait a minute and try again."
-            : `AI provider error (${lastError.status || 0}). ${(lastError.detail || "").slice(0, 150)}`)
-          : "No questions could be regenerated. Try again.",
-      });
-    } else {
-      const short = updated < total;
-      save({
-        status: "done",
-        updatedCount: updated,
-        requested: total,
-        error: short ? (lastError?.status === 429 ? "quota" : "partial") : null,
-        remaining: short ? total - updated : 0,
-      });
-    }
-  } catch (err) {
-    save(updated ? { status: "done", updatedCount: updated } : { status: "error", error: err?.message || "Failed to regenerate questions." });
-  }
+  return runBatchedRewriteJob(id, {
+    endpoints, model, questions, owner,
+    systemPrompt: REGEN_SYSTEM_PROMPT,
+    perQuestionPrompt: (q) => buildRegenPrompt(q, notes, { fixOptions, extendQuestion }),
+    buildSet: (q, parsed) => buildRegenSet(q, parsed, { fixOptions, extendQuestion, shuffleOptions }),
+    isUsable: (parsed) => !!(parsed && (parsed.explanation || (Array.isArray(parsed.options) && parsed.options.length === 4) || parsed.text || parsed.tableRows)),
+    failLabel: "regenerated",
+  });
 }
 
 // POST /api/ai/regenerate-all  (admin or owning client)
