@@ -257,6 +257,8 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
   const [delSelBusy, setDelSelBusy] = useState(null); // real-time bulk-delete progress: { done, total }
   const [bulkDisBusy, setBulkDisBusy] = useState(null); // real-time bulk enable/disable progress: { done, total, disabled }
   const [extendItem, setExtendItem] = useState(null); // AI extend-explanations target
+  const [extendIds, setExtendIds] = useState([]); // ticked question ids to limit extend to (empty = whole set)
+  const [regenAllIds, setRegenAllIds] = useState([]); // ticked question ids to limit regenerate to (empty = whole set)
   const [extendingQId, setExtendingQId] = useState(null); // per-question extend in progress
   const [extendOneItem, setExtendOneItem] = useState(null); // per-question extend confirm modal target
   const [regenOneItem, setRegenOneItem] = useState(null); // per-question regenerate modal target
@@ -1338,6 +1340,7 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
           title={cardIncomplete.name || cardIncomplete.title}
           loadQuestions={() => testService.getQuestions(cardIncomplete._id)}
           deleteQuestion={(id) => testService.deleteQuestion(cardIncomplete._id, id)}
+          aiTarget={{ testSeries: cardIncomplete._id }}
           onChange={() => load("items")}
           onClose={() => setCardIncomplete(null)}
         />
@@ -1490,12 +1493,12 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
               onImportWeb={(subject) => { setForceSection(subject); setAiTarget(null); openPracticeImport({ item: qItem, section: subject }); }}
               onPickFromBank={(subject) => { setForceSection(subject); setBankOpen(true); }}
               onAutoBuild={kind === "test" ? () => setAutoOpen(true) : undefined}
-              onExtendExplanations={() => setExtendItem(qItem)}
+              onExtendExplanations={(ids) => { setExtendIds(ids || []); setExtendItem(qItem); }}
               onExtendQuestion={(item) => setExtendOneItem(item)}
               extendingId={extendingQId}
               onRegenerateQuestion={(item) => setRegenOneItem(item)}
               regeneratingId={null}
-              onRegenerateAll={() => setRegenAllItem(qItem)}
+              onRegenerateAll={(ids) => { setRegenAllIds(ids || []); setRegenAllItem(qItem); }}
             />
           </div>
         </div>
@@ -1974,6 +1977,7 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
       <ExtendExplanationsModal
         open={!!extendItem}
         target={{ testSeries: extendItem?._id }}
+        questionIds={extendIds}
         title={`Extend all explanations${extendItem ? ` — ${extendItem.name}` : ""}`}
         onClose={() => setExtendItem(null)}
         onDone={() => { if (qItem) reloadTq(); }}
@@ -1998,6 +2002,7 @@ export default function AdminPractice({ clientMode = false, fixedKind = "" }) {
       <RegenerateAllModal
         open={!!regenAllItem}
         target={{ testSeries: regenAllItem?._id }}
+        questionIds={regenAllIds}
         title={`Regenerate all${regenAllItem ? ` — ${regenAllItem.name}` : ""}`}
         onClose={() => setRegenAllItem(null)}
         onDone={() => { if (qItem) reloadTq(); }}

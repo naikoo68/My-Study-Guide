@@ -4419,6 +4419,14 @@ export async function extendExplanations(req, res) {
     filter.$expr = { $lte: [{ $subtract: ["$updatedAt", "$createdAt"] }, 5000] };
   }
 
+  // Optional: restrict to a SPECIFIC set of question ids (the admin ticked
+  // some questions and asked to extend only those). Still AND-ed with the
+  // quiz/test ownership scope above, so a caller can never touch ids outside
+  // their own content.
+  if (Array.isArray(req.body?.questionIds) && req.body.questionIds.length) {
+    filter._id = { $in: req.body.questionIds };
+  }
+
   // Process LEAST-RECENTLY-UPDATED first. Extending a question bumps its
   // updatedAt, so when a run stops early on quota, clicking "Extend" again
   // starts with the questions that were NOT reached last time — so repeated runs
@@ -5262,6 +5270,13 @@ export async function regenerateAll(req, res) {
   if (onlyType && onlyType !== "all" && onlyType !== "not_updated" && TYPES.includes(onlyType)) filter.type = onlyType;
   if (onlyType === "not_updated") {
     filter.$expr = { $lte: [{ $subtract: ["$updatedAt", "$createdAt"] }, 5000] };
+  }
+
+  // Optional: restrict to a SPECIFIC set of question ids (the admin ticked
+  // some questions and asked to regenerate only those). AND-ed with the
+  // quiz/test ownership scope so a caller can't touch ids outside their content.
+  if (Array.isArray(req.body?.questionIds) && req.body.questionIds.length) {
+    filter._id = { $in: req.body.questionIds };
   }
 
   // Least-recently-updated first so repeated runs finish the whole set.
