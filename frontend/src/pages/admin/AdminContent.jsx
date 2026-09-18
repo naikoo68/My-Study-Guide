@@ -110,8 +110,10 @@ export default function AdminContent() {
   const [scheduleQ, setScheduleQ] = useState(null); // question to post/schedule to Facebook
   const [extendingQId, setExtendingQId] = useState(null); // per-question extend in progress
   const [extendOneItem, setExtendOneItem] = useState(null); // per-question extend confirm modal target
-  const [incompleteOpen, setIncompleteOpen] = useState(false); // "Find incomplete questions" modal
-  const [flashcardOpen, setFlashcardOpen] = useState(false); // "Flashcard details" editor modal
+  const [incompleteOpen, setIncompleteOpen] = useState(false); // "Find incomplete questions" modal (questions view)
+  const [flashcardOpen, setFlashcardOpen] = useState(false); // "Flashcard details" editor modal (questions view)
+  const [cardIncomplete, setCardIncomplete] = useState(null); // per-quiz-card "Find incomplete"
+  const [cardFlashcard, setCardFlashcard] = useState(null); // per-quiz-card "Flashcard details"
   const [regenId] = useState(null); // legacy inline spinner id — regenerate now runs in RegenerateOneModal
   const [regenOneItem, setRegenOneItem] = useState(null); // per-question regenerate dialog target
   const [dupOpen, setDupOpen] = useState(false);
@@ -1490,6 +1492,12 @@ export default function AdminContent() {
                 {view === "quizzes" && (
                   <RowActionButton icon={ArrowRightLeft} label="Move / Copy" tone="emerald" title="Migrate: move or copy this whole quiz to another topic" onClick={() => setMigrateQuiz(item)} />
                 )}
+                {view === "quizzes" && (
+                  <RowActionButton icon={ScanSearch} label="Find Incomplete" tone="amber" title="Find questions missing options / correct answer / columns / statements / tables / diagram etc." onClick={() => setCardIncomplete(item)} />
+                )}
+                {view === "quizzes" && (
+                  <RowActionButton icon={ClipboardList} label="Flashcard Details" tone="emerald" title="Add or update Key Points, Quick Recall & Explanation for each question" onClick={() => setCardFlashcard(item)} />
+                )}
                 {view === "streams" && isSuperAdmin && (
                   <RowActionButton icon={Building2} label="Share to institutes" tone="indigo" title="Share a copy of this whole stream to institutes (appears in their account automatically)" onClick={() => setShareInstitutesTarget({ id: item._id, name: item.name })} />
                 )}
@@ -1946,6 +1954,21 @@ export default function AdminContent() {
           title={quiz.title}
           loadQuestions={() => contentService.quizQuestions(quiz._id)}
           onClose={() => setFlashcardOpen(false)}
+        />
+      )}
+      {cardIncomplete && (
+        <IncompleteQuestionsModal
+          title={cardIncomplete.title || cardIncomplete.name}
+          loadQuestions={() => contentService.quizQuestions(cardIncomplete._id)}
+          onEdit={(qq) => { setCardIncomplete(null); openEdit(qq); }}
+          onClose={() => setCardIncomplete(null)}
+        />
+      )}
+      {cardFlashcard && (
+        <FlashcardDetailsModal
+          title={cardFlashcard.title || cardFlashcard.name}
+          loadQuestions={() => contentService.quizQuestions(cardFlashcard._id)}
+          onClose={() => setCardFlashcard(null)}
         />
       )}
 

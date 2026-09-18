@@ -3,10 +3,12 @@
 
 import { useState, useEffect } from "react";
 import { Plus, Pencil, Trash2, Eye, X, Search, ChevronRight, Copy, Download, Clock, Upload, Sparkles, Globe, Library, Wand2, Loader2, RefreshCw, CheckCircle2, ArrowRightLeft } from "lucide-react";
-import { Files } from "lucide-react";
+import { Files, ScanSearch, ClipboardList } from "lucide-react";
 import { questionDateText, searchQuestions } from "../../lib/questions";
 import Badge from "../ui/Badge";
 import { Loading, EmptyState } from "../ui/AsyncState";
+import IncompleteQuestionsModal from "./IncompleteQuestionsModal";
+import FlashcardDetailsModal from "./FlashcardDetailsModal";
 
 /**
  * ManageTestQuestions — the modal content shown when you tap a test name.
@@ -45,6 +47,8 @@ export default function ManageTestQuestions({
 }) {
   const [activeSubject, setActiveSubject] = useState(null);
   const [quickSubject, setQuickSubject] = useState(""); // subject-list "Quick add" target
+  const [incompleteOpen, setIncompleteOpen] = useState(false); // "Find incomplete" modal
+  const [flashcardOpen, setFlashcardOpen] = useState(false); // "Flashcard details" modal
   const [selectedTq, setSelectedTq] = useState([]);
   const [tqSearch, setTqSearch] = useState("");
   // Real-time progress while bulk-deleting selected questions.
@@ -229,6 +233,16 @@ export default function ManageTestQuestions({
             {tq.length > 0 && onRegenerateAll && (
               <button onClick={onRegenerateAll} className="btn-outline py-1.5 text-xs text-violet-600" title="AI: regenerate every question's options/answer (reshuffles pair/matching Column B)">
                 <RefreshCw className="h-3.5 w-3.5" /> Regenerate All
+              </button>
+            )}
+            {tq.length > 0 && (
+              <button onClick={() => setIncompleteOpen(true)} className="btn-outline py-1.5 text-xs text-amber-600" title="Find questions missing options / correct answer / columns / statements / tables / diagram etc.">
+                <ScanSearch className="h-3.5 w-3.5" /> Find Incomplete
+              </button>
+            )}
+            {tq.length > 0 && (
+              <button onClick={() => setFlashcardOpen(true)} className="btn-outline py-1.5 text-xs text-emerald-600" title="Add or update Key Points, Quick Recall & Explanation for each question">
+                <ClipboardList className="h-3.5 w-3.5" /> Flashcard Details
               </button>
             )}
             {tq.length > 0 && (
@@ -423,6 +437,22 @@ export default function ManageTestQuestions({
           {activeSubject ? "Back to Subjects" : "Close"}
         </button>
       </div>
+
+      {incompleteOpen && (
+        <IncompleteQuestionsModal
+          title={qTest?.name || qTest?.title}
+          loadQuestions={() => tq}
+          onEdit={onEditQuestion ? (qq) => { setIncompleteOpen(false); onEditQuestion(qq); } : undefined}
+          onClose={() => setIncompleteOpen(false)}
+        />
+      )}
+      {flashcardOpen && (
+        <FlashcardDetailsModal
+          title={qTest?.name || qTest?.title}
+          loadQuestions={() => tq}
+          onClose={() => setFlashcardOpen(false)}
+        />
+      )}
     </>
   );
 }
