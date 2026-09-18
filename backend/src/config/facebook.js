@@ -899,7 +899,11 @@ async function runTenantSchedules(tid, stats = null) {
       const r = await runScheduleOnce(sch, cfg, { notify: true });
       if (stats && r?.ok) stats.posted += 1;
       else if (stats && r && !r.ok && !r.exhausted) stats.lastError = r.error || "post failed";
-      await sch.save();
+      // A ONE-TIME post disappears once it has published SUCCESSFULLY — delete
+      // the schedule so it's gone from the list. A failed one is kept (with its
+      // error) so the admin can see it and retry.
+      if (sch.mode === "once" && r?.ok) await FbSchedule.deleteOne({ _id: sch._id });
+      else await sch.save();
     } catch (e) {
       sch.lastResult = `Error: ${e.message}`;
       if (stats) stats.lastError = e.message;

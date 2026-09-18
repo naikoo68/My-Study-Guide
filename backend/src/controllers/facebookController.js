@@ -146,7 +146,13 @@ export async function postScheduleNow(req, res) {
     return res.status(400).json({ ok: false, error: "Connect Facebook first (Page ID + token) and enable posting." });
   }
   const result = await runScheduleOnce(sch, cfg);
-  await sch.save().catch(() => {});
+  // A one-time post vanishes once it has published successfully (so it doesn't
+  // linger as a paused row). Failures are kept so the admin can retry.
+  if (sch.mode === "once" && result.ok) {
+    await FbSchedule.deleteOne({ _id: sch._id }).catch(() => {});
+  } else {
+    await sch.save().catch(() => {});
+  }
   return res.status(result.ok ? 200 : 502).json(result);
 }
 
