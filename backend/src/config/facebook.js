@@ -100,6 +100,71 @@ export async function resolvePageToken(cfg) {
 
 // Post a message (with an optional link) to the configured Facebook Page feed.
 // Returns { ok, id?, error? }. Safe to call fire-and-forget — it never throws.
+
+// A publish that returns a real PAGE POST id (not a bare photo id) makes
+// Facebook classify the content like a manually-created post, so the Page's
+// native "Posts" counter (and the published_posts/posts edges) treat it the
+// same way. See FACEBOOK_COUNT_ARCHITECTURE.md.
+
+// Low-level form POST to the Graph API. Returns { ok, status, data }.
+async function fbGraphPost(url, params, pageToken) {
+  const body = new URLSearchParams(params);
+  body.set("access_token", pageToken);
+  const res = await fbFetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, data };
+}
+
+// Turn a raw Graph error into a friendlier one for the common "wrong token" case.
+function decorateFbError(error, status) {
+  let e = error || `Facebook API error${status ? ` (${status})` : ""}.`;
+  if (/publish_actions|\(#200\)/i.test(e)) {
+    e = "Facebook rejected the token. Use a PAGE access token (not a User token) with the pages_manage_posts permission, then save again. " + e;
+  }
+  return { ok: false, error: e };
+}
+
+// PREFERRED image publish — two steps so the result is a REAL Page feed post
+// (exactly like a manual "Create post" with a photo), which increments the
+// native Page post counter:
+//   1) upload the photo UNPUBLISHED (published=false) → a media_fbid, no story
+//   2) create a /feed post that ATTACHES that media → a real {page}_{post} id
+// Returns { ok, id?, error? }.
+async function postImageAsFeedPost(cfg, { message, imageUrl }, pageToken) {
+  const base = `https://graph.facebook.com/${cfg.version}/${encodeURIComponent(cfg.pageId)}`;
+
+  // Step 1 — upload the photo without publishing a photo story.
+  const up = await fbGraphPost(`${base}/photos`, { url: imageUrl, published: "false" }, pageToken);
+  const mediaId = up.data?.id;
+  if (!up.ok || !mediaId) {
+    return { ok: false, error: up.data?.error?.message || `Photo upload failed (${up.status}).` };
+  }
+
+  // Step 2 — publish a normal feed post that attaches the uploaded photo.
+  const params = { "attached_media[0]": JSON.stringify({ media_fbid: String(mediaId) }) };
+  if (message) params.message = message;
+  const post = await fbGraphPost(`${base}/feed`, params, pageToken);
+  const postId = post.data?.id || post.data?.post_id;
+  if (post.ok && postId) return { ok: true, id: postId };
+  return { ok: false, error: post.data?.error?.message || `Feed post failed (${post.status}).` };
+}
+
+// LEGACY image publish (kept as a fallback only). Single call to /photos, which
+// creates a photo-story object — visible, but NOT counted like a feed post.
+async function postImageDirect(cfg, { message, imageUrl }, pageToken) {
+  const url = `https://graph.facebook.com/${cfg.version}/${encodeURIComponent(cfg.pageId)}/photos`;
+  const params = { url: imageUrl };
+  if (message) params.caption = message;
+  const r = await fbGraphPost(url, params, pageToken);
+  const id = r.data?.post_id || r.data?.id;
+  if (r.ok && id) return { ok: true, id };
+  return { ok: false, error: r.data?.error?.message || `Facebook API error (${r.status}).` };
+}
+
 export async function postToFacebookPage({ message, link, imageUrl } = {}, cfgOverride) {
   const cfg = cfgOverride || (await getFacebookConfig());
   if (!isFacebookConfigured(cfg)) return { ok: false, error: "Facebook Page ID or access token is not set." };
@@ -109,29 +174,28 @@ export async function postToFacebookPage({ message, link, imageUrl } = {}, cfgOv
   const img = String(imageUrl || "").trim();
   if (!msg && !lnk && !img) return { ok: false, error: "Nothing to post (empty message)." };
 
-  // With an image → post a PHOTO (message becomes the caption); otherwise a
-  // normal feed post (optionally with a link).
-  const endpoint = img ? "photos" : "feed";
-  const url = `https://graph.facebook.com/${cfg.version}/${encodeURIComponent(cfg.pageId)}/${endpoint}`;
   const pageToken = await resolvePageToken(cfg); // ensure a PAGE token (not a user token)
-  const body = new URLSearchParams();
-  if (img) { body.set("url", img); if (msg) body.set("caption", msg); }
-  else { if (msg) body.set("message", msg); if (lnk) body.set("link", lnk); }
-  body.set("access_token", pageToken);
 
   try {
-    const res = await fbFetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body,
-    });
-    const data = await res.json().catch(() => ({}));
-    if (res.ok && data && (data.id || data.post_id)) return { ok: true, id: data.post_id || data.id };
-    let error = data?.error?.message || `Facebook API error (${res.status}).`;
-    if (/publish_actions|\(#200\)/i.test(error)) {
-      error = "Facebook rejected the token. Use a PAGE access token (not a User token) with the pages_manage_posts permission, then save again. " + error;
+    if (img) {
+      // Publish images as a real feed post so Facebook counts them like a
+      // manual post. If that fails for ANY reason, fall back to the legacy
+      // single-step photo publish so posting reliability is never reduced.
+      const primary = await postImageAsFeedPost(cfg, { message: msg, imageUrl: img }, pageToken);
+      if (primary.ok) return primary;
+      const fallback = await postImageDirect(cfg, { message: msg, imageUrl: img }, pageToken);
+      if (fallback.ok) return fallback;
+      return decorateFbError(primary.error || fallback.error);
     }
-    return { ok: false, error };
+
+    // No image → a normal feed post (optionally with a link), unchanged.
+    const params = {};
+    if (msg) params.message = msg;
+    if (lnk) params.link = lnk;
+    const r = await fbGraphPost(`https://graph.facebook.com/${cfg.version}/${encodeURIComponent(cfg.pageId)}/feed`, params, pageToken);
+    const id = r.data?.post_id || r.data?.id;
+    if (r.ok && id) return { ok: true, id };
+    return decorateFbError(r.data?.error?.message, r.status);
   } catch (err) {
     return { ok: false, error: err.message || "Could not reach Facebook." };
   }
