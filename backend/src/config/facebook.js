@@ -640,16 +640,27 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   // merged with any per-post tags — so every post is tagged consistently.
   const finalTags = await hashtagsForQuestion(q, site, sch.hashtags);
   const breadcrumb = await breadcrumbForQuestion(q);
+  // Reserve the next SITE-WIDE post number so every scheduled post is numbered
+  // in one continuous sequence (1, 2, 3, …) regardless of which schedule, stream,
+  // subject, topic, quiz or flashcard it came from. Atomic $inc avoids two posts
+  // grabbing the same number. Only for saved schedules (an ad-hoc "Post now" from
+  // the question view has no _id and isn't part of the series). A failed post may
+  // leave a small gap — acceptable, and rare.
+  let postNumber;
+  if ((wantFb || wantIg) && sch._id && site?._id) {
+    const bumped = await Settings.findOneAndUpdate(
+      { _id: site._id },
+      { $inc: { fbPostSerial: 1 } },
+      { new: true }
+    ).select("fbPostSerial").lean().catch(() => null);
+    postNumber = bumped?.fbPostSerial;
+  }
   const message = formatQuestionPost(q, {
     includeOptions: isFlashcard ? false : sch.includeOptions,
     includeAnswer: isFlashcard ? false : sch.includeAnswer,
     hashtags: finalTags,
     breadcrumb,
-    // Running sequence number for THIS post. postCount holds how many this
-    // schedule has already posted, so the next one is +1 (1st post → "1.").
-    // Only for saved schedules (a saved schedule has an _id) — ad-hoc single
-    // "Post now" from the question view isn't part of a numbered series.
-    number: sch._id ? (sch.postCount || 0) + 1 : undefined,
+    number: postNumber,
   });
   const link = sch.includeLink && cfg.siteUrl ? cfg.siteUrl : undefined;
 

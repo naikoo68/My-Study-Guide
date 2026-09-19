@@ -210,6 +210,10 @@ const settingsSchema = new mongoose.Schema(
     },
     // ---- Facebook Page auto-posting (Graph API) ----
     fbEnabled: { type: Boolean, default: false }, // master on/off for Facebook posting
+    // Site-wide running counter for auto-posts. Every scheduled question/flashcard
+    // post (across ALL schedules, streams, subjects & topics) gets the next number,
+    // so posts read 1, 2, 3, … continuously and the number never restarts per schedule.
+    fbPostSerial: { type: Number, default: 0 },
     fbPageId: { type: String, default: "" }, // the Facebook Page's numeric ID
     fbPageAccessToken: { type: String, default: "" }, // SENSITIVE — long-lived Page access token; never sent to the browser
     fbAutoOnNotice: { type: Boolean, default: false }, // auto-post to the Page whenever a Notice is added
