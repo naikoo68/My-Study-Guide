@@ -4,11 +4,12 @@
 import { useState, useRef } from "react";
 import {
   Palette, Type, ImagePlus, Save, RotateCcw, CheckCircle2, Eye, EyeOff,
-  Share2, Phone, Plus, Trash2, Upload, X, Info, BarChart3, PanelTop, GripVertical, LayoutList, Megaphone, Star, Camera, HelpCircle,
+  Share2, Phone, Plus, Trash2, Upload, X, Info, BarChart3, PanelTop, GripVertical, LayoutList, Megaphone, Star, Camera, HelpCircle, Loader2,
 } from "lucide-react";
 import { useSettings } from "../../context/SettingsContext";
 import Avatar from "../../components/ui/Avatar";
 import { fileToResizedDataUrl } from "../../lib/imageResize";
+import { uploadService } from "../../services";
 import { FAQ_DEFAULTS } from "../../lib/faqDefaults";
 
 // Home-page sections (fixed set) that the admin can reorder / hide.
@@ -203,6 +204,7 @@ export default function AdminCustomization() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
   const [error, setError] = useState("");
+  const [logoUploading, setLogoUploading] = useState(false); // logo image upload in progress
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(""), 2500); };
@@ -254,21 +256,29 @@ export default function AdminCustomization() {
     set("aboutStats", form.aboutStats.map((s, idx) => (idx === i ? { ...s, [key]: val } : s)));
   const removeStat = (i) => set("aboutStats", form.aboutStats.filter((_, idx) => idx !== i));
 
-  // ---- Logo file → RESIZED base64 ----
-  // Resize/compress the logo to a small data URI (matching the onboarding
-  // wizard). Storing the raw file made the logo hundreds of KB, and it ships in
-  // the settings payload the frontend loads on every visit — so an un-resized
-  // logo badly slowed down page loads, especially on mobile. A logo never needs
-  // to be larger than ~400px.
+  // ---- Logo file → HOSTED upload ----
+  // Uploads the logo through the SAME flow as every other image in the app:
+  // to Cloudinary via uploadService, which feeds the site-wide upload progress
+  // bar. We then store the returned hosted URL (not inline base64). This keeps
+  // the heavy image bytes OUT of the settings payload the frontend loads on
+  // every visit (the old base64 logo slowed page loads, especially on mobile),
+  // preserves PNG/SVG transparency, and shows real upload progress.
   const onLogoFile = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith("image/")) { setError("Please choose an image file."); return; }
+    if (file.size > 5 * 1024 * 1024) { setError("That image is too large (max 5 MB)."); return; }
     setError("");
+    setLogoUploading(true);
     try {
-      set("logoUrl", await fileToResizedDataUrl(file, 400, 0.9));
-    } catch {
-      setError("Could not read that image. Try another file.");
+      const res = await uploadService.file(file);
+      if (!res?.url) throw new Error("Upload returned no URL.");
+      set("logoUrl", res.url);
+    } catch (err) {
+      setError(err.message || "Upload failed — check the file and that Cloudinary is configured.");
+    } finally {
+      setLogoUploading(false);
+      if (e.target) e.target.value = ""; // let the admin re-pick the same file
     }
   };
 
@@ -382,11 +392,11 @@ export default function AdminCustomization() {
                 <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-brand-600 to-accent-500 text-white">
                   {form.logoUrl ? <img src={form.logoUrl} alt="logo" className="h-full w-full object-cover" /> : (form.siteName || "M")[0]}
                 </div>
-                <label className="btn-outline cursor-pointer">
-                  <Upload className="h-4 w-4" /> Upload Image
-                  <input type="file" accept="image/*" className="hidden" onChange={onLogoFile} />
+                <label className={`btn-outline cursor-pointer ${logoUploading ? "pointer-events-none opacity-60" : ""}`}>
+                  {logoUploading ? <><Loader2 className="h-4 w-4 animate-spin" /> Uploading…</> : <><Upload className="h-4 w-4" /> Upload Image</>}
+                  <input type="file" accept="image/*" className="hidden" onChange={onLogoFile} disabled={logoUploading} />
                 </label>
-                {form.logoUrl && (
+                {form.logoUrl && !logoUploading && (
                   <button type="button" onClick={() => set("logoUrl", "")} className="btn-ghost text-rose-600">
                     <X className="h-4 w-4" /> Remove
                   </button>
