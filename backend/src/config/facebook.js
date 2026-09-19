@@ -237,24 +237,66 @@ export async function getFacebookPublishedCount(cfgOverride) {
 
 // Write one PERMANENT ledger row per successful Facebook publication (main Page
 // and any extra Pages). Fire-and-forget — a ledger write must NEVER break or
-// delay posting. Keyed by Meta's post id, independent of FbSchedule.
-async function recordFbPublications(pubs, ctx = {}) {
+// delay posting. Keyed by Meta's post id, independent of FbSchedule. Exported
+// for unit tests.
+export async function recordFbPublications(pubs, ctx = {}) {
   try {
+    const seen = new Set();
     for (const p of pubs || []) {
-      if (!p?.id) continue;
-      await FbPost.create({
-        facebookPostId: String(p.id),
-        pageId: String(p.pageId || ""),
-        pageLabel: String(p.pageLabel || ""),
-        schedule: ctx.schedule?._id || null,
-        scheduleTitle: String(ctx.scheduleTitle || ctx.schedule?.title || "").slice(0, 200),
-        sourceLabel: String(ctx.sourceLabel || "").slice(0, 300),
-        question: ctx.question?._id || null,
-        kind: ctx.kind || "question",
-        postSerial: Number.isInteger(ctx.postSerial) ? ctx.postSerial : null,
-      }).catch(() => {}); // duplicate id (unique index) or engine hiccup — ignore
+      const id = p?.id ? String(p.id) : "";
+      if (!id || seen.has(id)) continue; // de-dupe within this single call
+      seen.add(id);
+      // Idempotent by Meta post id: a retry / callback / repeated processing with
+      // the SAME id upserts the SAME row (never a second one), so the count can't
+      // be inflated. $setOnInsert keeps the first recording's context. This does
+      // NOT rely on the unique index alone, so it holds on every DB engine.
+      await FbPost.updateOne(
+        { facebookPostId: id },
+        {
+          $setOnInsert: {
+            facebookPostId: id,
+            pageId: String(p.pageId || ""),
+            pageLabel: String(p.pageLabel || ""),
+            schedule: ctx.schedule?._id || null,
+            scheduleTitle: String(ctx.scheduleTitle || ctx.schedule?.title || "").slice(0, 200),
+            sourceLabel: String(ctx.sourceLabel || "").slice(0, 300),
+            question: ctx.question?._id || null,
+            kind: ctx.kind || "question",
+            postSerial: Number.isInteger(ctx.postSerial) ? ctx.postSerial : null,
+          },
+        },
+        { upsert: true }
+      ).catch(() => {}); // engine hiccup / unique-race — ignore, never break posting
     }
   } catch { /* never propagate — posting already succeeded */ }
+}
+
+// PURE: from the raw per-Page attempt results, decide which Facebook
+// publications to RECORD. A publication counts ONLY when the Facebook API call
+// succeeded (ok === true) AND returned a real Meta post id (postToFacebookPage
+// surfaces `data.post_id || data.id` as `id`). Instagram results are never
+// passed in, so Instagram can NEVER contribute to the Facebook count. Also
+// de-dupes ids within one call. Exported for unit tests.
+export function collectFacebookPublications(attempts) {
+  const out = [];
+  const seen = new Set();
+  for (const a of attempts || []) {
+    if (!a || a.ok !== true || !a.id) continue;
+    const id = String(a.id);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push({ id, pageId: String(a.pageId || ""), pageLabel: String(a.pageLabel || "") });
+  }
+  return out;
+}
+
+// Reliable Facebook publication count for the CURRENT tenant (scoped by the
+// tenantId plugin) and — when given — a specific Facebook Page, so one Page's
+// or tenant's posts never leak into another's total. Counts unique ledger rows
+// (one row per unique Meta post id). This is the source of truth for the
+// displayed Facebook post count — NOT FbSchedule.postCount.
+export async function countFacebookPosts(pageId) {
+  return FbPost.countDocuments(pageId ? { pageId: String(pageId) } : {});
 }
 
 
@@ -591,13 +633,14 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
   // Track each network INDEPENDENTLY (Instagram success must not mark Facebook posted).
   let fbOk = false; // a Facebook Page (main OR an extra Page) published OK
   let igOk = false; // Instagram published OK
-  const fbPublications = []; // every successful FB Page publish (main + extras) → the permanent ledger
+  const fbAttempts = []; // raw per-Page results → collectFacebookPublications() decides what's recorded
 
   if (wantFb) {
     // Pad an ultra-wide image to Facebook's limit so it isn't side-cropped.
     const fbImageUrl = rawImageUrl ? toFacebookSafeUrl(rawImageUrl) : undefined;
     const r = await postToFacebookPage({ message, imageUrl: fbImageUrl }, cfg);
-    if (r.ok) { fbOk = true; if (r.id) fbPublications.push({ id: r.id, pageId: cfg.pageId, pageLabel: "" }); notes.push("Facebook ✓"); } else notes.push(`Facebook ✗ (${r.error})`);
+    fbAttempts.push({ ok: r.ok, id: r.id, pageId: cfg.pageId, pageLabel: "" });
+    if (r.ok) { fbOk = true; notes.push("Facebook ✓"); } else notes.push(`Facebook ✗ (${r.error})`);
 
     for (const t of site?.fbExtraTargets || []) {
       const pageId = String(t?.pageId || "").trim();
@@ -605,7 +648,8 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
       if (!pageId || !token) continue;
       const rr = await postToFacebookPage({ message, imageUrl: fbImageUrl }, { ...cfg, pageId, token });
       const name = t.label || pageId;
-      if (rr.ok) { fbOk = true; if (rr.id) fbPublications.push({ id: rr.id, pageId, pageLabel: name }); notes.push(`${name} ✓`); } else notes.push(`${name} ✗ (${rr.error})`);
+      fbAttempts.push({ ok: rr.ok, id: rr.id, pageId, pageLabel: name });
+      if (rr.ok) { fbOk = true; notes.push(`${name} ✓`); } else notes.push(`${name} ✗ (${rr.error})`);
     }
   }
   if (wantIg) {
@@ -621,6 +665,7 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
   // Published to at least one selected network (FB and IG tracked separately).
   const anyOk = fbOk || igOk;
   // Permanent Facebook ledger (survives schedule deletion) — one row per Page publish.
+  const fbPublications = collectFacebookPublications(fbAttempts);
   if (fbPublications.length) {
     await recordFbPublications(fbPublications, { schedule: sch, scheduleTitle: schTitle, kind: "custom", sourceLabel: sch.source?.label });
   }
@@ -805,7 +850,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   let fbOk = false;    // a Facebook Page (main OR an extra Page) published OK
   let igOk = false;    // Instagram published OK
   let fbPostId = null; // Meta's post id for the main Page — a real publication reference
-  const fbPublications = []; // every successful FB Page publish (main + extras) → the permanent ledger
+  const fbAttempts = []; // raw per-Page results → collectFacebookPublications() decides what's recorded
 
   if (wantFb) {
     // Always attach the image when a selfie watermark is active (ensures branding on every post).
@@ -818,7 +863,8 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
     const fbRawImageUrl = (sch.asImage || selfieWatermarkActive || isFlashcard) ? imageUrl : undefined;
     const fbImageUrl = fbRawImageUrl ? toFacebookSafeUrl(fbRawImageUrl) : undefined;
     const r = await postToFacebookPage({ message, link, imageUrl: fbImageUrl }, cfg);
-    if (r.ok) { fbOk = true; fbPostId = r.id || fbPostId; if (r.id) fbPublications.push({ id: r.id, pageId: cfg.pageId, pageLabel: "" }); notes.push("Facebook ✓"); } else notes.push(`Facebook ✗ (${r.error})`);
+    fbAttempts.push({ ok: r.ok, id: r.id, pageId: cfg.pageId, pageLabel: "" });
+    if (r.ok) { fbOk = true; fbPostId = r.id || fbPostId; notes.push("Facebook ✓"); } else notes.push(`Facebook ✗ (${r.error})`);
 
     // Cross-post to any extra Facebook Pages the admin added (each with its own
     // token). Groups are NOT supported by the Facebook API, so only Pages work.
@@ -831,7 +877,8 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
         { ...cfg, pageId, token }
       );
       const name = t.label || pageId;
-      if (rr.ok) { fbOk = true; if (rr.id) fbPublications.push({ id: rr.id, pageId, pageLabel: name }); notes.push(`${name} ✓`); } else notes.push(`${name} ✗ (${rr.error})`);
+      fbAttempts.push({ ok: rr.ok, id: rr.id, pageId, pageLabel: name });
+      if (rr.ok) { fbOk = true; notes.push(`${name} ✓`); } else notes.push(`${name} ✗ (${rr.error})`);
     }
   }
   if (wantIg) {
@@ -856,6 +903,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
 
   // Permanent Facebook ledger: one row per Page publish (main + extras), keyed by
   // Meta's post id. Independent of this schedule, so the lifetime count survives.
+  const fbPublications = collectFacebookPublications(fbAttempts);
   if (fbPublications.length) {
     await recordFbPublications(fbPublications, {
       schedule: sch, scheduleTitle: schTitle, question: q,
