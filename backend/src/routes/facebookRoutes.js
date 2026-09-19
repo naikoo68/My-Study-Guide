@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { listSchedules, createSchedule, updateSchedule, deleteSchedule, postScheduleNow, postQuestionNow, scheduleQuestion, previewQuestionImage, suggestTags, backfillScheduleLabels } from "../controllers/facebookController.js";
+import { listSchedules, createSchedule, updateSchedule, deleteSchedule, postScheduleNow, postQuestionNow, scheduleQuestion, previewQuestionImage, suggestTags, backfillScheduleLabels, facebookStats, reconcileFacebook } from "../controllers/facebookController.js";
 import { protect, authorize } from "../middleware/auth.js";
 
 const router = Router();
@@ -10,6 +10,9 @@ const admin = [protect, authorize("admin")];
 
 // Scheduled Facebook question auto-posting (admin only). The Page connection
 // (id/token/enable) lives in Settings; these routes manage the schedules.
+// Permanent Facebook publication ledger: lifetime count + reconciliation with Meta.
+router.get("/stats", ...admin, facebookStats);
+router.get("/reconcile", ...admin, reconcileFacebook);
 router.get("/schedules", ...admin, listSchedules);
 router.post("/schedules", ...admin, createSchedule);
 // One-off: re-derive the Stream › Subject › Topic breadcrumb for old My Quiz

@@ -1,7 +1,8 @@
 import FbSchedule from "../models/FbSchedule.js";
 import Question from "../models/Question.js";
 import Settings from "../models/Settings.js";
-import { runScheduleOnce, getFacebookConfig, hashtagsForQuestion } from "../config/facebook.js";
+import { runScheduleOnce, getFacebookConfig, hashtagsForQuestion, getFacebookPublishedCount } from "../config/facebook.js";
+import FbPost from "../models/FbPost.js";
 import { renderQuestionImage } from "../config/socialImage.js";
 import { renderQuestionCardShot, renderFlashcardCardShot } from "../config/cardShot.js";
 import TestSeries from "../models/TestSeries.js";
@@ -175,6 +176,38 @@ export async function listSchedules(req, res) {
   const total = all.length;
   const items = all.slice((page - 1) * limit, (page - 1) * limit + limit);
   res.json({ items, total, page, limit, ...(rangeActive ? { postsInRange } : {}) });
+}
+
+// GET /api/facebook/stats — reliable LIFETIME Facebook publication count + a few
+// recent entries, read from the permanent ledger (FbPost). This survives schedule
+// deletion, unlike a schedule's own postCount.
+export async function facebookStats(req, res) {
+  const [lifetime, recent] = await Promise.all([
+    FbPost.countDocuments({}),
+    FbPost.find({}).sort({ createdAt: -1 }).limit(5).lean(),
+  ]);
+  res.json({
+    lifetime,
+    recent: recent.map((p) => ({
+      facebookPostId: p.facebookPostId,
+      pageLabel: p.pageLabel || "",
+      scheduleTitle: p.scheduleTitle || "",
+      sourceLabel: p.sourceLabel || "",
+      kind: p.kind || "question",
+      postedAt: p.createdAt,
+    })),
+  });
+}
+
+// GET /api/facebook/reconcile — compare OUR permanent ledger count with
+// Facebook's own published-posts tally for the connected Page, so the admin can
+// spot drift (deleted posts, posts made outside the app, etc.).
+export async function reconcileFacebook(req, res) {
+  const ours = await FbPost.countDocuments({});
+  const cfg = await getFacebookConfig();
+  if (!cfg.pageId || !cfg.token) return res.json({ ours, facebook: null, error: "Connect Facebook first (Page ID + token)." });
+  const r = await getFacebookPublishedCount(cfg);
+  res.json({ ours, facebook: r.ok ? r.count : null, error: r.ok ? undefined : r.error });
 }
 
 // POST /api/facebook/schedules — create (admin)
