@@ -366,14 +366,17 @@ export async function breadcrumbForQuestion(q) {
 // formatting options (show options / reveal answer / hashtags).
 export function formatQuestionPost(q, opts = {}) {
   const lines = [];
-  // Drill-down trail (Stream › Subject › Topic › Quiz) as a small context line
-  // at the very top, so viewers see where the question sits in the syllabus.
-  if (opts.breadcrumb) { lines.push(opts.breadcrumb, ""); }
-  if (q.text) {
-    // Prefix a running post number ("1. ", "2. ", …) when the schedule supplies
-    // one, so each auto-posted question is numbered in the order it went out.
-    const prefix = Number.isInteger(opts.number) && opts.number > 0 ? `${opts.number}. ` : "";
-    lines.push(prefix + plain(q.text));
+  // Running post number ("1. ", "2. ", …) placed at the VERY TOP — prefixing the
+  // "Stream › … › Quiz" trail (e.g. "3. Quiz 2"). Putting it here (rather than on
+  // the question text) makes it read clearly as the post counter and stops it
+  // colliding with questions that themselves begin a numbered statement list.
+  const numberPrefix = Number.isInteger(opts.number) && opts.number > 0 ? `${opts.number}. ` : "";
+  if (opts.breadcrumb) {
+    lines.push(numberPrefix + opts.breadcrumb, "");
+    if (q.text) lines.push(plain(q.text));
+  } else if (q.text) {
+    // No breadcrumb — fall back to numbering the question text directly.
+    lines.push(numberPrefix + plain(q.text));
   }
 
   // Matching / pair columns.
