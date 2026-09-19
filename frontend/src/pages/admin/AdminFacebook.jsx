@@ -5,7 +5,7 @@ import { useEffect, useState, useRef } from "react";
 import {
   Send, Loader2, CheckCircle2, AlertTriangle, KeyRound, Plus, Trash2, Pencil, X,
   Clock, CalendarClock, ListChecks, Power, Save, Upload, UserCircle, Type, Search, Mail,
-  ImagePlus, FileText,
+  ImagePlus, FileText, Wand2,
 } from "lucide-react";
 import { Facebook, Instagram } from "../../components/ui/SocialIcons";
 import { settingsService, facebookService, contentService, practiceService, uploadService } from "../../services";
@@ -667,6 +667,8 @@ export default function AdminFacebook() {
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState(null); // per-row action in progress
   const [rowMsg, setRowMsg] = useState({}); // id → text
+  const [fixingLabels, setFixingLabels] = useState(false); // one-off breadcrumb backfill in progress
+  const [fixMsg, setFixMsg] = useState(""); // result of the backfill
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const load = () => {
@@ -689,6 +691,18 @@ export default function AdminFacebook() {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, search]);
+
+  // One-off maintenance: re-derive the Stream › Subject › Topic breadcrumb for
+  // existing "My Quiz" schedules whose stored label was missing the topic.
+  const fixLabels = async () => {
+    setFixingLabels(true); setFixMsg("");
+    try {
+      const r = await facebookService.backfillLabels();
+      setFixMsg(r?.updated ? `Fixed ${r.updated} breadcrumb${r.updated === 1 ? "" : "s"}.` : "All breadcrumbs are already up to date.");
+      load();
+    } catch (e) { setFixMsg(e.message || "Could not fix breadcrumbs."); }
+    finally { setFixingLabels(false); }
+  };
 
   const openNew = () => setForm({ ...emptyForm, times: ["09:00"] });
   const openEdit = (s) => setForm({
@@ -891,8 +905,16 @@ export default function AdminFacebook() {
             <Clock className="h-4 w-4 text-brand-600" /> Scheduled posts
             {total > 0 && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-300">{total}</span>}
           </h2>
-          {!form && <button onClick={openNew} className="btn-primary"><Plus className="h-4 w-4" /> New schedule</button>}
+          <div className="flex flex-wrap items-center gap-2">
+            {!form && total > 0 && (
+              <button onClick={fixLabels} disabled={fixingLabels} className="btn-outline !py-1.5 !text-xs" title="Re-derive the Stream › Subject › Topic breadcrumb for existing My Quiz schedules that are missing the topic">
+                {fixingLabels ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Fixing…</> : <><Wand2 className="h-3.5 w-3.5" /> Fix breadcrumbs</>}
+              </button>
+            )}
+            {!form && <button onClick={openNew} className="btn-primary"><Plus className="h-4 w-4" /> New schedule</button>}
+          </div>
         </div>
+        {fixMsg && <p className="mt-2 text-xs font-medium text-emerald-600 dark:text-emerald-400">{fixMsg}</p>}
 
         {/* Search (shown once there are schedules or an active search) */}
         {!form && (total > 0 || search) && (

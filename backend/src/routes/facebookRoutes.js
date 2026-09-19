@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { listSchedules, createSchedule, updateSchedule, deleteSchedule, postScheduleNow, postQuestionNow, scheduleQuestion, previewQuestionImage, suggestTags } from "../controllers/facebookController.js";
+import { listSchedules, createSchedule, updateSchedule, deleteSchedule, postScheduleNow, postQuestionNow, scheduleQuestion, previewQuestionImage, suggestTags, backfillScheduleLabels } from "../controllers/facebookController.js";
 import { protect, authorize } from "../middleware/auth.js";
 
 const router = Router();
@@ -12,6 +12,9 @@ const admin = [protect, authorize("admin")];
 // (id/token/enable) lives in Settings; these routes manage the schedules.
 router.get("/schedules", ...admin, listSchedules);
 router.post("/schedules", ...admin, createSchedule);
+// One-off: re-derive the Stream › Subject › Topic breadcrumb for old My Quiz
+// schedules. Declared before "/schedules/:id" routes so it isn't shadowed.
+router.post("/schedules/backfill-labels", ...admin, backfillScheduleLabels);
 router.put("/schedules/:id", ...admin, updateSchedule);
 router.delete("/schedules/:id", ...admin, deleteSchedule);
 router.post("/schedules/:id/post-now", ...admin, postScheduleNow);
