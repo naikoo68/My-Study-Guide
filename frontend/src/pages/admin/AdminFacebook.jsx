@@ -669,11 +669,18 @@ export default function AdminFacebook() {
   const [rowMsg, setRowMsg] = useState({}); // id → text
   const [fixingLabels, setFixingLabels] = useState(false); // one-off breadcrumb backfill in progress
   const [fixMsg, setFixMsg] = useState(""); // result of the backfill
+  const [fromTime, setFromTime] = useState(""); // time-of-day filter start (HH:MM)
+  const [toTime, setToTime] = useState("");     // time-of-day filter end (HH:MM)
+  const [sortBy, setSortBy] = useState("recent"); // "recent" | "time"
+  const [postsInRange, setPostsInRange] = useState(null); // # posts firing in the chosen window
+  const rangeActive = !!(fromTime && toTime);
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const load = () => {
     setLoading(true); setError("");
-    facebookService.schedules({ page, limit: PAGE_SIZE, q: search })
+    // Only send from/to when BOTH are set (a valid window).
+    const range = fromTime && toTime ? { from: fromTime, to: toTime } : {};
+    facebookService.schedules({ page, limit: PAGE_SIZE, q: search, sort: sortBy, ...range })
       .then((r) => {
         // Accept either the paginated { items, total } shape or a bare array.
         const items = Array.isArray(r) ? r : (r?.items || []);
@@ -681,16 +688,17 @@ export default function AdminFacebook() {
         // If a delete emptied the last page, step back a page.
         if (items.length === 0 && page > 1 && tot > 0) { setPage((p) => Math.max(1, p - 1)); return; }
         setSchedules(items); setTotal(tot);
+        setPostsInRange(Array.isArray(r) ? null : (typeof r?.postsInRange === "number" ? r.postsInRange : null));
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   };
-  // Reload on page change; debounce while typing a search.
+  // Reload on page / search / filter / sort change; debounce while typing a search.
   useEffect(() => {
     const t = setTimeout(load, search ? 300 : 0);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, search]);
+  }, [page, search, fromTime, toTime, sortBy]);
 
   // One-off maintenance: re-derive the Stream › Subject › Topic breadcrumb for
   // existing "My Quiz" schedules whose stored label was missing the topic.
@@ -925,6 +933,38 @@ export default function AdminFacebook() {
           </div>
         )}
 
+        {/* Time-of-day filter + sort: see how many posts fire in a window
+            (e.g. 08:00–09:00), and order the list by time of day. */}
+        {!form && (total > 0 || rangeActive) && (
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900">
+            <span className="inline-flex items-center gap-1.5 font-medium text-slate-500 dark:text-slate-400"><Clock className="h-4 w-4" /> Time</span>
+            <div className="flex items-center gap-1.5">
+              <input type="time" value={fromTime} onChange={(e) => { setFromTime(e.target.value); setPage(1); }} className="rounded-lg border border-slate-200 bg-transparent px-2 py-1 outline-none dark:border-slate-700" aria-label="From time" />
+              <span className="text-slate-400">to</span>
+              <input type="time" value={toTime} onChange={(e) => { setToTime(e.target.value); setPage(1); }} className="rounded-lg border border-slate-200 bg-transparent px-2 py-1 outline-none dark:border-slate-700" aria-label="To time" />
+              {rangeActive && (
+                <button onClick={() => { setFromTime(""); setToTime(""); setPage(1); }} title="Clear time filter" className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><X className="h-4 w-4" /></button>
+              )}
+            </div>
+            <label className="ml-auto inline-flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+              Sort
+              <select value={sortBy} onChange={(e) => { setSortBy(e.target.value); setPage(1); }} className="rounded-lg border border-slate-200 bg-transparent px-2 py-1 outline-none dark:border-slate-700">
+                <option value="recent">Newest first</option>
+                <option value="time">Time of day</option>
+              </select>
+            </label>
+          </div>
+        )}
+
+        {/* Summary of how many posts fall in the chosen window. */}
+        {!form && rangeActive && (
+          <p className="mt-2 text-sm font-medium text-brand-700 dark:text-brand-300">
+            {postsInRange != null
+              ? <><b>{postsInRange}</b> post{postsInRange === 1 ? "" : "s"} across <b>{total}</b> schedule{total === 1 ? "" : "s"} scheduled between <b>{fromTime}</b> and <b>{toTime}</b>.</>
+              : <>Showing schedules between <b>{fromTime}</b> and <b>{toTime}</b>.</>}
+          </p>
+        )}
+
         {error && <p className="mt-3 text-sm font-medium text-rose-600">{error}</p>}
 
         {/* Create / edit form */}
@@ -1090,7 +1130,7 @@ export default function AdminFacebook() {
           : schedules.length === 0 && !form ? (
             <div className="mt-6 rounded-xl border border-dashed border-slate-200 p-8 text-center dark:border-slate-700">
               <p className="text-sm text-slate-500 dark:text-slate-400">
-                {search ? `No schedules match "${search}".` : "No schedules yet. Create one to auto-post questions or custom text/media at set times."}
+                {search ? `No schedules match "${search}".` : rangeActive ? `No posts are scheduled between ${fromTime} and ${toTime}.` : "No schedules yet. Create one to auto-post questions or custom text/media at set times."}
               </p>
             </div>
           ) : (

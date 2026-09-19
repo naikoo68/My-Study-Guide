@@ -102,6 +102,37 @@ export function validateScheduleData(data) {
 // GET /api/facebook/schedules — list schedules (admin), paginated + searchable.
 // Query: ?page=1&limit=20&q=<title/source search>. Returns { items, total,
 // page, limit } so the admin panel can page through 100s of schedules.
+// "8:00" / "08:00" → minutes since midnight (0–1439), or null if invalid.
+function hhmmToMin(s) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(s || "").trim());
+  if (!m) return null;
+  const h = +m[1], mi = +m[2];
+  if (h > 23 || mi > 59) return null;
+  return h * 60 + mi;
+}
+
+// The minute-of-day value(s) at which a schedule fires — its recurring `times`,
+// or the one-off `runAt` converted to the schedule's own timezone. Used for the
+// time-of-day filter and sort.
+function scheduleFireMinutes(sch) {
+  if (sch.mode === "once") {
+    if (!sch.runAt) return [];
+    try {
+      const f = new Intl.DateTimeFormat("en-GB", { timeZone: sch.timezone || "Asia/Kolkata", hour12: false, hour: "2-digit", minute: "2-digit" });
+      const p = Object.fromEntries(f.formatToParts(new Date(sch.runAt)).map((x) => [x.type, x.value]));
+      const h = p.hour === "24" ? 0 : +p.hour;
+      return [h * 60 + (+p.minute)];
+    } catch { return []; }
+  }
+  return (sch.times || []).map(hhmmToMin).filter((m) => m != null);
+}
+
+// GET /api/facebook/schedules — list schedules (admin), paginated + searchable.
+// Query: ?page=1&limit=20&q=<search>&from=HH:MM&to=HH:MM&sort=recent|time.
+//   from/to  — keep only schedules that fire within this time-of-day window
+//              (wrapping past midnight is supported, e.g. 22:00→01:00). Also
+//              returns postsInRange = how many individual posts fall in it.
+//   sort     — "time" orders by earliest fire time of day; default is newest first.
 export async function listSchedules(req, res) {
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const limit = Math.max(1, Math.min(100, parseInt(req.query.limit, 10) || 20));
@@ -111,13 +142,39 @@ export async function listSchedules(req, res) {
     const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
     filter.$or = [{ title: rx }, { "source.label": rx }];
   }
-  const total = await FbSchedule.countDocuments(filter);
-  const items = await FbSchedule.find(filter)
-    .sort({ createdAt: -1 })
-    .skip((page - 1) * limit)
-    .limit(limit)
-    .lean();
-  res.json({ items, total, page, limit });
+
+  const fromMin = hhmmToMin(req.query.from);
+  const toMin = hhmmToMin(req.query.to);
+  const rangeActive = fromMin != null && toMin != null;
+  const sort = req.query.sort === "time" ? "time" : "recent";
+
+  // Fast path (no time filter/sort): let the DB paginate, as before.
+  if (!rangeActive && sort !== "time") {
+    const total = await FbSchedule.countDocuments(filter);
+    const items = await FbSchedule.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean();
+    return res.json({ items, total, page, limit });
+  }
+
+  // Time filter / sort-by-time need every field, so load the search-matched set
+  // and do it in memory (schedule counts are modest, and each doc is small).
+  let all = await FbSchedule.find(filter).lean();
+  let postsInRange = 0;
+  if (rangeActive) {
+    const inRange = (m) => (fromMin <= toMin ? m >= fromMin && m <= toMin : m >= fromMin || m <= toMin);
+    all = all.filter((s) => {
+      const hits = scheduleFireMinutes(s).filter(inRange);
+      postsInRange += hits.length;
+      return hits.length > 0;
+    });
+  }
+  const earliest = (s) => { const mins = scheduleFireMinutes(s); return mins.length ? Math.min(...mins) : Infinity; };
+  all.sort(sort === "time"
+    ? (a, b) => earliest(a) - earliest(b) || new Date(b.createdAt) - new Date(a.createdAt)
+    : (a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  const total = all.length;
+  const items = all.slice((page - 1) * limit, (page - 1) * limit + limit);
+  res.json({ items, total, page, limit, ...(rangeActive ? { postsInRange } : {}) });
 }
 
 // POST /api/facebook/schedules — create (admin)

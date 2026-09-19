@@ -349,6 +349,9 @@ export const facebookService = {
     if (params.page) qs.set("page", params.page);
     if (params.limit) qs.set("limit", params.limit);
     if (params.q) qs.set("q", params.q);
+    if (params.from) qs.set("from", params.from); // HH:MM — time-of-day filter start
+    if (params.to) qs.set("to", params.to);        // HH:MM — time-of-day filter end
+    if (params.sort) qs.set("sort", params.sort);  // "recent" | "time"
     const s = qs.toString();
     return api.get(`/facebook/schedules${s ? `?${s}` : ""}`);
   },
