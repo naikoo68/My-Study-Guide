@@ -544,13 +544,15 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
   }
 
   const notes = [];
-  let anyOk = false;
+  // Track each network INDEPENDENTLY (Instagram success must not mark Facebook posted).
+  let fbOk = false; // a Facebook Page (main OR an extra Page) published OK
+  let igOk = false; // Instagram published OK
 
   if (wantFb) {
     // Pad an ultra-wide image to Facebook's limit so it isn't side-cropped.
     const fbImageUrl = rawImageUrl ? toFacebookSafeUrl(rawImageUrl) : undefined;
     const r = await postToFacebookPage({ message, imageUrl: fbImageUrl }, cfg);
-    if (r.ok) { anyOk = true; notes.push("Facebook ✓"); } else notes.push(`Facebook ✗ (${r.error})`);
+    if (r.ok) { fbOk = true; notes.push("Facebook ✓"); } else notes.push(`Facebook ✗ (${r.error})`);
 
     for (const t of site?.fbExtraTargets || []) {
       const pageId = String(t?.pageId || "").trim();
@@ -558,7 +560,7 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
       if (!pageId || !token) continue;
       const rr = await postToFacebookPage({ message, imageUrl: fbImageUrl }, { ...cfg, pageId, token });
       const name = t.label || pageId;
-      if (rr.ok) { anyOk = true; notes.push(`${name} ✓`); } else notes.push(`${name} ✗ (${rr.error})`);
+      if (rr.ok) { fbOk = true; notes.push(`${name} ✓`); } else notes.push(`${name} ✗ (${rr.error})`);
     }
   }
   if (wantIg) {
@@ -566,11 +568,13 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
     else {
       const igImageUrl = toInstagramSafeUrl(rawImageUrl);
       const r = await postToInstagram({ imageUrl: igImageUrl, caption: message }, cfg);
-      if (r.ok) { anyOk = true; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
+      if (r.ok) { igOk = true; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
     }
   }
 
   sch.lastRunAt = new Date();
+  // Published to at least one selected network (FB and IG tracked separately).
+  const anyOk = fbOk || igOk;
   if (anyOk) {
     sch.postCount = (sch.postCount || 0) + 1;
     sch.lastResult = notes.join(" · ");
@@ -747,7 +751,11 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   }
 
   const notes = [];
-  let anyOk = false;
+  // Track each network INDEPENDENTLY so success on one is never attributed to the
+  // other (Instagram succeeding must NOT mark Facebook as posted, and vice-versa).
+  let fbOk = false;    // a Facebook Page (main OR an extra Page) published OK
+  let igOk = false;    // Instagram published OK
+  let fbPostId = null; // Meta's post id for the main Page — a real publication reference
 
   if (wantFb) {
     // Always attach the image when a selfie watermark is active (ensures branding on every post).
@@ -760,7 +768,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
     const fbRawImageUrl = (sch.asImage || selfieWatermarkActive || isFlashcard) ? imageUrl : undefined;
     const fbImageUrl = fbRawImageUrl ? toFacebookSafeUrl(fbRawImageUrl) : undefined;
     const r = await postToFacebookPage({ message, link, imageUrl: fbImageUrl }, cfg);
-    if (r.ok) { anyOk = true; notes.push("Facebook ✓"); } else notes.push(`Facebook ✗ (${r.error})`);
+    if (r.ok) { fbOk = true; fbPostId = r.id || fbPostId; notes.push("Facebook ✓"); } else notes.push(`Facebook ✗ (${r.error})`);
 
     // Cross-post to any extra Facebook Pages the admin added (each with its own
     // token). Groups are NOT supported by the Facebook API, so only Pages work.
@@ -773,7 +781,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
         { ...cfg, pageId, token }
       );
       const name = t.label || pageId;
-      if (rr.ok) { anyOk = true; notes.push(`${name} ✓`); } else notes.push(`${name} ✗ (${rr.error})`);
+      if (rr.ok) { fbOk = true; notes.push(`${name} ✓`); } else notes.push(`${name} ✗ (${rr.error})`);
     }
   }
   if (wantIg) {
@@ -786,10 +794,15 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
       // accepts any ratio. Padding never crops, so the full card stays visible.
       const igImageUrl = toInstagramSafeUrl(imageUrl);
       const r = await postToInstagram({ imageUrl: igImageUrl, caption: message }, cfg);
-      if (r.ok) { anyOk = true; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
+      if (r.ok) { igOk = true; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
     }
   }
   if (!wantFb && !wantIg) return { ok: false, error: "No destination selected (enable Facebook and/or Instagram)." };
+
+  // A post counts as "made" (advance the pool / mark the question posted) when it
+  // published to at least ONE selected network. FB and IG are tracked separately
+  // above, so one network's failure never hides — or fakes — the other's outcome.
+  const anyOk = fbOk || igOk;
 
   sch.lastRunAt = new Date();
   if (poolSize) sch.poolSize = poolSize;
@@ -832,7 +845,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
       });
     }
   }
-  return { ok: anyOk, error: anyOk ? undefined : notes.join(" · "), id: undefined, completed: finishedPool };
+  return { ok: anyOk, error: anyOk ? undefined : notes.join(" · "), id: fbPostId || undefined, fbOk, igOk, completed: finishedPool };
 }
 
 // The scheduler tick — called every minute (server interval) and, as a
