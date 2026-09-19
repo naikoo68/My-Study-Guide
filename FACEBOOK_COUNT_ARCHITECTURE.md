@@ -149,6 +149,31 @@ Reconciliation must **not**:
 
 ---
 
+## 5b. Publishing images as real Page posts (implemented)
+
+To make an application image post behave like a **manually-created post** — so
+Facebook's native Page "Posts" counter increments — `postToFacebookPage()`
+publishes images in **two steps** instead of a single `/photos` call:
+
+1. **Upload the photo unpublished** — `POST /{page-id}/photos` with
+   `published=false`. This returns a `media_fbid` and creates **no** photo story.
+2. **Create a feed post that attaches it** — `POST /{page-id}/feed` with
+   `message` + `attached_media[0]={"media_fbid":"<id>"}`. This returns a real
+   `{page-id}_{post-id}` **Page post** id.
+
+Why this matters: the old single-step `/photos?published=true` path created a
+**photo-story object**, which Facebook classifies and counts differently from a
+feed post (visible, but the native "Posts" counter and `published_posts`/`posts`
+edges treat it as a photo, not a post). The two-step flow produces the same
+object type as the manual "Create post" UI, so it is counted the same way.
+
+**Safety:** if the two-step flow fails for any reason, the code **falls back**
+to the legacy single-step `/photos` publish, so posting reliability is never
+reduced. The text-only path (`/feed` with `message`/`link`) is unchanged. This
+change affects only **how new posts are published** — it does not touch the
+`FbPost` ledger, `countFacebookPosts`, reconciliation, or any existing records,
+and it never re-posts or backfills old content.
+
 ## 6. Idempotency & data safety
 
 - The ledger stays on the existing database — **no migration, no reset, no record
