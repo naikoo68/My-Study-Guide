@@ -1,7 +1,7 @@
 import FbSchedule from "../models/FbSchedule.js";
 import Question from "../models/Question.js";
 import Settings from "../models/Settings.js";
-import { runScheduleOnce, getFacebookConfig, hashtagsForQuestion, getFacebookPublishedCount } from "../config/facebook.js";
+import { runScheduleOnce, getFacebookConfig, hashtagsForQuestion, getFacebookPublishedCount, countFacebookPosts } from "../config/facebook.js";
 import FbPost from "../models/FbPost.js";
 import { renderQuestionImage } from "../config/socialImage.js";
 import { renderQuestionCardShot, renderFlashcardCardShot } from "../config/cardShot.js";
@@ -182,12 +182,17 @@ export async function listSchedules(req, res) {
 // recent entries, read from the permanent ledger (FbPost). This survives schedule
 // deletion, unlike a schedule's own postCount.
 export async function facebookStats(req, res) {
+  // Scope to the tenant's CURRENTLY connected Page so one Page's (or tenant's)
+  // posts never inflate another's count. Tenant scoping is automatic (plugin).
+  const cfg = await getFacebookConfig();
+  const pageId = cfg.pageId || "";
   const [lifetime, recent] = await Promise.all([
-    FbPost.countDocuments({}),
-    FbPost.find({}).sort({ createdAt: -1 }).limit(5).lean(),
+    countFacebookPosts(pageId),
+    FbPost.find(pageId ? { pageId } : {}).sort({ createdAt: -1 }).limit(5).lean(),
   ]);
   res.json({
     lifetime,
+    pageId,
     recent: recent.map((p) => ({
       facebookPostId: p.facebookPostId,
       pageLabel: p.pageLabel || "",
@@ -203,8 +208,10 @@ export async function facebookStats(req, res) {
 // Facebook's own published-posts tally for the connected Page, so the admin can
 // spot drift (deleted posts, posts made outside the app, etc.).
 export async function reconcileFacebook(req, res) {
-  const ours = await FbPost.countDocuments({});
   const cfg = await getFacebookConfig();
+  // Compare like-for-like: OUR count for the connected Page vs Facebook's own
+  // published-posts count for that same Page.
+  const ours = await countFacebookPosts(cfg.pageId || "");
   if (!cfg.pageId || !cfg.token) return res.json({ ours, facebook: null, error: "Connect Facebook first (Page ID + token)." });
   const r = await getFacebookPublishedCount(cfg);
   res.json({ ours, facebook: r.ok ? r.count : null, error: r.ok ? undefined : r.error });
