@@ -214,11 +214,55 @@ export async function verifyFacebook(cfgOverride) {
   }
 }
 
+// Ask Facebook how many posts the connected Page has published — used to
+// RECONCILE our own ledger against Meta's own tally. Uses the published_posts
+// edge's summary total_count. Best-effort: some post types / permissions can
+// make Facebook's number differ from ours, so callers show it for comparison,
+// not as a hard equality check. Returns { ok, count? , error? }.
+export async function getFacebookPublishedCount(cfgOverride) {
+  const cfg = cfgOverride || (await getFacebookConfig());
+  if (!isFacebookConfigured(cfg)) return { ok: false, error: "Facebook is not connected." };
+  const pageToken = await resolvePageToken(cfg);
+  try {
+    const url = `https://graph.facebook.com/${cfg.version}/${encodeURIComponent(cfg.pageId)}/published_posts?limit=1&summary=total_count&access_token=${encodeURIComponent(pageToken)}`;
+    const res = await fbFetch(url);
+    const data = await res.json().catch(() => ({}));
+    const total = data?.summary?.total_count;
+    if (res.ok && typeof total === "number") return { ok: true, count: total };
+    return { ok: false, error: data?.error?.message || `Facebook API error (${res.status}).` };
+  } catch (err) {
+    return { ok: false, error: err.message || "Could not reach Facebook." };
+  }
+}
+
+// Write one PERMANENT ledger row per successful Facebook publication (main Page
+// and any extra Pages). Fire-and-forget — a ledger write must NEVER break or
+// delay posting. Keyed by Meta's post id, independent of FbSchedule.
+async function recordFbPublications(pubs, ctx = {}) {
+  try {
+    for (const p of pubs || []) {
+      if (!p?.id) continue;
+      await FbPost.create({
+        facebookPostId: String(p.id),
+        pageId: String(p.pageId || ""),
+        pageLabel: String(p.pageLabel || ""),
+        schedule: ctx.schedule?._id || null,
+        scheduleTitle: String(ctx.scheduleTitle || ctx.schedule?.title || "").slice(0, 200),
+        sourceLabel: String(ctx.sourceLabel || "").slice(0, 300),
+        question: ctx.question?._id || null,
+        kind: ctx.kind || "question",
+        postSerial: Number.isInteger(ctx.postSerial) ? ctx.postSerial : null,
+      }).catch(() => {}); // duplicate id (unique index) or engine hiccup — ignore
+    }
+  } catch { /* never propagate — posting already succeeded */ }
+}
+
 
 // ---------------------------------------------------------------------------
 // Scheduled question auto-posting (independent of the Notice Board).
 // ---------------------------------------------------------------------------
 import FbSchedule from "../models/FbSchedule.js";
+import FbPost from "../models/FbPost.js";
 import Question from "../models/Question.js";
 import Subject from "../models/Subject.js";
 import Session from "../models/Session.js";
@@ -547,12 +591,13 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
   // Track each network INDEPENDENTLY (Instagram success must not mark Facebook posted).
   let fbOk = false; // a Facebook Page (main OR an extra Page) published OK
   let igOk = false; // Instagram published OK
+  const fbPublications = []; // every successful FB Page publish (main + extras) → the permanent ledger
 
   if (wantFb) {
     // Pad an ultra-wide image to Facebook's limit so it isn't side-cropped.
     const fbImageUrl = rawImageUrl ? toFacebookSafeUrl(rawImageUrl) : undefined;
     const r = await postToFacebookPage({ message, imageUrl: fbImageUrl }, cfg);
-    if (r.ok) { fbOk = true; notes.push("Facebook ✓"); } else notes.push(`Facebook ✗ (${r.error})`);
+    if (r.ok) { fbOk = true; if (r.id) fbPublications.push({ id: r.id, pageId: cfg.pageId, pageLabel: "" }); notes.push("Facebook ✓"); } else notes.push(`Facebook ✗ (${r.error})`);
 
     for (const t of site?.fbExtraTargets || []) {
       const pageId = String(t?.pageId || "").trim();
@@ -560,7 +605,7 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
       if (!pageId || !token) continue;
       const rr = await postToFacebookPage({ message, imageUrl: fbImageUrl }, { ...cfg, pageId, token });
       const name = t.label || pageId;
-      if (rr.ok) { fbOk = true; notes.push(`${name} ✓`); } else notes.push(`${name} ✗ (${rr.error})`);
+      if (rr.ok) { fbOk = true; if (rr.id) fbPublications.push({ id: rr.id, pageId, pageLabel: name }); notes.push(`${name} ✓`); } else notes.push(`${name} ✗ (${rr.error})`);
     }
   }
   if (wantIg) {
@@ -575,6 +620,10 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
   sch.lastRunAt = new Date();
   // Published to at least one selected network (FB and IG tracked separately).
   const anyOk = fbOk || igOk;
+  // Permanent Facebook ledger (survives schedule deletion) — one row per Page publish.
+  if (fbPublications.length) {
+    await recordFbPublications(fbPublications, { schedule: sch, scheduleTitle: schTitle, kind: "custom", sourceLabel: sch.source?.label });
+  }
   if (anyOk) {
     sch.postCount = (sch.postCount || 0) + 1;
     sch.lastResult = notes.join(" · ");
@@ -756,6 +805,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   let fbOk = false;    // a Facebook Page (main OR an extra Page) published OK
   let igOk = false;    // Instagram published OK
   let fbPostId = null; // Meta's post id for the main Page — a real publication reference
+  const fbPublications = []; // every successful FB Page publish (main + extras) → the permanent ledger
 
   if (wantFb) {
     // Always attach the image when a selfie watermark is active (ensures branding on every post).
@@ -768,7 +818,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
     const fbRawImageUrl = (sch.asImage || selfieWatermarkActive || isFlashcard) ? imageUrl : undefined;
     const fbImageUrl = fbRawImageUrl ? toFacebookSafeUrl(fbRawImageUrl) : undefined;
     const r = await postToFacebookPage({ message, link, imageUrl: fbImageUrl }, cfg);
-    if (r.ok) { fbOk = true; fbPostId = r.id || fbPostId; notes.push("Facebook ✓"); } else notes.push(`Facebook ✗ (${r.error})`);
+    if (r.ok) { fbOk = true; fbPostId = r.id || fbPostId; if (r.id) fbPublications.push({ id: r.id, pageId: cfg.pageId, pageLabel: "" }); notes.push("Facebook ✓"); } else notes.push(`Facebook ✗ (${r.error})`);
 
     // Cross-post to any extra Facebook Pages the admin added (each with its own
     // token). Groups are NOT supported by the Facebook API, so only Pages work.
@@ -781,7 +831,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
         { ...cfg, pageId, token }
       );
       const name = t.label || pageId;
-      if (rr.ok) { fbOk = true; notes.push(`${name} ✓`); } else notes.push(`${name} ✗ (${rr.error})`);
+      if (rr.ok) { fbOk = true; if (rr.id) fbPublications.push({ id: rr.id, pageId, pageLabel: name }); notes.push(`${name} ✓`); } else notes.push(`${name} ✗ (${rr.error})`);
     }
   }
   if (wantIg) {
@@ -803,6 +853,15 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   // published to at least ONE selected network. FB and IG are tracked separately
   // above, so one network's failure never hides — or fakes — the other's outcome.
   const anyOk = fbOk || igOk;
+
+  // Permanent Facebook ledger: one row per Page publish (main + extras), keyed by
+  // Meta's post id. Independent of this schedule, so the lifetime count survives.
+  if (fbPublications.length) {
+    await recordFbPublications(fbPublications, {
+      schedule: sch, scheduleTitle: schTitle, question: q,
+      kind: isFlashcard ? "flashcard" : "question", sourceLabel: sch.source?.label, postSerial: postNumber,
+    });
+  }
 
   sch.lastRunAt = new Date();
   if (poolSize) sch.poolSize = poolSize;

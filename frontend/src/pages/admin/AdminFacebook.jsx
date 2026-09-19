@@ -5,7 +5,7 @@ import { useEffect, useState, useRef } from "react";
 import {
   Send, Loader2, CheckCircle2, AlertTriangle, KeyRound, Plus, Trash2, Pencil, X,
   Clock, CalendarClock, ListChecks, Power, Save, Upload, UserCircle, Type, Search, Mail,
-  ImagePlus, FileText, Wand2,
+  ImagePlus, FileText, Wand2, RefreshCw,
 } from "lucide-react";
 import { Facebook, Instagram } from "../../components/ui/SocialIcons";
 import { settingsService, facebookService, contentService, practiceService, uploadService } from "../../services";
@@ -369,6 +369,71 @@ function TextWatermarkSection({ settings, saveSettings }) {
         </button>
         {msg && <span className={`inline-flex items-center gap-1 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {msg.text}</span>}
       </div>
+    </div>
+  );
+}
+
+// ---- Facebook publication ledger (lifetime count + reconciliation) ----
+// Shows the PERMANENT count of posts we published to the Page (from the FbPost
+// ledger, independent of schedules) and lets the admin reconcile it against
+// Facebook's own tally.
+function FbLedgerStats() {
+  const [stats, setStats] = useState(null);
+  const [rec, setRec] = useState(null);
+  const [reconciling, setReconciling] = useState(false);
+  const [err, setErr] = useState("");
+
+  useEffect(() => { facebookService.stats().then(setStats).catch(() => {}); }, []);
+
+  const reconcile = async () => {
+    setReconciling(true); setErr(""); setRec(null);
+    try {
+      const r = await facebookService.reconcile();
+      setRec(r);
+      if (r?.error) setErr(r.error);
+    } catch (e) { setErr(e.message || "Could not reconcile."); }
+    finally { setReconciling(false); }
+  };
+
+  return (
+    <div className="card p-5">
+      <h2 className="flex items-center gap-2 font-bold"><Facebook className="h-4 w-4 text-[#1877F2]" /> Facebook publications</h2>
+      <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
+        A permanent record of every post successfully published to your Page, keyed by Facebook's own post ID. It survives editing, completing or deleting schedules.
+      </p>
+      <div className="mt-4 flex flex-wrap items-center gap-4">
+        <div className="rounded-xl bg-slate-50 px-4 py-3 dark:bg-slate-800/60">
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Lifetime posts published</p>
+          <p className="text-2xl font-bold">{stats ? stats.lifetime : "…"}</p>
+        </div>
+        <button onClick={reconcile} disabled={reconciling} className="btn-outline">
+          {reconciling ? <><Loader2 className="h-4 w-4 animate-spin" /> Checking…</> : <><RefreshCw className="h-4 w-4" /> Reconcile with Facebook</>}
+        </button>
+        {rec && (
+          <div className="text-sm">
+            <span className="font-medium">Our records: <b>{rec.ours}</b></span>
+            {typeof rec.facebook === "number"
+              ? <span className="ml-3">Facebook reports: <b>{rec.facebook}</b>{rec.facebook !== rec.ours && <span className="ml-1 text-amber-600 dark:text-amber-400">(differs by {Math.abs(rec.facebook - rec.ours)})</span>}</span>
+              : <span className="ml-3 text-slate-400">Facebook count unavailable</span>}
+          </div>
+        )}
+      </div>
+      {err && <p className="mt-2 text-xs font-medium text-rose-600">{err}</p>}
+      {stats?.recent?.length > 0 && (
+        <div className="mt-4">
+          <p className="mb-1 text-xs font-semibold text-slate-500 dark:text-slate-400">Recent publications</p>
+          <ul className="space-y-1 text-xs text-slate-600 dark:text-slate-300">
+            {stats.recent.map((p) => (
+              <li key={p.facebookPostId} className="flex flex-wrap items-center gap-x-2">
+                <span className="font-mono text-slate-400">{p.facebookPostId}</span>
+                <span className="truncate">{p.sourceLabel || p.scheduleTitle || p.kind}</span>
+                {p.pageLabel && <span className="rounded bg-slate-100 px-1.5 text-[10px] dark:bg-slate-800">{p.pageLabel}</span>}
+                <span className="ml-auto text-slate-400">{new Date(p.postedAt).toLocaleString()}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
@@ -905,6 +970,9 @@ export default function AdminFacebook() {
 
       {/* Email notifications */}
       <FbNotifySection settings={settings} saveSettings={saveSettings} />
+
+      {/* Permanent Facebook publication ledger + reconciliation */}
+      <FbLedgerStats />
 
       {/* Schedules */}
       <div className="card p-5">
