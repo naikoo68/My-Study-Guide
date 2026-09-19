@@ -369,7 +369,12 @@ export function formatQuestionPost(q, opts = {}) {
   // Drill-down trail (Stream › Subject › Topic › Quiz) as a small context line
   // at the very top, so viewers see where the question sits in the syllabus.
   if (opts.breadcrumb) { lines.push(opts.breadcrumb, ""); }
-  if (q.text) lines.push(plain(q.text));
+  if (q.text) {
+    // Prefix a running post number ("1. ", "2. ", …) when the schedule supplies
+    // one, so each auto-posted question is numbered in the order it went out.
+    const prefix = Number.isInteger(opts.number) && opts.number > 0 ? `${opts.number}. ` : "";
+    lines.push(prefix + plain(q.text));
+  }
 
   // Matching / pair columns.
   if (Array.isArray(q.columnA) && q.columnA.length) {
@@ -637,6 +642,11 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
     includeAnswer: isFlashcard ? false : sch.includeAnswer,
     hashtags: finalTags,
     breadcrumb,
+    // Running sequence number for THIS post. postCount holds how many this
+    // schedule has already posted, so the next one is +1 (1st post → "1.").
+    // Only for saved schedules (a saved schedule has an _id) — ad-hoc single
+    // "Post now" from the question view isn't part of a numbered series.
+    number: sch._id ? (sch.postCount || 0) + 1 : undefined,
   });
   const link = sch.includeLink && cfg.siteUrl ? cfg.siteUrl : undefined;
 
