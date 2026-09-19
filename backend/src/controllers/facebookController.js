@@ -4,6 +4,10 @@ import Settings from "../models/Settings.js";
 import { runScheduleOnce, getFacebookConfig, hashtagsForQuestion } from "../config/facebook.js";
 import { renderQuestionImage } from "../config/socialImage.js";
 import { renderQuestionCardShot, renderFlashcardCardShot } from "../config/cardShot.js";
+import TestSeries from "../models/TestSeries.js";
+import PracticeStream from "../models/PracticeStream.js";
+import PracticeSubject from "../models/PracticeSubject.js";
+import PracticeTopic from "../models/PracticeTopic.js";
 
 // GET /api/facebook/suggest-tags/:id — hashtags for one question (global default
 // + auto tags from its subject/topic/section). Used to pre-fill the post modal.
@@ -139,6 +143,47 @@ export async function updateSchedule(req, res) {
 export async function deleteSchedule(req, res) {
   await FbSchedule.findByIdAndDelete(req.params.id);
   res.json({ ok: true });
+}
+
+// Rebuild the "My Quiz › Stream › Subject › Topic › Item" breadcrumb for a
+// practice (My Quiz) source from the live hierarchy. Older schedules stored a
+// label built before the TOPIC level was included, so it was missing; this
+// re-derives the full trail. Returns the corrected label, or "" when it can't
+// / shouldn't be rebuilt (e.g. the source isn't a My Quiz item).
+async function rebuildPracticeLabel(source = {}) {
+  if (!source.testSeries) return "";
+  const ts = await TestSeries.findById(source.testSeries)
+    .select("name practice practiceStream practiceSubject practiceTopic")
+    .lean()
+    .catch(() => null);
+  if (!ts || !ts.practice) return ""; // only My Quiz items; leave anything else untouched
+  const [stream, subject, topic] = await Promise.all([
+    ts.practiceStream ? PracticeStream.findById(ts.practiceStream).select("name").lean().catch(() => null) : null,
+    ts.practiceSubject ? PracticeSubject.findById(ts.practiceSubject).select("name").lean().catch(() => null) : null,
+    ts.practiceTopic ? PracticeTopic.findById(ts.practiceTopic).select("name").lean().catch(() => null) : null,
+  ]);
+  return ["My Quiz", stream?.name, subject?.name, topic?.name, ts.name].filter(Boolean).join(" › ");
+}
+
+// POST /api/facebook/schedules/backfill-labels — one-off maintenance (admin).
+// Re-derives the source breadcrumb for existing "My Quiz" schedules so the
+// TOPIC level (dropped by schedules created before it was included) shows again.
+// Idempotent: only rows whose label actually changed are written. Quiz-Bank,
+// custom and single-question schedules are left untouched.
+export async function backfillScheduleLabels(req, res) {
+  const schedules = await FbSchedule.find({}).select("source kind").lean();
+  let updated = 0;
+  for (const s of schedules) {
+    if (s.kind === "custom" || !s.source?.testSeries || s.source?.question) continue;
+    const label = await rebuildPracticeLabel(s.source);
+    if (label && label !== s.source?.label) {
+      // Write back the WHOLE source (spread) so every existing id is preserved
+      // and we avoid engine-specific dotted-path update quirks.
+      await FbSchedule.updateOne({ _id: s._id }, { $set: { source: { ...s.source, label } } }).catch(() => {});
+      updated += 1;
+    }
+  }
+  res.json({ ok: true, scanned: schedules.length, updated });
 }
 
 // POST /api/facebook/schedules/:id/post-now — post one question immediately (admin)

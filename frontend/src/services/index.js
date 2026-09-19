@@ -355,6 +355,7 @@ export const facebookService = {
   create: (data) => api.post("/facebook/schedules", data),
   update: (id, data) => api.put(`/facebook/schedules/${id}`, data),
   remove: (id) => api.del(`/facebook/schedules/${id}`),
+  backfillLabels: () => api.post("/facebook/schedules/backfill-labels"), // re-derive My Quiz breadcrumbs → { updated, scanned }
   postNow: (id) => api.post(`/facebook/schedules/${id}/post-now`),
   postQuestion: (data) => api.post("/facebook/post-question", data), // post ONE question now
   scheduleQuestion: (data) => api.post("/facebook/schedule-question", data), // schedule ONE question at a time
