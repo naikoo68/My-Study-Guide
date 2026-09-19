@@ -51,8 +51,10 @@ function SourcePicker({ onPick }) {
         label,
       });
     } else {
-      // Practice (My Quiz) — items are TestSeries documents
-      const label = ["My Quiz", next.stream?.name, next.subject?.name, next.topic?.title, next.quiz?.name || next.quiz?.title].filter(Boolean).join(" › ");
+      // Practice (My Quiz) — items are TestSeries documents. Practice topics
+      // store their name in `.name` (content topics use `.title`), so read both
+      // or the topic level silently drops out of the breadcrumb.
+      const label = ["My Quiz", next.stream?.name, next.subject?.name, next.topic?.title || next.topic?.name, next.quiz?.name || next.quiz?.title].filter(Boolean).join(" › ");
       onPick({
         subject: null,
         session: null,
