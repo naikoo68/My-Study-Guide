@@ -3,6 +3,7 @@ import Question from "../models/Question.js";
 import Settings from "../models/Settings.js";
 import { runScheduleOnce, getFacebookConfig, hashtagsForQuestion, getFacebookPublishedCount, countFacebookPosts } from "../config/facebook.js";
 import FbPost from "../models/FbPost.js";
+import { getCurrentTenantId } from "../utils/tenantContext.js";
 import { renderQuestionImage } from "../config/socialImage.js";
 import { renderQuestionCardShot, renderFlashcardCardShot } from "../config/cardShot.js";
 import TestSeries from "../models/TestSeries.js";
@@ -183,11 +184,14 @@ export async function listSchedules(req, res) {
 // deletion, unlike a schedule's own postCount.
 export async function facebookStats(req, res) {
   // Scope to the tenant's CURRENTLY connected Page so one Page's (or tenant's)
-  // posts never inflate another's count. Tenant scoping is automatic (plugin).
+  // posts never inflate another's count. Both "lifetime" here and the
+  // reconciliation's applicationCount resolve through the SAME authoritative
+  // function, countFacebookPosts(tenantId, pageId) — never a second counter.
   const cfg = await getFacebookConfig();
   const pageId = cfg.pageId || "";
+  const tenantId = getCurrentTenantId();
   const [lifetime, recent] = await Promise.all([
-    countFacebookPosts(pageId),
+    countFacebookPosts(tenantId, pageId),
     FbPost.find(pageId ? { pageId } : {}).sort({ createdAt: -1 }).limit(5).lean(),
   ]);
   res.json({
@@ -204,17 +208,57 @@ export async function facebookStats(req, res) {
   });
 }
 
-// GET /api/facebook/reconcile — compare OUR permanent ledger count with
-// Facebook's own published-posts tally for the connected Page, so the admin can
-// spot drift (deleted posts, posts made outside the app, etc.).
+// GET /api/facebook/reconcile — DIAGNOSTIC ONLY. Reports our authoritative
+// application count (the FbPost ledger) alongside the remote figure Meta's API
+// returns for the connected Page, so an admin can SPOT drift. It never mutates
+// the application count: the remote number is NOT imported, NOT treated as our
+// lifetime total, and NOT treated as the Page's authoritative post count. The
+// remote value is Meta's published_posts.summary.total_count — a remote summary
+// that also includes posts made outside this application (see
+// FACEBOOK_COUNT_ARCHITECTURE.md).
 export async function reconcileFacebook(req, res) {
   const cfg = await getFacebookConfig();
-  // Compare like-for-like: OUR count for the connected Page vs Facebook's own
-  // published-posts count for that same Page.
-  const ours = await countFacebookPosts(cfg.pageId || "");
-  if (!cfg.pageId || !cfg.token) return res.json({ ours, facebook: null, error: "Connect Facebook first (Page ID + token)." });
+  const tenantId = getCurrentTenantId();
+  // Authoritative application count — the SAME source as "Published by this
+  // application". Read-only.
+  const applicationCount = await countFacebookPosts(tenantId, cfg.pageId || "");
+  const lastReconciledAt = new Date().toISOString();
+
+  // Base diagnostic payload. `remoteOnly` / `ledgerOnly` are only knowable from
+  // an enumerated remote id list; the current Meta request returns a summary
+  // total only, so they are reported as null (undetermined) rather than guessed.
+  const base = {
+    applicationCount,
+    remoteApiCount: null,
+    remoteOnly: null,
+    ledgerOnly: null,
+    drift: null,
+    lastReconciledAt,
+    remoteCountKind: "meta_published_posts_summary_total_count",
+    note: "Remote count is a non-authoritative Meta summary that also includes posts published outside this application. It is not the application's lifetime count.",
+    // Back-compat aliases for existing clients.
+    ours: applicationCount,
+    facebook: null,
+  };
+
+  if (!cfg.pageId || !cfg.token) {
+    return res.json({ ...base, status: "remote_unavailable", error: "Connect Facebook first (Page ID + token)." });
+  }
+
   const r = await getFacebookPublishedCount(cfg);
-  res.json({ ours, facebook: r.ok ? r.count : null, error: r.ok ? undefined : r.error });
+  if (!r.ok || typeof r.count !== "number") {
+    return res.json({ ...base, status: "remote_unavailable", error: r.error || "Facebook count unavailable." });
+  }
+
+  const remoteApiCount = r.count;
+  const drift = remoteApiCount - applicationCount;
+  res.json({
+    ...base,
+    remoteApiCount,
+    facebook: remoteApiCount, // back-compat alias
+    drift,
+    status: drift === 0 ? "in_sync" : "drift_detected",
+  });
 }
 
 // POST /api/facebook/schedules — create (admin)

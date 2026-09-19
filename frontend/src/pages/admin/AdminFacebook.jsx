@@ -383,7 +383,8 @@ function FbLedgerStats() {
   const [reconciling, setReconciling] = useState(false);
   const [err, setErr] = useState("");
 
-  useEffect(() => { facebookService.stats().then(setStats).catch(() => {}); }, []);
+  const loadStats = () => facebookService.stats().then(setStats).catch(() => {});
+  useEffect(() => { loadStats(); }, []);
 
   const reconcile = async () => {
     setReconciling(true); setErr(""); setRec(null);
@@ -391,6 +392,17 @@ function FbLedgerStats() {
       const r = await facebookService.reconcile();
       setRec(r);
       if (r?.error) setErr(r.error);
+      // "Lifetime posts published" and "Our records" are BOTH the authoritative
+      // FbPost ledger count (countFacebookPosts). The lifetime figure is only
+      // fetched on mount, so a publication that happens afterwards leaves it
+      // stale and lower than the freshly-read reconcile count. Adopt the
+      // reconcile value — the same authoritative source — and refresh the recent
+      // list so the two figures always agree.
+      const appCount = typeof r?.applicationCount === "number" ? r.applicationCount : r?.ours;
+      if (typeof appCount === "number") {
+        setStats((s) => (s ? { ...s, lifetime: appCount } : s));
+        loadStats();
+      }
     } catch (e) { setErr(e.message || "Could not reconcile."); }
     finally { setReconciling(false); }
   };
@@ -403,20 +415,30 @@ function FbLedgerStats() {
       </p>
       <div className="mt-4 flex flex-wrap items-center gap-4">
         <div className="rounded-xl bg-slate-50 px-4 py-3 dark:bg-slate-800/60">
-          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Lifetime posts published</p>
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Published by this application</p>
           <p className="text-2xl font-bold">{stats ? stats.lifetime : "…"}</p>
         </div>
         <button onClick={reconcile} disabled={reconciling} className="btn-outline">
           {reconciling ? <><Loader2 className="h-4 w-4 animate-spin" /> Checking…</> : <><RefreshCw className="h-4 w-4" /> Reconcile with Facebook</>}
         </button>
-        {rec && (
-          <div className="text-sm">
-            <span className="font-medium">Our records: <b>{rec.ours}</b></span>
-            {typeof rec.facebook === "number"
-              ? <span className="ml-3">Facebook reports: <b>{rec.facebook}</b>{rec.facebook !== rec.ours && <span className="ml-1 text-amber-600 dark:text-amber-400">(differs by {Math.abs(rec.facebook - rec.ours)})</span>}</span>
-              : <span className="ml-3 text-slate-400">Facebook count unavailable</span>}
-          </div>
-        )}
+        {rec && (() => {
+          // Diagnostic only — these two figures are DIFFERENT metrics and are not
+          // expected to match (see FACEBOOK_COUNT_ARCHITECTURE.md). The remote
+          // number is a Meta summary that also counts posts made outside this app.
+          const appCount = typeof rec.applicationCount === "number" ? rec.applicationCount : rec.ours;
+          const remote = typeof rec.remoteApiCount === "number" ? rec.remoteApiCount
+            : (typeof rec.facebook === "number" ? rec.facebook : null);
+          const drift = typeof rec.drift === "number" ? rec.drift
+            : (remote != null && typeof appCount === "number" ? remote - appCount : null);
+          return (
+            <div className="text-sm">
+              <span className="font-medium">Published by this application: <b>{appCount}</b></span>
+              {remote != null
+                ? <span className="ml-3 text-slate-500 dark:text-slate-400">Remote posts found by Meta API: <b>{remote}</b>{drift ? <span className="ml-1 text-amber-600 dark:text-amber-400">(differs by {Math.abs(drift)})</span> : null}</span>
+                : <span className="ml-3 text-slate-400">Remote count unavailable</span>}
+            </div>
+          );
+        })()}
       </div>
       {err && <p className="mt-2 text-xs font-medium text-rose-600">{err}</p>}
       {stats?.recent?.length > 0 && (

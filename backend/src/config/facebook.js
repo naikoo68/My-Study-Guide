@@ -290,13 +290,31 @@ export function collectFacebookPublications(attempts) {
   return out;
 }
 
-// Reliable Facebook publication count for the CURRENT tenant (scoped by the
-// tenantId plugin) and — when given — a specific Facebook Page, so one Page's
-// or tenant's posts never leak into another's total. Counts unique ledger rows
-// (one row per unique Meta post id). This is the source of truth for the
-// displayed Facebook post count — NOT FbSchedule.postCount.
-export async function countFacebookPosts(pageId) {
-  return FbPost.countDocuments(pageId ? { pageId: String(pageId) } : {});
+// THE ONE authoritative count of "Facebook posts successfully published by this
+// application" — the number of unique rows in the permanent FbPost ledger (one
+// row per unique Meta post id). This is the single source of truth for every UI
+// figure that means "how many posts did we publish": both "Published by this
+// application" (stats) and the reconciliation's applicationCount resolve here.
+// There is intentionally NO second counter, and it is NEVER FbSchedule.postCount
+// (that is a per-schedule pool-progress counter, not a lifetime total).
+//
+// Scoping is by (tenantId, pageId) so one Page's — or one institute's — posts
+// never leak into another's total:
+//   • pageId  — when given, restrict to that connected Page.
+//   • tenantId — when given (a real institute id), match that institute's rows
+//     PLUS shared/platform (null-tenant) rows, mirroring the tenantId plugin's
+//     own read semantics ($in [tid, null]). This keeps the count correct whether
+//     or not tenant enforcement stamped a tenantId onto the rows. When tenantId
+//     is null/undefined (the default/platform institute, or an out-of-context
+//     caller), we leave tenant scoping to the plugin/ambient context exactly as
+//     before — so behaviour is unchanged for single-tenant deployments.
+export async function countFacebookPosts(tenantId, pageId) {
+  const filter = {};
+  if (pageId) filter.pageId = String(pageId);
+  if (tenantId !== undefined && tenantId !== null) {
+    filter.tenantId = { $in: [tenantId, null] };
+  }
+  return FbPost.countDocuments(filter);
 }
 
 

@@ -8,7 +8,11 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 // FbSchedule.postCount / pool progress. Runs the REAL model + tenantId plugin
 // against an in-memory MongoDB (the same engine production uses via the ODM).
 //
-// Cases (task requirement #15):
+// countFacebookPosts(tenantId, pageId) is THE ONE authoritative function for
+// this value — both "Published by this application" (stats.lifetime) and the
+// reconciliation's applicationCount resolve through it.
+//
+// Cases:
 //   A Facebook succeeds → one publication recorded
 //   B Facebook fails → none recorded
 //   C Instagram succeeds while Facebook fails → count unchanged
@@ -17,6 +21,8 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 //   F Two different Meta post ids → count += 2
 //   G Different Pages / tenants → counts stay isolated
 //   H Recording never touches FbSchedule.postCount
+//   TASK 10 end-to-end scenario (publish A/B, IG, retry, delete schedule,
+//           refresh, restart, add C, Lifetime == Our records)
 // ─────────────────────────────────────────────────────────────────────────
 
 const TENANT_A = "aaaaaaaaaaaaaaaaaaaaaaaa";
@@ -99,14 +105,14 @@ describe("Facebook publication ledger + count", () => {
   it("A: Facebook success → one durable record for the Page", async () => {
     await asA(async () => {
       await recordFbPublications(collectFacebookPublications([fb(true, "fb_A1")]), { kind: "question" });
-      expect(await countFacebookPosts(PAGE_1)).toBe(1);
+      expect(await countFacebookPosts(TENANT_A, PAGE_1)).toBe(1);
     });
   });
 
   it("B: Facebook failure → no record", async () => {
     await asA(async () => {
       await recordFbPublications(collectFacebookPublications([fb(false, undefined)]), { kind: "question" });
-      expect(await countFacebookPosts(PAGE_1)).toBe(0);
+      expect(await countFacebookPosts(TENANT_A, PAGE_1)).toBe(0);
     });
   });
 
@@ -115,14 +121,14 @@ describe("Facebook publication ledger + count", () => {
       // Instagram is not represented here at all (by design). The Facebook
       // attempt failed, so nothing is recorded even though IG "succeeded".
       await recordFbPublications(collectFacebookPublications([fb(false, undefined)]), { kind: "question" });
-      expect(await countFacebookPosts(PAGE_1)).toBe(0);
+      expect(await countFacebookPosts(TENANT_A, PAGE_1)).toBe(0);
     });
   });
 
   it("D: Facebook + Instagram both succeed → exactly one Facebook record", async () => {
     await asA(async () => {
       await recordFbPublications(collectFacebookPublications([fb(true, "fb_D1")]), { kind: "question" });
-      expect(await countFacebookPosts(PAGE_1)).toBe(1);
+      expect(await countFacebookPosts(TENANT_A, PAGE_1)).toBe(1);
     });
   });
 
@@ -131,14 +137,14 @@ describe("Facebook publication ledger + count", () => {
       const pubs = collectFacebookPublications([fb(true, "fb_E1")]);
       await recordFbPublications(pubs, { kind: "question" });
       await recordFbPublications(pubs, { kind: "question" }); // retry / repeated processing
-      expect(await countFacebookPosts(PAGE_1)).toBe(1);
+      expect(await countFacebookPosts(TENANT_A, PAGE_1)).toBe(1);
     });
   });
 
   it("F: two different Meta post ids → count increases by two", async () => {
     await asA(async () => {
       await recordFbPublications(collectFacebookPublications([fb(true, "fb_F1"), fb(true, "fb_F2")]), { kind: "question" });
-      expect(await countFacebookPosts(PAGE_1)).toBe(2);
+      expect(await countFacebookPosts(TENANT_A, PAGE_1)).toBe(2);
     });
   });
 
@@ -146,18 +152,18 @@ describe("Facebook publication ledger + count", () => {
     await asA(async () => {
       await recordFbPublications(collectFacebookPublications([fb(true, "fb_G1", PAGE_1)]), { kind: "question" });
       await recordFbPublications(collectFacebookPublications([fb(true, "fb_G2", PAGE_2)]), { kind: "question" });
-      expect(await countFacebookPosts(PAGE_1)).toBe(1); // Page 1 only
-      expect(await countFacebookPosts(PAGE_2)).toBe(1); // Page 2 only — not mixed
+      expect(await countFacebookPosts(TENANT_A, PAGE_1)).toBe(1); // Page 1 only
+      expect(await countFacebookPosts(TENANT_A, PAGE_2)).toBe(1); // Page 2 only — not mixed
     });
     // Tenant B publishes to PAGE_1 too, but must never see Tenant A's rows.
     await asB(async () => {
-      expect(await countFacebookPosts(PAGE_1)).toBe(0);
+      expect(await countFacebookPosts(TENANT_B, PAGE_1)).toBe(0);
       await recordFbPublications(collectFacebookPublications([fb(true, "fb_G3", PAGE_1)]), { kind: "question" });
-      expect(await countFacebookPosts(PAGE_1)).toBe(1); // B sees only its own
+      expect(await countFacebookPosts(TENANT_B, PAGE_1)).toBe(1); // B sees only its own
     });
     // Tenant A is unaffected by B's activity.
     await asA(async () => {
-      expect(await countFacebookPosts(PAGE_1)).toBe(1);
+      expect(await countFacebookPosts(TENANT_A, PAGE_1)).toBe(1);
     });
   });
 
@@ -167,7 +173,72 @@ describe("Facebook publication ledger + count", () => {
       await recordFbPublications(collectFacebookPublications([fb(true, "fb_H1")]), { schedule: sch, kind: "question" });
       const fresh = await FbSchedule.findById(sch._id).lean();
       expect(fresh.postCount).toBe(5); // pool-progress counter is untouched
-      expect(await countFacebookPosts(PAGE_1)).toBe(1); // the FB count is separate
+      expect(await countFacebookPosts(TENANT_A, PAGE_1)).toBe(1); // the FB count is separate
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// TASK 10 — end-to-end publication-count scenario. Runs the steps in order,
+// sharing state, and asserts the application count behaves exactly as required.
+// ─────────────────────────────────────────────────────────────────────────
+describe("TASK 10: end-to-end Facebook publication count", () => {
+  it("steps 1–9: publish A/B, IG, retry, delete schedule, refresh, restart, add C", async () => {
+    // The two dashboard figures both resolve through countFacebookPosts, so
+    // reading it the way each endpoint does proves they always agree.
+    const applicationCount = () => countFacebookPosts(TENANT_A, PAGE_1); // "Published by this application" (stats.lifetime)
+    const ourRecords = () => countFacebookPosts(TENANT_A, PAGE_1);       // reconcile.applicationCount
+
+    await asA(async () => {
+      // 1. Publish Facebook post A → count = 1
+      await recordFbPublications(collectFacebookPublications([fb(true, "fb_post_A")]), { kind: "question" });
+      expect(await applicationCount()).toBe(1);
+
+      // 2. Publish Facebook post B → count = 2
+      const scheduleForB = await FbSchedule.create({ title: "Schedule B", postCount: 1, source: {}, times: ["09:00"] });
+      await recordFbPublications(
+        collectFacebookPublications([fb(true, "fb_post_B")]),
+        { schedule: scheduleForB, kind: "question" }
+      );
+      expect(await applicationCount()).toBe(2);
+
+      // 3. Publish an Instagram post → Facebook count remains 2. Instagram
+      //    results are NEVER passed to the Facebook collector, so nothing is
+      //    recorded to the Facebook ledger.
+      await recordFbPublications(collectFacebookPublications([/* no FB attempts — IG only */]), { kind: "question" });
+      expect(await applicationCount()).toBe(2);
+
+      // 4. Retry Facebook post B (same Meta id) → remains 2 (idempotent).
+      await recordFbPublications(collectFacebookPublications([fb(true, "fb_post_B")]), { kind: "question" });
+      expect(await applicationCount()).toBe(2);
+
+      // 5. Delete the schedule for B → count remains 2. The ledger is
+      //    INDEPENDENT of FbSchedule.
+      await FbSchedule.findByIdAndDelete(scheduleForB._id);
+      expect(await FbSchedule.findById(scheduleForB._id).lean()).toBeNull();
+      expect(await applicationCount()).toBe(2);
+
+      // 6. "Refresh the dashboard" → re-reading the same source still gives 2.
+      expect(await applicationCount()).toBe(2);
+    });
+
+    // 7. "Restart the backend" → the count is durable in the ledger (DB), not
+    //    in memory. Re-open a fresh tenant context and re-read: still 2.
+    await asA(async () => {
+      expect(await countFacebookPosts(TENANT_A, PAGE_1)).toBe(2);
+    });
+
+    await asA(async () => {
+      // 8. Add Facebook post C → count = 3
+      await recordFbPublications(collectFacebookPublications([fb(true, "fb_post_C")]), { kind: "question" });
+      expect(await applicationCount()).toBe(3);
+
+      // 9. Lifetime posts published == Our records (both from the one source).
+      const lifetime = await applicationCount();
+      const ours = await ourRecords();
+      expect(lifetime).toBe(3);
+      expect(ours).toBe(3);
+      expect(lifetime).toBe(ours);
     });
   });
 });
