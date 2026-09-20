@@ -1107,7 +1107,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
       notes.push("Reel ✗ (no card image — posted as text/image)");
     } else {
       try {
-        const composed = await composeImageAudioToVideo({ imageUrl, audioUrl: chosenAudio });
+        const composed = await composeImageAudioToVideo({ imageUrl, audioUrl: chosenAudio, durationSec: sch.reelDuration });
         reelVideoUrl = composed?.url || "";
         if (reelVideoUrl) {
           // Advance to the next track for the following run (wraps around).

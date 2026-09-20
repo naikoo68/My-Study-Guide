@@ -41,7 +41,7 @@ describe("composeReel controller", () => {
     await composeReel({ body: { imageUrl: "https://cdn/x.png", audioUrl: "https://cdn/a.mp3" } }, res);
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({ url: "https://cdn/reel.mp4", duration: 30 });
-    expect(composeImageAudioToVideo).toHaveBeenCalledWith({ imageUrl: "https://cdn/x.png", audioUrl: "https://cdn/a.mp3" });
+    expect(composeImageAudioToVideo).toHaveBeenCalledWith(expect.objectContaining({ imageUrl: "https://cdn/x.png", audioUrl: "https://cdn/a.mp3" }));
   });
 
   it("400s when the image or audio is missing", async () => {

@@ -42,18 +42,25 @@ export async function uploadImage(fileStr, { folder = "mystudyguide/social", for
 // container for maximum Facebook/Instagram compatibility. The eager transform
 // runs synchronously (eager_async: false) so we return a ready-to-fetch URL.
 //
+// `durationSec` trims the Reel to that many seconds (from the start of the
+// audio). Reels are short, so this defaults to 15s; when the track is shorter
+// than the requested length, Cloudinary just uses whatever audio exists.
+//
 // Returns { url, duration }. Throws on any failure (caller surfaces the error).
 export async function composeImageAudioToVideo({
   imageUrl,
   audioUrl,
   width = 1080,
   height = 1920,
+  durationSec = 15,
   folder = "mystudyguide/social",
 } = {}) {
   const img = String(imageUrl || "").trim();
   const aud = String(audioUrl || "").trim();
   if (!img) throw new Error("An image is required to build the Reel.");
   if (!aud) throw new Error("An audio track is required to build the Reel.");
+  // Clamp the length to a sane Reel range (Facebook Reels cap at ~90s).
+  const dur = Math.max(1, Math.min(90, Math.round(Number(durationSec) || 15)));
 
   // 1) Upload the audio as a video asset — this is how we learn its duration.
   const audio = await cloudinary.uploader.upload(aud, { folder, resource_type: "video" });
@@ -61,9 +68,11 @@ export async function composeImageAudioToVideo({
   const image = await cloudinary.uploader.upload(img, { folder, resource_type: "image" });
   // Overlay public ids use ':' in place of '/' for assets inside a folder.
   const overlayId = String(image.public_id).replace(/\//g, ":");
+  // Never ask for more than the track actually has (avoids a trailing freeze).
+  const outDur = audio.duration ? Math.min(dur, Math.ceil(audio.duration)) : dur;
 
   // 3) Render the Reel. Chained transform on the AUDIO base:
-  //    a) pad to a black WxH canvas   → gives the audio a real 9:16 video frame
+  //    a) pad to a black WxH canvas + trim to `outDur` seconds (start_offset 0)
   //    b) overlay the image (c_fit)   → whole card visible, centered
   //    c) fl_layer_apply              → bake the overlay in
   //    d) h264 / aac / mp4            → a standard, widely-playable Reel file
@@ -75,7 +84,7 @@ export async function composeImageAudioToVideo({
     eager: [
       {
         transformation: [
-          { width, height, crop: "pad", background: "black" },
+          { width, height, crop: "pad", background: "black", start_offset: 0, duration: outDur },
           { overlay: overlayId, width, height, crop: "fit" },
           { flags: "layer_apply" },
           { video_codec: "h264", audio_codec: "aac" },
@@ -87,7 +96,7 @@ export async function composeImageAudioToVideo({
 
   const url = result?.eager?.[0]?.secure_url || result?.eager?.[0]?.url;
   if (!url) throw new Error("Cloudinary did not return a composed video URL.");
-  return { url, duration: audio.duration };
+  return { url, duration: outDur };
 }
 
 export default cloudinary;

@@ -34,8 +34,10 @@ export async function composeReel(req, res) {
   if (!isCloudinaryConfigured()) {
     return res.status(503).json({ message: "Media processing isn't set up yet (Cloudinary keys missing)." });
   }
+  // Optional Reel length in seconds (default 15, clamped 1–90 by the composer).
+  const durationSec = Number(req.body?.durationSec ?? req.body?.reelDuration) || 15;
   try {
-    const { url, duration } = await composeImageAudioToVideo({ imageUrl, audioUrl });
+    const { url, duration } = await composeImageAudioToVideo({ imageUrl, audioUrl, durationSec });
     return res.json({ url, duration });
   } catch (err) {
     return res.status(502).json({ message: err?.message || "Could not build the Reel video." });
@@ -130,6 +132,8 @@ export function pickScheduleFields(body = {}) {
     asImage: !!body.asImage,
     // Post question/flashcard runs as a Reel by mixing the card image with music.
     asReel: !!body.asReel,
+    // Reel length in seconds — clamp to a sane range, default 15.
+    reelDuration: Math.max(1, Math.min(90, Math.round(Number(body.reelDuration) || 15))),
     customAudios,
     customAudio,
     // Reset the rotation pointer when the caller sends one (e.g. after editing

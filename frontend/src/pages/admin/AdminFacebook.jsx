@@ -972,7 +972,7 @@ const emptyForm = {
   includeOptions: true, includeAnswer: false, includeLink: false, hashtags: "", order: "random",
   stopWhenExhausted: true,
   toFacebook: true, toInstagram: false, asImage: false,
-  asReel: false, customAudios: [], // Reel mode for question/flashcard: rotate through these music tracks
+  asReel: false, customAudios: [], reelDuration: 15, // Reel mode for question/flashcard: rotate through these music tracks, trimmed to reelDuration seconds
 };
 
 export default function AdminFacebook() {
@@ -1093,6 +1093,7 @@ export default function AdminFacebook() {
     stopWhenExhausted: s.stopWhenExhausted !== false,
     toFacebook: s.toFacebook !== false, toInstagram: !!s.toInstagram, asImage: !!s.asImage,
     asReel: !!s.asReel,
+    reelDuration: s.reelDuration || 15,
     // Load the rotating music library (fall back to the legacy single track).
     customAudios: Array.isArray(s.customAudios) && s.customAudios.length
       ? s.customAudios
@@ -1525,9 +1526,19 @@ export default function AdminFacebook() {
                         Your <b>Reel music library</b> is empty — add tracks in the <b>Reel music library</b> section above (you only do this once).
                       </p>
                     )}
+                    <div className="mt-3 flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-slate-400" />
+                      <label className="text-sm font-medium">Reel length</label>
+                      <input type="number" min={1} max={90} step={1}
+                        className="input h-9 w-20"
+                        value={form.reelDuration}
+                        onChange={(e) => setForm((f) => ({ ...f, reelDuration: e.target.value === "" ? "" : Math.max(1, Math.min(90, parseInt(e.target.value, 10) || 0)) }))}
+                        onBlur={(e) => { if (!e.target.value) setForm((f) => ({ ...f, reelDuration: 15 })); }} />
+                      <span className="text-sm text-slate-500 dark:text-slate-400">seconds</span>
+                    </div>
                     <p className="mt-1.5 text-xs text-slate-400">
                       Each run renders the {form.kind === "flashcard" ? "flashcard" : "question"} card, mixes it with the next
-                      library track, and posts a <b>Reel</b> (9:16 video) instead of a photo.
+                      library track trimmed to <b>{form.reelDuration || 15}s</b>, and posts a <b>Reel</b> (9:16 video) instead of a photo. Max 90s.
                     </p>
                   </div>
                 )}
