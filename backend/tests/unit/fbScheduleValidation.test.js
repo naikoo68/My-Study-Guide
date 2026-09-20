@@ -131,9 +131,9 @@ describe("validateScheduleData — question/flashcard Reels (asReel + music libr
     expect(check({ kind: "question", source: { quiz: "abc" }, times: ["09:00"], asReel: true, customAudios: ["https://cdn.com/a.mp3"] })).toBe("");
   });
 
-  it("clamps reelDuration to 1–90 and defaults it to 15", () => {
-    expect(pickScheduleFields({}).reelDuration).toBe(15);
-    expect(pickScheduleFields({ reelDuration: 0 }).reelDuration).toBe(15); // 0 → falsy → default
+  it("clamps reelDuration to 1–90 and defaults it to 30", () => {
+    expect(pickScheduleFields({}).reelDuration).toBe(30);
+    expect(pickScheduleFields({ reelDuration: 0 }).reelDuration).toBe(30); // 0 → falsy → default
     expect(pickScheduleFields({ reelDuration: 30 }).reelDuration).toBe(30);
     expect(pickScheduleFields({ reelDuration: 500 }).reelDuration).toBe(90);
     expect(pickScheduleFields({ reelDuration: -5 }).reelDuration).toBe(1); // -5 is truthy → clamped up to the 1s floor

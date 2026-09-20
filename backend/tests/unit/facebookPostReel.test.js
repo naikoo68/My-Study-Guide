@@ -52,6 +52,11 @@ describe("postReelToFacebookPage — /video_reels resumable flow", () => {
       if (opts.method !== "POST" && url.includes("fields=access_token")) {
         return reply({ access_token: "PAGE_TOKEN" });
       }
+      // Upload-status poll (between upload and finish) → report complete at once
+      // so the helper proceeds to publish without waiting.
+      if (opts.method !== "POST" && url.includes("fields=status")) {
+        return reply({ status: { uploading_phase: { status: "complete" }, video_status: "ready" } });
+      }
       if (url.includes(`/${pageId}/video_reels`)) {
         if (field(opts, "upload_phase") === "start") {
           return reply({ video_id: "VID_1", upload_url: UPLOAD_URL });

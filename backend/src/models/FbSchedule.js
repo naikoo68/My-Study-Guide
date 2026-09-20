@@ -27,8 +27,8 @@ const fbScheduleSchema = new mongoose.Schema(
     // and then mixes it with a music track into a vertical MP4, published as a
     // Reel instead of a photo.
     asReel: { type: Boolean, default: false },
-    // Reel length in seconds — the composed video is trimmed to this (default 15s).
-    reelDuration: { type: Number, default: 15 },
+    // Reel length in seconds — the composed video is trimmed to this (default 30s).
+    reelDuration: { type: Number, default: 30 },
     // A LIBRARY of music tracks (public URLs). The schedule ROTATES through them
     // — each Reel uses the next track, wrapping back to the first once every
     // track has been used — so a set of songs is reused without re-uploading.

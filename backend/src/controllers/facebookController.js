@@ -34,8 +34,8 @@ export async function composeReel(req, res) {
   if (!isCloudinaryConfigured()) {
     return res.status(503).json({ message: "Media processing isn't set up yet (Cloudinary keys missing)." });
   }
-  // Optional Reel length in seconds (default 15, clamped 1–90 by the composer).
-  const durationSec = Number(req.body?.durationSec ?? req.body?.reelDuration) || 15;
+  // Optional Reel length in seconds (default 30, clamped 1–90 by the composer).
+  const durationSec = Number(req.body?.durationSec ?? req.body?.reelDuration) || 30;
   try {
     const { url, duration } = await composeImageAudioToVideo({ imageUrl, audioUrl, durationSec });
     return res.json({ url, duration });
@@ -132,8 +132,8 @@ export function pickScheduleFields(body = {}) {
     asImage: !!body.asImage,
     // Post question/flashcard runs as a Reel by mixing the card image with music.
     asReel: !!body.asReel,
-    // Reel length in seconds — clamp to a sane range, default 15.
-    reelDuration: Math.max(1, Math.min(90, Math.round(Number(body.reelDuration) || 15))),
+    // Reel length in seconds — clamp to a sane range, default 30.
+    reelDuration: Math.max(1, Math.min(90, Math.round(Number(body.reelDuration) || 30))),
     customAudios,
     customAudio,
     // Reset the rotation pointer when the caller sends one (e.g. after editing
@@ -329,6 +329,13 @@ export async function createSchedule(req, res) {
   const data = pickScheduleFields(req.body);
   const err = validateScheduleData(data);
   if (err) return res.status(400).json({ message: err });
+  // Stagger Reel music: start each new Reel schedule at a RANDOM point in the
+  // shared library (nextReelAudio takes it modulo the library size), so two
+  // schedules don't both begin on the same first track ("same music"). Rotation
+  // then advances normally from there.
+  if (data.asReel && !Number.isInteger(data.audioIndex)) {
+    data.audioIndex = Math.floor(Math.random() * 1000);
+  }
   const sch = await FbSchedule.create({ ...data, createdBy: req.user?._id || null });
   res.status(201).json(sch);
 }

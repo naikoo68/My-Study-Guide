@@ -43,7 +43,7 @@ export async function uploadImage(fileStr, { folder = "mystudyguide/social", for
 // runs synchronously (eager_async: false) so we return a ready-to-fetch URL.
 //
 // `durationSec` trims the Reel to that many seconds (from the start of the
-// audio). Reels are short, so this defaults to 15s; when the track is shorter
+// audio). Reels are short, so this defaults to 30s; when the track is shorter
 // than the requested length, Cloudinary just uses whatever audio exists.
 //
 // Returns { url, duration }. Throws on any failure (caller surfaces the error).
@@ -52,7 +52,7 @@ export async function composeImageAudioToVideo({
   audioUrl,
   width = 1080,
   height = 1920,
-  durationSec = 15,
+  durationSec = 30,
   folder = "mystudyguide/social",
 } = {}) {
   const img = String(imageUrl || "").trim();
@@ -60,7 +60,7 @@ export async function composeImageAudioToVideo({
   if (!img) throw new Error("An image is required to build the Reel.");
   if (!aud) throw new Error("An audio track is required to build the Reel.");
   // Clamp the length to a sane Reel range (Facebook Reels cap at ~90s).
-  const dur = Math.max(1, Math.min(90, Math.round(Number(durationSec) || 15)));
+  const dur = Math.max(1, Math.min(90, Math.round(Number(durationSec) || 30)));
 
   // 1) Upload the audio as a video asset — this is how we learn its duration.
   const audio = await cloudinary.uploader.upload(aud, { folder, resource_type: "video" });
