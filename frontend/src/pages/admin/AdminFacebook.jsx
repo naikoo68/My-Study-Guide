@@ -696,6 +696,56 @@ function ImageAudioReelBuilder({ onCreated }) {
   );
 }
 
+// Upload a music track (or paste a public URL) — used for question/flashcard
+// Reels, where the track is mixed with the auto-rendered card image. Resolves
+// to a single `value` (the public URL) stored on the schedule as customAudio.
+function CustomAudioUploader({ value, onChange }) {
+  const audRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
+  const [pct, setPct] = useState(0);
+  const [err, setErr] = useState("");
+
+  const pick = async (e) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    setErr("");
+    if (!file.type.startsWith("audio/")) { setErr("Choose an audio file (MP3, M4A, WAV…)."); return; }
+    if (file.size > 30 * 1024 * 1024) { setErr("The audio must be under 30MB."); return; }
+    setUploading(true); setPct(0);
+    try {
+      const r = await uploadService.audioDirect(file, setPct);
+      if (r?.url) onChange(r.url);
+    } catch (e2) { setErr(e2.message || "Audio upload failed."); }
+    finally { setUploading(false); setPct(0); if (audRef.current) audRef.current.value = ""; }
+  };
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-3">
+        <label className={`relative flex h-14 w-40 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-slate-300 text-center text-[11px] leading-tight text-slate-500 hover:border-brand-400 dark:border-slate-600 ${uploading ? "pointer-events-none opacity-90" : ""}`}>
+          {value ? (
+            <><Music className="h-4 w-4 text-emerald-600" /><span className="font-semibold text-emerald-600">Music added</span></>
+          ) : uploading ? (
+            <><Loader2 className="h-4 w-4 animate-spin text-brand-600" /><span className="font-semibold text-brand-600">{pct}%</span></>
+          ) : (
+            <><Music className="h-4 w-4" /> Upload music</>
+          )}
+          <input ref={audRef} type="file" accept="audio/*" className="hidden" onChange={pick} disabled={uploading} />
+        </label>
+        {value && (
+          <button type="button" onClick={() => onChange("")}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-rose-100 px-2.5 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-200 dark:bg-rose-900/40">
+            <Trash2 className="h-3.5 w-3.5" /> Remove
+          </button>
+        )}
+        <span className="text-xs text-slate-400">or paste a URL:</span>
+      </div>
+      <input className="input mt-2" type="url" inputMode="url" value={value}
+        onChange={(e) => onChange(e.target.value)} placeholder="https://…/music.mp3" disabled={uploading} />
+      {err && <p className="mt-1 text-xs text-rose-600">{err}</p>}
+    </div>
+  );
+}
+
 // Reel video for a custom post. An admin can either UPLOAD a video file (direct
 // browser → Cloudinary, with progress), paste a public MP4 URL, or build one
 // from an image + audio track. All resolve to a single `value` (the public
@@ -863,6 +913,7 @@ const emptyForm = {
   includeOptions: true, includeAnswer: false, includeLink: false, hashtags: "", order: "random",
   stopWhenExhausted: true,
   toFacebook: true, toInstagram: false, asImage: false,
+  asReel: false, customAudio: "", // Reel mode for question/flashcard: mix the card image with this music track
 };
 
 export default function AdminFacebook() {
@@ -982,6 +1033,7 @@ export default function AdminFacebook() {
     hashtags: s.hashtags || "", order: s.order || "random",
     stopWhenExhausted: s.stopWhenExhausted !== false,
     toFacebook: s.toFacebook !== false, toInstagram: !!s.toInstagram, asImage: !!s.asImage,
+    asReel: !!s.asReel, customAudio: s.customAudio || "",
   });
 
   const setTime = (i, v) => setForm((f) => ({ ...f, times: f.times.map((t, k) => (k === i ? v : t)) }));
@@ -1005,6 +1057,10 @@ export default function AdminFacebook() {
       }
     } else if (!form.source.subject && !form.source.session && !form.source.quiz && !form.source.testSeries) {
       setError("Pick a source (subject, session or quiz)."); return;
+    }
+    // Reel mode (question/flashcard) needs a music track to mix with the card.
+    if (!isCustom && form.asReel && !String(form.customAudio || "").trim()) {
+      setError("Add a music track to post the question/flashcard as a Reel — or turn Reel off."); return;
     }
     const isOnce = form.mode === "once";
     if (isOnce) {
@@ -1370,8 +1426,36 @@ export default function AdminFacebook() {
               <p className="mt-1 text-xs text-slate-400">
                 {form.kind === "custom"
                   ? "Instagram needs an image — the first uploaded image is used."
-                  : "Instagram always posts an image, so a question image is generated automatically."}
+                  : form.asReel
+                    ? "Instagram posts a Reel — the auto-generated card is mixed with your music into a video."
+                    : "Instagram always posts an image, so a question image is generated automatically."}
               </p>
+            )}
+
+            {form.kind !== "custom" && (
+              <div className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                <label className="flex items-start justify-between gap-3">
+                  <span className="flex items-center gap-1.5 text-sm font-medium">
+                    <Film className="h-4 w-4 text-brand-500" /> Post as a Reel (with music)
+                    <span className="font-normal text-slate-400">— auto-picks a {form.kind === "flashcard" ? "flashcard" : "question"} and mixes its card with your track</span>
+                  </span>
+                  <button type="button"
+                    onClick={() => setForm((f) => ({ ...f, asReel: !f.asReel }))}
+                    className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${form.asReel ? "bg-[#1877F2]" : "bg-slate-300 dark:bg-slate-600"}`}>
+                    <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${form.asReel ? "left-6" : "left-1"}`} />
+                  </button>
+                </label>
+                {form.asReel && (
+                  <div className="mt-3">
+                    <p className="mb-1 flex items-center gap-1.5 text-sm font-semibold"><Music className="h-4 w-4 text-slate-400" /> Reel music track</p>
+                    <CustomAudioUploader value={form.customAudio} onChange={(customAudio) => setForm((f) => ({ ...f, customAudio }))} />
+                    <p className="mt-1.5 text-xs text-slate-400">
+                      Each run renders the {form.kind === "flashcard" ? "flashcard" : "question"} card, mixes it with this track, and posts a <b>Reel</b> (9:16 video)
+                      to the selected networks instead of a photo.
+                    </p>
+                  </div>
+                )}
+              </div>
             )}
 
             {form.kind === "question" && (

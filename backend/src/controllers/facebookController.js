@@ -84,6 +84,9 @@ export function pickScheduleFields(body = {}) {
   // Custom video (for a Reel post): a single public http(s) URL, else dropped.
   const rawVideo = String(body.customVideo || "").trim();
   const customVideo = /^https?:\/\//i.test(rawVideo) && isSafePublicUrl(rawVideo) ? rawVideo : "";
+  // Reel music track (for question/flashcard Reels): a single public http(s) URL.
+  const rawAudio = String(body.customAudio || "").trim();
+  const customAudio = /^https?:\/\//i.test(rawAudio) && isSafePublicUrl(rawAudio) ? rawAudio : "";
   return {
     title: String(body.title || "").trim(),
     enabled: body.enabled !== false,
@@ -115,6 +118,9 @@ export function pickScheduleFields(body = {}) {
     toFacebook: body.toFacebook !== false,
     toInstagram: !!body.toInstagram,
     asImage: !!body.asImage,
+    // Post question/flashcard runs as a Reel by mixing the card image with music.
+    asReel: !!body.asReel,
+    customAudio,
   };
 }
 
@@ -127,6 +133,10 @@ export function validateScheduleData(data) {
     }
   } else if (!data.source.subject && !data.source.session && !data.source.quiz && !data.source.testSeries) {
     return "Pick a source (a subject, session, quiz or test) to draw questions from.";
+  }
+  // Reel mode for question/flashcard needs a music track to mix with the card.
+  if (data.asReel && data.kind !== "custom" && !data.customAudio) {
+    return "Add a music track (audio) to post the question/flashcard as a Reel.";
   }
   if (data.mode === "once") {
     if (!data.runAt) return "Pick a valid date & time for the one-off post.";
