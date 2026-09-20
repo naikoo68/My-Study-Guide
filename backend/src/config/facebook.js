@@ -804,15 +804,22 @@ function dueSlot(sch, now) {
   return null;
 }
 
-// Resolve a schedule's Reel music library: the `customAudios` list if present,
-// else the legacy single `customAudio` as a one-item list. Trimmed, non-empty.
-// Exported (pure) for unit tests.
-export function resolveReelAudios(sch) {
+// Resolve the Reel music tracks to rotate through. Order of preference:
+//   1) a schedule's OWN `customAudios` (per-schedule override, back-compat),
+//   2) the legacy single `customAudio` on the schedule,
+//   3) the SHARED library on site settings (`site.fbReelAudios`) — the normal
+//      path: music is added once in Settings and reused by every Reel schedule.
+// Trimmed, non-empty. Exported (pure) for unit tests.
+export function resolveReelAudios(sch, site) {
   if (Array.isArray(sch?.customAudios) && sch.customAudios.length) {
     return sch.customAudios.map((u) => String(u || "").trim()).filter(Boolean);
   }
   const one = String(sch?.customAudio || "").trim();
-  return one ? [one] : [];
+  if (one) return [one];
+  if (Array.isArray(site?.fbReelAudios) && site.fbReelAudios.length) {
+    return site.fbReelAudios.map((u) => String(u || "").trim()).filter(Boolean);
+  }
+  return [];
 }
 
 // Pick the NEXT track from a rotating library, given the current index. Returns
@@ -1091,7 +1098,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   // back to the first once every track has been used. Best-effort — if the card
   // didn't render or Cloudinary can't build the video, we fall back to the
   // normal image/text post so a post still goes out.
-  const audioLibrary = resolveReelAudios(sch);
+  const audioLibrary = resolveReelAudios(sch, site);
   const wantReel = !!sch.asReel && audioLibrary.length > 0;
   let reelVideoUrl = "";
   if (wantReel) {

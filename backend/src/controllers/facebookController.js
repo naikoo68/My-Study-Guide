@@ -148,10 +148,10 @@ export function validateScheduleData(data) {
   } else if (!data.source.subject && !data.source.session && !data.source.quiz && !data.source.testSeries) {
     return "Pick a source (a subject, session, quiz or test) to draw questions from.";
   }
-  // Reel mode for question/flashcard needs at least one music track to mix in.
-  if (data.asReel && data.kind !== "custom" && !(data.customAudios && data.customAudios.length)) {
-    return "Add at least one music track (audio) to post the question/flashcard as a Reel.";
-  }
+  // NOTE: Reel mode (asReel) no longer requires per-schedule audio — the music
+  // comes from the SHARED library on site settings (fbReelAudios). The admin UI
+  // guides the user to add tracks there; at post time an empty library simply
+  // falls back to a normal image/text post.
   if (data.mode === "once") {
     if (!data.runAt) return "Pick a valid date & time for the one-off post.";
   } else if (!data.times.length) {

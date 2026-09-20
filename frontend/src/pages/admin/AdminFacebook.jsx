@@ -934,6 +934,35 @@ function FlashcardTemplateSection({ settings, saveSettings }) {
   );
 }
 
+// SHARED Reel music library — set the tracks ONCE here (upload files or paste
+// links). Every question/flashcard schedule set to post as a Reel rotates
+// through these, so music is never re-added per schedule. Persists to settings
+// immediately on each add/remove.
+function ReelMusicLibrarySection({ settings, saveSettings }) {
+  const [msg, setMsg] = useState(null);
+  // Drive straight off settings — saveSettings updates the settings context, so
+  // the list re-renders after each save (no local mirror / syncing effect).
+  const tracks = settings?.fbReelAudios || [];
+
+  const onChange = async (next) => {
+    setMsg(null);
+    try { await saveSettings({ fbReelAudios: next }); setMsg({ ok: true, text: "Saved." }); }
+    catch (e) { setMsg({ ok: false, text: e.message || "Failed to save." }); }
+  };
+
+  return (
+    <div className="card p-5">
+      <h2 className="flex items-center gap-2 font-bold"><Music className="h-5 w-5 text-[#1877F2]" /> Reel music library</h2>
+      <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
+        Add your music <b>once here</b>. Any question or flashcard schedule set to post as a <b>Reel</b> rotates through
+        these tracks — one per Reel, then starts over — so you never upload or paste them again. Upload files or paste public links.
+      </p>
+      <div className="mt-4"><ReelAudioLibrary value={tracks} onChange={onChange} /></div>
+      {msg && <p className={`mt-3 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.text}</p>}
+    </div>
+  );
+}
+
 const emptyForm = {
   kind: "question",
   mode: "recurring", runAt: "", // one-off (mode "once") uses runAt; recurring uses times/days
@@ -1092,9 +1121,10 @@ export default function AdminFacebook() {
     } else if (!form.source.subject && !form.source.session && !form.source.quiz && !form.source.testSeries) {
       setError("Pick a source (subject, session or quiz)."); return;
     }
-    // Reel mode (question/flashcard) needs at least one music track to mix with the card.
-    if (!isCustom && form.asReel && !(form.customAudios || []).length) {
-      setError("Add at least one music track to post the question/flashcard as a Reel — or turn Reel off."); return;
+    // Reel mode (question/flashcard) needs music. It comes from the SHARED Reel
+    // music library (added once); older schedules may still carry their own tracks.
+    if (!isCustom && form.asReel && !(settings?.fbReelAudios || []).length && !(form.customAudios || []).length) {
+      setError("Add tracks to the Reel music library first (you only do this once) — or turn Reel off."); return;
     }
     const isOnce = form.mode === "once";
     if (isOnce) {
@@ -1255,6 +1285,9 @@ export default function AdminFacebook() {
 
       {/* Flashcard template image (for the Flashcard post type) */}
       <FlashcardTemplateSection settings={settings} saveSettings={saveSettings} />
+
+      {/* Shared Reel music library (set once, reused by every Reel schedule) */}
+      <ReelMusicLibrarySection settings={settings} saveSettings={saveSettings} />
 
       {/* Email notifications */}
       <FbNotifySection settings={settings} saveSettings={saveSettings} />
@@ -1471,7 +1504,7 @@ export default function AdminFacebook() {
                 <label className="flex items-start justify-between gap-3">
                   <span className="flex items-center gap-1.5 text-sm font-medium">
                     <Film className="h-4 w-4 text-brand-500" /> Post as a Reel (with music)
-                    <span className="font-normal text-slate-400">— auto-picks a {form.kind === "flashcard" ? "flashcard" : "question"} and mixes its card with your track</span>
+                    <span className="font-normal text-slate-400">— auto-picks a {form.kind === "flashcard" ? "flashcard" : "question"} and mixes its card with your library music</span>
                   </span>
                   <button type="button"
                     onClick={() => setForm((f) => ({ ...f, asReel: !f.asReel }))}
@@ -1481,12 +1514,20 @@ export default function AdminFacebook() {
                 </label>
                 {form.asReel && (
                   <div className="mt-3">
-                    <p className="mb-1 flex items-center gap-1.5 text-sm font-semibold"><Music className="h-4 w-4 text-slate-400" /> Reel music library</p>
-                    <ReelAudioLibrary value={form.customAudios} onChange={(customAudios) => setForm((f) => ({ ...f, customAudios }))} />
+                    {(settings?.fbReelAudios || []).length ? (
+                      <p className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                        <Music className="h-4 w-4 text-emerald-600" />
+                        Uses your shared <b>Reel music library</b> ({settings.fbReelAudios.length} track{settings.fbReelAudios.length > 1 ? "s" : ""}). Each Reel uses the next track, then starts over — manage tracks in the <b>Reel music library</b> section above.
+                      </p>
+                    ) : (
+                      <p className="flex items-center gap-1.5 text-xs text-rose-600">
+                        <AlertTriangle className="h-4 w-4" />
+                        Your <b>Reel music library</b> is empty — add tracks in the <b>Reel music library</b> section above (you only do this once).
+                      </p>
+                    )}
                     <p className="mt-1.5 text-xs text-slate-400">
-                      Add one or more tracks — the schedule <b>rotates</b> through them (one per Reel, then starts over), so you set them
-                      once and never re-upload. Each run renders the {form.kind === "flashcard" ? "flashcard" : "question"} card, mixes it with the
-                      next track, and posts a <b>Reel</b> (9:16 video) instead of a photo.
+                      Each run renders the {form.kind === "flashcard" ? "flashcard" : "question"} card, mixes it with the next
+                      library track, and posts a <b>Reel</b> (9:16 video) instead of a photo.
                     </p>
                   </div>
                 )}
