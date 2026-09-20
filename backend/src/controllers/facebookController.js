@@ -84,9 +84,19 @@ export function pickScheduleFields(body = {}) {
   // Custom video (for a Reel post): a single public http(s) URL, else dropped.
   const rawVideo = String(body.customVideo || "").trim();
   const customVideo = /^https?:\/\//i.test(rawVideo) && isSafePublicUrl(rawVideo) ? rawVideo : "";
-  // Reel music track (for question/flashcard Reels): a single public http(s) URL.
-  const rawAudio = String(body.customAudio || "").trim();
-  const customAudio = /^https?:\/\//i.test(rawAudio) && isSafePublicUrl(rawAudio) ? rawAudio : "";
+  // Reel music library (for question/flashcard Reels): a list of public http(s)
+  // URLs the schedule rotates through. Keep only safe URLs, dedupe, cap at 20.
+  // Falls back to a legacy single `customAudio` when no array is supplied.
+  const rawAudios = Array.isArray(body.customAudios)
+    ? body.customAudios
+    : (body.customAudio ? [body.customAudio] : []);
+  const customAudios = [...new Set(
+    rawAudios
+      .map((u) => String(u || "").trim())
+      .filter((u) => /^https?:\/\//i.test(u) && isSafePublicUrl(u))
+  )].slice(0, 20);
+  // Keep the first track in the legacy field too, so older readers still work.
+  const customAudio = customAudios[0] || "";
   return {
     title: String(body.title || "").trim(),
     enabled: body.enabled !== false,
@@ -120,7 +130,11 @@ export function pickScheduleFields(body = {}) {
     asImage: !!body.asImage,
     // Post question/flashcard runs as a Reel by mixing the card image with music.
     asReel: !!body.asReel,
+    customAudios,
     customAudio,
+    // Reset the rotation pointer when the caller sends one (e.g. after editing
+    // the track list); otherwise leave it for the scheduler to advance.
+    ...(Number.isInteger(body.audioIndex) ? { audioIndex: Math.max(0, body.audioIndex) } : {}),
   };
 }
 
@@ -134,9 +148,9 @@ export function validateScheduleData(data) {
   } else if (!data.source.subject && !data.source.session && !data.source.quiz && !data.source.testSeries) {
     return "Pick a source (a subject, session, quiz or test) to draw questions from.";
   }
-  // Reel mode for question/flashcard needs a music track to mix with the card.
-  if (data.asReel && data.kind !== "custom" && !data.customAudio) {
-    return "Add a music track (audio) to post the question/flashcard as a Reel.";
+  // Reel mode for question/flashcard needs at least one music track to mix in.
+  if (data.asReel && data.kind !== "custom" && !(data.customAudios && data.customAudios.length)) {
+    return "Add at least one music track (audio) to post the question/flashcard as a Reel.";
   }
   if (data.mode === "once") {
     if (!data.runAt) return "Pick a valid date & time for the one-off post.";
