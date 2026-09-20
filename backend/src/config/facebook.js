@@ -4,7 +4,7 @@
 import Settings from "../models/Settings.js";
 import User from "../models/User.js";
 import { sendMail } from "./mailer.js";
-import { toInstagramSafeUrl } from "../utils/instagramImage.js";
+import { toInstagramSafeUrl, toInstagramStoryUrl } from "../utils/instagramImage.js";
 import { toFacebookSafeUrl } from "../utils/facebookImage.js";
 
 // Facebook Page auto-posting via the Graph API. The Page ID + long-lived Page
@@ -421,7 +421,9 @@ export async function postReelToFacebookPage({ videoUrl, description } = {}, cfg
 export async function postStoryToInstagram({ imageUrl } = {}, cfgOverride) {
   const cfg = cfgOverride || (await getFacebookConfig());
   if (!isFacebookConfigured(cfg)) return { ok: false, error: "Facebook/Instagram is not connected." };
-  const img = String(imageUrl || "").trim();
+  // Pad the card onto a 9:16 story canvas so Instagram can't crop off the sides
+  // (a feed-shaped card filled into the full-screen story loses its edges).
+  const img = toInstagramStoryUrl(String(imageUrl || "").trim());
   if (!img) return { ok: false, error: "Instagram needs an image to post a Story." };
   const igId = await getInstagramUserId(cfg);
   if (!igId) return { ok: false, error: "No Instagram Business account is linked to this Facebook Page." };
@@ -468,7 +470,9 @@ export async function postStoryToInstagram({ imageUrl } = {}, cfgOverride) {
 export async function postStoryToFacebookPage({ imageUrl } = {}, cfgOverride) {
   const cfg = cfgOverride || (await getFacebookConfig());
   if (!isFacebookConfigured(cfg)) return { ok: false, error: "Facebook Page ID or access token is not set." };
-  const img = String(imageUrl || "").trim();
+  // Facebook Page Stories are the same full-screen 9:16 canvas as Instagram, so
+  // pad the card to 9:16 here too — otherwise a wide/tall card is side-cropped.
+  const img = toInstagramStoryUrl(String(imageUrl || "").trim());
   if (!img) return { ok: false, error: "Facebook needs an image to post a Story." };
   const pageToken = await resolvePageToken(cfg);
   const base = `https://graph.facebook.com/${cfg.version}/${encodeURIComponent(cfg.pageId)}`;

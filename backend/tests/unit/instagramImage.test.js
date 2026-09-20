@@ -1,9 +1,12 @@
 import { describe, it, expect } from "vitest";
 import {
   toInstagramSafeUrl,
+  toInstagramStoryUrl,
   isInstagramAspectOk,
   IG_MIN_AR,
   IG_MAX_AR,
+  STORY_WIDTH,
+  STORY_HEIGHT,
 } from "../../src/utils/instagramImage.js";
 
 const CLOUD = "https://res.cloudinary.com/demo/image/upload";
@@ -76,6 +79,59 @@ describe("toInstagramSafeUrl", () => {
   it("targets Instagram's documented bounds", () => {
     expect(IG_MIN_AR).toBeCloseTo(0.8, 5); // 4:5
     expect(IG_MAX_AR).toBeCloseTo(1.91, 5); // 1.91:1
+  });
+});
+
+describe("toInstagramStoryUrl", () => {
+  // A Story is a fixed 9:16 full-screen canvas. Without this, the platform fills
+  // the canvas with a feed-shaped card and CROPS the left/right edges (the bug
+  // seen on the live IG Story). We contain-pad to 1080×1920 so nothing is lost.
+  const STORY_PAD = `f_jpg,fl_lossy,q_auto/c_pad,w_${STORY_WIDTH},h_${STORY_HEIGHT},b_white`;
+
+  it("targets Instagram's recommended 1080×1920 (9:16) story canvas", () => {
+    expect(STORY_WIDTH).toBe(1080);
+    expect(STORY_HEIGHT).toBe(1920);
+    expect(STORY_WIDTH / STORY_HEIGHT).toBeCloseTo(9 / 16, 5);
+  });
+
+  it("injects a contain-pad-to-9:16 transform into a plain Cloudinary URL", () => {
+    const out = toInstagramStoryUrl(`${CLOUD}/v123/mystudyguide/social/card.png`);
+    expect(out).toBe(`${CLOUD}/${STORY_PAD}/v123/mystudyguide/social/card.png`);
+  });
+
+  it("works when there is no version segment", () => {
+    const out = toInstagramStoryUrl(`${CLOUD}/mystudyguide/social/card.png`);
+    expect(out).toBe(`${CLOUD}/${STORY_PAD}/mystudyguide/social/card.png`);
+  });
+
+  it("uses c_pad (contain) so the card is never cropped", () => {
+    const out = toInstagramStoryUrl(`${CLOUD}/v1/card.png`);
+    expect(out).toContain(`c_pad,w_${STORY_WIDTH},h_${STORY_HEIGHT}`);
+    // c_pad fills the remainder — must NOT be c_fill/c_crop (which would crop).
+    expect(out).not.toContain("c_fill");
+    expect(out).not.toContain("c_crop");
+  });
+
+  it("forces JPEG for the story image too", () => {
+    expect(toInstagramStoryUrl(`${CLOUD}/v1/card.png`)).toContain("f_jpg");
+  });
+
+  it("is idempotent — does not stack a second story pad", () => {
+    const once = toInstagramStoryUrl(`${CLOUD}/v123/card.png`);
+    const twice = toInstagramStoryUrl(once);
+    expect(twice).toBe(once);
+    expect(twice.match(new RegExp(`c_pad,w_${STORY_WIDTH}`, "g"))).toHaveLength(1);
+  });
+
+  it("leaves non-Cloudinary URLs untouched", () => {
+    const url = "https://example.com/some/photo.jpg";
+    expect(toInstagramStoryUrl(url)).toBe(url);
+  });
+
+  it("handles empty / nullish input safely", () => {
+    expect(toInstagramStoryUrl("")).toBe("");
+    expect(toInstagramStoryUrl(null)).toBe("");
+    expect(toInstagramStoryUrl(undefined)).toBe("");
   });
 });
 
