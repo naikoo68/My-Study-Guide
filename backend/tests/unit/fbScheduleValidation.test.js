@@ -101,22 +101,34 @@ describe("validateScheduleData — custom schedules", () => {
 });
 
 
-describe("validateScheduleData — question/flashcard Reels (asReel + music)", () => {
-  it("keeps only a safe http(s) customAudio URL", () => {
-    expect(pickScheduleFields({ asReel: true, customAudio: "https://cdn.com/song.mp3" }).customAudio).toBe("https://cdn.com/song.mp3");
-    expect(pickScheduleFields({ asReel: true, customAudio: "javascript:alert(1)" }).customAudio).toBe("");
-    expect(pickScheduleFields({ asReel: true, customAudio: "http://169.254.169.254/x.mp3" }).customAudio).toBe("");
+describe("validateScheduleData — question/flashcard Reels (asReel + music library)", () => {
+  it("keeps only safe http(s) tracks in customAudios, dedupes, and caps at 20", () => {
+    const d = pickScheduleFields({
+      asReel: true,
+      customAudios: ["https://cdn.com/a.mp3", "javascript:alert(1)", "http://169.254.169.254/x.mp3", "https://cdn.com/a.mp3", "http://ok.com/b.mp3"],
+    });
+    expect(d.customAudios).toEqual(["https://cdn.com/a.mp3", "http://ok.com/b.mp3"]);
+    // The legacy single field mirrors the first track for old readers.
+    expect(d.customAudio).toBe("https://cdn.com/a.mp3");
+
+    const many = Array.from({ length: 30 }, (_, i) => `https://c.com/${i}.mp3`);
+    expect(pickScheduleFields({ customAudios: many }).customAudios).toHaveLength(20);
   });
 
-  it("requires a music track when a question/flashcard is set to post as a Reel", () => {
+  it("accepts a legacy single customAudio as a one-track library", () => {
+    expect(pickScheduleFields({ asReel: true, customAudio: "https://cdn.com/song.mp3" }).customAudios)
+      .toEqual(["https://cdn.com/song.mp3"]);
+  });
+
+  it("requires at least one track when a question/flashcard posts as a Reel", () => {
     expect(check({ kind: "question", source: { quiz: "abc" }, times: ["09:00"], asReel: true }))
       .toMatch(/music track/i);
     expect(check({ kind: "flashcard", source: { subject: "s1" }, times: ["09:00"], asReel: true }))
       .toMatch(/music track/i);
   });
 
-  it("passes a question Reel when a music track is provided", () => {
-    expect(check({ kind: "question", source: { quiz: "abc" }, times: ["09:00"], asReel: true, customAudio: "https://cdn.com/song.mp3" })).toBe("");
+  it("passes a question Reel when the library has at least one track", () => {
+    expect(check({ kind: "question", source: { quiz: "abc" }, times: ["09:00"], asReel: true, customAudios: ["https://cdn.com/a.mp3", "https://cdn.com/b.mp3"] })).toBe("");
   });
 
   it("does not require music when Reel mode is off", () => {

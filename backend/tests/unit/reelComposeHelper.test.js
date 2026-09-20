@@ -50,10 +50,14 @@ describe("composeImageAudioToVideo", () => {
     expect(opts.eager_async).toBe(false);
     const eager = opts.eager[0];
     expect(eager.format).toBe("mp4");
-    expect(eager.transformation[0].overlay).toBe("mystudyguide:social:img456");
-    expect(eager.transformation[0].width).toBe(1080);
-    expect(eager.transformation[0].height).toBe(1920);
-    expect(eager.transformation[1].flags).toBe("layer_apply");
+    const tx = eager.transformation;
+    // 1) a black 9:16 canvas is established on the audio base (fixes broken video)
+    expect(tx[0]).toMatchObject({ width: 1080, height: 1920, crop: "pad", background: "black" });
+    // 2) the image is laid on top (fit, folder '/' → ':') then applied as a layer
+    expect(tx[1]).toMatchObject({ overlay: "mystudyguide:social:img456", width: 1080, height: 1920, crop: "fit" });
+    expect(tx[2].flags).toBe("layer_apply");
+    // 3) standard codecs for Facebook/Instagram playback
+    expect(tx[3]).toMatchObject({ video_codec: "h264", audio_codec: "aac" });
   });
 
   it("errors before any upload when the image or audio URL is missing", async () => {

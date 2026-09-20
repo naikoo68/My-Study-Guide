@@ -696,51 +696,81 @@ function ImageAudioReelBuilder({ onCreated }) {
   );
 }
 
-// Upload a music track (or paste a public URL) — used for question/flashcard
-// Reels, where the track is mixed with the auto-rendered card image. Resolves
-// to a single `value` (the public URL) stored on the schedule as customAudio.
-function CustomAudioUploader({ value, onChange }) {
+// A rotating LIBRARY of music tracks for question/flashcard Reels. The admin
+// adds several tracks (upload a file or paste a public URL) with the + button;
+// they persist on the schedule and are shown as a removable list. At post time
+// the schedule cycles through them — one track per Reel, wrapping around — so a
+// set of songs is reused without re-adding them. `value` is a string[] of URLs.
+function ReelAudioLibrary({ value, onChange }) {
   const audRef = useRef(null);
   const [uploading, setUploading] = useState(false);
   const [pct, setPct] = useState(0);
+  const [url, setUrl] = useState("");
   const [err, setErr] = useState("");
+  const list = Array.isArray(value) ? value : [];
+
+  const add = (u) => {
+    const clean = String(u || "").trim();
+    if (!clean) return;
+    if (list.includes(clean)) { setErr("That track is already in the list."); return; }
+    onChange([...list, clean].slice(0, 20));
+  };
+  const removeAt = (i) => onChange(list.filter((_, k) => k !== i));
 
   const pick = async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
     setErr("");
     if (!file.type.startsWith("audio/")) { setErr("Choose an audio file (MP3, M4A, WAV…)."); return; }
-    if (file.size > 30 * 1024 * 1024) { setErr("The audio must be under 30MB."); return; }
+    if (file.size > 30 * 1024 * 1024) { setErr("Each track must be under 30MB."); return; }
     setUploading(true); setPct(0);
     try {
       const r = await uploadService.audioDirect(file, setPct);
-      if (r?.url) onChange(r.url);
+      if (r?.url) add(r.url);
     } catch (e2) { setErr(e2.message || "Audio upload failed."); }
     finally { setUploading(false); setPct(0); if (audRef.current) audRef.current.value = ""; }
   };
 
+  const addPasted = () => {
+    const clean = url.trim();
+    if (!clean) return;
+    if (!/^https?:\/\//i.test(clean)) { setErr("The URL must start with http:// or https://."); return; }
+    add(clean); setUrl(""); setErr("");
+  };
+
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-3">
-        <label className={`relative flex h-14 w-40 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-slate-300 text-center text-[11px] leading-tight text-slate-500 hover:border-brand-400 dark:border-slate-600 ${uploading ? "pointer-events-none opacity-90" : ""}`}>
-          {value ? (
-            <><Music className="h-4 w-4 text-emerald-600" /><span className="font-semibold text-emerald-600">Music added</span></>
-          ) : uploading ? (
-            <><Loader2 className="h-4 w-4 animate-spin text-brand-600" /><span className="font-semibold text-brand-600">{pct}%</span></>
-          ) : (
-            <><Music className="h-4 w-4" /> Upload music</>
-          )}
+      {/* Existing tracks */}
+      {list.length > 0 && (
+        <ul className="mb-2 space-y-1.5">
+          {list.map((u, i) => (
+            <li key={i} className="flex items-center gap-2 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs dark:bg-slate-800">
+              <Music className="h-3.5 w-3.5 flex-shrink-0 text-emerald-600" />
+              <span className="min-w-0 flex-1 truncate text-slate-600 dark:text-slate-300" title={u}>{i + 1}. {u.split("/").pop() || u}</span>
+              <audio src={u} controls preload="none" className="h-7 w-40 max-w-[45%]" />
+              <button type="button" onClick={() => removeAt(i)} title="Remove"
+                className="flex-shrink-0 rounded-full p-1 text-rose-600 hover:bg-rose-100 dark:hover:bg-rose-900/40">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {/* Add controls: upload (+) OR paste a URL */}
+      <div className="flex flex-wrap items-center gap-2">
+        <label className={`inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-brand-700 ${uploading ? "pointer-events-none opacity-70" : ""}`}>
+          {uploading ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> {pct}%</> : <><Plus className="h-3.5 w-3.5" /> Add music</>}
           <input ref={audRef} type="file" accept="audio/*" className="hidden" onChange={pick} disabled={uploading} />
         </label>
-        {value && (
-          <button type="button" onClick={() => onChange("")}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-rose-100 px-2.5 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-200 dark:bg-rose-900/40">
-            <Trash2 className="h-3.5 w-3.5" /> Remove
-          </button>
-        )}
-        <span className="text-xs text-slate-400">or paste a URL:</span>
+        <span className="text-xs text-slate-400">or</span>
+        <input className="input h-9 flex-1 min-w-[160px]" type="url" inputMode="url" value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addPasted(); } }}
+          placeholder="https://…/music.mp3" disabled={uploading} />
+        <button type="button" onClick={addPasted} disabled={uploading || !url.trim()}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:text-slate-300">
+          <Plus className="h-3.5 w-3.5" /> Add link
+        </button>
       </div>
-      <input className="input mt-2" type="url" inputMode="url" value={value}
-        onChange={(e) => onChange(e.target.value)} placeholder="https://…/music.mp3" disabled={uploading} />
       {err && <p className="mt-1 text-xs text-rose-600">{err}</p>}
     </div>
   );
@@ -913,7 +943,7 @@ const emptyForm = {
   includeOptions: true, includeAnswer: false, includeLink: false, hashtags: "", order: "random",
   stopWhenExhausted: true,
   toFacebook: true, toInstagram: false, asImage: false,
-  asReel: false, customAudio: "", // Reel mode for question/flashcard: mix the card image with this music track
+  asReel: false, customAudios: [], // Reel mode for question/flashcard: rotate through these music tracks
 };
 
 export default function AdminFacebook() {
@@ -1033,7 +1063,11 @@ export default function AdminFacebook() {
     hashtags: s.hashtags || "", order: s.order || "random",
     stopWhenExhausted: s.stopWhenExhausted !== false,
     toFacebook: s.toFacebook !== false, toInstagram: !!s.toInstagram, asImage: !!s.asImage,
-    asReel: !!s.asReel, customAudio: s.customAudio || "",
+    asReel: !!s.asReel,
+    // Load the rotating music library (fall back to the legacy single track).
+    customAudios: Array.isArray(s.customAudios) && s.customAudios.length
+      ? s.customAudios
+      : (s.customAudio ? [s.customAudio] : []),
   });
 
   const setTime = (i, v) => setForm((f) => ({ ...f, times: f.times.map((t, k) => (k === i ? v : t)) }));
@@ -1058,9 +1092,9 @@ export default function AdminFacebook() {
     } else if (!form.source.subject && !form.source.session && !form.source.quiz && !form.source.testSeries) {
       setError("Pick a source (subject, session or quiz)."); return;
     }
-    // Reel mode (question/flashcard) needs a music track to mix with the card.
-    if (!isCustom && form.asReel && !String(form.customAudio || "").trim()) {
-      setError("Add a music track to post the question/flashcard as a Reel — or turn Reel off."); return;
+    // Reel mode (question/flashcard) needs at least one music track to mix with the card.
+    if (!isCustom && form.asReel && !(form.customAudios || []).length) {
+      setError("Add at least one music track to post the question/flashcard as a Reel — or turn Reel off."); return;
     }
     const isOnce = form.mode === "once";
     if (isOnce) {
@@ -1447,11 +1481,12 @@ export default function AdminFacebook() {
                 </label>
                 {form.asReel && (
                   <div className="mt-3">
-                    <p className="mb-1 flex items-center gap-1.5 text-sm font-semibold"><Music className="h-4 w-4 text-slate-400" /> Reel music track</p>
-                    <CustomAudioUploader value={form.customAudio} onChange={(customAudio) => setForm((f) => ({ ...f, customAudio }))} />
+                    <p className="mb-1 flex items-center gap-1.5 text-sm font-semibold"><Music className="h-4 w-4 text-slate-400" /> Reel music library</p>
+                    <ReelAudioLibrary value={form.customAudios} onChange={(customAudios) => setForm((f) => ({ ...f, customAudios }))} />
                     <p className="mt-1.5 text-xs text-slate-400">
-                      Each run renders the {form.kind === "flashcard" ? "flashcard" : "question"} card, mixes it with this track, and posts a <b>Reel</b> (9:16 video)
-                      to the selected networks instead of a photo.
+                      Add one or more tracks — the schedule <b>rotates</b> through them (one per Reel, then starts over), so you set them
+                      once and never re-upload. Each run renders the {form.kind === "flashcard" ? "flashcard" : "question"} card, mixes it with the
+                      next track, and posts a <b>Reel</b> (9:16 video) instead of a photo.
                     </p>
                   </div>
                 )}

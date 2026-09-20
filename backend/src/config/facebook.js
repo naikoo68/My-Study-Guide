@@ -804,6 +804,28 @@ function dueSlot(sch, now) {
   return null;
 }
 
+// Resolve a schedule's Reel music library: the `customAudios` list if present,
+// else the legacy single `customAudio` as a one-item list. Trimmed, non-empty.
+// Exported (pure) for unit tests.
+export function resolveReelAudios(sch) {
+  if (Array.isArray(sch?.customAudios) && sch.customAudios.length) {
+    return sch.customAudios.map((u) => String(u || "").trim()).filter(Boolean);
+  }
+  const one = String(sch?.customAudio || "").trim();
+  return one ? [one] : [];
+}
+
+// Pick the NEXT track from a rotating library, given the current index. Returns
+// the chosen track, the (safely wrapped) index it came from, and the index to
+// store for next time — so a set of songs is cycled one per Reel and repeats
+// once every track has been used. Exported (pure) for unit tests.
+export function nextReelAudio(audios, index) {
+  const lib = (Array.isArray(audios) ? audios : []).map((u) => String(u || "").trim()).filter(Boolean);
+  if (!lib.length) return { audio: "", index: 0, nextIndex: 0 };
+  const i = (((Number(index) || 0) % lib.length) + lib.length) % lib.length;
+  return { audio: lib[i], index: i, nextIndex: (i + 1) % lib.length };
+}
+
 // Post a CUSTOM schedule (admin-written text + optional uploaded media) once, to
 // Facebook and/or Instagram. Unlike a question schedule there's no pool/exhaust
 // logic — a recurring custom schedule simply re-posts the same content at each
@@ -1063,21 +1085,29 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   let fbPostId = null; // Meta's post id for the main Page — a real publication reference
   const fbAttempts = []; // raw per-Page results → collectFacebookPublications() decides what's recorded
 
-  // Reel mode: mix the rendered card image with the schedule's uploaded music
-  // into a vertical MP4 and publish it as a Reel (to FB and/or IG) instead of a
-  // photo. Best-effort — if the card didn't render or Cloudinary can't build the
-  // video, we fall back to the normal image/text post so a post still goes out.
-  const reelAudioUrl = String(sch.customAudio || "").trim();
-  const wantReel = !!sch.asReel && !!reelAudioUrl;
+  // Reel mode: ROTATE through the schedule's music library and mix the NEXT
+  // track with the rendered card image into a vertical MP4, published as a Reel
+  // (to FB and/or IG) instead of a photo. Each Reel uses the next song, wrapping
+  // back to the first once every track has been used. Best-effort — if the card
+  // didn't render or Cloudinary can't build the video, we fall back to the
+  // normal image/text post so a post still goes out.
+  const audioLibrary = resolveReelAudios(sch);
+  const wantReel = !!sch.asReel && audioLibrary.length > 0;
   let reelVideoUrl = "";
   if (wantReel) {
+    const { audio: chosenAudio, index: idx } = nextReelAudio(audioLibrary, sch.audioIndex);
     if (!imageUrl) {
       notes.push("Reel ✗ (no card image — posted as text/image)");
     } else {
       try {
-        const composed = await composeImageAudioToVideo({ imageUrl, audioUrl: reelAudioUrl });
+        const composed = await composeImageAudioToVideo({ imageUrl, audioUrl: chosenAudio });
         reelVideoUrl = composed?.url || "";
-        if (!reelVideoUrl) notes.push("Reel ✗ (no video URL — posted as image)");
+        if (reelVideoUrl) {
+          // Advance to the next track for the following run (wraps around).
+          sch.audioIndex = (idx + 1) % audioLibrary.length;
+        } else {
+          notes.push("Reel ✗ (no video URL — posted as image)");
+        }
       } catch (e) {
         notes.push(`Reel ✗ (${e?.message || e} — posted as image)`);
       }

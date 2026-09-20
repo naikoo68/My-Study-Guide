@@ -24,10 +24,18 @@ const fbScheduleSchema = new mongoose.Schema(
 
     // Reel mode for question/flashcard schedules. When `asReel` is on, each run
     // renders the question/flashcard card image (exactly as a normal auto-post)
-    // and then mixes it with `customAudio` (an uploaded music track) into a
-    // vertical MP4, which is published as a Reel instead of a photo.
+    // and then mixes it with a music track into a vertical MP4, published as a
+    // Reel instead of a photo.
     asReel: { type: Boolean, default: false },
-    customAudio: { type: String, default: "" }, // public URL of the music track to mix in
+    // A LIBRARY of music tracks (public URLs). The schedule ROTATES through them
+    // — each Reel uses the next track, wrapping back to the first once every
+    // track has been used — so a set of songs is reused without re-uploading.
+    customAudios: { type: [String], default: [] },
+    // Which track to use next (index into customAudios); advances after each Reel.
+    audioIndex: { type: Number, default: 0 },
+    // DEPRECATED single-track field, kept for backward compatibility with
+    // schedules created before the rotating library existed.
+    customAudio: { type: String, default: "" },
 
     // Where questions are drawn from. The DEEPEST set id wins (quiz > session >
     // subject > testSeries). `label` is a human-readable trail for the UI.

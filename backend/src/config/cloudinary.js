@@ -32,12 +32,15 @@ export async function uploadImage(fileStr, { folder = "mystudyguide/social", for
 //
 // How it works: Cloudinary stores audio as a *video* asset (a video without a
 // visual stream), so it already carries a duration. We upload the audio to get
-// that duration + its public id, upload the image, then render an MP4 whose
-// visual is the image scaled to fill a 9:16 frame, applied as a layer over the
-// audio base for the whole clip — so the image shows for the full track with
-// the audio as its soundtrack. The eager transformation runs synchronously
-// (eager_async: false) so we return a ready-to-fetch mp4 URL, which is what
-// Facebook/Instagram need to publish the Reel.
+// that duration + its public id, upload the image, then render an MP4.
+//
+// IMPORTANT: an audio-only asset has NO visual canvas, so we must CREATE one or
+// the output video is empty/broken (this was the earlier bug). We first pad the
+// base to a solid black 9:16 canvas of the target size (c_pad on a resource with
+// no frames yields a black frame for the whole duration), then lay the image on
+// top (c_fit so the whole card stays visible), then force H.264/AAC in an MP4
+// container for maximum Facebook/Instagram compatibility. The eager transform
+// runs synchronously (eager_async: false) so we return a ready-to-fetch URL.
 //
 // Returns { url, duration }. Throws on any failure (caller surfaces the error).
 export async function composeImageAudioToVideo({
@@ -59,9 +62,12 @@ export async function composeImageAudioToVideo({
   // Overlay public ids use ':' in place of '/' for assets inside a folder.
   const overlayId = String(image.public_id).replace(/\//g, ":");
 
-  // 3) Render the Reel: overlay the image (scaled to fill the 9:16 frame) onto
-  // the audio base for the full duration, delivered as an MP4. Run it eagerly
-  // and synchronously so the derived file exists before we hand its URL off.
+  // 3) Render the Reel. Chained transform on the AUDIO base:
+  //    a) pad to a black WxH canvas   → gives the audio a real 9:16 video frame
+  //    b) overlay the image (c_fit)   → whole card visible, centered
+  //    c) fl_layer_apply              → bake the overlay in
+  //    d) h264 / aac / mp4            → a standard, widely-playable Reel file
+  // Run eagerly + synchronously so the derived file exists before we return it.
   const result = await cloudinary.uploader.explicit(audio.public_id, {
     type: "upload",
     resource_type: "video",
@@ -69,8 +75,10 @@ export async function composeImageAudioToVideo({
     eager: [
       {
         transformation: [
-          { overlay: overlayId, width, height, crop: "fill", gravity: "center" },
+          { width, height, crop: "pad", background: "black" },
+          { overlay: overlayId, width, height, crop: "fit" },
           { flags: "layer_apply" },
+          { video_codec: "h264", audio_codec: "aac" },
         ],
         format: "mp4",
       },
