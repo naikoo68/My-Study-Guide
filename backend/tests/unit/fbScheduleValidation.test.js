@@ -131,6 +131,11 @@ describe("validateScheduleData — question/flashcard Reels (asReel + music libr
     expect(check({ kind: "question", source: { quiz: "abc" }, times: ["09:00"], asReel: true, customAudios: ["https://cdn.com/a.mp3"] })).toBe("");
   });
 
+  it("reads the asStory flag (also share as a 24h Story)", () => {
+    expect(pickScheduleFields({ asStory: true }).asStory).toBe(true);
+    expect(pickScheduleFields({}).asStory).toBe(false);
+  });
+
   it("clamps reelDuration to 1–90 and defaults it to 30", () => {
     expect(pickScheduleFields({}).reelDuration).toBe(30);
     expect(pickScheduleFields({ reelDuration: 0 }).reelDuration).toBe(30); // 0 → falsy → default

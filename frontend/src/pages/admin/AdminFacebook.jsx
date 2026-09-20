@@ -5,7 +5,7 @@ import { useEffect, useState, useRef } from "react";
 import {
   Send, Loader2, CheckCircle2, AlertTriangle, KeyRound, Plus, Trash2, Pencil, X,
   Clock, CalendarClock, ListChecks, Power, Save, Upload, UserCircle, Type, Search, Mail,
-  ImagePlus, FileText, Wand2, RefreshCw, Film, Music,
+  ImagePlus, FileText, Wand2, RefreshCw, Film, Music, Camera,
 } from "lucide-react";
 import { Facebook, Instagram } from "../../components/ui/SocialIcons";
 import { settingsService, facebookService, contentService, practiceService, uploadService } from "../../services";
@@ -973,6 +973,7 @@ const emptyForm = {
   stopWhenExhausted: true,
   toFacebook: true, toInstagram: false, asImage: false,
   asReel: false, customAudios: [], reelDuration: 30, // Reel mode for question/flashcard: rotate through these music tracks, trimmed to reelDuration seconds
+  asStory: false, // also share the image as a 24h Story (Facebook + Instagram)
 };
 
 export default function AdminFacebook() {
@@ -1094,6 +1095,7 @@ export default function AdminFacebook() {
     toFacebook: s.toFacebook !== false, toInstagram: !!s.toInstagram, asImage: !!s.asImage,
     asReel: !!s.asReel,
     reelDuration: s.reelDuration || 30,
+    asStory: !!s.asStory,
     // Load the rotating music library (fall back to the legacy single track).
     customAudios: Array.isArray(s.customAudios) && s.customAudios.length
       ? s.customAudios
@@ -1219,7 +1221,7 @@ export default function AdminFacebook() {
           </label>
           <div>
             <label className="mb-1 block text-sm font-medium">Default hashtags (applied to all posts)</label>
-            <input className="input" value={fb.fbDefaultHashtags} onChange={(e) => setFb((f) => ({ ...f, fbDefaultHashtags: e.target.value }))} placeholder="#JKSSB #CurrentAffairs #StudyGuide" />
+            <textarea className="input min-h-[46px] resize-y" rows={2} value={fb.fbDefaultHashtags} onChange={(e) => setFb((f) => ({ ...f, fbDefaultHashtags: e.target.value }))} placeholder="#JKSSB #CurrentAffairs #StudyGuide" />
             <p className="mt-1 text-xs text-slate-400">Space or comma separated. The “#” is optional — it's added automatically.</p>
           </div>
         </div>
@@ -1545,6 +1547,27 @@ export default function AdminFacebook() {
               </div>
             )}
 
+            {/* Also share to Stories (all post types) */}
+            <div className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+              <label className="flex items-start justify-between gap-3">
+                <span className="flex items-center gap-1.5 text-sm font-medium">
+                  <Camera className="h-4 w-4 text-brand-500" /> Also post to Stories
+                  <span className="font-normal text-slate-400">— shares the image as a 24-hour Story on Facebook &amp; Instagram</span>
+                </span>
+                <button type="button"
+                  onClick={() => setForm((f) => ({ ...f, asStory: !f.asStory }))}
+                  className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${form.asStory ? "bg-[#1877F2]" : "bg-slate-300 dark:bg-slate-600"}`}>
+                  <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${form.asStory ? "left-6" : "left-1"}`} />
+                </button>
+              </label>
+              {form.asStory && (
+                <p className="mt-1.5 text-xs text-slate-400">
+                  In addition to the normal post, the {form.kind === "custom" ? "uploaded image" : "card image"} is shared as a <b>Story</b> to the selected
+                  networks. Stories disappear after 24 hours and don't carry a caption/hashtags.
+                </p>
+              )}
+            </div>
+
             {form.kind === "question" && (
               <>
                 <p className="mb-1 mt-4 text-sm font-semibold">Public Quizzes</p>
@@ -1559,7 +1582,8 @@ export default function AdminFacebook() {
             )}
 
             <label className="mb-1 mt-4 block text-sm font-medium">Hashtags (optional)</label>
-            <input className="input" value={form.hashtags} onChange={(e) => setForm((f) => ({ ...f, hashtags: e.target.value }))} placeholder="#GK #JKSSB #Quiz" />
+            <textarea className="input min-h-[46px] resize-y" rows={2} value={form.hashtags} onChange={(e) => setForm((f) => ({ ...f, hashtags: e.target.value }))} placeholder="#GK #JKSSB #Quiz" />
+            <p className="mt-1 text-xs text-slate-400">Separate tags with spaces. Non-English tags (e.g. Hindi) are kept. Drag the bottom-right corner to enlarge.</p>
 
             <div className="mt-4 flex gap-2">
               <button onClick={saveForm} disabled={saving} className="btn-primary">{saving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> {form._id ? "Save changes" : "Create schedule"}</>}</button>
@@ -1591,6 +1615,11 @@ export default function AdminFacebook() {
                         {(s.asReel || (s.kind === "custom" && s.customVideo)) && (
                           <span className="inline-flex items-center gap-1 rounded-full bg-fuchsia-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-fuchsia-700 dark:bg-fuchsia-900/40 dark:text-fuchsia-300">
                             <Film className="h-3 w-3" /> Reel
+                          </span>
+                        )}
+                        {s.asStory && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                            <Camera className="h-3 w-3" /> Story
                           </span>
                         )}
                         {s.completedAt && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">Completed</span>}

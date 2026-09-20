@@ -29,6 +29,9 @@ const fbScheduleSchema = new mongoose.Schema(
     asReel: { type: Boolean, default: false },
     // Reel length in seconds — the composed video is trimmed to this (default 30s).
     reelDuration: { type: Number, default: 30 },
+    // Also share the post's IMAGE as a 24h STORY to the selected networks
+    // (Facebook Page Story + Instagram Story), in addition to the normal post.
+    asStory: { type: Boolean, default: false },
     // A LIBRARY of music tracks (public URLs). The schedule ROTATES through them
     // — each Reel uses the next track, wrapping back to the first once every
     // track has been used — so a set of songs is reused without re-uploading.

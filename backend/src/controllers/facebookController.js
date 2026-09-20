@@ -134,6 +134,8 @@ export function pickScheduleFields(body = {}) {
     asReel: !!body.asReel,
     // Reel length in seconds — clamp to a sane range, default 30.
     reelDuration: Math.max(1, Math.min(90, Math.round(Number(body.reelDuration) || 30))),
+    // Also share the card image as a 24h Story to the selected networks.
+    asStory: !!body.asStory,
     customAudios,
     customAudio,
     // Reset the rotation pointer when the caller sends one (e.g. after editing
