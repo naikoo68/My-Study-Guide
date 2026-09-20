@@ -57,6 +57,28 @@ describe("postStoryToFacebookPage — photo_stories", () => {
     expect(sawUnpublished).toBe(true);
   });
 
+  it("pads a Cloudinary card onto the 9:16 story canvas (never cropped)", async () => {
+    const pageId = "page-story-pad";
+    const cfg = { pageId, token: "tok", version: VERSION };
+    let uploadedUrl = "";
+
+    installFetch((url, opts) => {
+      if (opts.method !== "POST" && url.includes("fields=access_token")) return reply({ access_token: "PAGE_TOKEN" });
+      if (url.includes(`/${pageId}/photos`)) {
+        uploadedUrl = field(opts, "url");
+        return reply({ id: "PHOTO_2" });
+      }
+      if (url.includes(`/${pageId}/photo_stories`)) return reply({ success: true, post_id: "STORY_10" });
+      throw new Error(`unexpected call: ${url}`);
+    });
+
+    const raw = "https://res.cloudinary.com/demo/image/upload/v1/mystudyguide/social/card.png";
+    const r = await postStoryToFacebookPage({ imageUrl: raw }, cfg);
+    expect(r.ok).toBe(true);
+    expect(uploadedUrl).toContain("c_pad,w_1080,h_1920,b_white");
+    expect(uploadedUrl).not.toContain("c_fill");
+  });
+
   it("errors clearly when there is no image", async () => {
     const r = await postStoryToFacebookPage({ imageUrl: "" }, { pageId: "p", token: "t", version: VERSION });
     expect(r.ok).toBe(false);
@@ -91,6 +113,33 @@ describe("postStoryToInstagram — STORIES container → publish", () => {
     expect(r.ok).toBe(true);
     expect(r.id).toBe("IG_STORY_1");
     expect(calls.some((c) => c.url.includes("media_publish"))).toBe(true);
+  });
+
+  it("pads a Cloudinary card onto the 9:16 story canvas so the sides aren't cropped", async () => {
+    const pageId = "page-ig-story-pad";
+    const igId = "IG_2";
+    const cfg = { pageId, token: "tok", version: VERSION, igUserId: igId };
+    let containerImageUrl = "";
+
+    installFetch((url, opts) => {
+      if (opts.method !== "POST" && url.includes("fields=access_token")) return reply({ access_token: "PAGE_TOKEN" });
+      if (url.includes(`/${igId}/media`) && !url.includes("media_publish") && opts.method === "POST") {
+        expect(field(opts, "media_type")).toBe("STORIES");
+        containerImageUrl = field(opts, "image_url");
+        return reply({ id: "CONTAINER_2" });
+      }
+      if (url.includes("CONTAINER_2") && url.includes("status_code")) return reply({ status_code: "FINISHED" });
+      if (url.includes(`/${igId}/media_publish`)) return reply({ id: "IG_STORY_2" });
+      throw new Error(`unexpected call: ${url}`);
+    });
+
+    const raw = "https://res.cloudinary.com/demo/image/upload/v1/mystudyguide/social/card.png";
+    const r = await postStoryToInstagram({ imageUrl: raw }, cfg);
+    expect(r.ok).toBe(true);
+    // The container must point at the 9:16 contain-padded (JPEG) image.
+    expect(containerImageUrl).toContain("f_jpg");
+    expect(containerImageUrl).toContain("c_pad,w_1080,h_1920,b_white");
+    expect(containerImageUrl).not.toContain("c_fill");
   });
 
   it("errors clearly when there is no image", async () => {
