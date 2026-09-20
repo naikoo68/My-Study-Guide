@@ -176,6 +176,17 @@ describe("Facebook publication ledger + count", () => {
       expect(await countFacebookPosts(TENANT_A, PAGE_1)).toBe(1); // the FB count is separate
     });
   });
+
+  it("I: a Facebook STORY publication is recorded (kind 'story') so Stories aren't missing from the audit", async () => {
+    await asA(async () => {
+      // A feed/reel post AND its Story are two separate publications from one run.
+      await recordFbPublications(collectFacebookPublications([fb(true, "fb_feed_1")]), { kind: "flashcard" });
+      await recordFbPublications(collectFacebookPublications([fb(true, "fb_story_1")]), { kind: "story" });
+      expect(await countFacebookPosts(TENANT_A, PAGE_1)).toBe(2);
+      const story = await FbPost.findOne({ facebookPostId: "fb_story_1" }).lean();
+      expect(story.kind).toBe("story");
+    });
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────

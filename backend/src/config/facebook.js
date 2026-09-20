@@ -1020,13 +1020,16 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
     }
   }
 
-  // ALSO share the uploaded image as a 24h Story (additive, best-effort).
+  // ALSO share the uploaded image as a 24h Story (additive, best-effort). A
+  // successful Facebook Story is recorded in the ledger too (kind "story").
+  const storyFbAttempts = [];
   if (sch.asStory) {
     if (!rawImageUrl) {
       notes.push("Story ✗ (needs an image)");
     } else {
       if (wantFb) {
         const rs = await postStoryToFacebookPage({ imageUrl: rawImageUrl }, cfg);
+        storyFbAttempts.push({ ok: rs.ok, id: rs.id, pageId: cfg.pageId, pageLabel: "" });
         notes.push(rs.ok ? "FB Story ✓" : `FB Story ✗ (${rs.error})`);
       }
       if (wantIg) {
@@ -1043,6 +1046,11 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
   const fbPublications = collectFacebookPublications(fbAttempts);
   if (fbPublications.length) {
     await recordFbPublications(fbPublications, { schedule: sch, scheduleTitle: schTitle, kind: isReel ? "reel" : "custom", sourceLabel: sch.source?.label });
+  }
+  // Record Facebook Story publications too, so they aren't missing from the audit.
+  const storyPublications = collectFacebookPublications(storyFbAttempts);
+  if (storyPublications.length) {
+    await recordFbPublications(storyPublications, { schedule: sch, scheduleTitle: schTitle, kind: "story", sourceLabel: sch.source?.label });
   }
   if (anyOk) {
     sch.postCount = (sch.postCount || 0) + 1;
@@ -1309,13 +1317,17 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
 
   // ALSO share the card image as a 24h Story (in addition to the feed/reel post),
   // to whichever networks are selected. Additive & best-effort — a Story failure
-  // never changes the main post's success.
+  // never changes the main post's success. A successful Facebook Story is a real
+  // publication, so it's recorded in the ledger too (kind "story") — otherwise
+  // Stories would be MISSING from the Facebook audit.
+  const storyFbAttempts = [];
   if (sch.asStory) {
     if (!imageUrl) {
       notes.push("Story ✗ (no card image)");
     } else {
       if (wantFb) {
         const rs = await postStoryToFacebookPage({ imageUrl }, cfg);
+        storyFbAttempts.push({ ok: rs.ok, id: rs.id, pageId: cfg.pageId, pageLabel: "" });
         notes.push(rs.ok ? "FB Story ✓" : `FB Story ✗ (${rs.error})`);
       }
       if (wantIg) {
@@ -1337,6 +1349,14 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
     await recordFbPublications(fbPublications, {
       schedule: sch, scheduleTitle: schTitle, question: q,
       kind: reelVideoUrl ? "reel" : (isFlashcard ? "flashcard" : "question"), sourceLabel: sch.source?.label, postSerial: postNumber,
+    });
+  }
+  // Record Facebook Story publications too (kind "story"), so they aren't
+  // missing from the audit/lifetime count.
+  const storyPublications = collectFacebookPublications(storyFbAttempts);
+  if (storyPublications.length) {
+    await recordFbPublications(storyPublications, {
+      schedule: sch, scheduleTitle: schTitle, question: q, kind: "story", sourceLabel: sch.source?.label,
     });
   }
 
