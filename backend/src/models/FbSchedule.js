@@ -22,6 +22,13 @@ const fbScheduleSchema = new mongoose.Schema(
     // priority over customMedia (post either a Reel OR a photo).
     customVideo: { type: String, default: "" },
 
+    // Reel mode for question/flashcard schedules. When `asReel` is on, each run
+    // renders the question/flashcard card image (exactly as a normal auto-post)
+    // and then mixes it with `customAudio` (an uploaded music track) into a
+    // vertical MP4, which is published as a Reel instead of a photo.
+    asReel: { type: Boolean, default: false },
+    customAudio: { type: String, default: "" }, // public URL of the music track to mix in
+
     // Where questions are drawn from. The DEEPEST set id wins (quiz > session >
     // subject > testSeries). `label` is a human-readable trail for the UI.
     source: {

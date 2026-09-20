@@ -99,3 +99,32 @@ describe("validateScheduleData — custom schedules", () => {
     expect(check({ kind: "custom", customText: "hi", mode: "once", runAt: "2030-05-01T10:00:00Z" })).toBe("");
   });
 });
+
+
+describe("validateScheduleData — question/flashcard Reels (asReel + music)", () => {
+  it("keeps only a safe http(s) customAudio URL", () => {
+    expect(pickScheduleFields({ asReel: true, customAudio: "https://cdn.com/song.mp3" }).customAudio).toBe("https://cdn.com/song.mp3");
+    expect(pickScheduleFields({ asReel: true, customAudio: "javascript:alert(1)" }).customAudio).toBe("");
+    expect(pickScheduleFields({ asReel: true, customAudio: "http://169.254.169.254/x.mp3" }).customAudio).toBe("");
+  });
+
+  it("requires a music track when a question/flashcard is set to post as a Reel", () => {
+    expect(check({ kind: "question", source: { quiz: "abc" }, times: ["09:00"], asReel: true }))
+      .toMatch(/music track/i);
+    expect(check({ kind: "flashcard", source: { subject: "s1" }, times: ["09:00"], asReel: true }))
+      .toMatch(/music track/i);
+  });
+
+  it("passes a question Reel when a music track is provided", () => {
+    expect(check({ kind: "question", source: { quiz: "abc" }, times: ["09:00"], asReel: true, customAudio: "https://cdn.com/song.mp3" })).toBe("");
+  });
+
+  it("does not require music when Reel mode is off", () => {
+    expect(check({ kind: "question", source: { quiz: "abc" }, times: ["09:00"], asReel: false })).toBe("");
+  });
+
+  it("never demands music for a custom post (which uses its own video)", () => {
+    expect(check({ kind: "custom", customText: "hi", times: ["09:00"], asReel: true }))
+      .not.toMatch(/music track/i);
+  });
+});

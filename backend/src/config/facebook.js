@@ -512,6 +512,7 @@ import Stream from "../models/Stream.js";
 import TestSeries from "../models/TestSeries.js";
 import { renderQuestionImage } from "./socialImage.js";
 import { renderQuestionCardShot, renderFlashcardCardShot } from "./cardShot.js";
+import { composeImageAudioToVideo } from "./cloudinary.js";
 import { tenantStore, runUnscoped } from "../utils/tenantContext.js";
 import { getDefaultTenantId } from "../utils/platformScope.js";
 
@@ -1002,7 +1003,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
       imageUrl = r.url || null;
       imageErr = imageErr || r.error || "";
     }
-  } else if (sch.asImage || wantIg || selfieWatermarkActive || textWatermarkActive) {
+  } else if (sch.asImage || wantIg || selfieWatermarkActive || textWatermarkActive || sch.asReel) {
     // PREFER a pixel-identical screenshot of the REAL quiz card (matches the
     // admin Download button exactly — same React/Tailwind/Inter). Best-effort:
     // any failure falls through to the lightweight SVG card so posting never
@@ -1062,6 +1063,27 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   let fbPostId = null; // Meta's post id for the main Page — a real publication reference
   const fbAttempts = []; // raw per-Page results → collectFacebookPublications() decides what's recorded
 
+  // Reel mode: mix the rendered card image with the schedule's uploaded music
+  // into a vertical MP4 and publish it as a Reel (to FB and/or IG) instead of a
+  // photo. Best-effort — if the card didn't render or Cloudinary can't build the
+  // video, we fall back to the normal image/text post so a post still goes out.
+  const reelAudioUrl = String(sch.customAudio || "").trim();
+  const wantReel = !!sch.asReel && !!reelAudioUrl;
+  let reelVideoUrl = "";
+  if (wantReel) {
+    if (!imageUrl) {
+      notes.push("Reel ✗ (no card image — posted as text/image)");
+    } else {
+      try {
+        const composed = await composeImageAudioToVideo({ imageUrl, audioUrl: reelAudioUrl });
+        reelVideoUrl = composed?.url || "";
+        if (!reelVideoUrl) notes.push("Reel ✗ (no video URL — posted as image)");
+      } catch (e) {
+        notes.push(`Reel ✗ (${e?.message || e} — posted as image)`);
+      }
+    }
+  }
+
   if (wantFb) {
     // Always attach the image when a selfie watermark is active (ensures branding on every post).
     // A very SHORT/WIDE card (e.g. a plain MCQ) can exceed Facebook's widest
@@ -1072,7 +1094,12 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
     // utils/facebookImage.js.
     const fbRawImageUrl = (sch.asImage || selfieWatermarkActive || isFlashcard) ? imageUrl : undefined;
     const fbImageUrl = fbRawImageUrl ? toFacebookSafeUrl(fbRawImageUrl) : undefined;
-    const r = await postToFacebookPage({ message, link, imageUrl: fbImageUrl }, cfg);
+    // In Reel mode publish the composed video as a Reel; otherwise the normal
+    // photo/text post. Same per-Page helper covers the main Page + extra Pages.
+    const postFb = (pageCfg) => reelVideoUrl
+      ? postReelToFacebookPage({ videoUrl: reelVideoUrl, description: message }, pageCfg)
+      : postToFacebookPage({ message, link, imageUrl: fbImageUrl }, pageCfg);
+    const r = await postFb(cfg);
     fbAttempts.push({ ok: r.ok, id: r.id, pageId: cfg.pageId, pageLabel: "" });
     if (r.ok) { fbOk = true; fbPostId = r.id || fbPostId; notes.push("Facebook ✓"); } else notes.push(`Facebook ✗ (${r.error})`);
 
@@ -1082,18 +1109,20 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
       const pageId = String(t?.pageId || "").trim();
       const token = String(t?.token || "").trim();
       if (!pageId || !token) continue;
-      const rr = await postToFacebookPage(
-        { message, link, imageUrl: fbImageUrl },
-        { ...cfg, pageId, token }
-      );
+      const rr = await postFb({ ...cfg, pageId, token });
       const name = t.label || pageId;
       fbAttempts.push({ ok: rr.ok, id: rr.id, pageId, pageLabel: name });
       if (rr.ok) { fbOk = true; notes.push(`${name} ✓`); } else notes.push(`${name} ✗ (${rr.error})`);
     }
   }
   if (wantIg) {
-    if (!imageUrl) notes.push(`Instagram ✗ (image failed${imageErr ? `: ${imageErr}` : ""})`);
-    else {
+    if (reelVideoUrl) {
+      // Publish the composed video as an Instagram Reel.
+      const r = await postReelToInstagram({ videoUrl: reelVideoUrl, caption: message }, cfg);
+      if (r.ok) { igOk = true; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
+    } else if (!imageUrl) {
+      notes.push(`Instagram ✗ (image failed${imageErr ? `: ${imageErr}` : ""})`);
+    } else {
       // Question cards render at a VARIABLE height, so a tall card falls below
       // Instagram's minimum 4:5 aspect ratio and the API rejects it ("The aspect
       // ratio is not supported."). Pad the (Cloudinary-hosted) image onto a 4:5
@@ -1117,7 +1146,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   if (fbPublications.length) {
     await recordFbPublications(fbPublications, {
       schedule: sch, scheduleTitle: schTitle, question: q,
-      kind: isFlashcard ? "flashcard" : "question", sourceLabel: sch.source?.label, postSerial: postNumber,
+      kind: reelVideoUrl ? "reel" : (isFlashcard ? "flashcard" : "question"), sourceLabel: sch.source?.label, postSerial: postNumber,
     });
   }
 
