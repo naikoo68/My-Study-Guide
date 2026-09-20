@@ -62,9 +62,9 @@ describe("validateScheduleData — question schedules", () => {
 });
 
 describe("validateScheduleData — custom schedules", () => {
-  it("requires text or media", () => {
+  it("requires text, an image, or a video", () => {
     expect(check({ kind: "custom", times: ["09:00"] }))
-      .toMatch(/text or.*media/i);
+      .toMatch(/text.*image.*video/i);
   });
 
   it("passes with text only", () => {
@@ -73,6 +73,15 @@ describe("validateScheduleData — custom schedules", () => {
 
   it("passes with media only (no text)", () => {
     expect(check({ kind: "custom", customMedia: ["https://c.com/a.png"], times: ["09:00"] })).toBe("");
+  });
+
+  it("passes with a video URL only (Reel) and keeps only safe http(s) URLs", () => {
+    // A public video URL alone is enough (it becomes a Reel).
+    expect(check({ kind: "custom", customVideo: "https://cdn.com/reel.mp4", times: ["09:00"] })).toBe("");
+    // Non-http(s) / unsafe URLs are dropped, so validation still fails.
+    expect(pickScheduleFields({ kind: "custom", customVideo: "javascript:alert(1)" }).customVideo).toBe("");
+    expect(check({ kind: "custom", customVideo: "javascript:alert(1)", times: ["09:00"] }))
+      .toMatch(/text.*image.*video/i);
   });
 
   it("does NOT require a question source", () => {
