@@ -366,6 +366,7 @@ export const facebookService = {
   scheduleQuestion: (data) => api.post("/facebook/schedule-question", data), // schedule ONE question at a time
   previewImage: (data) => api.post("/facebook/preview-image", data), // render the question card → { url }
   suggestTags: (id) => api.get(`/facebook/suggest-tags/${id}`), // auto + default hashtags for a question → { hashtags }
+  composeReel: (data) => api.post("/facebook/compose-reel", data, { timeout: 180000 }), // mix an image + audio into a Reel MP4 → { url, duration }
 };
 
 // ---- Contact messages ----
@@ -618,6 +619,56 @@ export const uploadService = {
       };
       xhr.onerror = () => { done(); reject(new Error("Could not reach Cloudinary.")); };
       xhr.ontimeout = () => { done(); reject(new Error("Upload timed out — try a smaller video or check your connection.")); };
+      xhr.send(fd);
+    });
+  },
+
+  // DIRECT browser → Cloudinary signed upload (AUDIO — for building a Reel from
+  // an image + audio). Cloudinary stores audio under the "video" resource type,
+  // and /auto/upload detects it. Same signed flow + server-relay fallback.
+  audioDirect: async (file, onProgress) => {
+    let sig;
+    try {
+      sig = await api.get("/upload/signature");
+    } catch {
+      return uploadWithProgress("/upload", file, { field: "file", onProgress });
+    }
+    if (!sig?.cloudName || !sig?.signature) {
+      return uploadWithProgress("/upload", file, { field: "file", onProgress });
+    }
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("api_key", sig.apiKey);
+    fd.append("timestamp", sig.timestamp);
+    fd.append("signature", sig.signature);
+    fd.append("folder", sig.folder);
+    const url = `https://api.cloudinary.com/v1_1/${sig.cloudName}/auto/upload`;
+    return new Promise((resolve, reject) => {
+      const upId = beginUpload();
+      const done = () => endUpload(upId);
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", url);
+      xhr.timeout = 300000; // 5 min
+      if (xhr.upload) {
+        xhr.upload.onprogress = (e) => {
+          if (!e.lengthComputable) return;
+          const pct = Math.round((e.loaded / e.total) * 100);
+          updateUpload(upId, pct);
+          if (typeof onProgress === "function") onProgress(pct);
+        };
+      }
+      xhr.onload = () => {
+        done();
+        let data;
+        try { data = xhr.responseText ? JSON.parse(xhr.responseText) : null; } catch { data = null; }
+        if (xhr.status >= 200 && xhr.status < 300 && data?.secure_url) {
+          resolve({ url: data.secure_url, bytes: data.bytes, format: data.format, duration: data.duration });
+        } else {
+          reject(new Error(data?.error?.message || `Cloudinary upload failed (${xhr.status}).`));
+        }
+      };
+      xhr.onerror = () => { done(); reject(new Error("Could not reach Cloudinary.")); };
+      xhr.ontimeout = () => { done(); reject(new Error("Upload timed out — try a smaller audio file or check your connection.")); };
       xhr.send(fd);
     });
   },

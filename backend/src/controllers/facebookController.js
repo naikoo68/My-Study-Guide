@@ -11,6 +11,36 @@ import PracticeStream from "../models/PracticeStream.js";
 import PracticeSubject from "../models/PracticeSubject.js";
 import PracticeTopic from "../models/PracticeTopic.js";
 import { isSafePublicUrl } from "../utils/urlGuard.js";
+import { composeImageAudioToVideo, isCloudinaryConfigured } from "../config/cloudinary.js";
+
+// POST /api/facebook/compose-reel  (admin) — build a vertical MP4 (a Reel) from
+// a still image + an audio track, both given as PUBLIC http(s) URLs (uploaded
+// via the media uploader). Returns { url } — the composed video — which the UI
+// then stores as the schedule's customVideo so it posts as a real Reel to
+// Facebook/Instagram through the normal Reel pipeline. Both inputs are
+// SSRF-validated so the server can't be pointed at internal addresses.
+export async function composeReel(req, res) {
+  const imageUrl = String(req.body?.imageUrl || "").trim();
+  const audioUrl = String(req.body?.audioUrl || "").trim();
+  if (!imageUrl || !audioUrl) {
+    return res.status(400).json({ message: "An image and an audio file are both required to build a Reel." });
+  }
+  if (!/^https?:\/\//i.test(imageUrl) || !isSafePublicUrl(imageUrl)) {
+    return res.status(400).json({ message: "The image URL is not a valid public link." });
+  }
+  if (!/^https?:\/\//i.test(audioUrl) || !isSafePublicUrl(audioUrl)) {
+    return res.status(400).json({ message: "The audio URL is not a valid public link." });
+  }
+  if (!isCloudinaryConfigured()) {
+    return res.status(503).json({ message: "Media processing isn't set up yet (Cloudinary keys missing)." });
+  }
+  try {
+    const { url, duration } = await composeImageAudioToVideo({ imageUrl, audioUrl });
+    return res.json({ url, duration });
+  } catch (err) {
+    return res.status(502).json({ message: err?.message || "Could not build the Reel video." });
+  }
+}
 
 // GET /api/facebook/suggest-tags/:id — hashtags for one question (global default
 // + auto tags from its subject/topic/section). Used to pre-fill the post modal.

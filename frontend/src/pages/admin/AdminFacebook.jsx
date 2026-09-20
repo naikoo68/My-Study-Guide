@@ -5,7 +5,7 @@ import { useEffect, useState, useRef } from "react";
 import {
   Send, Loader2, CheckCircle2, AlertTriangle, KeyRound, Plus, Trash2, Pencil, X,
   Clock, CalendarClock, ListChecks, Power, Save, Upload, UserCircle, Type, Search, Mail,
-  ImagePlus, FileText, Wand2, RefreshCw, Film,
+  ImagePlus, FileText, Wand2, RefreshCw, Film, Music,
 } from "lucide-react";
 import { Facebook, Instagram } from "../../components/ui/SocialIcons";
 import { settingsService, facebookService, contentService, practiceService, uploadService } from "../../services";
@@ -600,9 +600,106 @@ function CustomMediaUploader({ media, onChange }) {
   );
 }
 
+// Build a Reel from a still IMAGE + an AUDIO track. Both are uploaded to
+// Cloudinary (image + audio), then the server mixes them into a vertical MP4
+// (image shown for the full audio length, audio as the soundtrack). On success
+// it hands the composed video URL to the parent via onCreated(url), which flows
+// into the schedule's customVideo — so it posts as a real Reel to FB/Instagram.
+function ImageAudioReelBuilder({ onCreated }) {
+  const imgRef = useRef(null);
+  const audRef = useRef(null);
+  const [image, setImage] = useState("");
+  const [audio, setAudio] = useState("");
+  const [imgUploading, setImgUploading] = useState(false);
+  const [audUploading, setAudUploading] = useState(false);
+  const [imgPct, setImgPct] = useState(0);
+  const [audPct, setAudPct] = useState(0);
+  const [building, setBuilding] = useState(false);
+  const [err, setErr] = useState("");
+
+  const pickImage = async (e) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    setErr("");
+    if (!file.type.startsWith("image/")) { setErr("Choose an image file for the Reel picture."); return; }
+    if (file.size > 10 * 1024 * 1024) { setErr("The image must be under 10MB."); return; }
+    setImgUploading(true); setImgPct(0);
+    try {
+      const r = await uploadService.imageDirect(file, setImgPct);
+      if (r?.url) setImage(r.url);
+    } catch (e2) { setErr(e2.message || "Image upload failed."); }
+    finally { setImgUploading(false); setImgPct(0); if (imgRef.current) imgRef.current.value = ""; }
+  };
+
+  const pickAudio = async (e) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    setErr("");
+    if (!file.type.startsWith("audio/")) { setErr("Choose an audio file (MP3, M4A, WAV…)."); return; }
+    if (file.size > 30 * 1024 * 1024) { setErr("The audio must be under 30MB."); return; }
+    setAudUploading(true); setAudPct(0);
+    try {
+      const r = await uploadService.audioDirect(file, setAudPct);
+      if (r?.url) setAudio(r.url);
+    } catch (e2) { setErr(e2.message || "Audio upload failed."); }
+    finally { setAudUploading(false); setAudPct(0); if (audRef.current) audRef.current.value = ""; }
+  };
+
+  const build = async () => {
+    if (!image || !audio) { setErr("Add both an image and an audio track first."); return; }
+    setBuilding(true); setErr("");
+    try {
+      const r = await facebookService.composeReel({ imageUrl: image, audioUrl: audio });
+      if (r?.url) onCreated(r.url);
+      else setErr("The Reel was built but no video URL came back. Try again.");
+    } catch (e2) {
+      setErr(e2.message || "Could not build the Reel. Check the files and try again.");
+    } finally { setBuilding(false); }
+  };
+
+  const busy = imgUploading || audUploading || building;
+
+  return (
+    <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/40">
+      <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300">
+        <Wand2 className="h-4 w-4 text-brand-500" /> …or build a Reel from an image + audio
+      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        {/* Image picker */}
+        <label className={`relative flex h-20 w-20 cursor-pointer flex-col items-center justify-center gap-1 overflow-hidden rounded-lg border-2 border-dashed border-slate-300 text-center text-[10px] leading-tight text-slate-500 hover:border-brand-400 dark:border-slate-600 ${busy ? "pointer-events-none opacity-90" : ""}`}>
+          {image ? (
+            <img src={image} alt="" className="h-full w-full object-cover" />
+          ) : imgUploading ? (
+            <><Loader2 className="h-4 w-4 animate-spin text-brand-600" /><span className="font-semibold text-brand-600">{imgPct}%</span></>
+          ) : (
+            <><ImagePlus className="h-4 w-4" /> Image</>
+          )}
+          <input ref={imgRef} type="file" accept="image/*" className="hidden" onChange={pickImage} disabled={busy} />
+        </label>
+        {/* Audio picker */}
+        <label className={`relative flex h-20 w-28 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-slate-300 text-center text-[10px] leading-tight text-slate-500 hover:border-brand-400 dark:border-slate-600 ${busy ? "pointer-events-none opacity-90" : ""}`}>
+          {audio ? (
+            <><Music className="h-4 w-4 text-emerald-600" /><span className="font-semibold text-emerald-600">Audio added</span></>
+          ) : audUploading ? (
+            <><Loader2 className="h-4 w-4 animate-spin text-brand-600" /><span className="font-semibold text-brand-600">{audPct}%</span></>
+          ) : (
+            <><Music className="h-4 w-4" /> Audio</>
+          )}
+          <input ref={audRef} type="file" accept="audio/*" className="hidden" onChange={pickAudio} disabled={busy} />
+        </label>
+        <button type="button" onClick={build} disabled={busy || !image || !audio}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50">
+          {building ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Building…</> : <><Film className="h-3.5 w-3.5" /> Create Reel</>}
+        </button>
+      </div>
+      <p className="mt-1.5 text-xs text-slate-400">The image fills a 9:16 frame for the length of the audio. Building can take up to a minute.</p>
+      {err && <p className="mt-1 text-xs text-rose-600">{err}</p>}
+    </div>
+  );
+}
+
 // Reel video for a custom post. An admin can either UPLOAD a video file (direct
-// browser → Cloudinary, with progress) or paste a public MP4 URL. Both resolve
-// to a single `value` (the public URL) stored on the schedule as `customVideo`.
+// browser → Cloudinary, with progress), paste a public MP4 URL, or build one
+// from an image + audio track. All resolve to a single `value` (the public
+// URL) stored on the schedule as `customVideo`.
 function CustomVideoUploader({ value, onChange }) {
   const fileRef = useRef(null);
   const [uploading, setUploading] = useState(false);
@@ -666,6 +763,7 @@ function CustomVideoUploader({ value, onChange }) {
           <input className="input mt-2" type="url" inputMode="url" value={value}
             onChange={(e) => onChange(e.target.value)}
             placeholder="https://…/reel.mp4" disabled={uploading} />
+          <ImageAudioReelBuilder onCreated={onChange} />
         </>
       )}
       {err && <p className="mt-1 text-xs text-rose-600">{err}</p>}
@@ -1181,8 +1279,8 @@ export default function AdminFacebook() {
                 <label className="mb-1 mt-4 flex items-center gap-1.5 text-sm font-semibold"><Film className="h-4 w-4 text-slate-400" /> Reel video <span className="font-normal text-slate-400">(optional)</span></label>
                 <CustomVideoUploader value={form.customVideo} onChange={(customVideo) => setForm((f) => ({ ...f, customVideo }))} />
                 <p className="mt-1 text-xs text-slate-400">
-                  Upload a <b>vertical MP4</b> (or paste a public link). When set, this custom post is
-                  published as a <b>Reel</b> to the selected networks instead of a photo. Best as 9:16, up to ~90s.
+                  Upload a <b>vertical MP4</b>, paste a public link, or <b>build a Reel from an image + audio</b>. When set,
+                  this custom post is published as a <b>Reel</b> to the selected networks instead of a photo. Best as 9:16, up to ~90s.
                 </p>
 
                 <label className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">

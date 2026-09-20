@@ -43,6 +43,10 @@ const ALLOWED_MIME = new Set([
   // direct browser → Cloudinary path is preferred for large videos; this is the
   // server-relay fallback, so keep it to the widely-supported container types.
   "video/mp4", "video/quicktime", "video/webm",
+  // Audio — used to build a Reel from an image + audio track (Cloudinary mixes
+  // them into an MP4). Common container/codec MIME types browsers report.
+  "audio/mpeg", "audio/mp3", "audio/mp4", "audio/aac", "audio/x-m4a",
+  "audio/wav", "audio/x-wav", "audio/ogg", "audio/webm",
 ]);
 // Magic-number sniffing for the common binary types, so the real bytes must
 // match the declared MIME (a .png that's actually HTML/JS is rejected).
