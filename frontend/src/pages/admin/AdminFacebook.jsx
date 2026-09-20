@@ -5,7 +5,7 @@ import { useEffect, useState, useRef } from "react";
 import {
   Send, Loader2, CheckCircle2, AlertTriangle, KeyRound, Plus, Trash2, Pencil, X,
   Clock, CalendarClock, ListChecks, Power, Save, Upload, UserCircle, Type, Search, Mail,
-  ImagePlus, FileText, Wand2, RefreshCw,
+  ImagePlus, FileText, Wand2, RefreshCw, Film,
 } from "lucide-react";
 import { Facebook, Instagram } from "../../components/ui/SocialIcons";
 import { settingsService, facebookService, contentService, practiceService, uploadService } from "../../services";
@@ -687,7 +687,7 @@ const emptyForm = {
   kind: "question",
   mode: "recurring", runAt: "", // one-off (mode "once") uses runAt; recurring uses times/days
   title: "", source: { subject: null, session: null, quiz: null, label: "" },
-  customText: "", customMedia: [],
+  customText: "", customMedia: [], customVideo: "",
   times: ["09:00"], days: [], timezone: "Asia/Kolkata",
   includeOptions: true, includeAnswer: false, includeLink: false, hashtags: "", order: "random",
   stopWhenExhausted: true,
@@ -805,7 +805,7 @@ export default function AdminFacebook() {
     mode: s.mode === "once" ? "once" : "recurring",
     runAt: s.runAt ? toLocalInput(s.runAt) : "",
     title: s.title || "", source: s.source || emptyForm.source,
-    customText: s.customText || "", customMedia: Array.isArray(s.customMedia) ? s.customMedia : [],
+    customText: s.customText || "", customMedia: Array.isArray(s.customMedia) ? s.customMedia : [], customVideo: s.customVideo || "",
     times: s.times?.length ? s.times : ["09:00"], days: s.days || [], timezone: s.timezone || "Asia/Kolkata",
     includeOptions: s.includeOptions !== false, includeAnswer: !!s.includeAnswer, includeLink: !!s.includeLink,
     hashtags: s.hashtags || "", order: s.order || "random",
@@ -821,11 +821,16 @@ export default function AdminFacebook() {
   const saveForm = async () => {
     const isCustom = form.kind === "custom";
     if (isCustom) {
-      if (!String(form.customText || "").trim() && !(form.customMedia || []).length) {
-        setError("Write some text or add an image for the custom post."); return;
+      const hasVideo = !!String(form.customVideo || "").trim();
+      if (!String(form.customText || "").trim() && !(form.customMedia || []).length && !hasVideo) {
+        setError("Write some text, add an image, or paste a video URL (Reel) for the custom post."); return;
       }
-      if (form.toInstagram && !(form.customMedia || []).length) {
-        setError("Instagram needs an image — add one, or turn off Instagram."); return;
+      if (hasVideo && !/^https?:\/\//i.test(String(form.customVideo).trim())) {
+        setError("The video URL must start with http:// or https://."); return;
+      }
+      // Instagram needs media (an image OR a video for a Reel).
+      if (form.toInstagram && !(form.customMedia || []).length && !hasVideo) {
+        setError("Instagram needs an image or a video — add one, or turn off Instagram."); return;
       }
     } else if (!form.source.subject && !form.source.session && !form.source.quiz && !form.source.testSeries) {
       setError("Pick a source (subject, session or quiz)."); return;
@@ -1099,6 +1104,15 @@ export default function AdminFacebook() {
                   maxLength={5000} placeholder="Write your post caption here…" />
                 <p className="mb-1 mt-4 flex items-center gap-1.5 text-sm font-semibold"><ImagePlus className="h-4 w-4 text-slate-400" /> Media (images)</p>
                 <CustomMediaUploader media={form.customMedia} onChange={(customMedia) => setForm((f) => ({ ...f, customMedia }))} />
+
+                <label className="mb-1 mt-4 flex items-center gap-1.5 text-sm font-semibold"><Film className="h-4 w-4 text-slate-400" /> Reel video URL <span className="font-normal text-slate-400">(optional)</span></label>
+                <input className="input" type="url" inputMode="url" value={form.customVideo}
+                  onChange={(e) => setForm((f) => ({ ...f, customVideo: e.target.value }))}
+                  placeholder="https://…/reel.mp4" />
+                <p className="mt-1 text-xs text-slate-400">
+                  Paste a <b>public link to a vertical MP4</b> (e.g. from Cloudinary/S3). When set, this custom post is
+                  published as a <b>Reel</b> to the selected networks instead of a photo. Best as 9:16, up to ~90s.
+                </p>
 
                 <label className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
                   <span className="text-sm font-medium">Post one time only <span className="font-normal text-slate-400">(don't repeat — publishes once at the time you set)</span></span>

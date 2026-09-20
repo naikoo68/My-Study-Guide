@@ -264,6 +264,122 @@ export async function postToInstagram({ imageUrl, caption } = {}, cfgOverride) {
   }
 }
 
+// Post a REEL (short vertical video) to Instagram from a PUBLIC video URL
+// (create container with media_type=REELS → wait for processing → publish).
+// Video is processed asynchronously by Instagram, so we poll longer than an
+// image. Returns { ok, id?, error? }. Never throws.
+export async function postReelToInstagram({ videoUrl, caption } = {}, cfgOverride) {
+  const cfg = cfgOverride || (await getFacebookConfig());
+  if (!isFacebookConfigured(cfg)) return { ok: false, error: "Facebook/Instagram is not connected." };
+  const vid = String(videoUrl || "").trim();
+  if (!vid) return { ok: false, error: "Instagram needs a video to post a Reel." };
+  const igId = await getInstagramUserId(cfg);
+  if (!igId) return { ok: false, error: "No Instagram Business account is linked to this Facebook Page." };
+  const pageToken = await resolvePageToken(cfg); // IG publishing uses the Page token
+
+  const headers = { "Content-Type": "application/x-www-form-urlencoded" };
+  try {
+    // 1) Create a REELS media container pointing at the hosted video.
+    const c = new URLSearchParams();
+    c.set("media_type", "REELS");
+    c.set("video_url", vid);
+    if (caption) c.set("caption", String(caption).slice(0, 2100));
+    c.set("access_token", pageToken);
+    const cRes = await fbFetch(`https://graph.facebook.com/${cfg.version}/${igId}/media`, { method: "POST", headers, body: c });
+    const cData = await cRes.json().catch(() => ({}));
+    if (!cRes.ok || !cData.id) return { ok: false, error: cData?.error?.message || `Instagram Reel container error (${cRes.status}).` };
+
+    // 2) Wait for Instagram to finish DOWNLOADING + TRANSCODING the video before
+    // publishing. Video takes far longer than an image, so poll longer (~3 min).
+    const ready = await waitForIgContainerReady(cfg, cData.id, pageToken, { tries: 40, delayMs: 5000 });
+    if (!ready.ok) return { ok: false, error: ready.error };
+
+    // 3) Publish the container. Retry the brief "not available" propagation lag.
+    const p = new URLSearchParams();
+    p.set("creation_id", cData.id);
+    p.set("access_token", pageToken);
+    let pData = {};
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const pRes = await fbFetch(`https://graph.facebook.com/${cfg.version}/${igId}/media_publish`, { method: "POST", headers, body: p });
+      pData = await pRes.json().catch(() => ({}));
+      if (pRes.ok && pData.id) return { ok: true, id: pData.id };
+      const msg = String(pData?.error?.message || "");
+      if (!/not available|not ready/i.test(msg)) break;
+      await sleep(3000);
+    }
+    return { ok: false, error: pData?.error?.message || "Instagram Reel publish error." };
+  } catch (err) {
+    return { ok: false, error: err.message || "Could not reach Instagram." };
+  }
+}
+
+// Post a REEL (short vertical video) to a Facebook Page from a PUBLIC video URL.
+// Facebook Reels use the dedicated /video_reels resumable-upload flow, in three
+// phases:
+//   1) start  — reserve a video_id + an upload URL
+//   2) upload — tell Facebook to fetch the hosted file (file_url header)
+//   3) finish — publish the reel (video_state=PUBLISHED) with the description
+// If /video_reels fails for ANY reason, fall back to a normal /videos post from
+// the same hosted URL so a video still goes out. Returns { ok, id?, error? }.
+export async function postReelToFacebookPage({ videoUrl, description } = {}, cfgOverride) {
+  const cfg = cfgOverride || (await getFacebookConfig());
+  if (!isFacebookConfigured(cfg)) return { ok: false, error: "Facebook Page ID or access token is not set." };
+  const vid = String(videoUrl || "").trim();
+  if (!vid) return { ok: false, error: "Facebook needs a video to post a Reel." };
+  const desc = String(description || "").trim();
+  const pageToken = await resolvePageToken(cfg);
+  const base = `https://graph.facebook.com/${cfg.version}/${encodeURIComponent(cfg.pageId)}`;
+
+  const reel = await (async () => {
+    try {
+      // Phase 1 — start: get a video_id + upload_url.
+      const start = await fbGraphPost(`${base}/video_reels`, { upload_phase: "start" }, pageToken);
+      const videoId = start.data?.video_id;
+      const uploadUrl = start.data?.upload_url;
+      if (!start.ok || !videoId || !uploadUrl) {
+        return { ok: false, error: start.data?.error?.message || `Reel start failed (${start.status}).` };
+      }
+
+      // Phase 2 — upload: ask Facebook to fetch the hosted file. The rupload
+      // host takes the Page token as an OAuth header and the source as file_url.
+      const upRes = await fbFetch(uploadUrl, {
+        method: "POST",
+        headers: { Authorization: `OAuth ${pageToken}`, file_url: vid },
+      });
+      const upData = await upRes.json().catch(() => ({}));
+      if (!upRes.ok || upData?.success === false) {
+        return { ok: false, error: upData?.error?.message || `Reel upload failed (${upRes.status}).` };
+      }
+
+      // Phase 3 — finish: publish the reel.
+      const finishParams = { video_id: String(videoId), upload_phase: "finish", video_state: "PUBLISHED" };
+      if (desc) finishParams.description = desc;
+      const fin = await fbGraphPost(`${base}/video_reels`, finishParams, pageToken);
+      if (fin.ok && (fin.data?.success === true || fin.data?.id)) {
+        // Reel processes asynchronously; the video_id is its stable reference.
+        return { ok: true, id: String(fin.data?.id || videoId) };
+      }
+      return { ok: false, error: fin.data?.error?.message || `Reel finish failed (${fin.status}).` };
+    } catch (err) {
+      return { ok: false, error: err.message || "Could not reach Facebook." };
+    }
+  })();
+  if (reel.ok) return reel;
+
+  // Fallback — a normal Page video post from the hosted URL (still a video, just
+  // not classified as a Reel), so posting reliability is never reduced.
+  try {
+    const params = { file_url: vid };
+    if (desc) params.description = desc;
+    const r = await fbGraphPost(`${base}/videos`, params, pageToken);
+    const id = r.data?.id;
+    if (r.ok && id) return { ok: true, id: String(id) };
+    return decorateFbError(r.data?.error?.message || reel.error, r.status);
+  } catch (err) {
+    return { ok: false, error: reel.error || err.message || "Could not reach Facebook." };
+  }
+}
+
 // Verify the token/page WITHOUT posting — reads the Page name via the Graph API.
 export async function verifyFacebook(cfgOverride) {
   const cfg = cfgOverride || (await getFacebookConfig());
@@ -704,11 +820,15 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
   const message = [text, tags].filter(Boolean).join("\n\n").slice(0, 5000);
   const media = (Array.isArray(sch.customMedia) ? sch.customMedia : []).map((u) => String(u || "").trim()).filter(Boolean);
   const rawImageUrl = media[0] || "";
+  // A video turns this into a REEL post (posted to FB and/or IG as a Reel). When
+  // set it takes priority over the image — you post either a Reel OR a photo.
+  const videoUrl = String(sch.customVideo || "").trim();
+  const isReel = !!videoUrl;
 
-  if (!message && !rawImageUrl) {
+  if (!message && !rawImageUrl && !videoUrl) {
     sch.lastRunAt = new Date();
-    sch.lastResult = "Failed: a custom post needs text or an image.";
-    return { ok: false, error: "A custom post needs text or an image." };
+    sch.lastResult = "Failed: a custom post needs text, an image or a video.";
+    return { ok: false, error: "A custom post needs text, an image or a video." };
   }
 
   const notes = [];
@@ -720,7 +840,9 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
   if (wantFb) {
     // Pad an ultra-wide image to Facebook's limit so it isn't side-cropped.
     const fbImageUrl = rawImageUrl ? toFacebookSafeUrl(rawImageUrl) : undefined;
-    const r = await postToFacebookPage({ message, imageUrl: fbImageUrl }, cfg);
+    const r = isReel
+      ? await postReelToFacebookPage({ videoUrl, description: message }, cfg)
+      : await postToFacebookPage({ message, imageUrl: fbImageUrl }, cfg);
     fbAttempts.push({ ok: r.ok, id: r.id, pageId: cfg.pageId, pageLabel: "" });
     if (r.ok) { fbOk = true; notes.push("Facebook ✓"); } else notes.push(`Facebook ✗ (${r.error})`);
 
@@ -728,15 +850,21 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
       const pageId = String(t?.pageId || "").trim();
       const token = String(t?.token || "").trim();
       if (!pageId || !token) continue;
-      const rr = await postToFacebookPage({ message, imageUrl: fbImageUrl }, { ...cfg, pageId, token });
+      const rr = isReel
+        ? await postReelToFacebookPage({ videoUrl, description: message }, { ...cfg, pageId, token })
+        : await postToFacebookPage({ message, imageUrl: fbImageUrl }, { ...cfg, pageId, token });
       const name = t.label || pageId;
       fbAttempts.push({ ok: rr.ok, id: rr.id, pageId, pageLabel: name });
       if (rr.ok) { fbOk = true; notes.push(`${name} ✓`); } else notes.push(`${name} ✗ (${rr.error})`);
     }
   }
   if (wantIg) {
-    if (!rawImageUrl) notes.push("Instagram ✗ (a custom Instagram post needs an image)");
-    else {
+    if (isReel) {
+      const r = await postReelToInstagram({ videoUrl, caption: message }, cfg);
+      if (r.ok) { igOk = true; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
+    } else if (!rawImageUrl) {
+      notes.push("Instagram ✗ (a custom Instagram post needs an image or a video)");
+    } else {
       const igImageUrl = toInstagramSafeUrl(rawImageUrl);
       const r = await postToInstagram({ imageUrl: igImageUrl, caption: message }, cfg);
       if (r.ok) { igOk = true; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
@@ -749,7 +877,7 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
   // Permanent Facebook ledger (survives schedule deletion) — one row per Page publish.
   const fbPublications = collectFacebookPublications(fbAttempts);
   if (fbPublications.length) {
-    await recordFbPublications(fbPublications, { schedule: sch, scheduleTitle: schTitle, kind: "custom", sourceLabel: sch.source?.label });
+    await recordFbPublications(fbPublications, { schedule: sch, scheduleTitle: schTitle, kind: isReel ? "reel" : "custom", sourceLabel: sch.source?.label });
   }
   if (anyOk) {
     sch.postCount = (sch.postCount || 0) + 1;

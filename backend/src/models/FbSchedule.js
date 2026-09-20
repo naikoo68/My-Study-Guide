@@ -17,6 +17,10 @@ const fbScheduleSchema = new mongoose.Schema(
     // Custom-post content (used only when kind === "custom").
     customText: { type: String, default: "" }, // the post text / caption
     customMedia: { type: [String], default: [] }, // hosted image URLs; the first image is attached
+    // A public video URL. When set, the custom post is published as a REEL
+    // (short vertical video) to the selected networks instead of a photo. Takes
+    // priority over customMedia (post either a Reel OR a photo).
+    customVideo: { type: String, default: "" },
 
     // Where questions are drawn from. The DEEPEST set id wins (quiz > session >
     // subject > testSeries). `label` is a human-readable trail for the UI.

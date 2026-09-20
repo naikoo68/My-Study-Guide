@@ -10,6 +10,7 @@ import TestSeries from "../models/TestSeries.js";
 import PracticeStream from "../models/PracticeStream.js";
 import PracticeSubject from "../models/PracticeSubject.js";
 import PracticeTopic from "../models/PracticeTopic.js";
+import { isSafePublicUrl } from "../utils/urlGuard.js";
 
 // GET /api/facebook/suggest-tags/:id — hashtags for one question (global default
 // + auto tags from its subject/topic/section). Used to pre-fill the post modal.
@@ -50,6 +51,9 @@ export function pickScheduleFields(body = {}) {
   const customMedia = Array.isArray(body.customMedia)
     ? body.customMedia.map((u) => String(u || "").trim()).filter((u) => /^https?:\/\//i.test(u)).slice(0, 10)
     : [];
+  // Custom video (for a Reel post): a single public http(s) URL, else dropped.
+  const rawVideo = String(body.customVideo || "").trim();
+  const customVideo = /^https?:\/\//i.test(rawVideo) && isSafePublicUrl(rawVideo) ? rawVideo : "";
   return {
     title: String(body.title || "").trim(),
     enabled: body.enabled !== false,
@@ -63,6 +67,7 @@ export function pickScheduleFields(body = {}) {
     },
     customText: String(body.customText || "").trim().slice(0, 5000),
     customMedia,
+    customVideo,
     mode,
     // One-off run time (only meaningful when mode === "once").
     runAt: mode === "once" && body.runAt && !isNaN(new Date(body.runAt).getTime()) ? new Date(body.runAt) : null,
@@ -87,8 +92,8 @@ export function pickScheduleFields(body = {}) {
 // Exported for unit tests (pure, no I/O).
 export function validateScheduleData(data) {
   if (data.kind === "custom") {
-    if (!data.customText && !data.customMedia.length) {
-      return "Add some text or upload media for the custom post.";
+    if (!data.customText && !data.customMedia.length && !data.customVideo) {
+      return "Add some text, upload an image, or add a video (Reel) for the custom post.";
     }
   } else if (!data.source.subject && !data.source.session && !data.source.quiz && !data.source.testSeries) {
     return "Pick a source (a subject, session, quiz or test) to draw questions from.";
