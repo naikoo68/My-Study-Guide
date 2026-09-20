@@ -21,6 +21,11 @@ const fbScheduleSchema = new mongoose.Schema(
     // (short vertical video) to the selected networks instead of a photo. Takes
     // priority over customMedia (post either a Reel OR a photo).
     customVideo: { type: String, default: "" },
+    // When true (and no customVideo is set), the custom post's images are turned
+    // into a slideshow Reel — each image shown for `reelSecondsPerImage` seconds
+    // (0 = use the site default) with the uploaded music track underneath.
+    postAsReel: { type: Boolean, default: false },
+    reelSecondsPerImage: { type: Number, default: 0 }, // 0 = use Settings.fbReelSecondsPerImage
 
     // Where questions are drawn from. The DEEPEST set id wins (quiz > session >
     // subject > testSeries). `label` is a human-readable trail for the UI.

@@ -68,6 +68,8 @@ export function pickScheduleFields(body = {}) {
     customText: String(body.customText || "").trim().slice(0, 5000),
     customMedia,
     customVideo,
+    postAsReel: !!body.postAsReel,
+    reelSecondsPerImage: Math.max(0, Math.min(60, parseInt(body.reelSecondsPerImage, 10) || 0)),
     mode,
     // One-off run time (only meaningful when mode === "once").
     runAt: mode === "once" && body.runAt && !isNaN(new Date(body.runAt).getTime()) ? new Date(body.runAt) : null,

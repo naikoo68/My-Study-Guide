@@ -39,6 +39,9 @@ const ALLOWED_MIME = new Set([
   "application/vnd.ms-excel",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   "text/csv", "text/plain",
+  // Audio — for the Reel background-music track (uploaded once in settings).
+  "audio/mpeg", "audio/mp3", "audio/mp4", "audio/aac", "audio/x-m4a", "audio/m4a",
+  "audio/wav", "audio/x-wav", "audio/ogg", "audio/webm",
 ]);
 // Magic-number sniffing for the common binary types, so the real bytes must
 // match the declared MIME (a .png that's actually HTML/JS is rejected).

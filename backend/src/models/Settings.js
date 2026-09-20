@@ -242,6 +242,15 @@ const settingsSchema = new mongoose.Schema(
     // onto this uploaded image instead of the built-in design. Cloudinary URL.
     fbFlashcardTemplateUrl: { type: String, default: "" },
     fbFlashcardTemplateEnabled: { type: Boolean, default: true },
+    // Reel background MUSIC — uploaded ONCE (like the flashcard template) and
+    // reused for every image-slideshow Reel. Must be a track the admin has the
+    // rights to (royalty-free / their own) — FB/Instagram's licensed catalogue
+    // cannot be added via the API. Cloudinary URL (audio stored as a "video").
+    fbReelMusicUrl: { type: String, default: "" },
+    fbReelMusicEnabled: { type: Boolean, default: true },
+    // Default seconds each image is shown in a slideshow Reel (a per-schedule
+    // value can override it). 1–60s; 10s is a sensible default.
+    fbReelSecondsPerImage: { type: Number, default: 10 },
     // Center TEXT watermark drawn diagonally across the middle of every
     // Facebook/Instagram question-card image (in addition to the selfie/logo
     // above). Text is optional — when blank it falls back to the site watermark

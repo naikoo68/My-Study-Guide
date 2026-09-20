@@ -6,6 +6,7 @@ import User from "../models/User.js";
 import { sendMail } from "./mailer.js";
 import { toInstagramSafeUrl } from "../utils/instagramImage.js";
 import { toFacebookSafeUrl } from "../utils/facebookImage.js";
+import { renderSlideshowReel } from "./reelVideo.js";
 
 // Facebook Page auto-posting via the Graph API. The Page ID + long-lived Page
 // access token are stored in the singleton Settings document (entered by the
@@ -820,16 +821,37 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
   const message = [text, tags].filter(Boolean).join("\n\n").slice(0, 5000);
   const media = (Array.isArray(sch.customMedia) ? sch.customMedia : []).map((u) => String(u || "").trim()).filter(Boolean);
   const rawImageUrl = media[0] || "";
-  // A video turns this into a REEL post (posted to FB and/or IG as a Reel). When
-  // set it takes priority over the image — you post either a Reel OR a photo.
-  const videoUrl = String(sch.customVideo || "").trim();
-  const isReel = !!videoUrl;
+  // A video turns this into a REEL post (posted to FB and/or IG as a Reel). It
+  // can come from a direct video URL (customVideo), OR be BUILT from the images
+  // + the uploaded music track (postAsReel slideshow). A video takes priority
+  // over a photo — you post either a Reel OR a photo.
+  let videoUrl = String(sch.customVideo || "").trim();
 
   if (!message && !rawImageUrl && !videoUrl) {
     sch.lastRunAt = new Date();
     sch.lastResult = "Failed: a custom post needs text, an image or a video.";
     return { ok: false, error: "A custom post needs text, an image or a video." };
   }
+
+  // Build a slideshow Reel (images + uploaded music → MP4) when asked and no
+  // explicit video URL was given. A render failure STOPS the post — we must not
+  // silently fall back to a photo when the admin asked for a Reel.
+  if (!videoUrl && sch.postAsReel && media.length) {
+    const musicOn = site?.fbReelMusicEnabled !== false && !!site?.fbReelMusicUrl;
+    const secs = sch.reelSecondsPerImage > 0 ? sch.reelSecondsPerImage : (site?.fbReelSecondsPerImage || 10);
+    const built = await renderSlideshowReel({
+      imageUrls: media,
+      audioUrl: musicOn ? String(site.fbReelMusicUrl).trim() : "",
+      secondsPerImage: secs,
+    });
+    if (!built.ok) {
+      sch.lastRunAt = new Date();
+      sch.lastResult = `Failed: could not build the Reel video (${built.error}).`;
+      return { ok: false, error: built.error };
+    }
+    videoUrl = built.url;
+  }
+  const isReel = !!videoUrl;
 
   const notes = [];
   // Track each network INDEPENDENTLY (Instagram success must not mark Facebook posted).

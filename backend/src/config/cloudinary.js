@@ -27,4 +27,12 @@ export async function uploadImage(fileStr, { folder = "mystudyguide/social", for
   return { url: result.secure_url, format: result.format, bytes: result.bytes };
 }
 
+// Upload a VIDEO (or audio) file — from a local path, data URI or remote URL.
+// resource_type "video" is Cloudinary's type for both video AND audio. Returns
+// the public secure URL, used for Reel MP4s and the uploaded music track.
+export async function uploadVideo(fileStr, { folder = "mystudyguide/reels" } = {}) {
+  const result = await cloudinary.uploader.upload(fileStr, { folder, resource_type: "video" });
+  return { url: result.secure_url, format: result.format, bytes: result.bytes, duration: result.duration };
+}
+
 export default cloudinary;

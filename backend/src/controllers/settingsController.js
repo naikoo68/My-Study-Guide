@@ -215,6 +215,7 @@ export async function updateSettings(req, res) {
     "fbSelfieWatermarkUrl", "fbSelfieWatermarkEnabled", "fbSelfieWatermarkPosition", "fbSelfieWatermarkSize", "fbSelfieWatermarkOpacity", "fbSelfieWatermarkShape",
     "fbTextWatermarkEnabled", "fbTextWatermarkText", "fbTextWatermarkSize", "fbTextWatermarkOpacity",
     "fbFlashcardTemplateUrl", "fbFlashcardTemplateEnabled",
+    "fbReelMusicUrl", "fbReelMusicEnabled", "fbReelSecondsPerImage",
     "fbNotifyEmail", "fbNotifyOnPost", "fbNotifyOnError", "fbNotifyOnComplete",
     "igEnabled", "igUserId",
     "googleClientId",
@@ -262,6 +263,11 @@ export async function updateSettings(req, res) {
   if ("fbSelfieWatermarkUrl" in update) update.fbSelfieWatermarkUrl = String(update.fbSelfieWatermarkUrl || "").trim();
   if ("fbFlashcardTemplateUrl" in update) update.fbFlashcardTemplateUrl = String(update.fbFlashcardTemplateUrl || "").trim();
   if ("fbFlashcardTemplateEnabled" in update) update.fbFlashcardTemplateEnabled = !!update.fbFlashcardTemplateEnabled;
+  if ("fbReelMusicUrl" in update) update.fbReelMusicUrl = String(update.fbReelMusicUrl || "").trim();
+  if ("fbReelMusicEnabled" in update) update.fbReelMusicEnabled = !!update.fbReelMusicEnabled;
+  if ("fbReelSecondsPerImage" in update) {
+    update.fbReelSecondsPerImage = Math.max(1, Math.min(60, parseInt(update.fbReelSecondsPerImage, 10) || 10));
+  }
   if ("fbSelfieWatermarkPosition" in update) {
     const pos = String(update.fbSelfieWatermarkPosition || "").trim();
     update.fbSelfieWatermarkPosition = ["bottom-right", "bottom-left", "top-right", "top-left"].includes(pos) ? pos : "bottom-right";

@@ -5,7 +5,7 @@ import { useEffect, useState, useRef } from "react";
 import {
   Send, Loader2, CheckCircle2, AlertTriangle, KeyRound, Plus, Trash2, Pencil, X,
   Clock, CalendarClock, ListChecks, Power, Save, Upload, UserCircle, Type, Search, Mail,
-  ImagePlus, FileText, Wand2, RefreshCw, Film,
+  ImagePlus, FileText, Wand2, RefreshCw, Film, Music,
 } from "lucide-react";
 import { Facebook, Instagram } from "../../components/ui/SocialIcons";
 import { settingsService, facebookService, contentService, practiceService, uploadService } from "../../services";
@@ -683,11 +683,100 @@ function FlashcardTemplateSection({ settings, saveSettings }) {
   );
 }
 
+// Upload the background MUSIC used for image-slideshow Reels, ONCE — reused for
+// every Reel (like the flashcard template). Also sets the default seconds each
+// image is shown. The track must be one the admin has rights to (royalty-free /
+// their own): FB/Instagram's licensed catalogue can't be added via the API.
+function ReelMusicSection({ settings, saveSettings }) {
+  const fileRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const [url, setUrl] = useState(settings?.fbReelMusicUrl || "");
+  const [enabled, setEnabled] = useState(settings?.fbReelMusicEnabled !== false);
+  const [secs, setSecs] = useState(settings?.fbReelSecondsPerImage || 10);
+
+  useEffect(() => {
+    setUrl(settings?.fbReelMusicUrl || "");
+    setEnabled(settings?.fbReelMusicEnabled !== false);
+    setSecs(settings?.fbReelSecondsPerImage || 10);
+  }, [settings?.fbReelMusicUrl, settings?.fbReelMusicEnabled, settings?.fbReelSecondsPerImage]);
+
+  const upload = async (e) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    if (!file.type.startsWith("audio/")) { setMsg({ ok: false, text: "Please select an audio file (MP3, M4A, WAV…)." }); return; }
+    if (file.size > 25 * 1024 * 1024) { setMsg({ ok: false, text: "Please keep the track under 25MB." }); return; }
+    setUploading(true); setMsg(null);
+    try {
+      // Server relay upload (resource_type auto) — accepts audio and returns a
+      // public Cloudinary URL the Reel renderer can fetch.
+      const r = await uploadService.file(file);
+      const u = r?.url || "";
+      setUrl(u);
+      await saveSettings({ fbReelMusicUrl: u, fbReelMusicEnabled: true });
+      setEnabled(true);
+      setMsg({ ok: true, text: "Music uploaded & saved." });
+    } catch (err) { setMsg({ ok: false, text: err.message || "Upload failed." }); }
+    finally { setUploading(false); if (fileRef.current) fileRef.current.value = ""; }
+  };
+  const remove = async () => {
+    if (!window.confirm("Remove the Reel music? Slideshow Reels will be posted without sound.")) return;
+    setUrl(""); try { await saveSettings({ fbReelMusicUrl: "" }); setMsg({ ok: true, text: "Music removed." }); } catch (err) { setMsg({ ok: false, text: err.message || "Failed." }); }
+  };
+  const toggle = async () => { const next = !enabled; setEnabled(next); try { await saveSettings({ fbReelMusicEnabled: next }); } catch { /* ignore */ } };
+  const saveSecs = async (v) => {
+    const n = Math.max(1, Math.min(60, parseInt(v, 10) || 10));
+    setSecs(n); try { await saveSettings({ fbReelSecondsPerImage: n }); } catch { /* ignore */ }
+  };
+
+  return (
+    <div className="card p-5">
+      <h2 className="flex items-center gap-2 font-bold"><Music className="h-5 w-5 text-[#1877F2]" /> Reel music</h2>
+      <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
+        Upload a <b>background music</b> track <b>once</b> — it's reused for every image-slideshow Reel. Use a track you have
+        the rights to (royalty-free or your own). <b>Facebook/Instagram's built-in song library can't be added automatically</b>
+        {" "}(that's app-only, for licensing reasons).
+      </p>
+      <div className="mt-4 flex flex-wrap items-start gap-6">
+        <div className="flex flex-col items-start gap-2">
+          {url ? (
+            <div className="flex items-center gap-2">
+              {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+              <audio src={url} controls className="h-10 w-56" />
+              <button type="button" onClick={remove} title="Remove" className="rounded-full bg-rose-100 p-1.5 text-rose-600 shadow hover:bg-rose-200 dark:bg-rose-900/40"><Trash2 className="h-4 w-4" /></button>
+            </div>
+          ) : (
+            <div className="flex h-10 w-56 items-center justify-center rounded-lg border-2 border-dashed border-slate-300 text-slate-300 dark:border-slate-600"><Music className="h-5 w-5" /></div>
+          )}
+          <label className={`btn-outline cursor-pointer text-sm ${uploading ? "pointer-events-none opacity-60" : ""}`}>
+            {uploading ? <><Loader2 className="h-4 w-4 animate-spin" /> Uploading…</> : <><Upload className="h-4 w-4" /> Upload music</>}
+            <input ref={fileRef} type="file" accept="audio/*" className="hidden" onChange={upload} disabled={uploading} />
+          </label>
+        </div>
+        <div className="flex-1 space-y-3">
+          <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
+            <span className="text-sm font-medium">Add my music to slideshow Reels</span>
+            <button type="button" onClick={toggle} className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${enabled ? "bg-[#1877F2]" : "bg-slate-300 dark:bg-slate-600"}`}>
+              <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${enabled ? "left-6" : "left-1"}`} />
+            </button>
+          </label>
+          <div>
+            <label className="mb-1 block text-sm font-medium">Default seconds per image</label>
+            <input type="number" min={1} max={60} className="input w-28" value={secs}
+              onChange={(e) => setSecs(e.target.value)} onBlur={(e) => saveSecs(e.target.value)} />
+            <p className="mt-1 text-xs text-slate-400">Used when a Reel schedule doesn't set its own. Default 10s.</p>
+          </div>
+        </div>
+      </div>
+      {msg && <p className={`mt-3 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.text}</p>}
+    </div>
+  );
+}
+
 const emptyForm = {
   kind: "question",
   mode: "recurring", runAt: "", // one-off (mode "once") uses runAt; recurring uses times/days
   title: "", source: { subject: null, session: null, quiz: null, label: "" },
-  customText: "", customMedia: [], customVideo: "",
+  customText: "", customMedia: [], customVideo: "", postAsReel: false, reelSecondsPerImage: 10,
   times: ["09:00"], days: [], timezone: "Asia/Kolkata",
   includeOptions: true, includeAnswer: false, includeLink: false, hashtags: "", order: "random",
   stopWhenExhausted: true,
@@ -806,6 +895,7 @@ export default function AdminFacebook() {
     runAt: s.runAt ? toLocalInput(s.runAt) : "",
     title: s.title || "", source: s.source || emptyForm.source,
     customText: s.customText || "", customMedia: Array.isArray(s.customMedia) ? s.customMedia : [], customVideo: s.customVideo || "",
+    postAsReel: !!s.postAsReel, reelSecondsPerImage: s.reelSecondsPerImage > 0 ? s.reelSecondsPerImage : 10,
     times: s.times?.length ? s.times : ["09:00"], days: s.days || [], timezone: s.timezone || "Asia/Kolkata",
     includeOptions: s.includeOptions !== false, includeAnswer: !!s.includeAnswer, includeLink: !!s.includeLink,
     hashtags: s.hashtags || "", order: s.order || "random",
@@ -995,6 +1085,9 @@ export default function AdminFacebook() {
       {/* Flashcard template image (for the Flashcard post type) */}
       <FlashcardTemplateSection settings={settings} saveSettings={saveSettings} />
 
+      {/* Reel background music (for image-slideshow Reels) */}
+      <ReelMusicSection settings={settings} saveSettings={saveSettings} />
+
       {/* Email notifications */}
       <FbNotifySection settings={settings} saveSettings={saveSettings} />
 
@@ -1113,6 +1206,30 @@ export default function AdminFacebook() {
                   Paste a <b>public link to a vertical MP4</b> (e.g. from Cloudinary/S3). When set, this custom post is
                   published as a <b>Reel</b> to the selected networks instead of a photo. Best as 9:16, up to ~90s.
                 </p>
+
+                <div className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                  <label className="flex items-center justify-between gap-3">
+                    <span className="flex items-center gap-1.5 text-sm font-medium">
+                      <Film className="h-4 w-4 text-slate-400" /> Make a Reel from the images (slideshow)
+                    </span>
+                    <button type="button"
+                      onClick={() => setForm((f) => ({ ...f, postAsReel: !f.postAsReel }))}
+                      className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${form.postAsReel ? "bg-[#1877F2]" : "bg-slate-300 dark:bg-slate-600"}`}>
+                      <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${form.postAsReel ? "left-6" : "left-1"}`} />
+                    </button>
+                  </label>
+                  {form.postAsReel && (
+                    <div className="mt-3">
+                      <label className="mb-1 block text-sm font-medium">Seconds per image</label>
+                      <input type="number" min={1} max={60} className="input w-28" value={form.reelSecondsPerImage}
+                        onChange={(e) => setForm((f) => ({ ...f, reelSecondsPerImage: Math.max(1, Math.min(60, parseInt(e.target.value, 10) || 1)) }))} />
+                      <p className="mt-1 text-xs text-slate-400">
+                        The images above are turned into a <b>video Reel</b> — each shown for this long, with your uploaded
+                        <b> Reel music</b> underneath. E.g. 3 images × 10s = a 30-second Reel. (A pasted MP4 URL above wins over this.)
+                      </p>
+                    </div>
+                  )}
+                </div>
 
                 <label className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
                   <span className="text-sm font-medium">Post one time only <span className="font-normal text-slate-400">(don't repeat — publishes once at the time you set)</span></span>
