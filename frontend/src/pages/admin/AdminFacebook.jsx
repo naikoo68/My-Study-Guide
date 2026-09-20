@@ -600,6 +600,79 @@ function CustomMediaUploader({ media, onChange }) {
   );
 }
 
+// Reel video for a custom post. An admin can either UPLOAD a video file (direct
+// browser → Cloudinary, with progress) or paste a public MP4 URL. Both resolve
+// to a single `value` (the public URL) stored on the schedule as `customVideo`.
+function CustomVideoUploader({ value, onChange }) {
+  const fileRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [phase, setPhase] = useState(""); // "" | "uploading" | "processing"
+  const [err, setErr] = useState("");
+
+  const MAX_BYTES = 100 * 1024 * 1024; // keep in step with the backend multer limit
+
+  const pick = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setErr("");
+    if (!file.type.startsWith("video/")) { setErr("Please choose a video file (MP4, MOV or WebM)."); return; }
+    if (file.size > MAX_BYTES) { setErr("The video must be under 100MB. Trim it or lower the resolution."); return; }
+    setUploading(true); setPhase("uploading"); setProgress(0);
+    try {
+      const r = await uploadService.videoDirect(file, (p) => {
+        setProgress(p);
+        if (p >= 100) setPhase("processing"); // Cloudinary finalising / transcoding
+      });
+      if (r?.url) onChange(r.url);
+      else setErr("Upload finished but no URL was returned. Try again.");
+    } catch (e2) {
+      setErr(e2.message || "Upload failed.");
+    } finally {
+      setUploading(false); setPhase(""); setProgress(0);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  return (
+    <div>
+      {value ? (
+        <div className="flex items-start gap-3">
+          <video src={value} controls className="h-32 w-auto max-w-[180px] rounded-lg border border-slate-200 bg-black object-contain dark:border-slate-700" />
+          <button type="button" onClick={() => onChange("")}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-rose-100 px-2.5 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-200 dark:bg-rose-900/40">
+            <Trash2 className="h-3.5 w-3.5" /> Remove video
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className={`relative flex h-24 w-40 cursor-pointer flex-col items-center justify-center gap-1 overflow-hidden rounded-lg border-2 border-dashed border-slate-300 text-center text-[11px] leading-tight text-slate-500 hover:border-brand-400 dark:border-slate-600 ${uploading ? "pointer-events-none opacity-90" : ""}`}>
+              {uploading ? (
+                <>
+                  <Loader2 className="h-5 w-5 animate-spin text-brand-600" />
+                  <span className="font-semibold text-brand-600">{phase === "processing" ? "Processing…" : `${progress}%`}</span>
+                  <span className="absolute inset-x-0 bottom-0 h-1 bg-slate-200 dark:bg-slate-700">
+                    <span className="block h-full bg-brand-600 transition-all" style={{ width: `${phase === "processing" ? 100 : progress}%` }} />
+                  </span>
+                </>
+              ) : (
+                <><Film className="h-5 w-5" /> Upload video</>
+              )}
+              <input ref={fileRef} type="file" accept="video/mp4,video/quicktime,video/webm" className="hidden" onChange={pick} disabled={uploading} />
+            </label>
+            <span className="text-xs text-slate-400">or paste a public URL:</span>
+          </div>
+          <input className="input mt-2" type="url" inputMode="url" value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="https://…/reel.mp4" disabled={uploading} />
+        </>
+      )}
+      {err && <p className="mt-1 text-xs text-rose-600">{err}</p>}
+    </div>
+  );
+}
+
 // Format a Date/ms into the value a <input type="datetime-local"> expects
 // ("YYYY-MM-DDTHH:MM", in the browser's local time).
 const pad2 = (n) => String(n).padStart(2, "0");
@@ -1105,12 +1178,10 @@ export default function AdminFacebook() {
                 <p className="mb-1 mt-4 flex items-center gap-1.5 text-sm font-semibold"><ImagePlus className="h-4 w-4 text-slate-400" /> Media (images)</p>
                 <CustomMediaUploader media={form.customMedia} onChange={(customMedia) => setForm((f) => ({ ...f, customMedia }))} />
 
-                <label className="mb-1 mt-4 flex items-center gap-1.5 text-sm font-semibold"><Film className="h-4 w-4 text-slate-400" /> Reel video URL <span className="font-normal text-slate-400">(optional)</span></label>
-                <input className="input" type="url" inputMode="url" value={form.customVideo}
-                  onChange={(e) => setForm((f) => ({ ...f, customVideo: e.target.value }))}
-                  placeholder="https://…/reel.mp4" />
+                <label className="mb-1 mt-4 flex items-center gap-1.5 text-sm font-semibold"><Film className="h-4 w-4 text-slate-400" /> Reel video <span className="font-normal text-slate-400">(optional)</span></label>
+                <CustomVideoUploader value={form.customVideo} onChange={(customVideo) => setForm((f) => ({ ...f, customVideo }))} />
                 <p className="mt-1 text-xs text-slate-400">
-                  Paste a <b>public link to a vertical MP4</b> (e.g. from Cloudinary/S3). When set, this custom post is
+                  Upload a <b>vertical MP4</b> (or paste a public link). When set, this custom post is
                   published as a <b>Reel</b> to the selected networks instead of a photo. Best as 9:16, up to ~90s.
                 </p>
 

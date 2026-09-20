@@ -39,6 +39,10 @@ const ALLOWED_MIME = new Set([
   "application/vnd.ms-excel",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   "text/csv", "text/plain",
+  // Video — used by the Reel uploader (custom Facebook/Instagram posts). The
+  // direct browser → Cloudinary path is preferred for large videos; this is the
+  // server-relay fallback, so keep it to the widely-supported container types.
+  "video/mp4", "video/quicktime", "video/webm",
 ]);
 // Magic-number sniffing for the common binary types, so the real bytes must
 // match the declared MIME (a .png that's actually HTML/JS is rejected).
@@ -52,6 +56,13 @@ function contentMatchesMime(buf, mime) {
     case "image/gif": return startsWith(0x47, 0x49, 0x46, 0x38);
     case "application/pdf": return startsWith(0x25, 0x50, 0x44, 0x46); // %PDF
     case "image/webp": return b.length >= 12 && startsWith(0x52, 0x49, 0x46, 0x46) && b.slice(8, 12).toString("ascii") === "WEBP";
+    // MP4/MOV (and other ISO-BMFF) begin with a box-size word then the "ftyp"
+    // brand marker at bytes 4–8. Both containers share this header.
+    case "video/mp4":
+    case "video/quicktime":
+      return b.length >= 12 && b.slice(4, 8).toString("ascii") === "ftyp";
+    // WebM/Matroska start with the EBML magic 0x1A45DFA3.
+    case "video/webm": return startsWith(0x1a, 0x45, 0xdf, 0xa3);
     // Office/csv/text/avif have no simple universal signature — the MIME
     // allowlist + Cloudinary processing is the control for those.
     default: return true;
@@ -60,7 +71,7 @@ function contentMatchesMime(buf, mime) {
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 25 * 1024 * 1024 }, // 25MB — allows PDFs/docs, not just images
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB — allows PDFs/docs and short Reel videos
   // Reject disallowed content types before the file is buffered.
   fileFilter: (req, file, cb) => {
     if (ALLOWED_MIME.has(file.mimetype)) return cb(null, true);

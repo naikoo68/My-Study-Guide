@@ -570,6 +570,57 @@ export const uploadService = {
       xhr.send(fd);
     });
   },
+
+  // DIRECT browser → Cloudinary signed upload (VIDEO — for Reels). Same signed
+  // flow as imageDirect but hits Cloudinary's /video/upload endpoint and allows
+  // a longer timeout since videos are larger. Falls back to the server relay
+  // (/upload, resource_type auto) if signing/CORS fails. Returns { url, ... }.
+  videoDirect: async (file, onProgress) => {
+    let sig;
+    try {
+      sig = await api.get("/upload/signature"); // { cloudName, apiKey, timestamp, folder, signature }
+    } catch {
+      return uploadWithProgress("/upload", file, { field: "file", onProgress });
+    }
+    if (!sig?.cloudName || !sig?.signature) {
+      return uploadWithProgress("/upload", file, { field: "file", onProgress });
+    }
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("api_key", sig.apiKey);
+    fd.append("timestamp", sig.timestamp);
+    fd.append("signature", sig.signature);
+    fd.append("folder", sig.folder);
+    const url = `https://api.cloudinary.com/v1_1/${sig.cloudName}/video/upload`;
+    return new Promise((resolve, reject) => {
+      const upId = beginUpload(); // feed the site-wide progress bar
+      const done = () => endUpload(upId);
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", url);
+      xhr.timeout = 600000; // 10 min — videos are large
+      if (xhr.upload) {
+        xhr.upload.onprogress = (e) => {
+          if (!e.lengthComputable) return;
+          const pct = Math.round((e.loaded / e.total) * 100);
+          updateUpload(upId, pct);
+          if (typeof onProgress === "function") onProgress(pct);
+        };
+      }
+      xhr.onload = () => {
+        done();
+        let data;
+        try { data = xhr.responseText ? JSON.parse(xhr.responseText) : null; } catch { data = null; }
+        if (xhr.status >= 200 && xhr.status < 300 && data?.secure_url) {
+          resolve({ url: data.secure_url, bytes: data.bytes, format: data.format, duration: data.duration });
+        } else {
+          reject(new Error(data?.error?.message || `Cloudinary upload failed (${xhr.status}).`));
+        }
+      };
+      xhr.onerror = () => { done(); reject(new Error("Could not reach Cloudinary.")); };
+      xhr.ontimeout = () => { done(); reject(new Error("Upload timed out — try a smaller video or check your connection.")); };
+      xhr.send(fd);
+    });
+  },
 };
 
 // ---- User Manual (public read, admin write) ----
