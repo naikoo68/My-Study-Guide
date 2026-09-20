@@ -36,8 +36,8 @@ describe("composeImageAudioToVideo", () => {
     const r = await composeImageAudioToVideo({ imageUrl: "https://cdn/x.png", audioUrl: "https://cdn/a.mp3" });
 
     expect(r.url).toBe("https://res.cloudinary.com/x/video/upload/reel.mp4");
-    // Default Reel length is 15s (the 42s track is trimmed down to it).
-    expect(r.duration).toBe(15);
+    // Default Reel length is 30s (the 42s track is trimmed down to it).
+    expect(r.duration).toBe(30);
 
     // Audio uploaded as a VIDEO asset (that's how Cloudinary stores audio); image as an IMAGE.
     expect(upload).toHaveBeenCalledWith("https://cdn/a.mp3", expect.objectContaining({ resource_type: "video" }));
@@ -52,8 +52,8 @@ describe("composeImageAudioToVideo", () => {
     const eager = opts.eager[0];
     expect(eager.format).toBe("mp4");
     const tx = eager.transformation;
-    // 1) a black 9:16 canvas on the audio base (fixes broken video), trimmed to 15s
-    expect(tx[0]).toMatchObject({ width: 1080, height: 1920, crop: "pad", background: "black", start_offset: 0, duration: 15 });
+    // 1) a black 9:16 canvas on the audio base (fixes broken video), trimmed to 30s
+    expect(tx[0]).toMatchObject({ width: 1080, height: 1920, crop: "pad", background: "black", start_offset: 0, duration: 30 });
     // 2) the image is laid on top (fit, folder '/' → ':') then applied as a layer
     expect(tx[1]).toMatchObject({ overlay: "mystudyguide:social:img456", width: 1080, height: 1920, crop: "fit" });
     expect(tx[2].flags).toBe("layer_apply");

@@ -972,7 +972,7 @@ const emptyForm = {
   includeOptions: true, includeAnswer: false, includeLink: false, hashtags: "", order: "random",
   stopWhenExhausted: true,
   toFacebook: true, toInstagram: false, asImage: false,
-  asReel: false, customAudios: [], reelDuration: 15, // Reel mode for question/flashcard: rotate through these music tracks, trimmed to reelDuration seconds
+  asReel: false, customAudios: [], reelDuration: 30, // Reel mode for question/flashcard: rotate through these music tracks, trimmed to reelDuration seconds
 };
 
 export default function AdminFacebook() {
@@ -1093,7 +1093,7 @@ export default function AdminFacebook() {
     stopWhenExhausted: s.stopWhenExhausted !== false,
     toFacebook: s.toFacebook !== false, toInstagram: !!s.toInstagram, asImage: !!s.asImage,
     asReel: !!s.asReel,
-    reelDuration: s.reelDuration || 15,
+    reelDuration: s.reelDuration || 30,
     // Load the rotating music library (fall back to the legacy single track).
     customAudios: Array.isArray(s.customAudios) && s.customAudios.length
       ? s.customAudios
@@ -1533,12 +1533,12 @@ export default function AdminFacebook() {
                         className="input h-9 w-20"
                         value={form.reelDuration}
                         onChange={(e) => setForm((f) => ({ ...f, reelDuration: e.target.value === "" ? "" : Math.max(1, Math.min(90, parseInt(e.target.value, 10) || 0)) }))}
-                        onBlur={(e) => { if (!e.target.value) setForm((f) => ({ ...f, reelDuration: 15 })); }} />
+                        onBlur={(e) => { if (!e.target.value) setForm((f) => ({ ...f, reelDuration: 30 })); }} />
                       <span className="text-sm text-slate-500 dark:text-slate-400">seconds</span>
                     </div>
                     <p className="mt-1.5 text-xs text-slate-400">
                       Each run renders the {form.kind === "flashcard" ? "flashcard" : "question"} card, mixes it with the next
-                      library track trimmed to <b>{form.reelDuration || 15}s</b>, and posts a <b>Reel</b> (9:16 video) instead of a photo. Max 90s.
+                      library track trimmed to <b>{form.reelDuration || 30}s</b>, and posts a <b>Reel</b> (9:16 video) instead of a photo. Max 90s.
                     </p>
                   </div>
                 )}

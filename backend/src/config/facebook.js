@@ -77,6 +77,36 @@ async function waitForIgContainerReady(cfg, containerId, token, { tries = 15, de
   return { ok: false, error: "Instagram media did not finish processing in time." };
 }
 
+// A Facebook Page Reel uploaded from a hosted file_url is DOWNLOADED by
+// Facebook asynchronously. Calling the finish/publish step before that download
+// completes leaves the Reel unpublished — it never appears on the Page (while
+// Instagram, which we poll, works). Poll the video's status until Facebook has
+// finished fetching the file (uploading phase complete / video ready) before we
+// publish. Best-effort: on a terminal error or timeout returns { ok:false } and
+// the caller falls back to a normal /videos post.
+async function waitForFbReelReady(cfg, videoId, token, { tries = 40, delayMs = 3000 } = {}) {
+  for (let i = 0; i < tries; i++) {
+    let data = {};
+    try {
+      const res = await fbFetch(
+        `https://graph.facebook.com/${cfg.version}/${encodeURIComponent(videoId)}?fields=status&access_token=${encodeURIComponent(token)}`
+      );
+      data = await res.json().catch(() => ({}));
+    } catch {
+      /* transient network hiccup — retry */
+    }
+    const st = data?.status || {};
+    const up = st.uploading_phase?.status;   // in_progress | complete | error
+    const vs = st.video_status;              // ready | processing | ...
+    if (up === "complete" || vs === "ready" || vs === "upload_complete") return { ok: true };
+    if (up === "error" || vs === "error" || st.processing_phase?.status === "error") {
+      return { ok: false, error: st.uploading_phase?.error?.message || st.processing_phase?.error?.message || "Facebook could not fetch/process the Reel video." };
+    }
+    await sleep(delayMs);
+  }
+  return { ok: false, error: "Facebook did not finish fetching the Reel video in time." };
+}
+
 // Posting to a Page requires a PAGE access token. Admins often paste a USER
 // token by mistake (which triggers the deprecated "publish_actions" error).
 // This resolves the correct Page token from whatever was saved: querying the
@@ -350,6 +380,11 @@ export async function postReelToFacebookPage({ videoUrl, description } = {}, cfg
       if (!upRes.ok || upData?.success === false) {
         return { ok: false, error: upData?.error?.message || `Reel upload failed (${upRes.status}).` };
       }
+
+      // Facebook downloads the hosted file ASYNCHRONOUSLY. Wait until that's
+      // done before finishing, or the published Reel never appears on the Page.
+      const ready = await waitForFbReelReady(cfg, videoId, pageToken);
+      if (!ready.ok) return { ok: false, error: ready.error };
 
       // Phase 3 — finish: publish the reel.
       const finishParams = { video_id: String(videoId), upload_phase: "finish", video_state: "PUBLISHED" };
