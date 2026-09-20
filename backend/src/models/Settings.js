@@ -242,6 +242,11 @@ const settingsSchema = new mongoose.Schema(
     // onto this uploaded image instead of the built-in design. Cloudinary URL.
     fbFlashcardTemplateUrl: { type: String, default: "" },
     fbFlashcardTemplateEnabled: { type: Boolean, default: true },
+    // SHARED Reel music library (public track URLs). Added ONCE here and reused
+    // by every question/flashcard schedule set to post as a Reel — each such
+    // schedule ROTATES through these tracks (one per Reel, then starts over), so
+    // the admin never re-uploads music per schedule.
+    fbReelAudios: { type: [String], default: [] },
     // Center TEXT watermark drawn diagonally across the middle of every
     // Facebook/Instagram question-card image (in addition to the selfie/logo
     // above). Text is optional — when blank it falls back to the site watermark

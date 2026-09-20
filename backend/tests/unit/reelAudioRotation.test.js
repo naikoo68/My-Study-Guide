@@ -7,15 +7,21 @@ import { resolveReelAudios, nextReelAudio } from "../../src/config/facebook.js";
 // ─────────────────────────────────────────────────────────────────────────
 
 describe("resolveReelAudios", () => {
-  it("uses the customAudios list when present (trimmed, non-empty)", () => {
-    expect(resolveReelAudios({ customAudios: [" a.mp3 ", "", "b.mp3"] })).toEqual(["a.mp3", "b.mp3"]);
+  it("uses the schedule's own customAudios when present (override, trimmed)", () => {
+    expect(resolveReelAudios({ customAudios: [" a.mp3 ", "", "b.mp3"] }, { fbReelAudios: ["g.mp3"] }))
+      .toEqual(["a.mp3", "b.mp3"]);
   });
   it("falls back to the legacy single customAudio", () => {
-    expect(resolveReelAudios({ customAudio: "solo.mp3" })).toEqual(["solo.mp3"]);
+    expect(resolveReelAudios({ customAudio: "solo.mp3" }, {})).toEqual(["solo.mp3"]);
   });
-  it("returns [] when there is no audio", () => {
+  it("falls back to the SHARED site library when the schedule has no own tracks", () => {
+    expect(resolveReelAudios({}, { fbReelAudios: [" x.mp3 ", "", "y.mp3"] })).toEqual(["x.mp3", "y.mp3"]);
+    expect(resolveReelAudios({ customAudios: [] }, { fbReelAudios: ["x.mp3"] })).toEqual(["x.mp3"]);
+  });
+  it("returns [] when there is no audio anywhere", () => {
+    expect(resolveReelAudios({}, {})).toEqual([]);
+    expect(resolveReelAudios({ customAudios: [] }, { fbReelAudios: [] })).toEqual([]);
     expect(resolveReelAudios({})).toEqual([]);
-    expect(resolveReelAudios({ customAudios: [] })).toEqual([]);
   });
 });
 

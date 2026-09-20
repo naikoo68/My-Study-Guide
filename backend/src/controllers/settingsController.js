@@ -6,6 +6,7 @@ import { renderQuestionImage } from "../config/socialImage.js";
 import { uploadToCloudinary } from "../config/cloudinary.js";
 import { toInstagramSafeUrl } from "../utils/instagramImage.js";
 import { publicLogoUrl, apiOriginFromRequest } from "../utils/logoUrl.js";
+import { isSafePublicUrl } from "../utils/urlGuard.js";
 
 // A freshly-provisioned institute must start as a CLEAN SLATE — it should carry
 // only its own name, never the platform's demo branding, marketing copy, fake
@@ -215,6 +216,7 @@ export async function updateSettings(req, res) {
     "fbSelfieWatermarkUrl", "fbSelfieWatermarkEnabled", "fbSelfieWatermarkPosition", "fbSelfieWatermarkSize", "fbSelfieWatermarkOpacity", "fbSelfieWatermarkShape",
     "fbTextWatermarkEnabled", "fbTextWatermarkText", "fbTextWatermarkSize", "fbTextWatermarkOpacity",
     "fbFlashcardTemplateUrl", "fbFlashcardTemplateEnabled",
+    "fbReelAudios",
     "fbNotifyEmail", "fbNotifyOnPost", "fbNotifyOnError", "fbNotifyOnComplete",
     "igEnabled", "igUserId",
     "googleClientId",
@@ -262,6 +264,14 @@ export async function updateSettings(req, res) {
   if ("fbSelfieWatermarkUrl" in update) update.fbSelfieWatermarkUrl = String(update.fbSelfieWatermarkUrl || "").trim();
   if ("fbFlashcardTemplateUrl" in update) update.fbFlashcardTemplateUrl = String(update.fbFlashcardTemplateUrl || "").trim();
   if ("fbFlashcardTemplateEnabled" in update) update.fbFlashcardTemplateEnabled = !!update.fbFlashcardTemplateEnabled;
+  // Shared Reel music library: keep only safe public http(s) URLs, dedupe, cap 30.
+  if ("fbReelAudios" in update) {
+    const arr = Array.isArray(update.fbReelAudios) ? update.fbReelAudios : [];
+    update.fbReelAudios = [...new Set(
+      arr.map((u) => String(u || "").trim())
+        .filter((u) => /^https?:\/\//i.test(u) && isSafePublicUrl(u))
+    )].slice(0, 30);
+  }
   if ("fbSelfieWatermarkPosition" in update) {
     const pos = String(update.fbSelfieWatermarkPosition || "").trim();
     update.fbSelfieWatermarkPosition = ["bottom-right", "bottom-left", "top-right", "top-left"].includes(pos) ? pos : "bottom-right";

@@ -120,23 +120,14 @@ describe("validateScheduleData — question/flashcard Reels (asReel + music libr
       .toEqual(["https://cdn.com/song.mp3"]);
   });
 
-  it("requires at least one track when a question/flashcard posts as a Reel", () => {
-    expect(check({ kind: "question", source: { quiz: "abc" }, times: ["09:00"], asReel: true }))
-      .toMatch(/music track/i);
-    expect(check({ kind: "flashcard", source: { subject: "s1" }, times: ["09:00"], asReel: true }))
-      .toMatch(/music track/i);
+  it("does NOT require per-schedule audio for a Reel — music comes from the shared library", () => {
+    // asReel with no per-schedule tracks is valid; the shared site library
+    // (fbReelAudios) supplies the music at post time. Validation stays pure.
+    expect(check({ kind: "question", source: { quiz: "abc" }, times: ["09:00"], asReel: true })).toBe("");
+    expect(check({ kind: "flashcard", source: { subject: "s1" }, times: ["09:00"], asReel: true })).toBe("");
   });
 
-  it("passes a question Reel when the library has at least one track", () => {
-    expect(check({ kind: "question", source: { quiz: "abc" }, times: ["09:00"], asReel: true, customAudios: ["https://cdn.com/a.mp3", "https://cdn.com/b.mp3"] })).toBe("");
-  });
-
-  it("does not require music when Reel mode is off", () => {
-    expect(check({ kind: "question", source: { quiz: "abc" }, times: ["09:00"], asReel: false })).toBe("");
-  });
-
-  it("never demands music for a custom post (which uses its own video)", () => {
-    expect(check({ kind: "custom", customText: "hi", times: ["09:00"], asReel: true }))
-      .not.toMatch(/music track/i);
+  it("still accepts an optional per-schedule override library", () => {
+    expect(check({ kind: "question", source: { quiz: "abc" }, times: ["09:00"], asReel: true, customAudios: ["https://cdn.com/a.mp3"] })).toBe("");
   });
 });
