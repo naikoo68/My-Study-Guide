@@ -233,17 +233,38 @@ export async function postToFacebookPage({ message, link, imageUrl } = {}, cfgOv
 
 // Resolve the Instagram Business account id linked to the Facebook Page. Uses
 // the configured igUserId if set, else auto-detects it from the Page.
+// CACHED (like the Page token): a single scheduled run publishes a feed post,
+// a Reel and/or a Story — each of which needs the IG account id. Re-fetching it
+// every time burns extra Graph calls and helps trip Meta's app rate limit
+// ("Application request limit reached"), which then fails a post that would
+// otherwise succeed. Caching resolves it once per Page/token for a few minutes.
+const _igUserIdCache = new Map();
 export async function getInstagramUserId(cfgOverride) {
   const cfg = cfgOverride || (await getFacebookConfig());
   if (cfg.igUserId) return cfg.igUserId;
   if (!isFacebookConfigured(cfg)) return null;
+  const key = `${cfg.pageId}:${String(cfg.token).slice(0, 16)}`;
+  const hit = _igUserIdCache.get(key);
+  if (hit && Date.now() - hit.ts < 10 * 60 * 1000) return hit.id;
   try {
     const res = await fbFetch(`https://graph.facebook.com/${cfg.version}/${encodeURIComponent(cfg.pageId)}?fields=instagram_business_account&access_token=${encodeURIComponent(cfg.token)}`);
     const data = await res.json().catch(() => ({}));
-    return data?.instagram_business_account?.id || null;
+    const id = data?.instagram_business_account?.id || null;
+    if (id) _igUserIdCache.set(key, { id, ts: Date.now() });
+    return id;
   } catch {
     return null;
   }
+}
+
+// Whether an Instagram publish error is TRANSIENT and worth retrying: the media
+// container is already created and valid, so re-issuing media_publish after a
+// short wait usually succeeds. Covers the brief post-processing propagation lag
+// ("Media ID is not available") AND Meta's app-level rate limit ("Application
+// request limit reached", errors #4/#17/#32) — the latter is exactly what made a
+// feed post fail while the Story, published a few seconds later, went through.
+function isRetryableIgPublishError(msg) {
+  return /not available|not ready|request limit|rate limit|reduce the amount|temporarily|#4\b|#17\b|#32\b/i.test(String(msg || ""));
 }
 
 // Post a single image with caption to Instagram (create container → publish).
@@ -279,14 +300,16 @@ export async function postToInstagram({ imageUrl, caption } = {}, cfgOverride) {
     p.set("creation_id", cData.id);
     p.set("access_token", pageToken);
     let pData = {};
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 5; attempt++) {
       const pRes = await fbFetch(`https://graph.facebook.com/${cfg.version}/${igId}/media_publish`, { method: "POST", headers, body: p });
       pData = await pRes.json().catch(() => ({}));
       if (pRes.ok && pData.id) return { ok: true, id: pData.id };
       const msg = String(pData?.error?.message || "");
       // Only retry the transient "not available/ready" case; bail on real errors.
-      if (!/not available|not ready/i.test(msg)) break;
-      await sleep(2000);
+      if (!isRetryableIgPublishError(msg)) break;
+      // Back off longer for a rate limit than for the brief propagation lag —
+      // a few seconds is usually enough for the limit window to free up.
+      await sleep(/request limit|rate limit|#4\b|#17\b|#32\b/i.test(msg) ? 5000 : 2000);
     }
     return { ok: false, error: pData?.error?.message || `Instagram publish error.` };
   } catch (err) {
@@ -329,13 +352,13 @@ export async function postReelToInstagram({ videoUrl, caption } = {}, cfgOverrid
     p.set("creation_id", cData.id);
     p.set("access_token", pageToken);
     let pData = {};
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 5; attempt++) {
       const pRes = await fbFetch(`https://graph.facebook.com/${cfg.version}/${igId}/media_publish`, { method: "POST", headers, body: p });
       pData = await pRes.json().catch(() => ({}));
       if (pRes.ok && pData.id) return { ok: true, id: pData.id };
       const msg = String(pData?.error?.message || "");
-      if (!/not available|not ready/i.test(msg)) break;
-      await sleep(3000);
+      if (!isRetryableIgPublishError(msg)) break;
+      await sleep(/request limit|rate limit|#4\b|#17\b|#32\b/i.test(msg) ? 5000 : 3000);
     }
     return { ok: false, error: pData?.error?.message || "Instagram Reel publish error." };
   } catch (err) {
@@ -449,13 +472,15 @@ export async function postStoryToInstagram({ imageUrl } = {}, cfgOverride) {
     p.set("creation_id", cData.id);
     p.set("access_token", pageToken);
     let pData = {};
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 5; attempt++) {
       const pRes = await fbFetch(`https://graph.facebook.com/${cfg.version}/${igId}/media_publish`, { method: "POST", headers, body: p });
       pData = await pRes.json().catch(() => ({}));
       if (pRes.ok && pData.id) return { ok: true, id: pData.id };
       const msg = String(pData?.error?.message || "");
-      if (!/not available|not ready/i.test(msg)) break;
-      await sleep(2000);
+      if (!isRetryableIgPublishError(msg)) break;
+      // Back off longer for a rate limit than for the brief propagation lag —
+      // a few seconds is usually enough for the limit window to free up.
+      await sleep(/request limit|rate limit|#4\b|#17\b|#32\b/i.test(msg) ? 5000 : 2000);
     }
     return { ok: false, error: pData?.error?.message || "Instagram Story publish error." };
   } catch (err) {
