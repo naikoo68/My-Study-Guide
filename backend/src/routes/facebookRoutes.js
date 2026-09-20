@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { listSchedules, createSchedule, updateSchedule, deleteSchedule, postScheduleNow, postQuestionNow, scheduleQuestion, previewQuestionImage, suggestTags, backfillScheduleLabels, facebookStats, reconcileFacebook } from "../controllers/facebookController.js";
+import { listSchedules, createSchedule, updateSchedule, deleteSchedule, postScheduleNow, postQuestionNow, scheduleQuestion, previewQuestionImage, suggestTags, backfillScheduleLabels, facebookStats, reconcileFacebook, composeReel } from "../controllers/facebookController.js";
 import { protect, authorize } from "../middleware/auth.js";
 
 const router = Router();
@@ -27,5 +27,7 @@ router.post("/post-question", ...admin, postQuestionNow);
 router.post("/schedule-question", ...admin, scheduleQuestion);
 router.post("/preview-image", ...admin, previewQuestionImage);
 router.get("/suggest-tags/:id", ...admin, suggestTags);
+// Build a Reel video (vertical MP4) from an uploaded image + audio track.
+router.post("/compose-reel", ...admin, composeReel);
 
 export default router;
