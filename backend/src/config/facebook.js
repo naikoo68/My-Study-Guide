@@ -397,9 +397,16 @@ export async function postToInstagram({ imageUrl, caption } = {}, cfgOverride) {
       if (!ready.ok) return { ok: false, containerId: cData.id, terminal: !!ready.terminal, error: ready.error };
       return { ok: true, containerId: cData.id };
     };
+    // Instagram's media fetcher INTERMITTENTLY fails to download a perfectly
+    // valid, public image URL with 2207052 "The media could not be fetched
+    // from this URI." — the SAME url succeeds seconds later (verified: HTTP 200
+    // to every client incl. Meta's crawler). This is transient on Meta's side,
+    // not a problem with our image, so retry several times with a growing wait
+    // instead of giving up after one attempt. Each retry rebuilds a fresh
+    // container (a stale container id can't be re-fetched).
     let container = await build();
-    if (!container.ok && container.terminal && isTransientIgContainerFailure(container.error)) {
-      await sleep(6000);
+    for (let attempt = 1; attempt <= 4 && !container.ok && isTransientIgContainerFailure(container.error); attempt++) {
+      await sleep(attempt * 5000); // 5s, 10s, 15s, 20s
       container = await build();
     }
     if (!container.ok) return { ok: false, error: container.error };
