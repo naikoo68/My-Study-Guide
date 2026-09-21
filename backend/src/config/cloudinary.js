@@ -122,7 +122,42 @@ export async function composeImageAudioToVideo({
     ],
   });
 
-  const url = result?.eager?.[0]?.secure_url || result?.eager?.[0]?.url;
+  // Prefer the eagerly-derived URL Cloudinary just built.
+  let url = result?.eager?.[0]?.secure_url || result?.eager?.[0]?.url;
+  // If Cloudinary silently promoted the "sync" eager to async (they do this for
+  // slow renders — the response then carries `status:"processing"` and NO URL,
+  // even though we asked eager_async:false), build the derivation URL ourselves
+  // from the same audio public_id + transform we just asked for. Cloudinary
+  // finishes the render on the first hit and serves the mp4 from cache after —
+  // Meta's fetch waits long enough for that first render on almost every card.
+  // This is far better than throwing, which drops the Reel and forces a plain
+  // photo fallback (which then also fails on Instagram, see IG "Only photo or
+  // video can be accepted as media type." — media_download_error).
+  if (!url) {
+    try {
+      url = cloudinary.url(audio.public_id, {
+        resource_type: "video",
+        format: "mp4",
+        secure: true,
+        transformation: [
+          { width, height, crop: "pad", background: "black", start_offset: 0, duration: outDur },
+          { overlay: overlayId, width, height, crop: "fit" },
+          { flags: "layer_apply" },
+          {
+            video_codec: "h264:baseline:3.1",
+            audio_codec: "aac",
+            fps: 30,
+            bit_rate: "5m",
+            audio_frequency: 48000,
+            keyframe_interval: 2,
+            flags: "faststart",
+          },
+        ],
+      });
+    } catch {
+      /* fall through — throw below */
+    }
+  }
   if (!url) throw new Error("Cloudinary did not return a composed video URL.");
   return { url, duration: outDur };
 }

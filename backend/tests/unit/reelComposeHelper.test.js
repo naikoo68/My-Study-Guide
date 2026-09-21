@@ -9,12 +9,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const upload = vi.fn();
 const explicit = vi.fn();
+const url = vi.fn();
 
 vi.mock("cloudinary", () => ({
   v2: {
     config: vi.fn(),
     uploader: { upload, explicit },
     utils: { api_sign_request: vi.fn() },
+    url,
   },
 }));
 
@@ -23,6 +25,7 @@ const { composeImageAudioToVideo } = await import("../../src/config/cloudinary.j
 beforeEach(() => {
   upload.mockReset();
   explicit.mockReset();
+  url.mockReset();
 });
 
 describe("composeImageAudioToVideo", () => {
@@ -126,11 +129,44 @@ describe("composeImageAudioToVideo", () => {
     expect(upload).not.toHaveBeenCalled();
   });
 
-  it("throws a clear error when Cloudinary returns no composed URL", async () => {
+  it("throws a clear error when Cloudinary returns no composed URL AND the URL builder also has nothing", async () => {
     upload.mockResolvedValue({ public_id: "p", duration: 5 });
     explicit.mockResolvedValue({ eager: [] });
+    // cloudinary.url returns undefined → no fallback URL available either.
+    url.mockReturnValue(undefined);
     await expect(
       composeImageAudioToVideo({ imageUrl: "https://cdn/x.png", audioUrl: "https://cdn/a.mp3" }),
     ).rejects.toThrow(/did not return/i);
+  });
+
+  it("falls back to a manually-built URL when Cloudinary's eager response has no secure_url", async () => {
+    // Cloudinary silently promotes a slow "sync" eager to async: the response
+    // then carries { status: "processing" } and NO URL, even though we asked
+    // eager_async:false. Previously we threw here and the schedule fell back
+    // to posting an image (which then failed on Instagram — see subcode 2207052
+    // "Only photo or video can be accepted as media type."). We now build the
+    // derivation URL ourselves so Cloudinary can render it on Meta's first hit.
+    upload.mockImplementation(async (file, opts) => {
+      if (opts.resource_type === "video") return { public_id: "aud", duration: 30 };
+      return { public_id: "img" };
+    });
+    // eager entry has NO secure_url / url — mimics the "processing" pattern.
+    explicit.mockResolvedValue({ eager: [{ status: "processing" }] });
+    url.mockReturnValue("https://res.cloudinary.com/x/video/upload/aud.mp4");
+
+    const r = await composeImageAudioToVideo({ imageUrl: "https://cdn/x.png", audioUrl: "https://cdn/a.mp3" });
+
+    expect(r.url).toBe("https://res.cloudinary.com/x/video/upload/aud.mp4");
+    expect(r.duration).toBe(30);
+
+    // The builder was asked for a video derivation of the AUDIO public id,
+    // with the same transformation we passed to explicit(). That URL, when
+    // fetched, triggers Cloudinary's on-demand render.
+    expect(url).toHaveBeenCalledWith("aud", expect.objectContaining({
+      resource_type: "video",
+      format: "mp4",
+      secure: true,
+      transformation: expect.any(Array),
+    }));
   });
 });

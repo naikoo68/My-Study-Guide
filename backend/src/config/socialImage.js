@@ -388,7 +388,13 @@ export async function renderQuestionImage(q, opts = {}) {
       brandColor: opts.brandColor || s?.brandColor || s?.primaryColor || "#4f46e5",
     });
     const dataUri = `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
-    const { url } = await uploadImage(dataUri, { format: "png", folder: "mystudyguide/social" });
+    // Deliver as JPEG (not PNG). Instagram's Content Publishing API only
+    // reliably accepts JPEG — asking Cloudinary to re-transcode a PNG to JPEG
+    // via an `f_jpg` transform on Meta's first fetch is intermittently slow
+    // enough that Meta gives up with "Only photo or video can be accepted as
+    // media type." (subcode 2207052 = media_download_error). A JPEG source
+    // removes that on-demand format conversion entirely.
+    const { url } = await uploadImage(dataUri, { format: "jpg", folder: "mystudyguide/social" });
     if (url) return { url };
     return { error: "Cloudinary returned no URL for the image." };
   } catch (err) {
