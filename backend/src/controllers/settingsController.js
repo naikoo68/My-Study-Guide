@@ -160,13 +160,23 @@ export async function getLogo(req, res) {
     const tid = String(req.query.t || "").trim();
     const readLogo = async (filter) =>
       runUnscoped(() => Settings.findOne(filter).select("logoUrl").lean());
+    const hasLogo = (d) => !!String(d?.logoUrl || "").trim();
 
+    // Resolve the logo the SAME way findSite() resolves the settings doc, so
+    // getLogo can always find whatever getSettings turned into this proxy URL.
+    // Previously getLogo stopped at the default tenant and had NO fallback to a
+    // null-tenant (legacy / tenant-enforcement-off) or any-site doc — so a logo
+    // stored on a null-tenant doc (the normal case when enforcement is OFF)
+    // produced a 404 and a permanently BROKEN logo, even though getSettings
+    // happily served its proxy URL. Order: requested tenant → default tenant →
+    // null-tenant/legacy → any site doc that actually has a logo.
     let doc = tid ? await readLogo({ key: "site", tenantId: tid }) : null;
-    if (!doc?.logoUrl) {
-      // Fall back to the default/platform tenant's settings.
+    if (!hasLogo(doc)) {
       const def = await runUnscoped(() => Tenant.findOne({ isDefault: true }).select("_id").lean());
-      doc = def ? await readLogo({ key: "site", tenantId: def._id }) : await readLogo({ key: "site" });
+      if (def) doc = await readLogo({ key: "site", tenantId: def._id });
     }
+    if (!hasLogo(doc)) doc = await readLogo({ key: "site", tenantId: null }); // legacy / enforcement OFF
+    if (!hasLogo(doc)) doc = await readLogo({ key: "site" });                  // last resort: any site doc
     const logo = String(doc?.logoUrl || "").trim();
     if (!logo) return res.status(404).end();
     // Guard against a logo that was accidentally saved as this very endpoint's
