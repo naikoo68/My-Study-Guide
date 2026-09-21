@@ -64,25 +64,40 @@ export function pairCountOptions(n) {
   return out;
 }
 
-const allBlank = (opts) => opts.length === 0 || opts.every((o) => String(o || "").trim() === "");
+const isFilled = (value) => String(value ?? "").trim() !== "";
+const allBlank = (opts) => opts.length === 0 || opts.every((o) => !isFilled(o));
+
+// Pair count choices are inferable only when both displayed columns form the
+// same complete 3- or 4-row list. This prevents a malformed pair question from
+// looking complete merely because answer labels can be synthesized.
+export function inferredPairOptions(q) {
+  const rawA = Array.isArray(q?.columnA) ? q.columnA : [];
+  const rawB = Array.isArray(q?.columnB) ? q.columnB : [];
+  if (rawA.some((item) => !isFilled(item)) || rawB.some((item) => !isFilled(item))) return null;
+
+  const columnA = normalizeColumn(rawA);
+  const columnB = normalizeColumn(rawB);
+  if (columnA.length !== columnB.length || ![3, 4].includes(columnA.length)) return null;
+  return pairCountOptions(columnA.length);
+}
 
 // The options to DISPLAY for a question. Normally just `q.options`, but some
 // questions were saved with missing/blank option text; for the types whose
 // options are DETERMINISTIC we rebuild them so the answer choices always render
 // (never blank boxes), keeping the stored `correct` index valid:
 //   • assertion → the fixed A/R rubric.
-//   • pair      → ordinal counts derived from the number of pairs.
+//   • pair      → ordinal counts, but only for a complete aligned 3/4-row pair.
 // (statement/pairselect options are specific COMBINATIONS that can't be
 // reconstructed from the data alone, so those are left exactly as stored.)
 export function displayOptions(q) {
-  const opts = q?.options || [];
+  const opts = Array.isArray(q?.options) ? q.options : [];
   if (q?.type === "assertion") {
-    const hasText = opts.length === 4 && opts.every((o) => String(o || "").trim() !== "");
+    const hasText = opts.length === 4 && opts.every(isFilled);
     if (!hasText) return ASSERTION_REASON_OPTIONS.slice();
   }
   if (q?.type === "pair" && allBlank(opts)) {
-    const n = Math.max((q?.columnA || []).length, (q?.columnB || []).length);
-    if (n >= 2) return pairCountOptions(n);
+    const inferred = inferredPairOptions(q);
+    if (inferred) return inferred;
   }
   return opts;
 }

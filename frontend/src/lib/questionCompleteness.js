@@ -1,8 +1,9 @@
 // Detects INCOMPLETE questions for the admin "Find incomplete questions" tool.
-// For EVERY type it checks the question text, the 4 options (present, none
-// blank) and a marked correct answer, PLUS the structural parts each type needs
-// (columns, statements, assertion/reason, table rows, diagram spec, sentences).
+// It validates the same effective options the question card renders, including
+// deterministic Assertion and valid Pair fallbacks, plus each type's structure.
 // Returns an array of human-readable issue strings; empty = complete.
+
+import { displayOptions, normalizeColumn } from "./questions.js";
 
 const isBlank = (v) => !String(v ?? "").trim();
 const nonEmptyCount = (arr) => (Array.isArray(arr) ? arr.filter((x) => !isBlank(x)).length : 0);
@@ -14,7 +15,10 @@ export function questionIssues(q) {
   // --- Common to every type ------------------------------------------------
   if (isBlank(q.text)) issues.push("Missing question text");
 
-  const opts = Array.isArray(q.options) ? q.options : [];
+  // Validate the choices users actually see. Assertion choices and complete
+  // 3/4-row Pair count choices are deterministic, so their safe display
+  // fallbacks are real answer options rather than "blank" content.
+  const opts = displayOptions(q);
   if (opts.length === 0) {
     issues.push("No options");
   } else {
@@ -22,17 +26,26 @@ export function questionIssues(q) {
     if (opts.some((o) => isBlank(o))) issues.push("Blank option(s)");
   }
 
-  const hasCorrect = typeof q.correct === "number" && q.correct >= 0 && q.correct < (opts.length || 4);
+  const hasCorrect = Number.isInteger(q.correct) && q.correct >= 0 && q.correct < opts.length;
   if (!hasCorrect) issues.push("No correct answer marked");
 
   // --- Type-specific structural parts -------------------------------------
   switch (q.type) {
     case "matching":
     case "pair":
-    case "pairselect":
-      if (nonEmptyCount(q.columnA) === 0) issues.push("Missing Column A");
-      if (nonEmptyCount(q.columnB) === 0) issues.push("Missing Column B");
+    case "pairselect": {
+      const columnA = normalizeColumn(q.columnA);
+      const columnB = normalizeColumn(q.columnB);
+      if (columnA.length === 0) issues.push("Missing Column A");
+      if (columnB.length === 0) issues.push("Missing Column B");
+      if (q.type === "pair") {
+        if (Array.isArray(q.columnA) && q.columnA.some(isBlank)) issues.push("Blank Column A item(s)");
+        if (Array.isArray(q.columnB) && q.columnB.some(isBlank)) issues.push("Blank Column B item(s)");
+        if (columnA.length && columnB.length && columnA.length !== columnB.length) issues.push("Pair columns have different lengths");
+        if (columnA.length === columnB.length && columnA.length > 0 && ![3, 4].includes(columnA.length)) issues.push("Pair needs 3 or 4 rows");
+      }
       break;
+    }
     case "statement":
       if (nonEmptyCount(q.columnA) === 0) issues.push("Missing statements");
       break;
