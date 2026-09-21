@@ -5,7 +5,7 @@ import { useEffect, useState, useRef } from "react";
 import {
   Send, Loader2, CheckCircle2, AlertTriangle, KeyRound, Plus, Trash2, Pencil, X,
   Clock, CalendarClock, ListChecks, Power, Save, Upload, UserCircle, Type, Search, Mail,
-  ImagePlus, FileText, Wand2, RefreshCw, Film, Music, Camera,
+  ImagePlus, FileText, Wand2, RefreshCw, Film, Music, Camera, ChevronDown,
 } from "lucide-react";
 import { Facebook, Instagram } from "../../components/ui/SocialIcons";
 import { settingsService, facebookService, contentService, practiceService, uploadService } from "../../services";
@@ -162,6 +162,24 @@ const SHAPES = [
   { value: "rectangle", label: "Rectangle (banner/stamp)" },
 ];
 
+// A card whose body is hidden until the admin taps the header (accordion). Keeps
+// this long settings page compact — each section (Connection, Hashtags, …) opens
+// on tap. `defaultOpen` can force a section open on load.
+function CollapsibleCard({ title, icon: Icon, iconClass = "h-5 w-5 text-[#1877F2]", defaultOpen = false, children }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="card overflow-hidden p-0">
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
+        className="flex w-full items-center gap-2 px-5 py-4 text-left font-bold hover:bg-slate-50 dark:hover:bg-slate-800/50">
+        {Icon && <Icon className={iconClass} />}
+        <span>{title}</span>
+        <ChevronDown className={`ml-auto h-5 w-5 flex-shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && <div className="border-t border-slate-100 px-5 pb-5 pt-4 dark:border-slate-800">{children}</div>}
+    </div>
+  );
+}
+
 function SelfieWatermarkSection({ settings, saveSettings }) {
   const fileRef = useRef(null);
   const [uploading, setUploading] = useState(false);
@@ -221,8 +239,7 @@ function SelfieWatermarkSection({ settings, saveSettings }) {
   const isCircle = shape === "circle";
 
   return (
-    <div className="card p-5">
-      <h2 className="flex items-center gap-2 font-bold"><Upload className="h-5 w-5 text-[#1877F2]" /> Post Watermark</h2>
+    <CollapsibleCard title="Post Watermark" icon={Upload}>
       <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
         Upload <b>any image</b> (selfie, logo, stamp, banner) to appear as a watermark on every Facebook &amp; Instagram image post. Choose the shape, position, size, and opacity.
       </p>
@@ -292,7 +309,7 @@ function SelfieWatermarkSection({ settings, saveSettings }) {
         </button>
         {msg && <span className={`inline-flex items-center gap-1 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {msg.text}</span>}
       </div>
-    </div>
+    </CollapsibleCard>
   );
 }
 
@@ -332,8 +349,7 @@ function TextWatermarkSection({ settings, saveSettings }) {
   };
 
   return (
-    <div className="card p-5">
-      <h2 className="flex items-center gap-2 font-bold"><Type className="h-5 w-5 text-[#1877F2]" /> Center Text Watermark</h2>
+    <CollapsibleCard title="Center Text Watermark" icon={Type}>
       <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
         Print a diagonal line of text across the <b>middle</b> of every Facebook &amp; Instagram question-card image. Leave the text blank to use <b>{fallback}</b>.
       </p>
@@ -369,7 +385,7 @@ function TextWatermarkSection({ settings, saveSettings }) {
         </button>
         {msg && <span className={`inline-flex items-center gap-1 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {msg.text}</span>}
       </div>
-    </div>
+    </CollapsibleCard>
   );
 }
 
@@ -408,8 +424,7 @@ function FbLedgerStats() {
   };
 
   return (
-    <div className="card p-5">
-      <h2 className="flex items-center gap-2 font-bold"><Facebook className="h-4 w-4 text-[#1877F2]" /> Facebook publications</h2>
+    <CollapsibleCard title="Facebook publications" icon={Facebook} iconClass="h-4 w-4 text-[#1877F2]">
       <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
         A permanent record of every post successfully published to your Page, keyed by Facebook's own post ID. It survives editing, completing or deleting schedules.
       </p>
@@ -456,7 +471,7 @@ function FbLedgerStats() {
           </ul>
         </div>
       )}
-    </div>
+    </CollapsibleCard>
   );
 }
 
@@ -494,8 +509,7 @@ function FbNotifySection({ settings, saveSettings }) {
   ];
 
   return (
-    <div className="card p-5">
-      <h2 className="flex items-center gap-2 font-bold"><Mail className="h-5 w-5 text-[#1877F2]" /> Email notifications</h2>
+    <CollapsibleCard title="Email notifications" icon={Mail}>
       <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
         Get emailed about what the auto-poster is doing. Leave the address blank to use the default admin email.
       </p>
@@ -520,7 +534,7 @@ function FbNotifySection({ settings, saveSettings }) {
         </button>
         {msg && <span className={`inline-flex items-center gap-1 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {msg.text}</span>}
       </div>
-    </div>
+    </CollapsibleCard>
   );
 }
 
@@ -897,8 +911,7 @@ function FlashcardTemplateSection({ settings, saveSettings }) {
   const toggle = async () => { const next = !enabled; setEnabled(next); try { await saveSettings({ fbFlashcardTemplateEnabled: next }); } catch { /* ignore */ } };
 
   return (
-    <div className="card p-5">
-      <h2 className="flex items-center gap-2 font-bold"><ImagePlus className="h-5 w-5 text-[#1877F2]" /> Flashcard template image</h2>
+    <CollapsibleCard title="Flashcard template image" icon={ImagePlus}>
       <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
         Upload your <b>flashcard template</b> — the branded frame (header + footer) with an <b>empty middle</b>. Flashcard auto-posts render each
         quiz question's content (question, options, correct answer, explanation, key points &amp; quick recall) into the empty area and
@@ -930,7 +943,7 @@ function FlashcardTemplateSection({ settings, saveSettings }) {
         </div>
       </div>
       {msg && <p className={`mt-3 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.text}</p>}
-    </div>
+    </CollapsibleCard>
   );
 }
 
@@ -951,15 +964,14 @@ function ReelMusicLibrarySection({ settings, saveSettings }) {
   };
 
   return (
-    <div className="card p-5">
-      <h2 className="flex items-center gap-2 font-bold"><Music className="h-5 w-5 text-[#1877F2]" /> Reel music library</h2>
+    <CollapsibleCard title="Reel music library" icon={Music}>
       <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
         Add your music <b>once here</b>. Any question or flashcard schedule set to post as a <b>Reel</b> rotates through
         these tracks — one per Reel, then starts over — so you never upload or paste them again. Upload files or paste public links.
       </p>
       <div className="mt-4"><ReelAudioLibrary value={tracks} onChange={onChange} /></div>
       {msg && <p className={`mt-3 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.text}</p>}
-    </div>
+    </CollapsibleCard>
   );
 }
 
@@ -1174,8 +1186,7 @@ export default function AdminFacebook() {
       </div>
 
       {/* Connection */}
-      <div className="card p-5">
-        <h2 className="flex items-center gap-2 font-bold"><Power className="h-4 w-4 text-[#1877F2]" /> Connection</h2>
+      <CollapsibleCard title="Connection" icon={Power} iconClass="h-4 w-4 text-[#1877F2]" defaultOpen>
         <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">Your access token is stored on the server and never shown in the browser.</p>
 
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -1205,11 +1216,10 @@ export default function AdminFacebook() {
           <button type="button" onClick={testFb} disabled={fbTesting || !settings?.fbTokenSet} className="btn-outline">{fbTesting ? <><Loader2 className="h-4 w-4 animate-spin" /> Posting…</> : <><Send className="h-4 w-4" /> Send test post</>}</button>
           {fbMsg && <span className={`inline-flex items-center gap-1 text-sm font-medium ${fbMsg.ok ? "text-emerald-600" : "text-rose-600"}`}>{fbMsg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {fbMsg.text}</span>}
         </div>
-      </div>
+      </CollapsibleCard>
 
       {/* Hashtags */}
-      <div className="card p-5">
-        <h2 className="flex items-center gap-2 font-bold"><ListChecks className="h-4 w-4 text-[#1877F2]" /> Hashtags</h2>
+      <CollapsibleCard title="Hashtags" icon={ListChecks} iconClass="h-4 w-4 text-[#1877F2]">
         <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">Added to every question post. Auto tags are also built from each question's subject &amp; topic.</p>
         <div className="mt-4 space-y-3">
           <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
@@ -1228,11 +1238,10 @@ export default function AdminFacebook() {
         <div className="mt-4">
           <button type="button" onClick={saveFb} disabled={fbSaving} className="btn-primary">{fbSaving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> Save hashtags</>}</button>
         </div>
-      </div>
+      </CollapsibleCard>
 
       {/* Cross-post to more Pages */}
-      <div className="card p-5">
-        <h2 className="flex items-center gap-2 font-bold"><Send className="h-4 w-4 text-[#1877F2]" /> Cross-post to more Pages</h2>
+      <CollapsibleCard title="Cross-post to more Pages" icon={Send} iconClass="h-4 w-4 text-[#1877F2]">
         <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
           Every post also goes to these Pages. Each needs its OWN Page access token (a Page ID + token — a plain link can't authorise posting).
           <b> Facebook Groups can't be posted to via the API</b>, so only Pages you manage work here.
@@ -1252,11 +1261,10 @@ export default function AdminFacebook() {
           <button type="button" onClick={addTarget} className="btn-outline"><Plus className="h-4 w-4" /> Add Page</button>
           <button type="button" onClick={saveFb} disabled={fbSaving} className="btn-primary">{fbSaving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> Save Pages</>}</button>
         </div>
-      </div>
+      </CollapsibleCard>
 
       {/* Instagram */}
-      <div className="card p-5">
-        <h2 className="flex items-center gap-2 font-bold"><Instagram className="h-5 w-5 text-[#E1306C]" /> Instagram cross-posting</h2>
+      <CollapsibleCard title="Instagram cross-posting" icon={Instagram} iconClass="h-5 w-5 text-[#E1306C]">
         <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
           Also post to Instagram. Requires an <b>Instagram Business/Creator account linked to your Facebook Page</b>. Instagram posts are always images, so those schedules auto-generate a question image.
         </p>
@@ -1278,7 +1286,7 @@ export default function AdminFacebook() {
           <button type="button" onClick={testIg} disabled={igTesting || !settings?.fbTokenSet} className="btn-outline">{igTesting ? <><Loader2 className="h-4 w-4 animate-spin" /> Posting…</> : <><Send className="h-4 w-4" /> Send test to Instagram</>}</button>
           {igMsg && <span className={`inline-flex items-center gap-1 text-sm font-medium ${igMsg.ok ? "text-emerald-600" : "text-rose-600"}`}>{igMsg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {igMsg.text}</span>}
         </div>
-      </div>
+      </CollapsibleCard>
 
       {/* Selfie / logo Watermark */}
       <SelfieWatermarkSection settings={settings} saveSettings={saveSettings} />
