@@ -1017,6 +1017,13 @@ function AutoCommentSection({ settings, saveSettings }) {
   const [mode, setMode] = useState(settings?.fbAutoCommentMode || "rotate");
   const [toFb, setToFb] = useState(settings?.fbAutoCommentToFacebook !== false);
   const [toIg, setToIg] = useState(settings?.fbAutoCommentToInstagram === true);
+  // @-mention list appended to every auto-comment. Kept as a plain string in the
+  // input (space/comma/newline separated) so the admin can paste multiple at once.
+  const seedMentions = (s) => {
+    const list = Array.isArray(s?.fbAutoCommentMentions) ? s.fbAutoCommentMentions : [];
+    return list.join(" ");
+  };
+  const [mentions, setMentions] = useState(seedMentions(settings));
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
 
@@ -1026,11 +1033,19 @@ function AutoCommentSection({ settings, saveSettings }) {
     setMode(settings?.fbAutoCommentMode || "rotate");
     setToFb(settings?.fbAutoCommentToFacebook !== false);
     setToIg(settings?.fbAutoCommentToInstagram === true);
-  }, [settings?.fbAutoCommentEnabled, settings?.fbAutoComment, settings?.fbAutoComments, settings?.fbAutoCommentMode, settings?.fbAutoCommentToFacebook, settings?.fbAutoCommentToInstagram]);
+    setMentions(seedMentions(settings));
+  }, [settings?.fbAutoCommentEnabled, settings?.fbAutoComment, settings?.fbAutoComments, settings?.fbAutoCommentMode, settings?.fbAutoCommentToFacebook, settings?.fbAutoCommentToInstagram, settings?.fbAutoCommentMentions]);
 
   const setComment = (i, v) => setComments((cs) => cs.map((c, idx) => (idx === i ? v : c)));
   const addComment = () => setComments((cs) => [...cs, ""]);
   const removeComment = (i) => setComments((cs) => cs.filter((_, idx) => idx !== i));
+
+  // Split the mentions textarea on any whitespace/comma. Each token is a single
+  // handle. Blank tokens are dropped by the backend sanitizer.
+  const mentionList = () => String(mentions || "")
+    .split(/[\s,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   const save = async () => {
     setSaving(true); setMsg(null);
@@ -1042,6 +1057,7 @@ function AutoCommentSection({ settings, saveSettings }) {
         fbAutoCommentMode: mode,
         fbAutoCommentToFacebook: toFb,
         fbAutoCommentToInstagram: toIg,
+        fbAutoCommentMentions: mentionList(),
         // Keep the legacy single field in sync (first comment) for back-compat.
         fbAutoComment: fbAutoComments[0] || "",
       });
@@ -1102,6 +1118,30 @@ function AutoCommentSection({ settings, saveSettings }) {
             <span className="flex items-center gap-2 text-sm font-medium"><Instagram className="h-4 w-4 text-[#E1306C]" /> Comment on Instagram</span>
             {toggle(toIg, () => setToIg((v) => !v))}
           </label>
+        </div>
+
+        {/* Optional @-mentions appended to every auto-comment */}
+        <div>
+          <label className="mb-1 block text-sm font-medium">Mentions (optional)</label>
+          <textarea
+            className="input min-h-[46px] resize-y font-mono text-sm"
+            rows={2}
+            maxLength={2000}
+            value={mentions}
+            onChange={(e) => setMentions(e.target.value)}
+            placeholder="e.g. @mystudyguide_ @jkssb_updates @[123456789]"
+          />
+          <p className="mt-1 text-xs text-slate-400">
+            Space, comma or newline separated. Appended to every auto-comment on a new line.
+            Instagram makes <b>@handle</b> clickable automatically. Facebook only links Page tags in
+            the <b>@[page-id]</b> form (get the numeric Page ID from the target Page's About tab) —
+            plain handles stay as visible text.
+          </p>
+          {mentionList().length > 0 && (
+            <p className="mt-1 text-xs text-emerald-600 dark:text-emerald-400">
+              {mentionList().length} mention{mentionList().length === 1 ? "" : "s"} will be added per comment.
+            </p>
+          )}
         </div>
 
         <p className="text-xs text-slate-400">
