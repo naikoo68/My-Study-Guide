@@ -285,6 +285,12 @@ const settingsSchema = new mongoose.Schema(
     fbAutoCommentIndex: { type: Number, default: 0 }, // rotation pointer (advances each post)
     fbAutoCommentToFacebook: { type: Boolean, default: true },  // comment on Facebook posts
     fbAutoCommentToInstagram: { type: Boolean, default: false }, // needs instagram_manage_comments
+    // Optional @-mention list appended to every auto-comment (e.g. ["@myfriend",
+    // "@mystudyguide_"]). Instagram parses `@handle` in the message body and
+    // renders it as a clickable mention when the account exists; Facebook makes
+    // ONLY Page tags clickable, using the `@[page-id]` bracketed form. Plain
+    // `@name` on Facebook stays plain text — the API can't tag personal profiles.
+    fbAutoCommentMentions: { type: [String], default: [] },
     // ---- Google Drive backup ----
     // OAuth Web Client ID (from Google Cloud Console). NOT a secret — it is meant
     // to be public in the browser. When set, the "Back up / Restore to Google

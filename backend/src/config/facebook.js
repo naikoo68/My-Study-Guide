@@ -704,14 +704,51 @@ export async function commentOnInstagramMedia({ mediaId, message } = {}, cfgOver
   }
 }
 
+// Compose the @-mention line appended to every auto-comment. Instagram parses
+// bare `@handle` in a comment body and renders it as a clickable mention.
+// Facebook, however, only makes Page tags clickable and only when they use the
+// bracketed form `@[page-id]` (see /docs/graph-api/reference/comment). So for
+// Facebook we KEEP `@[…]` tokens verbatim (clickable) and strip the `@` from
+// plain handles (they would look ugly and don't tag anything on Facebook).
+// Returns the exact string to append, or "" when there is nothing to add.
+export function buildMentionSuffix(rawMentions, platform) {
+  const list = (Array.isArray(rawMentions) ? rawMentions : [])
+    .map((m) => String(m || "").trim())
+    .filter(Boolean);
+  if (!list.length) return "";
+  const tokens = [];
+  const seen = new Set();
+  for (const raw of list) {
+    let token;
+    if (/^@\[[^\]]+\]$/.test(raw)) {
+      // A pre-formatted Facebook Page tag like `@[123456789]`. Keep as-is for
+      // Facebook; Instagram doesn't do anything special with it so drop the
+      // brackets there so it doesn't render as literal text with a `@[`.
+      token = platform === "facebook" ? raw : `@${raw.slice(2, -1)}`;
+    } else {
+      const handle = raw.replace(/^@+/, "");
+      if (!handle) continue;
+      token = platform === "facebook" ? handle : `@${handle}`;
+    }
+    const key = token.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    tokens.push(token);
+  }
+  return tokens.length ? `\n\n${tokens.join(" ")}` : "";
+}
+
 // Shared: post the configured auto first-comment(s) on the MAIN Facebook Page
 // post (fbAttempts[0]) and the published Instagram media. Reads a GLOBAL list
 // (`fbAutoComments`) and picks comment(s) per the mode (rotate/all/random),
 // falling back to the legacy single `fbAutoComment` when the list is empty.
-// Per-network toggles decide FB vs IG. No-op unless the feature is enabled and
-// there is text. Best-effort — records only failures into `notes`, advances +
-// persists the rotation pointer, and NEVER throws (a comment must never break a
-// post). Stories are NOT handled here (the API can't comment on a Story).
+// Per-network toggles decide FB vs IG. When `fbAutoCommentMentions` is set,
+// its @-handles are appended to every posted comment (clickable on Instagram,
+// clickable on Facebook only for `@[page-id]` tokens). No-op unless the feature
+// is enabled and there is text. Best-effort — records only failures into
+// `notes`, advances + persists the rotation pointer, and NEVER throws (a comment
+// must never break a post). Stories are NOT handled here (the API can't comment
+// on a Story).
 export async function postAutoFirstComment({ site, cfg, fbAttempts = [], igMediaId = null, notes = [] } = {}) {
   if (!site?.fbAutoCommentEnabled) return;
   // Prefer the multi-comment list; fall back to the legacy single comment.
@@ -727,6 +764,12 @@ export async function postAutoFirstComment({ site, cfg, fbAttempts = [], igMedia
 
   const toFb = site.fbAutoCommentToFacebook !== false; // default ON
   const toIg = site.fbAutoCommentToInstagram === true;  // default OFF (needs instagram_manage_comments)
+  // Compose the platform-specific @-mention line ONCE per publish so every
+  // saved comment gets the same suffix; keeping the mention list global keeps
+  // the UI simple (one place to edit) and the payload deterministic.
+  const fbMentionSuffix = buildMentionSuffix(site.fbAutoCommentMentions, "facebook");
+  const igMentionSuffix = buildMentionSuffix(site.fbAutoCommentMentions, "instagram");
+  const withSuffix = (text, suffix) => (suffix ? `${text}${suffix}` : text);
 
   // Preflight: if we already know the saved token was NOT granted the required
   // comment scope, don't hammer Meta with N failing requests per publish. Emit
@@ -751,7 +794,7 @@ export async function postAutoFirstComment({ site, cfg, fbAttempts = [], igMedia
     }
     if (toFb && mainFbPostId && canCommentFb) {
       for (let i = 0; i < comments.length; i++) {
-        const r = await commentOnFacebookPost({ postId: mainFbPostId, message: comments[i] }, cfg);
+        const r = await commentOnFacebookPost({ postId: mainFbPostId, message: withSuffix(comments[i], fbMentionSuffix) }, cfg);
         if (r.ok) {
           successfulComments += 1;
           continue;
@@ -763,7 +806,7 @@ export async function postAutoFirstComment({ site, cfg, fbAttempts = [], igMedia
     }
     if (toIg && igMediaId && canCommentIg) {
       for (let i = 0; i < comments.length; i++) {
-        const r = await commentOnInstagramMedia({ mediaId: igMediaId, message: comments[i] }, cfg);
+        const r = await commentOnInstagramMedia({ mediaId: igMediaId, message: withSuffix(comments[i], igMentionSuffix) }, cfg);
         if (r.ok) {
           successfulComments += 1;
           continue;

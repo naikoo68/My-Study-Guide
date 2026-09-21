@@ -306,6 +306,29 @@ export async function updateSettings(req, res) {
       .filter(Boolean)
       .slice(0, 50);
   }
+  // Mentions: a list of @-handles (or Facebook `@[page-id]` tokens) appended
+  // to every auto-comment. Trim, dedupe, cap 30 entries. Add a leading `@` if
+  // the admin forgot it (so `mystudyguide_` becomes `@mystudyguide_`); leave
+  // bracketed Page tags (`@[123]`) untouched.
+  if ("fbAutoCommentMentions" in update) {
+    const arr = Array.isArray(update.fbAutoCommentMentions) ? update.fbAutoCommentMentions : [];
+    const seen = new Set();
+    update.fbAutoCommentMentions = arr
+      .map((m) => {
+        const s = String(m || "").trim();
+        if (!s) return "";
+        if (s.startsWith("@")) return s.slice(0, 200);
+        return `@${s.replace(/^@+/, "")}`.slice(0, 200);
+      })
+      .filter((s) => {
+        if (!s) return false;
+        const k = s.toLowerCase();
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      })
+      .slice(0, 30);
+  }
   if ("fbSelfieWatermarkPosition" in update) {
     const pos = String(update.fbSelfieWatermarkPosition || "").trim();
     update.fbSelfieWatermarkPosition = ["bottom-right", "bottom-left", "top-right", "top-left"].includes(pos) ? pos : "bottom-right";
