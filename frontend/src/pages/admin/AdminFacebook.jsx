@@ -32,7 +32,12 @@ function compactScheduleResult(value) {
       return "IG comment ✗ Meta permission missing: approve instagram_manage_comments, then save a newly authorized token.";
     }
     if (/^Instagram\s*✗/i.test(part) && /2207076|Media upload has failed|^Instagram ✗ \(Fatal\)$/i.test(part)) {
-      return "Instagram ✗ Meta transcoder rejected the image (retried once). Card width is now capped at 1440 px; if it repeats, wait a few minutes and try again.";
+      // The same "Fatal" / 2207076 signature comes back for both feed images and
+      // Reel videos. Feed images are already width-capped; Reel videos now use
+      // an explicit 30 fps / 3.5 Mbps H.264 + 48 kHz AAC render and a 3 s
+      // minimum duration (Instagram Reel spec). If the message still repeats,
+      // the audio track is likely too short or unusually encoded.
+      return "Instagram ✗ Meta rejected the media (retried once). Reel video is now rendered at 30 fps H.264 / 48 kHz AAC and images capped at 1440 px. If it repeats, pick a longer audio track (≥ 3 s) or wait a few minutes.";
     }
     if (/^IG Story\s*✗/i.test(part) && /operation was aborted|aborted/i.test(part)) {
       return "IG Story ✗ Meta took too long to validate the 9:16 image (timeout raised to 45s). Try again — the retry usually succeeds.";

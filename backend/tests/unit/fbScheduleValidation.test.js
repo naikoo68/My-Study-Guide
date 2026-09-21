@@ -136,11 +136,16 @@ describe("validateScheduleData — question/flashcard Reels (asReel + music libr
     expect(pickScheduleFields({}).asStory).toBe(false);
   });
 
-  it("clamps reelDuration to 1–90 and defaults it to 30", () => {
+  it("clamps reelDuration to Instagram's 3–90s Reel range and defaults it to 30", () => {
+    // Instagram's Content Publishing API rejects Reels under 3 s with a `Fatal`
+    // container status. Requests below the floor are now bumped up to 3 s so
+    // the publish never fails on duration alone.
     expect(pickScheduleFields({}).reelDuration).toBe(30);
     expect(pickScheduleFields({ reelDuration: 0 }).reelDuration).toBe(30); // 0 → falsy → default
     expect(pickScheduleFields({ reelDuration: 30 }).reelDuration).toBe(30);
     expect(pickScheduleFields({ reelDuration: 500 }).reelDuration).toBe(90);
-    expect(pickScheduleFields({ reelDuration: -5 }).reelDuration).toBe(1); // -5 is truthy → clamped up to the 1s floor
+    expect(pickScheduleFields({ reelDuration: 1 }).reelDuration).toBe(3);
+    expect(pickScheduleFields({ reelDuration: 2 }).reelDuration).toBe(3);
+    expect(pickScheduleFields({ reelDuration: -5 }).reelDuration).toBe(3); // negative → floored to 3
   });
 });

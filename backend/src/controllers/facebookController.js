@@ -132,8 +132,9 @@ export function pickScheduleFields(body = {}) {
     asImage: !!body.asImage,
     // Post question/flashcard runs as a Reel by mixing the card image with music.
     asReel: !!body.asReel,
-    // Reel length in seconds — clamp to a sane range, default 30.
-    reelDuration: Math.max(1, Math.min(90, Math.round(Number(body.reelDuration) || 30))),
+    // Reel length in seconds — clamp to Instagram's accepted 3–90 s window
+    // (below 3 s Instagram rejects the publish with a "Fatal" container).
+    reelDuration: Math.max(3, Math.min(90, Math.round(Number(body.reelDuration) || 30))),
     // Also share the card image as a 24h Story to the selected networks.
     asStory: !!body.asStory,
     customAudios,
