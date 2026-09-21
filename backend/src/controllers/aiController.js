@@ -1713,6 +1713,7 @@ async function runGenerationJob(id, ctx) {
   let reservedCount = 0; // reserved total (count mode)
   let attempts = 0;
   let lastError = null;
+  let activeWaits = 0; // workers sleeping on a 429 — drives the UI countdown (job.waitUntil)
 
   const save = (patch) => Object.assign(job, patch, { updatedAt: Date.now() });
 
@@ -1897,7 +1898,11 @@ async function runGenerationJob(id, ctx) {
         const waitMs = Math.min(retryWaitMs(null, r.detail) || 30000, QUOTA_WAIT_CAP_MS);
         if (Date.now() + waitMs >= deadline) break;
         quotaWaits += 1;
+        // Surface the wait as a live countdown in the UI (jobStatus → waitUntil).
+        activeWaits += 1;
+        save({ waitUntil: Date.now() + waitMs });
         await sleep(waitMs);
+        if (--activeWaits === 0) save({ waitUntil: null });
         resetModelCycle(ep); // fresh pass over all the key's models after the wait
       }
       // transient/other errors: loop and try another chunk on this key
@@ -4329,6 +4334,7 @@ async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = n
   // single path, so bulk output is just as detailed. Multiple API keys still run
   // in parallel, so throughput stays high.
   const CHUNK = 2;
+  let activeWaits = 0; // workers currently sleeping on a 429 — drives the UI countdown (job.waitUntil)
 
   const sysPrompt = String(systemPrompt || "") + BATCH_REWRITE_SUFFIX;
   const queue = [...questions];
@@ -4408,7 +4414,14 @@ async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = n
         const waitMs = Math.min(retryWaitMs(null, lastError?.detail) || 30000, 60000);
         if (Date.now() + waitMs >= deadline) break;
         quotaWaits += 1;
+        // Surface the wait to the UI as a live countdown. jobStatus returns
+        // job.waitUntil (epoch ms) and the modal renders "auto-continuing in Ns".
+        // Track concurrent waiters so a resuming key doesn't clear a countdown
+        // another key is still waiting on.
+        activeWaits += 1;
+        save({ waitUntil: Date.now() + waitMs });
         await sleep(waitMs);
+        if (--activeWaits === 0) save({ waitUntil: null });
         continue;
       }
       // ok / soft: re-queue every question the reply did NOT fill (skipped item
@@ -4652,6 +4665,7 @@ async function runFlashcardJob(id, { endpoints, model, questions, owner = null }
   const MAX_QUOTA_WAITS = 6;
   const MAX_ITEM_RETRIES = 4; // per question: soft failures before we give up on that one
   const CHUNK = 4;            // small chunks → the reply always fits the token budget (no truncation)
+  let activeWaits = 0;        // workers sleeping on a 429 — drives the UI countdown (job.waitUntil)
 
   // Shared work queue of INDIVIDUAL questions — the SAME model the question
   // generator / extend job use: every key pulls chunks from one queue, and any
@@ -4734,7 +4748,11 @@ async function runFlashcardJob(id, { endpoints, model, questions, owner = null }
         const waitMs = Math.min(retryWaitMs(null, lastError?.detail) || 30000, 60000);
         if (Date.now() + waitMs >= deadline) break;
         quotaWaits += 1;
+        // Show a live countdown in the UI while we wait out the rate limit.
+        activeWaits += 1;
+        save({ waitUntil: Date.now() + waitMs });
         await sleep(waitMs);
+        if (--activeWaits === 0) save({ waitUntil: null });
         continue;
       }
       // ok / soft: re-queue every question in this chunk the AI did NOT fill
