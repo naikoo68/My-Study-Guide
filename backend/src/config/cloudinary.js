@@ -59,8 +59,14 @@ export async function composeImageAudioToVideo({
   const aud = String(audioUrl || "").trim();
   if (!img) throw new Error("An image is required to build the Reel.");
   if (!aud) throw new Error("An audio track is required to build the Reel.");
-  // Clamp the length to a sane Reel range (Facebook Reels cap at ~90s).
-  const dur = Math.max(1, Math.min(90, Math.round(Number(durationSec) || 30)));
+  // Clamp the length to a sane Reel range. Instagram's Content Publishing API
+  // REJECTS Reels under 3 s ("Fatal") — the flashcard/quiz schedules that were
+  // failing had their duration silently clamped to whatever the shortest track
+  // supplied (sometimes 1-2 s). Facebook is more lenient, which is why the
+  // same publish showed `Facebook ✓ · Instagram ✗` in the schedule notes.
+  const REEL_MIN_SEC = 3;
+  const REEL_MAX_SEC = 90;
+  const dur = Math.max(REEL_MIN_SEC, Math.min(REEL_MAX_SEC, Math.round(Number(durationSec) || 30)));
 
   // 1) Upload the audio as a video asset — this is how we learn its duration.
   const audio = await cloudinary.uploader.upload(aud, { folder, resource_type: "video" });
@@ -69,13 +75,24 @@ export async function composeImageAudioToVideo({
   // Overlay public ids use ':' in place of '/' for assets inside a folder.
   const overlayId = String(image.public_id).replace(/\//g, ":");
   // Never ask for more than the track actually has (avoids a trailing freeze).
-  const outDur = audio.duration ? Math.min(dur, Math.ceil(audio.duration)) : dur;
+  // Enforce Instagram's 3 s floor here too — a 2 s audio track would otherwise
+  // still produce a sub-minimum Reel that Meta rejects. When the track really
+  // is shorter than 3 s Cloudinary just holds the last audio sample; the video
+  // is still 3 s long, which is what Instagram requires.
+  const outDur = audio.duration
+    ? Math.max(REEL_MIN_SEC, Math.min(dur, Math.ceil(audio.duration)))
+    : dur;
 
   // 3) Render the Reel. Chained transform on the AUDIO base:
   //    a) pad to a black WxH canvas + trim to `outDur` seconds (start_offset 0)
   //    b) overlay the image (c_fit)   → whole card visible, centered
   //    c) fl_layer_apply              → bake the overlay in
-  //    d) h264 / aac / mp4            → a standard, widely-playable Reel file
+  //    d) explicit 30 fps + 3.5 Mbps video + 128 kbps AAC audio at 48 kHz
+  //       → Instagram Reel ingest expects a constant frame rate (23-60 fps)
+  //         and a plausible video bitrate. A still-image-over-audio render
+  //         would otherwise pick a very low fps / bitrate that Meta rejects
+  //         with `Fatal` even though Facebook accepts it.
+  //    e) h264 / aac / mp4            → a standard, widely-playable Reel file
   // Run eagerly + synchronously so the derived file exists before we return it.
   const result = await cloudinary.uploader.explicit(audio.public_id, {
     type: "upload",
@@ -87,7 +104,13 @@ export async function composeImageAudioToVideo({
           { width, height, crop: "pad", background: "black", start_offset: 0, duration: outDur },
           { overlay: overlayId, width, height, crop: "fit" },
           { flags: "layer_apply" },
-          { video_codec: "h264", audio_codec: "aac" },
+          {
+            video_codec: "h264",
+            audio_codec: "aac",
+            fps: 30,
+            bit_rate: "3500k",
+            audio_frequency: 48000,
+          },
         ],
         format: "mp4",
       },

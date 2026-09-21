@@ -57,8 +57,17 @@ describe("composeImageAudioToVideo", () => {
     // 2) the image is laid on top (fit, folder '/' → ':') then applied as a layer
     expect(tx[1]).toMatchObject({ overlay: "mystudyguide:social:img456", width: 1080, height: 1920, crop: "fit" });
     expect(tx[2].flags).toBe("layer_apply");
-    // 3) standard codecs for Facebook/Instagram playback
-    expect(tx[3]).toMatchObject({ video_codec: "h264", audio_codec: "aac" });
+    // 3) explicit encoding parameters Meta expects for an Instagram Reel:
+    //    H.264 + AAC in an MP4 container, a constant 30 fps, a real video
+    //    bitrate (still-image-over-audio otherwise renders at very low fps/
+    //    bitrate and Meta rejects it with `Fatal`), and 48 kHz audio.
+    expect(tx[3]).toMatchObject({
+      video_codec: "h264",
+      audio_codec: "aac",
+      fps: 30,
+      bit_rate: "3500k",
+      audio_frequency: 48000,
+    });
   });
 
   it("honours a requested duration, clamps it to ≤90s, and never exceeds the track length", async () => {
@@ -84,6 +93,26 @@ describe("composeImageAudioToVideo", () => {
     });
     r = await composeImageAudioToVideo({ imageUrl: "https://cdn/x.png", audioUrl: "https://cdn/a.mp3", durationSec: 15 });
     expect(r.duration).toBe(8);
+  });
+
+  it("enforces Instagram's 3-second Reel minimum even for very short audio tracks", async () => {
+    // A 1-2 second audio track would previously produce a Reel under Instagram's
+    // 3 s floor and Meta rejected it with `Fatal`. The composer now bumps the
+    // rendered duration up to 3 s (Cloudinary holds the last audio sample) so
+    // the Reel is always long enough to publish.
+    upload.mockImplementation(async (file, opts) => {
+      if (opts.resource_type === "video") return { public_id: "aud", duration: 1 };
+      return { public_id: "img" };
+    });
+    explicit.mockResolvedValue({ eager: [{ secure_url: "https://cdn/out.mp4" }] });
+
+    let r = await composeImageAudioToVideo({ imageUrl: "https://cdn/x.png", audioUrl: "https://cdn/a.mp3", durationSec: 1 });
+    expect(r.duration).toBe(3);
+    expect(explicit.mock.calls.at(-1)[1].eager[0].transformation[0].duration).toBe(3);
+
+    r = await composeImageAudioToVideo({ imageUrl: "https://cdn/x.png", audioUrl: "https://cdn/a.mp3", durationSec: 2 });
+    expect(r.duration).toBe(3);
+    expect(explicit.mock.calls.at(-1)[1].eager[0].transformation[0].duration).toBe(3);
   });
 
   it("errors before any upload when the image or audio URL is missing", async () => {
