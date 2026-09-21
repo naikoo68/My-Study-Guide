@@ -490,6 +490,97 @@ export async function postStoryToFacebookPage({ imageUrl } = {}, cfgOverride) {
   }
 }
 
+// Add a comment under an existing Facebook Page post (the "first comment"
+// technique). `postId` is the {page}_{post} id returned when the post was
+// published. Needs the pages_manage_engagement permission. Best-effort:
+// returns { ok, id?, error? } and never throws.
+export async function postCommentToFacebookPage({ postId, message } = {}, cfgOverride) {
+  const cfg = cfgOverride || (await getFacebookConfig());
+  if (!isFacebookConfigured(cfg)) return { ok: false, error: "Facebook Page ID or access token is not set." };
+  const id = String(postId || "").trim();
+  const msg = String(message || "").trim();
+  if (!id) return { ok: false, error: "No post id to comment on." };
+  if (!msg) return { ok: false, error: "Empty comment." };
+  try {
+    const pageToken = await resolvePageToken(cfg);
+    const r = await fbGraphPost(`https://graph.facebook.com/${cfg.version}/${encodeURIComponent(id)}/comments`, { message: msg }, pageToken);
+    const cid = r.data?.id;
+    if (r.ok && cid) return { ok: true, id: String(cid) };
+    return decorateFbError(r.data?.error?.message || `Comment failed (${r.status}).`, r.status);
+  } catch (err) {
+    return { ok: false, error: err.message || "Could not reach Facebook." };
+  }
+}
+
+// Add a comment under an Instagram media (post/reel) we published. `mediaId` is
+// the id returned by media_publish. Needs the instagram_manage_comments
+// permission on the linked IG Business account. Best-effort; never throws.
+export async function postCommentToInstagram({ mediaId, message } = {}, cfgOverride) {
+  const cfg = cfgOverride || (await getFacebookConfig());
+  if (!isFacebookConfigured(cfg)) return { ok: false, error: "Facebook/Instagram is not connected." };
+  const id = String(mediaId || "").trim();
+  const msg = String(message || "").trim();
+  if (!id) return { ok: false, error: "No media id to comment on." };
+  if (!msg) return { ok: false, error: "Empty comment." };
+  try {
+    const pageToken = await resolvePageToken(cfg);
+    const r = await fbGraphPost(`https://graph.facebook.com/${cfg.version}/${encodeURIComponent(id)}/comments`, { message: msg }, pageToken);
+    const cid = r.data?.id;
+    if (r.ok && cid) return { ok: true, id: String(cid) };
+    return { ok: false, error: r.data?.error?.message || `Instagram comment failed (${r.status}).` };
+  } catch (err) {
+    return { ok: false, error: err.message || "Could not reach Instagram." };
+  }
+}
+
+// Best-effort: after a scheduled post/reel publishes, add the admin's saved
+// GLOBAL auto-comment(s) as the first comment(s) under it. Stories are excluded
+// (the API can't comment on a Story). Reads the comment list/mode/pointer from
+// `site`, posts to the networks that actually published, then advances and
+// persists the rotation pointer globally. Returns notes[] and NEVER throws — a
+// comment failure must never affect the post's success.
+async function postScheduledAutoComments({ site, cfg, fbPostId, igPostId, wantFb, wantIg }) {
+  const notes = [];
+  try {
+    if (!site || site.fbAutoCommentsEnabled !== true) return { notes };
+    const list = (Array.isArray(site.fbAutoComments) ? site.fbAutoComments : [])
+      .map((s) => String(s || "").trim()).filter(Boolean);
+    if (!list.length) return { notes };
+
+    const mode = site.fbAutoCommentMode || "rotate";
+    const index = Number(site.fbAutoCommentIndex) || 0;
+    const { comments, nextIndex } = selectAutoComments(list, mode, index);
+    if (!comments.length) return { notes };
+
+    const toFb = site.fbAutoCommentToFacebook !== false; // default ON
+    const toIg = site.fbAutoCommentToInstagram === true;  // default OFF (needs extra permission)
+
+    if (wantFb && toFb && fbPostId) {
+      let ok = 0;
+      for (const c of comments) {
+        const rc = await postCommentToFacebookPage({ postId: fbPostId, message: c }, cfg);
+        if (rc.ok) ok += 1; else if (notes.length < 3) notes.push(`FB comment ✗ (${rc.error})`);
+      }
+      if (ok) notes.push(ok > 1 ? `FB comments ✓ (${ok})` : "FB comment ✓");
+    }
+    if (wantIg && toIg && igPostId) {
+      let ok = 0;
+      for (const c of comments) {
+        const rc = await postCommentToInstagram({ mediaId: igPostId, message: c }, cfg);
+        if (rc.ok) ok += 1; else if (notes.length < 4) notes.push(`IG comment ✗ (${rc.error})`);
+      }
+      if (ok) notes.push(ok > 1 ? `IG comments ✓ (${ok})` : "IG comment ✓");
+    }
+
+    // Advance + persist the rotation pointer so the NEXT post continues the cycle
+    // (site-wide; Settings is tenant-scoped by the ODM, matching how `site` loaded).
+    if (nextIndex !== index) {
+      await Settings.updateOne({ key: "site" }, { $set: { fbAutoCommentIndex: nextIndex } }).catch(() => {});
+    }
+  } catch { /* best-effort — comments never break a post */ }
+  return { notes };
+}
+
 // Verify the token/page WITHOUT posting — reads the Page name via the Graph API.
 export async function verifyFacebook(cfgOverride) {
   const cfg = cfgOverride || (await getFacebookConfig());
@@ -622,6 +713,7 @@ import Stream from "../models/Stream.js";
 import TestSeries from "../models/TestSeries.js";
 import { renderQuestionImage } from "./socialImage.js";
 import { renderQuestionCardShot, renderFlashcardCardShot } from "./cardShot.js";
+import { selectAutoComments } from "../utils/autoComments.js";
 import { composeImageAudioToVideo } from "./cloudinary.js";
 import { tenantStore, runUnscoped } from "../utils/tenantContext.js";
 import { getDefaultTenantId } from "../utils/platformScope.js";
@@ -980,6 +1072,7 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
   // Track each network INDEPENDENTLY (Instagram success must not mark Facebook posted).
   let fbOk = false; // a Facebook Page (main OR an extra Page) published OK
   let igOk = false; // Instagram published OK
+  let igPostId = null; // Instagram media id (for auto-comments)
   const fbAttempts = []; // raw per-Page results → collectFacebookPublications() decides what's recorded
 
   if (wantFb) {
@@ -1006,13 +1099,13 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
   if (wantIg) {
     if (isReel) {
       const r = await postReelToInstagram({ videoUrl, caption: message }, cfg);
-      if (r.ok) { igOk = true; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
+      if (r.ok) { igOk = true; igPostId = r.id || igPostId; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
     } else if (!rawImageUrl) {
       notes.push("Instagram ✗ (a custom Instagram post needs an image or a video)");
     } else {
       const igImageUrl = toInstagramSafeUrl(rawImageUrl);
       const r = await postToInstagram({ imageUrl: igImageUrl, caption: message }, cfg);
-      if (r.ok) { igOk = true; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
+      if (r.ok) { igOk = true; igPostId = r.id || igPostId; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
     }
   }
 
@@ -1030,6 +1123,13 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
         notes.push(rs.ok ? "IG Story ✓" : `IG Story ✗ (${rs.error})`);
       }
     }
+  }
+
+  // Auto-comment (first comment) on whatever published — best-effort.
+  {
+    const fbMainPostId = fbAttempts.find((a) => a.ok && a.id)?.id || null;
+    const { notes: cNotes } = await postScheduledAutoComments({ site, cfg, fbPostId: fbMainPostId, igPostId, wantFb, wantIg });
+    notes.push(...cNotes);
   }
 
   sch.lastRunAt = new Date();
@@ -1221,6 +1321,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   let fbOk = false;    // a Facebook Page (main OR an extra Page) published OK
   let igOk = false;    // Instagram published OK
   let fbPostId = null; // Meta's post id for the main Page — a real publication reference
+  let igPostId = null; // Instagram media id (for auto-comments)
   const fbAttempts = []; // raw per-Page results → collectFacebookPublications() decides what's recorded
 
   // Reel mode: ROTATE through the schedule's music library and mix the NEXT
@@ -1287,7 +1388,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
     if (reelVideoUrl) {
       // Publish the composed video as an Instagram Reel.
       const r = await postReelToInstagram({ videoUrl: reelVideoUrl, caption: message }, cfg);
-      if (r.ok) { igOk = true; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
+      if (r.ok) { igOk = true; igPostId = r.id || igPostId; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
     } else if (!imageUrl) {
       notes.push(`Instagram ✗ (image failed${imageErr ? `: ${imageErr}` : ""})`);
     } else {
@@ -1298,7 +1399,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
       // accepts any ratio. Padding never crops, so the full card stays visible.
       const igImageUrl = toInstagramSafeUrl(imageUrl);
       const r = await postToInstagram({ imageUrl: igImageUrl, caption: message }, cfg);
-      if (r.ok) { igOk = true; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
+      if (r.ok) { igOk = true; igPostId = r.id || igPostId; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
     }
   }
   if (!wantFb && !wantIg) return { ok: false, error: "No destination selected (enable Facebook and/or Instagram)." };
@@ -1319,6 +1420,13 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
         notes.push(rs.ok ? "IG Story ✓" : `IG Story ✗ (${rs.error})`);
       }
     }
+  }
+
+  // Auto-comment (first comment) on whatever published — best-effort, so a
+  // comment failure never changes the post's success.
+  {
+    const { notes: cNotes } = await postScheduledAutoComments({ site, cfg, fbPostId, igPostId, wantFb, wantIg });
+    notes.push(...cNotes);
   }
 
   // A post counts as "made" (advance the pool / mark the question posted) when it

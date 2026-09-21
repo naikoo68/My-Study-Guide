@@ -218,6 +218,7 @@ export async function updateSettings(req, res) {
     "fbFlashcardTemplateUrl", "fbFlashcardTemplateEnabled",
     "fbReelAudios",
     "fbNotifyEmail", "fbNotifyOnPost", "fbNotifyOnError", "fbNotifyOnComplete",
+    "fbAutoCommentsEnabled", "fbAutoComments", "fbAutoCommentMode", "fbAutoCommentToFacebook", "fbAutoCommentToInstagram",
     "igEnabled", "igUserId",
     "googleClientId",
   ];
@@ -271,6 +272,24 @@ export async function updateSettings(req, res) {
       arr.map((u) => String(u || "").trim())
         .filter((u) => /^https?:\/\//i.test(u) && isSafePublicUrl(u))
     )].slice(0, 30);
+  }
+  // Auto-comments: coerce toggles, validate mode, and clean the comment list
+  // (trim, drop blanks, cap each to 2200 chars — the IG comment limit — and the
+  // list to 50). The rotation pointer (fbAutoCommentIndex) is server-managed and
+  // intentionally NOT settable here.
+  if ("fbAutoCommentsEnabled" in update) update.fbAutoCommentsEnabled = !!update.fbAutoCommentsEnabled;
+  if ("fbAutoCommentToFacebook" in update) update.fbAutoCommentToFacebook = !!update.fbAutoCommentToFacebook;
+  if ("fbAutoCommentToInstagram" in update) update.fbAutoCommentToInstagram = !!update.fbAutoCommentToInstagram;
+  if ("fbAutoCommentMode" in update) {
+    const m = String(update.fbAutoCommentMode || "").trim();
+    update.fbAutoCommentMode = ["rotate", "all", "random"].includes(m) ? m : "rotate";
+  }
+  if ("fbAutoComments" in update) {
+    const arr = Array.isArray(update.fbAutoComments) ? update.fbAutoComments : [];
+    update.fbAutoComments = arr
+      .map((c) => String(c || "").trim().slice(0, 2200))
+      .filter(Boolean)
+      .slice(0, 50);
   }
   if ("fbSelfieWatermarkPosition" in update) {
     const pos = String(update.fbSelfieWatermarkPosition || "").trim();

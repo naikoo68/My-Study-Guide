@@ -5,7 +5,7 @@ import { useEffect, useState, useRef } from "react";
 import {
   Send, Loader2, CheckCircle2, AlertTriangle, KeyRound, Plus, Trash2, Pencil, X,
   Clock, CalendarClock, ListChecks, Power, Save, Upload, UserCircle, Type, Search, Mail,
-  ImagePlus, FileText, Wand2, RefreshCw, Film, Music, Camera,
+  ImagePlus, FileText, Wand2, RefreshCw, Film, Music, Camera, MessageSquare,
 } from "lucide-react";
 import { Facebook, Instagram } from "../../components/ui/SocialIcons";
 import { settingsService, facebookService, contentService, practiceService, uploadService } from "../../services";
@@ -980,7 +980,11 @@ export default function AdminFacebook() {
   const { settings, save: saveSettings } = useSettings();
 
   // ---- Connection config ----
-  const [fb, setFb] = useState({ fbEnabled: false, fbPageId: "", fbGraphVersion: "v21.0", igEnabled: false, igUserId: "", fbDefaultHashtags: "", fbAutoHashtags: true });
+  const [fb, setFb] = useState({
+    fbEnabled: false, fbPageId: "", fbGraphVersion: "v21.0", igEnabled: false, igUserId: "", fbDefaultHashtags: "", fbAutoHashtags: true,
+    fbAutoCommentsEnabled: false, fbAutoCommentMode: "rotate", fbAutoCommentToFacebook: true, fbAutoCommentToInstagram: false,
+  });
+  const [comments, setComments] = useState([]); // saved auto-comment lines (global "first comment")
   const [targets, setTargets] = useState([]); // extra cross-post Pages: [{label, pageId, token, tokenSet}]
   const [fbToken, setFbToken] = useState("");
   const [fbSaving, setFbSaving] = useState(false);
@@ -994,13 +998,22 @@ export default function AdminFacebook() {
       fbEnabled: settings?.fbEnabled === true, fbPageId: settings?.fbPageId || "", fbGraphVersion: settings?.fbGraphVersion || "v21.0",
       igEnabled: settings?.igEnabled === true, igUserId: settings?.igUserId || "",
       fbDefaultHashtags: settings?.fbDefaultHashtags || "", fbAutoHashtags: settings?.fbAutoHashtags !== false,
+      fbAutoCommentsEnabled: settings?.fbAutoCommentsEnabled === true,
+      fbAutoCommentMode: settings?.fbAutoCommentMode || "rotate",
+      fbAutoCommentToFacebook: settings?.fbAutoCommentToFacebook !== false,
+      fbAutoCommentToInstagram: settings?.fbAutoCommentToInstagram === true,
     });
+    setComments(Array.isArray(settings?.fbAutoComments) ? settings.fbAutoComments : []);
     setTargets((settings?.fbExtraTargets || []).map((t) => ({ label: t.label || "", pageId: t.pageId || "", token: "", tokenSet: !!t.tokenSet })));
-  }, [settings?.fbEnabled, settings?.fbPageId, settings?.fbGraphVersion, settings?.igEnabled, settings?.igUserId, settings?.fbDefaultHashtags, settings?.fbAutoHashtags, settings?.fbExtraTargets]);
+  }, [settings?.fbEnabled, settings?.fbPageId, settings?.fbGraphVersion, settings?.igEnabled, settings?.igUserId, settings?.fbDefaultHashtags, settings?.fbAutoHashtags, settings?.fbExtraTargets, settings?.fbAutoCommentsEnabled, settings?.fbAutoCommentMode, settings?.fbAutoCommentToFacebook, settings?.fbAutoCommentToInstagram, settings?.fbAutoComments]);
 
   const setTarget = (i, k, v) => setTargets((ts) => ts.map((t, idx) => (idx === i ? { ...t, [k]: v } : t)));
   const addTarget = () => setTargets((ts) => [...ts, { label: "", pageId: "", token: "", tokenSet: false }]);
   const removeTarget = (i) => setTargets((ts) => ts.filter((_, idx) => idx !== i));
+
+  const setComment = (i, v) => setComments((cs) => cs.map((c, idx) => (idx === i ? v : c)));
+  const addComment = () => setComments((cs) => [...cs, ""]);
+  const removeComment = (i) => setComments((cs) => cs.filter((_, idx) => idx !== i));
 
   const saveFb = async () => {
     setFbSaving(true); setFbMsg(null);
@@ -1008,7 +1021,8 @@ export default function AdminFacebook() {
       const fbExtraTargets = targets
         .filter((t) => String(t.pageId).trim())
         .map((t) => ({ label: String(t.label).trim(), pageId: String(t.pageId).trim(), token: String(t.token).trim() }));
-      await saveSettings({ ...fb, fbExtraTargets, ...(fbToken.trim() ? { fbPageAccessToken: fbToken.trim() } : {}) });
+      const fbAutoComments = comments.map((c) => String(c || "").trim()).filter(Boolean);
+      await saveSettings({ ...fb, fbAutoComments, fbExtraTargets, ...(fbToken.trim() ? { fbPageAccessToken: fbToken.trim() } : {}) });
       setFbToken(""); setFbMsg({ ok: true, text: "Saved." });
     } catch (e) { setFbMsg({ ok: false, text: e.message }); } finally { setFbSaving(false); }
   };
@@ -1227,6 +1241,68 @@ export default function AdminFacebook() {
         </div>
         <div className="mt-4">
           <button type="button" onClick={saveFb} disabled={fbSaving} className="btn-primary">{fbSaving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> Save hashtags</>}</button>
+        </div>
+      </div>
+
+      {/* Auto-comments (first comment) */}
+      <div className="card p-5">
+        <h2 className="flex items-center gap-2 font-bold"><MessageSquare className="h-4 w-4 text-[#1877F2]" /> Auto-comments (first comment)</h2>
+        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
+          Write comments once here — after every scheduled post &amp; reel publishes, one is added automatically as the first comment.
+          <b> Stories don't support comments</b>, so they're skipped.
+        </p>
+        <div className="mt-4 space-y-3">
+          <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
+            <span className="text-sm font-medium">Turn on auto-comments</span>
+            <button type="button" onClick={() => setFb((f) => ({ ...f, fbAutoCommentsEnabled: !f.fbAutoCommentsEnabled }))}
+              className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${fb.fbAutoCommentsEnabled ? "bg-[#1877F2]" : "bg-slate-300 dark:bg-slate-600"}`}>
+              <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${fb.fbAutoCommentsEnabled ? "left-6" : "left-1"}`} />
+            </button>
+          </label>
+
+          {/* The saved comment list */}
+          <div className="space-y-2">
+            {comments.length === 0 && <p className="text-sm text-slate-400">No comments yet — add one below.</p>}
+            {comments.map((c, i) => (
+              <div key={i} className="flex items-start gap-2">
+                <textarea className="input min-h-[42px] flex-1 resize-y" rows={1} value={c} onChange={(e) => setComment(i, e.target.value)} placeholder="e.g. 👉 Follow @mystudyguide for daily questions!" />
+                <button type="button" onClick={() => removeComment(i)} title="Remove" className="mt-1 rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30"><Trash2 className="h-4 w-4" /></button>
+              </div>
+            ))}
+            <button type="button" onClick={addComment} className="btn-outline"><Plus className="h-4 w-4" /> Add comment</button>
+          </div>
+
+          {/* How a comment is chosen per post */}
+          <div>
+            <label className="mb-1 block text-sm font-medium">How to use them per post</label>
+            <select className="input" value={fb.fbAutoCommentMode} onChange={(e) => setFb((f) => ({ ...f, fbAutoCommentMode: e.target.value }))}>
+              <option value="rotate">Rotate — one comment per post, in order</option>
+              <option value="all">All — post every comment on each post</option>
+              <option value="random">Random — a random comment each post</option>
+            </select>
+          </div>
+
+          {/* Which networks get the comment */}
+          <div className="grid gap-2 sm:grid-cols-2">
+            <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
+              <span className="flex items-center gap-2 text-sm font-medium"><Facebook className="h-4 w-4 text-[#1877F2]" /> Comment on Facebook</span>
+              <button type="button" onClick={() => setFb((f) => ({ ...f, fbAutoCommentToFacebook: !f.fbAutoCommentToFacebook }))}
+                className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${fb.fbAutoCommentToFacebook ? "bg-[#1877F2]" : "bg-slate-300 dark:bg-slate-600"}`}>
+                <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${fb.fbAutoCommentToFacebook ? "left-6" : "left-1"}`} />
+              </button>
+            </label>
+            <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
+              <span className="flex items-center gap-2 text-sm font-medium"><Instagram className="h-4 w-4 text-[#E1306C]" /> Comment on Instagram</span>
+              <button type="button" onClick={() => setFb((f) => ({ ...f, fbAutoCommentToInstagram: !f.fbAutoCommentToInstagram }))}
+                className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${fb.fbAutoCommentToInstagram ? "bg-[#1877F2]" : "bg-slate-300 dark:bg-slate-600"}`}>
+                <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${fb.fbAutoCommentToInstagram ? "left-6" : "left-1"}`} />
+              </button>
+            </label>
+          </div>
+          <p className="text-xs text-slate-400">Instagram auto-commenting needs the <code>instagram_manage_comments</code> permission on your connected Instagram Business account.</p>
+        </div>
+        <div className="mt-4">
+          <button type="button" onClick={saveFb} disabled={fbSaving} className="btn-primary">{fbSaving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> Save comments</>}</button>
         </div>
       </div>
 
