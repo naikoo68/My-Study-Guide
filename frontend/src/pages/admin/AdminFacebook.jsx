@@ -975,45 +975,110 @@ function ReelMusicLibrarySection({ settings, saveSettings }) {
   );
 }
 
-// Auto first-comment — a fixed comment posted on EVERY published Facebook post
-// and Instagram media (a pinned link / CTA / extra hashtags). Saved to site
-// settings and applied by the poster after each publish.
+// Auto first-comment — a GLOBAL list of comments the admin writes once (with a
+// ＋ add button). After every published Facebook post & Instagram media, the
+// poster adds a saved comment as the FIRST comment (a pinned link / CTA / extra
+// hashtags). The list is used per the chosen mode (rotate / all / random) and
+// per-network toggles. Saved to site settings.
 function AutoCommentSection({ settings, saveSettings }) {
   const [enabled, setEnabled] = useState(settings?.fbAutoCommentEnabled === true);
-  const [text, setText] = useState(settings?.fbAutoComment || "");
+  // Seed the list from fbAutoComments, falling back to the legacy single comment.
+  const seedList = (s) => {
+    const list = Array.isArray(s?.fbAutoComments) ? s.fbAutoComments : [];
+    if (list.length) return list;
+    return String(s?.fbAutoComment || "").trim() ? [String(s.fbAutoComment).trim()] : [];
+  };
+  const [comments, setComments] = useState(seedList(settings));
+  const [mode, setMode] = useState(settings?.fbAutoCommentMode || "rotate");
+  const [toFb, setToFb] = useState(settings?.fbAutoCommentToFacebook !== false);
+  const [toIg, setToIg] = useState(settings?.fbAutoCommentToInstagram === true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
 
   useEffect(() => {
     setEnabled(settings?.fbAutoCommentEnabled === true);
-    setText(settings?.fbAutoComment || "");
-  }, [settings?.fbAutoCommentEnabled, settings?.fbAutoComment]);
+    setComments(seedList(settings));
+    setMode(settings?.fbAutoCommentMode || "rotate");
+    setToFb(settings?.fbAutoCommentToFacebook !== false);
+    setToIg(settings?.fbAutoCommentToInstagram === true);
+  }, [settings?.fbAutoCommentEnabled, settings?.fbAutoComment, settings?.fbAutoComments, settings?.fbAutoCommentMode, settings?.fbAutoCommentToFacebook, settings?.fbAutoCommentToInstagram]);
+
+  const setComment = (i, v) => setComments((cs) => cs.map((c, idx) => (idx === i ? v : c)));
+  const addComment = () => setComments((cs) => [...cs, ""]);
+  const removeComment = (i) => setComments((cs) => cs.filter((_, idx) => idx !== i));
 
   const save = async () => {
     setSaving(true); setMsg(null);
     try {
-      await saveSettings({ fbAutoCommentEnabled: enabled, fbAutoComment: text });
+      const fbAutoComments = comments.map((c) => String(c || "").trim()).filter(Boolean);
+      await saveSettings({
+        fbAutoCommentEnabled: enabled,
+        fbAutoComments,
+        fbAutoCommentMode: mode,
+        fbAutoCommentToFacebook: toFb,
+        fbAutoCommentToInstagram: toIg,
+        // Keep the legacy single field in sync (first comment) for back-compat.
+        fbAutoComment: fbAutoComments[0] || "",
+      });
       setMsg({ ok: true, text: "Settings saved." });
     } catch (err) { setMsg({ ok: false, text: err.message || "Save failed." }); }
     finally { setSaving(false); }
   };
 
+  const toggle = (val, on) => (
+    <button type="button" onClick={on}
+      className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${val ? "bg-[#1877F2]" : "bg-slate-300 dark:bg-slate-600"}`}>
+      <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${val ? "left-6" : "left-1"}`} />
+    </button>
+  );
+
   return (
     <CollapsibleCard title="Auto first comment" icon={MessageCircle}>
       <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-        Automatically add this as the <b>first comment</b> on every published Facebook &amp; Instagram post — handy for a pinned link, a call-to-action, or extra hashtags.
+        Write comments once here — after every scheduled post &amp; reel publishes, one is added automatically as the <b>first comment</b> (a pinned link / CTA / extra hashtags). <b>Stories don't support comments</b>, so they're skipped.
       </p>
       <div className="mt-4 space-y-3">
         <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
           <span className="text-sm font-medium">Add a first comment to every post</span>
-          <button type="button" onClick={() => setEnabled((v) => !v)}
-            className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${enabled ? "bg-[#1877F2]" : "bg-slate-300 dark:bg-slate-600"}`}>
-            <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${enabled ? "left-6" : "left-1"}`} />
-          </button>
+          {toggle(enabled, () => setEnabled((v) => !v))}
         </label>
-        <textarea className="input min-h-[80px] resize-y" rows={3} maxLength={2000} value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="e.g. 👉 Follow for daily quizzes! Practice more at mystudyguide.in  #JKSSB #GK" />
+
+        {/* The saved comment list */}
+        <div className="space-y-2">
+          {comments.length === 0 && <p className="text-sm text-slate-400">No comments yet — add one below.</p>}
+          {comments.map((c, i) => (
+            <div key={i} className="flex items-start gap-2">
+              <textarea className="input min-h-[42px] flex-1 resize-y" rows={1} maxLength={2000} value={c}
+                onChange={(e) => setComment(i, e.target.value)}
+                placeholder="e.g. 👉 Follow for daily quizzes! Practice at mystudyguide.in  #JKSSB #GK" />
+              <button type="button" onClick={() => removeComment(i)} title="Remove" className="mt-1 rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30"><Trash2 className="h-4 w-4" /></button>
+            </div>
+          ))}
+          <button type="button" onClick={addComment} className="btn-outline"><Plus className="h-4 w-4" /> Add comment</button>
+        </div>
+
+        {/* How a comment is chosen per post */}
+        <div>
+          <label className="mb-1 block text-sm font-medium">How to use them per post</label>
+          <select className="input" value={mode} onChange={(e) => setMode(e.target.value)}>
+            <option value="rotate">Rotate — one comment per post, in order</option>
+            <option value="all">All — post every comment on each post</option>
+            <option value="random">Random — a random comment each post</option>
+          </select>
+        </div>
+
+        {/* Which networks get the comment */}
+        <div className="grid gap-2 sm:grid-cols-2">
+          <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
+            <span className="flex items-center gap-2 text-sm font-medium"><Facebook className="h-4 w-4 text-[#1877F2]" /> Comment on Facebook</span>
+            {toggle(toFb, () => setToFb((v) => !v))}
+          </label>
+          <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
+            <span className="flex items-center gap-2 text-sm font-medium"><Instagram className="h-4 w-4 text-[#E1306C]" /> Comment on Instagram</span>
+            {toggle(toIg, () => setToIg((v) => !v))}
+          </label>
+        </div>
+
         <p className="text-xs text-slate-400">
           Note: <b>@everyone / @followers / @all</b> are posted as plain text — Facebook &amp; Instagram don't let apps tag all
           followers, so use them as a caption, not a notification. Instagram commenting needs the <b>instagram_manage_comments</b> permission.

@@ -242,10 +242,11 @@ const settingsSchema = new mongoose.Schema(
     // onto this uploaded image instead of the built-in design. Cloudinary URL.
     fbFlashcardTemplateUrl: { type: String, default: "" },
     fbFlashcardTemplateEnabled: { type: Boolean, default: true },
-    // Auto first-comment: when enabled, this text is posted as the FIRST comment
-    // on every published Facebook post AND Instagram media (great for a pinned
-    // link / CTA / extra hashtags). @everyone/@followers appear as plain text —
-    // the platform APIs don't expose a notify-all action for Pages/IG.
+    // Auto first-comment (see the full auto-comment block lower down). Master
+    // on/off toggle + the LEGACY single comment. `fbAutoComment` is kept for
+    // back-compat and used as a fallback when the `fbAutoComments` list is empty.
+    // @everyone/@followers appear as plain text — the platform APIs don't expose
+    // a notify-all action for Pages/IG.
     fbAutoCommentEnabled: { type: Boolean, default: false },
     fbAutoComment: { type: String, default: "" },
     // SHARED Reel music library (public track URLs). Added ONCE here and reused
@@ -270,6 +271,20 @@ const settingsSchema = new mongoose.Schema(
     // Instagram cross-posting (uses the same Page token; IG account linked to the Page)
     igEnabled: { type: Boolean, default: false },
     igUserId: { type: String, default: "" }, // Instagram Business account id (blank = auto-detect from the Page)
+    // ---- Auto-comments ("first comment") ----
+    // A GLOBAL list of comments the admin writes once; after EVERY scheduled
+    // auto-post/reel publishes, the app adds a saved comment as the first
+    // comment under it (the classic "put your link/CTA in the first comment"
+    // technique). Enabled by `fbAutoCommentEnabled` above; when this list is
+    // empty the legacy single `fbAutoComment` is used. Stories are excluded —
+    // the API can't comment on a Story.
+    fbAutoComments: { type: [String], default: [] }, // the saved comment lines
+    // How a comment is chosen per post: rotate one-per-post (default), post ALL
+    // of them, or a random one.
+    fbAutoCommentMode: { type: String, enum: ["rotate", "all", "random"], default: "rotate" },
+    fbAutoCommentIndex: { type: Number, default: 0 }, // rotation pointer (advances each post)
+    fbAutoCommentToFacebook: { type: Boolean, default: true },  // comment on Facebook posts
+    fbAutoCommentToInstagram: { type: Boolean, default: false }, // needs instagram_manage_comments
     // ---- Google Drive backup ----
     // OAuth Web Client ID (from Google Cloud Console). NOT a secret — it is meant
     // to be public in the browser. When set, the "Back up / Restore to Google

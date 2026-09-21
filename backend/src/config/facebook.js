@@ -563,25 +563,50 @@ export async function commentOnInstagramMedia({ mediaId, message } = {}, cfgOver
   }
 }
 
-// Shared: post the configured auto first-comment on the MAIN Facebook Page post
-// (fbAttempts[0]) and the published Instagram media. No-op unless the feature is
-// enabled and has text. Best-effort — records only failures into `notes`, and
-// never throws (a comment must never break or fail a post).
+// Shared: post the configured auto first-comment(s) on the MAIN Facebook Page
+// post (fbAttempts[0]) and the published Instagram media. Reads a GLOBAL list
+// (`fbAutoComments`) and picks comment(s) per the mode (rotate/all/random),
+// falling back to the legacy single `fbAutoComment` when the list is empty.
+// Per-network toggles decide FB vs IG. No-op unless the feature is enabled and
+// there is text. Best-effort — records only failures into `notes`, advances +
+// persists the rotation pointer, and NEVER throws (a comment must never break a
+// post). Stories are NOT handled here (the API can't comment on a Story).
 async function postAutoFirstComment({ site, cfg, fbAttempts = [], igMediaId = null, notes = [] } = {}) {
-  const text = site?.fbAutoCommentEnabled && String(site?.fbAutoComment || "").trim()
-    ? String(site.fbAutoComment).trim() : "";
-  if (!text) return;
+  if (!site?.fbAutoCommentEnabled) return;
+  // Prefer the multi-comment list; fall back to the legacy single comment.
+  let list = (Array.isArray(site.fbAutoComments) ? site.fbAutoComments : [])
+    .map((s) => String(s || "").trim()).filter(Boolean);
+  if (!list.length && String(site.fbAutoComment || "").trim()) list = [String(site.fbAutoComment).trim()];
+  if (!list.length) return;
+
+  const mode = site.fbAutoCommentMode || "rotate";
+  const index = Number(site.fbAutoCommentIndex) || 0;
+  const { comments, nextIndex } = selectAutoComments(list, mode, index);
+  if (!comments.length) return;
+
+  const toFb = site.fbAutoCommentToFacebook !== false; // default ON
+  const toIg = site.fbAutoCommentToInstagram === true;  // default OFF (needs instagram_manage_comments)
+
   try {
     // Only the MAIN Page post (pushed first). Extra Pages use their own tokens,
     // so commenting on them with the main token would fail — skip them.
     const mainFbPostId = fbAttempts[0]?.ok ? fbAttempts[0].id : null;
-    if (mainFbPostId) {
-      const c = await commentOnFacebookPost({ postId: mainFbPostId, message: text }, cfg);
-      if (!c.ok) notes.push(`FB comment ✗ (${c.error})`);
+    if (toFb && mainFbPostId) {
+      for (const c of comments) {
+        const r = await commentOnFacebookPost({ postId: mainFbPostId, message: c }, cfg);
+        if (!r.ok) notes.push(`FB comment ✗ (${r.error})`);
+      }
     }
-    if (igMediaId) {
-      const c = await commentOnInstagramMedia({ mediaId: igMediaId, message: text }, cfg);
-      if (!c.ok) notes.push(`IG comment ✗ (${c.error})`);
+    if (toIg && igMediaId) {
+      for (const c of comments) {
+        const r = await commentOnInstagramMedia({ mediaId: igMediaId, message: c }, cfg);
+        if (!r.ok) notes.push(`IG comment ✗ (${r.error})`);
+      }
+    }
+    // Advance + persist the rotation pointer so the NEXT post continues the cycle
+    // (site-wide; Settings is tenant-scoped by the ODM, matching how `site` loaded).
+    if (nextIndex !== index) {
+      await Settings.updateOne({ key: "site" }, { $set: { fbAutoCommentIndex: nextIndex } }).catch(() => {});
     }
   } catch { /* never propagate — the post already succeeded */ }
 }
@@ -719,6 +744,7 @@ import TestSeries from "../models/TestSeries.js";
 import { renderQuestionImage } from "./socialImage.js";
 import { renderQuestionCardShot, renderFlashcardCardShot } from "./cardShot.js";
 import { isQuestionComplete } from "../utils/questionComplete.js";
+import { selectAutoComments } from "../utils/autoComments.js";
 import { composeImageAudioToVideo } from "./cloudinary.js";
 import { tenantStore, runUnscoped } from "../utils/tenantContext.js";
 import { getDefaultTenantId } from "../utils/platformScope.js";
@@ -1163,9 +1189,9 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
     }
   }
 
-  // Auto first-comment: add a fixed comment to the just-published MAIN Page post
-  // and the IG media (a pinned link / CTA / extra hashtags). Best-effort — a
-  // comment failure never affects the post's success.
+  // Auto first-comment(s): add the saved comment(s) to the just-published MAIN
+  // Page post and the IG media (a pinned link / CTA / extra hashtags).
+  // Best-effort — a comment failure never affects the post's success.
   await postAutoFirstComment({ site, cfg, fbAttempts, igMediaId, notes });
 
   sch.lastRunAt = new Date();
@@ -1492,7 +1518,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
     }
   }
 
-  // Auto first-comment on the just-published MAIN Page post + IG media.
+  // Auto first-comment(s) on the just-published MAIN Page post + IG media.
   await postAutoFirstComment({ site, cfg, fbAttempts, igMediaId, notes });
 
   // A post counts as "made" (advance the pool / mark the question posted) when it
