@@ -651,6 +651,7 @@ import Stream from "../models/Stream.js";
 import TestSeries from "../models/TestSeries.js";
 import { renderQuestionImage } from "./socialImage.js";
 import { renderQuestionCardShot, renderFlashcardCardShot } from "./cardShot.js";
+import { isQuestionComplete } from "../utils/questionComplete.js";
 import { composeImageAudioToVideo } from "./cloudinary.js";
 import { tenantStore, runUnscoped } from "../utils/tenantContext.js";
 import { getDefaultTenantId } from "../utils/platformScope.js";
@@ -847,40 +848,70 @@ function scopeFilter(source = {}) {
 }
 
 // Pick the next question for a schedule (random or sequential), skipping ones
-// already posted until the pool is exhausted, then cycling. Returns the doc.
+// already posted until the pool is exhausted, then cycling. INCOMPLETE questions
+// (missing options/statements/columns/assertion-reason etc. — see
+// utils/questionComplete.js) are also skipped so we never publish a broken card;
+// the number skipped is reported back so the caller can note it. Returns the doc
+// as { q, recycled, poolSize, skipped } or { exhausted, poolSize, skipped }.
 export async function pickQuestionForSchedule(sch) {
   // A single specific question (scheduled straight from the question view).
+  // Nothing to skip TO, so an incomplete one is reported (never posted).
   if (sch.source?.question) {
     const q = await Question.findById(sch.source.question).lean();
-    return q ? { q, recycled: false } : null;
+    if (!q) return null;
+    if (!isQuestionComplete(q).ok) return { exhausted: true, poolSize: 1, skipped: 1 };
+    return { q, recycled: false };
   }
   const filter = scopeFilter(sch.source);
   if (!filter) return null;
-  const posted = (sch.postedQuestionIds || []).map(String);
 
   const poolSize = await Question.countDocuments(filter); // total questions in this source
   if (poolSize === 0) return null; // no questions at all in this scope
 
-  const unusedFilter = posted.length ? { ...filter, _id: { $nin: sch.postedQuestionIds } } : filter;
-  let count = posted.length ? await Question.countDocuments(unusedFilter) : poolSize;
-  let useFilter = unusedFilter;
-  let recycled = false;
-  if (count === 0) {
-    // Every question has been posted. Either STOP (default) or recycle the pool.
-    if (sch.stopWhenExhausted !== false) return { exhausted: true, poolSize };
-    count = poolSize;
-    useFilter = filter;
-    recycled = true;
-  }
+  const postedIds = sch.postedQuestionIds || [];
+  const skipped = []; // ids of INCOMPLETE questions skipped during THIS pick
 
-  let q;
-  if (sch.order === "sequential") {
-    q = await Question.findOne(useFilter).sort({ createdAt: 1 }).lean();
-  } else {
-    const skip = Math.floor(Math.random() * count);
-    q = await Question.findOne(useFilter).skip(skip).lean();
+  // Fetch the next candidate that is neither already posted nor skipped this
+  // run. Recycles (ignores `posted`) only when the schedule allows it and there
+  // is still a complete question to recycle to. Returns { q, recycled } or
+  // { exhausted: true }.
+  const nextCandidate = async () => {
+    const exclude = [...postedIds, ...skipped];
+    let useFilter = exclude.length ? { ...filter, _id: { $nin: exclude } } : filter;
+    let count = await Question.countDocuments(useFilter);
+    let recycled = false;
+    if (count === 0) {
+      // Nothing unposted (and not-yet-skipped) remains.
+      if (sch.stopWhenExhausted !== false) return { exhausted: true };
+      // Recycle across the whole pool, but keep this run's skipped-incomplete
+      // ones excluded so we can't loop on them forever.
+      useFilter = skipped.length ? { ...filter, _id: { $nin: skipped } } : filter;
+      count = await Question.countDocuments(useFilter);
+      if (count === 0) return { exhausted: true }; // every remaining question is incomplete
+      recycled = true;
+    }
+    let q;
+    if (sch.order === "sequential") {
+      q = await Question.findOne(useFilter).sort({ createdAt: 1 }).lean();
+    } else {
+      const skip = Math.floor(Math.random() * count);
+      q = await Question.findOne(useFilter).skip(skip).lean();
+    }
+    return q ? { q, recycled } : { exhausted: true };
+  };
+
+  // Try candidates until a COMPLETE one is found, skipping incomplete ones.
+  // Cap attempts so a pool of entirely-incomplete questions can't spin forever.
+  const maxAttempts = Math.min(poolSize, 500);
+  for (let i = 0; i < maxAttempts; i++) {
+    const cand = await nextCandidate();
+    if (cand.exhausted) return { exhausted: true, poolSize, skipped: skipped.length };
+    if (isQuestionComplete(cand.q).ok) {
+      return { q: cand.q, recycled: cand.recycled, poolSize, skipped: skipped.length };
+    }
+    skipped.push(cand.q._id); // incomplete → skip it and try the next one
   }
-  return q ? { q, recycled, poolSize } : null;
+  return { exhausted: true, poolSize, skipped: skipped.length };
 }
 
 // Short one-line excerpt of a question stem for notification emails.
@@ -1119,23 +1150,45 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   const picked = await pickQuestionForSchedule(sch);
   // Source fully posted → STOP this schedule (unless it's set to recycle).
   if (picked?.exhausted) {
+    // Distinguish a genuine "all posted" completion from a stop caused only by
+    // INCOMPLETE questions being skipped — so the admin knows to fix content
+    // rather than think the pool is done.
+    const blockedByIncomplete = (picked.skipped || 0) > 0;
     sch.enabled = false;
     sch.completedAt = new Date();
     sch.poolSize = picked.poolSize || sch.poolSize || 0;
     sch.lastRunAt = new Date();
-    sch.lastResult = `Completed — all ${picked.poolSize} question(s) in this source have been posted. Schedule paused.`;
+    sch.lastResult = blockedByIncomplete
+      ? `Paused — no complete question to post. Skipped ${picked.skipped} incomplete question(s) (missing content). Fix them and re-enable.`
+      : `Completed — all ${picked.poolSize} question(s) in this source have been posted. Schedule paused.`;
     if (notify && site?.fbNotifyOnComplete !== false) {
-      await fbNotify({
-        site,
-        subject: `✅ Auto-post complete — ${schTitle}`,
-        text: `All ${picked.poolSize} question(s) from "${sch.source?.label || schTitle}" have been posted. The schedule was paused automatically so nothing repeats.`,
-        html: `<p>✅ <b>${schTitle}</b> has finished.</p><p>All <b>${picked.poolSize}</b> question(s) from <b>${sch.source?.label || "the selected source"}</b> have been posted. The schedule was paused automatically so no questions repeat.</p>`,
-      });
+      await fbNotify(
+        blockedByIncomplete
+          ? {
+              site,
+              subject: `⚠️ Auto-post paused — ${schTitle}`,
+              text: `"${sch.source?.label || schTitle}" was paused because no complete question was available to post. ${picked.skipped} incomplete question(s) were skipped (missing options / statements / columns / assertion-reason). Fix them, then re-enable the schedule.`,
+              html: `<p>⚠️ <b>${schTitle}</b> was paused.</p><p>No complete question was available to post — <b>${picked.skipped}</b> incomplete question(s) were skipped (missing content such as options, statements, columns or assertion/reason).</p><p>Fix those questions and re-enable the schedule to resume.</p>`,
+            }
+          : {
+              site,
+              subject: `✅ Auto-post complete — ${schTitle}`,
+              text: `All ${picked.poolSize} question(s) from "${sch.source?.label || schTitle}" have been posted. The schedule was paused automatically so nothing repeats.`,
+              html: `<p>✅ <b>${schTitle}</b> has finished.</p><p>All <b>${picked.poolSize}</b> question(s) from <b>${sch.source?.label || "the selected source"}</b> have been posted. The schedule was paused automatically so no questions repeat.</p>`,
+            }
+      );
     }
-    return { ok: false, exhausted: true, completed: true, error: "All questions in this source have been posted." };
+    return {
+      ok: false,
+      exhausted: true,
+      completed: !blockedByIncomplete,
+      error: blockedByIncomplete
+        ? `No complete question to post — ${picked.skipped} incomplete question(s) skipped.`
+        : "All questions in this source have been posted.",
+    };
   }
   if (!picked || !picked.q) return { ok: false, error: "No published questions found in the selected source." };
-  const { q, recycled, poolSize } = picked;
+  const { q, recycled, poolSize, skipped: skippedIncomplete = 0 } = picked;
 
   const wantFb = sch.toFacebook !== false;
   const wantIg = !!sch.toInstagram && cfg.igEnabled;
@@ -1253,6 +1306,9 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   }
 
   const notes = [];
+  // Note any incomplete questions we skipped to reach this one, so the schedule
+  // result shows they were passed over (and should be fixed).
+  if (skippedIncomplete > 0) notes.push(`Skipped ${skippedIncomplete} incomplete`);
   // Track each network INDEPENDENTLY so success on one is never attributed to the
   // other (Instagram succeeding must NOT mark Facebook as posted, and vice-versa).
   let fbOk = false;    // a Facebook Page (main OR an extra Page) published OK
