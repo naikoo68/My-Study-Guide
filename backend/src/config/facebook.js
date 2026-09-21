@@ -19,6 +19,11 @@ import { toFacebookSafeUrl } from "../utils/facebookImage.js";
 export async function getFacebookConfig(filter) {
   const s = await Settings.findOne({ key: "site", ...(filter || {}) }).lean();
   return {
+    // Keep the exact Settings row that supplied the credentials. Publishing and
+    // all behavior settings (auto-comments, watermarks, hashtags, notifications)
+    // MUST come from this SAME row — a later bare {key:"site"} lookup can return
+    // a different tenant/null row and silently disable comments.
+    settingsId: s?._id ? String(s._id) : "",
     enabled: !!s?.fbEnabled,
     pageId: String(s?.fbPageId || "").trim(),
     token: String(s?.fbPageAccessToken || "").trim(),
@@ -28,6 +33,19 @@ export async function getFacebookConfig(filter) {
     igEnabled: !!s?.igEnabled,
     igUserId: String(s?.igUserId || "").trim(),
   };
+}
+
+// Load the EXACT settings document that supplied cfg's Page credentials. This
+// prevents a scheduled/manual publish from using one tenant's credentials but a
+// different/null tenant's auto-comment settings. The known _id is safe to read
+// unscoped; cfg was resolved inside the authorized tenant/platform flow.
+export async function getFacebookSiteForConfig(cfg) {
+  if (cfg?.settingsId) {
+    const exact = await runUnscoped(() => Settings.findById(cfg.settingsId).lean()).catch(() => null);
+    if (exact) return exact;
+  }
+  // Backward-compatible fallback for directly supplied test configs.
+  return Settings.findOne({ key: "site" }).lean().catch(() => null);
 }
 
 export const isFacebookConfigured = (cfg) => !!(cfg?.pageId && cfg?.token);
@@ -519,6 +537,25 @@ export async function postStoryToFacebookPage({ imageUrl } = {}, cfgOverride) {
   }
 }
 
+// Newly published feed/reel objects can take a few seconds to become available
+// on the comments edge. Retry only propagation/rate-limit failures; permission
+// and validation errors must fail immediately.
+function isRetryableCommentError(message, code) {
+  const msg = String(message || "");
+  return [1, 2, 4, 17, 32].includes(Number(code)) ||
+    /not available|not ready|does not exist|unsupported get request|temporar|try again|request limit|rate limit/i.test(msg);
+}
+
+function friendlyCommentError(message, platform, status) {
+  const msg = String(message || `${platform} comment failed${status ? ` (${status})` : ""}.`);
+  if (/permission|permissions|oauth|\(#200\)|code\s*200/i.test(msg)) {
+    return platform === "Instagram"
+      ? `${msg} Reconnect Meta with the instagram_manage_comments permission.`
+      : `${msg} Reconnect Meta with pages_manage_engagement and pages_read_engagement permissions.`;
+  }
+  return msg;
+}
+
 // Post the FIRST COMMENT on a just-published Facebook Page object (feed post,
 // photo post or reel) via /{object-id}/comments. Used for the auto-comment
 // feature (a fixed comment added to every post). Best-effort; never throws.
@@ -532,10 +569,16 @@ export async function commentOnFacebookPost({ postId, message } = {}, cfgOverrid
   const msg = String(message || "").trim();
   if (!id || !msg) return { ok: false, error: "A post id and comment text are both required." };
   const pageToken = await resolvePageToken(cfg);
+  let lastError = "";
   try {
-    const r = await fbGraphPost(`https://graph.facebook.com/${cfg.version}/${encodeURIComponent(id)}/comments`, { message: msg }, pageToken);
-    if (r.ok && r.data?.id) return { ok: true, id: String(r.data.id) };
-    return { ok: false, error: r.data?.error?.message || `Facebook comment failed (${r.status}).` };
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const r = await fbGraphPost(`https://graph.facebook.com/${cfg.version}/${encodeURIComponent(id)}/comments`, { message: msg }, pageToken);
+      if (r.ok && r.data?.id) return { ok: true, id: String(r.data.id) };
+      lastError = friendlyCommentError(r.data?.error?.message, "Facebook", r.status);
+      if (!isRetryableCommentError(r.data?.error?.message, r.data?.error?.code) || attempt === 3) break;
+      await sleep(2000 * (attempt + 1));
+    }
+    return { ok: false, error: lastError || "Facebook comment failed." };
   } catch (err) {
     return { ok: false, error: err.message || "Could not reach Facebook." };
   }
@@ -551,13 +594,19 @@ export async function commentOnInstagramMedia({ mediaId, message } = {}, cfgOver
   const msg = String(message || "").trim();
   if (!id || !msg) return { ok: false, error: "A media id and comment text are both required." };
   const pageToken = await resolvePageToken(cfg);
+  let lastError = "";
   try {
     const headers = { "Content-Type": "application/x-www-form-urlencoded" };
     const body = new URLSearchParams({ message: msg, access_token: pageToken });
-    const res = await fbFetch(`https://graph.facebook.com/${cfg.version}/${encodeURIComponent(id)}/comments`, { method: "POST", headers, body });
-    const data = await res.json().catch(() => ({}));
-    if (res.ok && data?.id) return { ok: true, id: String(data.id) };
-    return { ok: false, error: data?.error?.message || `Instagram comment failed (${res.status}).` };
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const res = await fbFetch(`https://graph.facebook.com/${cfg.version}/${encodeURIComponent(id)}/comments`, { method: "POST", headers, body });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.id) return { ok: true, id: String(data.id) };
+      lastError = friendlyCommentError(data?.error?.message, "Instagram", res.status);
+      if (!isRetryableCommentError(data?.error?.message, data?.error?.code) || attempt === 3) break;
+      await sleep(2000 * (attempt + 1));
+    }
+    return { ok: false, error: lastError || "Instagram comment failed." };
   } catch (err) {
     return { ok: false, error: err.message || "Could not reach Instagram." };
   }
@@ -571,7 +620,7 @@ export async function commentOnInstagramMedia({ mediaId, message } = {}, cfgOver
 // there is text. Best-effort — records only failures into `notes`, advances +
 // persists the rotation pointer, and NEVER throws (a comment must never break a
 // post). Stories are NOT handled here (the API can't comment on a Story).
-async function postAutoFirstComment({ site, cfg, fbAttempts = [], igMediaId = null, notes = [] } = {}) {
+export async function postAutoFirstComment({ site, cfg, fbAttempts = [], igMediaId = null, notes = [] } = {}) {
   if (!site?.fbAutoCommentEnabled) return;
   // Prefer the multi-comment list; fall back to the legacy single comment.
   let list = (Array.isArray(site.fbAutoComments) ? site.fbAutoComments : [])
@@ -587,6 +636,7 @@ async function postAutoFirstComment({ site, cfg, fbAttempts = [], igMediaId = nu
   const toFb = site.fbAutoCommentToFacebook !== false; // default ON
   const toIg = site.fbAutoCommentToInstagram === true;  // default OFF (needs instagram_manage_comments)
 
+  let successfulComments = 0;
   try {
     // Only the MAIN Page post (pushed first). Extra Pages use their own tokens,
     // so commenting on them with the main token would fail — skip them.
@@ -594,19 +644,26 @@ async function postAutoFirstComment({ site, cfg, fbAttempts = [], igMediaId = nu
     if (toFb && mainFbPostId) {
       for (const c of comments) {
         const r = await commentOnFacebookPost({ postId: mainFbPostId, message: c }, cfg);
-        if (!r.ok) notes.push(`FB comment ✗ (${r.error})`);
+        if (r.ok) successfulComments += 1;
+        else notes.push(`FB comment ✗ (${r.error})`);
       }
     }
     if (toIg && igMediaId) {
       for (const c of comments) {
         const r = await commentOnInstagramMedia({ mediaId: igMediaId, message: c }, cfg);
-        if (!r.ok) notes.push(`IG comment ✗ (${r.error})`);
+        if (r.ok) successfulComments += 1;
+        else notes.push(`IG comment ✗ (${r.error})`);
       }
     }
-    // Advance + persist the rotation pointer so the NEXT post continues the cycle
-    // (site-wide; Settings is tenant-scoped by the ODM, matching how `site` loaded).
-    if (nextIndex !== index) {
-      await Settings.updateOne({ key: "site" }, { $set: { fbAutoCommentIndex: nextIndex } }).catch(() => {});
+    // Advance only after at least one comment was REALLY created; otherwise a
+    // missing permission/propagation failure silently skipped comments forever.
+    // Update the exact Settings row used for this publish, not an arbitrary
+    // tenant/null {key:"site"} row.
+    if (successfulComments > 0 && nextIndex !== index && site?._id) {
+      await runUnscoped(() => Settings.updateOne(
+        { _id: site._id },
+        { $set: { fbAutoCommentIndex: nextIndex } }
+      )).catch(() => {});
     }
   } catch { /* never propagate — the post already succeeded */ }
 }
@@ -1238,9 +1295,9 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
 export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {}) {
   const cfg = cfgOverride || (await getFacebookConfig());
   if (!isFacebookConfigured(cfg)) return { ok: false, error: "Facebook is not connected." };
-  // Load site settings up-front — used for hashtags, watermarks AND the
-  // notification preferences/recipient below.
-  const site = await Settings.findOne({ key: "site" }).lean().catch(() => null);
+  // Load the SAME settings row that supplied the credentials — never a bare,
+  // nondeterministic {key:"site"} row from another tenant/platform scope.
+  const site = await getFacebookSiteForConfig(cfg);
   const schTitle = sch.title || sch.source?.label || "Untitled schedule";
 
   // Custom post (admin-written text + uploaded media) — not a quiz question.

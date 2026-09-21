@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { commentOnFacebookPost, commentOnInstagramMedia } from "../../src/config/facebook.js";
+import { commentOnFacebookPost, commentOnInstagramMedia, postAutoFirstComment } from "../../src/config/facebook.js";
 
 // Auto first-comment helpers: post a comment on a published FB post / IG media.
 // global.fetch is mocked; unique pageIds keep resolvePageToken's cache isolated.
@@ -19,7 +19,7 @@ function installFetch(router) {
   });
   return calls;
 }
-afterEach(() => { vi.restoreAllMocks(); delete global.fetch; });
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); delete global.fetch; });
 
 describe("commentOnFacebookPost", () => {
   it("posts the comment on /{post-id}/comments and returns the comment id", async () => {
@@ -73,5 +73,113 @@ describe("commentOnInstagramMedia", () => {
     const r = await commentOnInstagramMedia({ mediaId: "M", message: "hi" }, cfg);
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/permission/i);
+  });
+});
+
+
+
+describe("comment propagation retries", () => {
+  it("retries a newly-published Facebook object until its comments edge is available", async () => {
+    vi.useFakeTimers();
+    const cfg = { pageId: "page-cmt-fb-retry", token: "tok", version: VERSION };
+    let attempts = 0;
+    installFetch((url, opts) => {
+      if (opts.method !== "POST" && url.includes("fields=access_token")) return reply({ access_token: "PAGE_TOKEN" });
+      if (url.includes("/NEW_POST/comments")) {
+        attempts += 1;
+        if (attempts === 1) {
+          return reply({ error: { message: "Unsupported get request. Object does not exist", code: 100 } }, { ok: false, status: 400 });
+        }
+        return reply({ id: "COMMENT_AFTER_RETRY" });
+      }
+      throw new Error(`unexpected call: ${url}`);
+    });
+
+    const pending = commentOnFacebookPost({ postId: "NEW_POST", message: "hello" }, cfg);
+    await vi.runAllTimersAsync();
+    const result = await pending;
+    vi.useRealTimers();
+
+    expect(attempts).toBe(2);
+    expect(result).toEqual({ ok: true, id: "COMMENT_AFTER_RETRY" });
+  });
+
+  it("retries a newly-published Instagram media object until comments are available", async () => {
+    vi.useFakeTimers();
+    const cfg = { pageId: "page-cmt-ig-retry", token: "tok", version: VERSION };
+    let attempts = 0;
+    installFetch((url, opts) => {
+      if (opts.method !== "POST" && url.includes("fields=access_token")) return reply({ access_token: "PAGE_TOKEN" });
+      if (url.includes("/NEW_IG/comments")) {
+        attempts += 1;
+        if (attempts === 1) {
+          return reply({ error: { message: "Media ID is not available", code: 2 } }, { ok: false, status: 400 });
+        }
+        return reply({ id: "IG_COMMENT_AFTER_RETRY" });
+      }
+      throw new Error(`unexpected call: ${url}`);
+    });
+
+    const pending = commentOnInstagramMedia({ mediaId: "NEW_IG", message: "hello" }, cfg);
+    await vi.runAllTimersAsync();
+    const result = await pending;
+    vi.useRealTimers();
+
+    expect(attempts).toBe(2);
+    expect(result).toEqual({ ok: true, id: "IG_COMMENT_AFTER_RETRY" });
+  });
+
+  it("does not retry a permanent permission error and explains the needed scopes", async () => {
+    const cfg = { pageId: "page-cmt-permission", token: "tok", version: VERSION };
+    let attempts = 0;
+    installFetch((url, opts) => {
+      if (opts.method !== "POST" && url.includes("fields=access_token")) return reply({ access_token: "PAGE_TOKEN" });
+      if (url.includes("/P/comments")) {
+        attempts += 1;
+        return reply({ error: { message: "Permissions error", code: 200 } }, { ok: false, status: 403 });
+      }
+      throw new Error(`unexpected call: ${url}`);
+    });
+
+    const result = await commentOnFacebookPost({ postId: "P", message: "hello" }, cfg);
+    expect(attempts).toBe(1);
+    expect(result.error).toMatch(/pages_manage_engagement/i);
+  });
+});
+
+describe("postAutoFirstComment — scheduled publish integration", () => {
+  it("uses captured FB + IG publication ids and creates every configured comment on both", async () => {
+    const cfg = { pageId: "page-auto-both", token: "tok", version: VERSION };
+    const posted = [];
+    installFetch((url, opts) => {
+      if (opts.method !== "POST" && url.includes("fields=access_token")) return reply({ access_token: "PAGE_TOKEN" });
+      if (url.includes("/FB_POST/comments") || url.includes("/IG_MEDIA/comments")) {
+        posted.push({ url, message: field(opts, "message") });
+        return reply({ id: `COMMENT_${posted.length}` });
+      }
+      throw new Error(`unexpected call: ${url}`);
+    });
+
+    const notes = [];
+    await postAutoFirstComment({
+      site: {
+        fbAutoCommentEnabled: true,
+        fbAutoComments: ["@everyone", "Follow My Study Guide"],
+        fbAutoCommentMode: "all",
+        fbAutoCommentToFacebook: true,
+        fbAutoCommentToInstagram: true,
+      },
+      cfg,
+      fbAttempts: [{ ok: true, id: "FB_POST" }],
+      igMediaId: "IG_MEDIA",
+      notes,
+    });
+
+    expect(posted).toHaveLength(4);
+    expect(posted.filter((p) => p.url.includes("/FB_POST/comments")).map((p) => p.message))
+      .toEqual(["@everyone", "Follow My Study Guide"]);
+    expect(posted.filter((p) => p.url.includes("/IG_MEDIA/comments")).map((p) => p.message))
+      .toEqual(["@everyone", "Follow My Study Guide"]);
+    expect(notes).toEqual([]);
   });
 });

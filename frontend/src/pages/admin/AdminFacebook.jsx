@@ -1081,7 +1081,9 @@ function AutoCommentSection({ settings, saveSettings }) {
 
         <p className="text-xs text-slate-400">
           Note: <b>@everyone / @followers / @all</b> are posted as plain text — Facebook &amp; Instagram don't let apps tag all
-          followers, so use them as a caption, not a notification. Instagram commenting needs the <b>instagram_manage_comments</b> permission.
+          followers, so use them as a caption, not a notification. Your reconnected Meta token must include Facebook
+          <b> pages_manage_engagement</b> + <b>pages_read_engagement</b>, and Instagram <b>instagram_manage_comments</b> permissions;
+          posting permission alone cannot create comments.
         </p>
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-3">
