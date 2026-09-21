@@ -1781,18 +1781,23 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
         reelVideoUrl = composed?.url || "";
         if (reelVideoUrl) {
           // The composed URL is a Cloudinary TRANSFORMATION url (overlay +
-          // H.264 encode). Meta's Reel ingestion — Facebook's file_url fetch AND
-          // Instagram's video_url fetch — fails to download such transformation
-          // urls ("Unable to fetch video file from URL." / code 2207076), the
-          // same fetch-path asymmetry that breaks IG image posts. Re-host the
-          // finished video as a PLAIN stored asset (no transform in the URL);
-          // Cloudinary bakes + stores it and Meta can then fetch it. Best-effort
-          // — on failure we keep the transform URL and just warm it instead.
+          // H.264 encode) that Cloudinary renders LAZILY/async. Meta's Reel
+          // ingestion — Facebook's file_url fetch AND Instagram's video_url
+          // fetch — can't download our video transformation urls anyway
+          // ("Unable to fetch video file from URL." / code 2207076). So, in
+          // order:
+          //   1) WARM — force Cloudinary to finish generating the derivative.
+          //      A still-image-over-audio encode can take a while, so poll
+          //      patiently before anyone tries to fetch it.
+          //   2) RE-HOST — copy the now-ready video into a PLAIN stored asset
+          //      (no transform in the URL) that Meta CAN fetch, then warm that
+          //      plain URL too (CDN propagation). Best-effort: if re-host fails
+          //      we keep the (now-generated) transform URL.
+          await warmMediaUrl(reelVideoUrl, { attempts: 24, delayMs: 5000, perTryTimeoutMs: 45000 });
           const plain = await rehostAsPlainAsset(reelVideoUrl, { resourceType: "video" });
           if (plain && plain !== reelVideoUrl) {
-            reelVideoUrl = plain; // plain asset is already generated + stored
-          } else {
-            await warmMediaUrl(reelVideoUrl, { attempts: 15, delayMs: 4000, perTryTimeoutMs: 30000 });
+            reelVideoUrl = plain;
+            await warmMediaUrl(reelVideoUrl, { attempts: 8, delayMs: 3000, perTryTimeoutMs: 30000 });
           }
           // Advance to the next track for the following run (wraps around).
           sch.audioIndex = (idx + 1) % audioLibrary.length;
@@ -1820,12 +1825,25 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
     const fbMessage = captionFor(fbPostNumber);
     // In Reel mode publish the composed video as a Reel; otherwise the normal
     // photo/text post. Same per-Page helper covers the main Page + extra Pages.
-    const postFb = (pageCfg) => reelVideoUrl
-      ? postReelToFacebookPage({ videoUrl: reelVideoUrl, description: fbMessage }, pageCfg)
-      : postToFacebookPage({ message: fbMessage, link, imageUrl: fbImageUrl }, pageCfg);
+    // If a Reel can't be published (e.g. Meta can't fetch/transcode the video),
+    // FALL BACK to a normal photo post so the content still goes out — an image
+    // post beats a total failure, and image posts are reliable on both networks.
+    const fbReelFallbackImg = toFacebookSafeUrl(imageUrl);
+    const postFb = async (pageCfg) => {
+      if (!reelVideoUrl) {
+        return postToFacebookPage({ message: fbMessage, link, imageUrl: fbImageUrl }, pageCfg);
+      }
+      const rr = await postReelToFacebookPage({ videoUrl: reelVideoUrl, description: fbMessage }, pageCfg);
+      if (rr.ok || !fbReelFallbackImg) return rr;
+      const img = await postToFacebookPage({ message: fbMessage, link, imageUrl: fbReelFallbackImg }, pageCfg);
+      return img.ok ? { ...img, reelFellBackToImage: true } : rr;
+    };
     const r = await postFb(cfg);
     fbAttempts.push({ ok: r.ok, id: r.id, pageId: cfg.pageId, pageLabel: "" });
-    if (r.ok) { fbOk = true; fbPostId = r.id || fbPostId; notes.push("Facebook ✓"); } else notes.push(`Facebook ✗ (${r.error})`);
+    if (r.ok) {
+      fbOk = true; fbPostId = r.id || fbPostId;
+      notes.push(r.reelFellBackToImage ? "Facebook ✓ (posted as image — Reel video couldn't be delivered to Meta)" : "Facebook ✓");
+    } else notes.push(`Facebook ✗ (${r.error})`);
     // Roll back the FB serial if the main Page publish failed AND no extra
     // Page succeeded — that number wasn't used on any Facebook Page, so the
     // next run should reuse it instead of leaving a gap.
@@ -1840,16 +1858,27 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
       const rr = await postFb({ ...cfg, pageId, token });
       const name = t.label || pageId;
       fbAttempts.push({ ok: rr.ok, id: rr.id, pageId, pageLabel: name });
-      if (rr.ok) { fbOk = true; notes.push(`${name} ✓`); } else notes.push(`${name} ✗ (${rr.error})`);
+      if (rr.ok) { fbOk = true; notes.push(rr.reelFellBackToImage ? `${name} ✓ (image — Reel video unavailable)` : `${name} ✓`); } else notes.push(`${name} ✗ (${rr.error})`);
     }
   }
   if (wantIg) {
     // Instagram caption uses the IG counter — same reason as Facebook above.
     const igMessage = captionFor(igPostNumber);
     if (reelVideoUrl) {
-      // Publish the composed video as an Instagram Reel.
-      const r = await postReelToInstagram({ videoUrl: reelVideoUrl, caption: igMessage }, cfg);
-      if (r.ok) { igOk = true; igMediaId = r.id || igMediaId; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
+      // Publish the composed video as an Instagram Reel. If it can't be
+      // published (e.g. Meta can't fetch/transcode the video → 2207076), FALL
+      // BACK to a normal IG photo post so the content still goes out — image
+      // posts are reliable now, a photo beats a total failure.
+      let r = await postReelToInstagram({ videoUrl: reelVideoUrl, caption: igMessage }, cfg);
+      if (!r.ok && imageUrl) {
+        const igFallbackImg = toInstagramSafeUrl(imageUrl);
+        const img = await postToInstagram({ imageUrl: igFallbackImg, caption: igMessage }, cfg);
+        if (img.ok) r = { ...img, reelFellBackToImage: true };
+      }
+      if (r.ok) {
+        igOk = true; igMediaId = r.id || igMediaId;
+        notes.push(r.reelFellBackToImage ? "Instagram ✓ (posted as image — Reel video couldn't be delivered to Meta)" : "Instagram ✓");
+      } else notes.push(`Instagram ✗ (${r.error})`);
     } else if (!imageUrl) {
       notes.push(`Instagram ✗ (image failed${imageErr ? `: ${imageErr}` : ""})`);
     } else {
