@@ -160,13 +160,23 @@ export async function getLogo(req, res) {
     const tid = String(req.query.t || "").trim();
     const readLogo = async (filter) =>
       runUnscoped(() => Settings.findOne(filter).select("logoUrl").lean());
+    const hasLogo = (d) => !!String(d?.logoUrl || "").trim();
 
+    // Resolve the logo the SAME way findSite() resolves the settings doc, so
+    // getLogo can always find whatever getSettings turned into this proxy URL.
+    // Previously getLogo stopped at the default tenant and had NO fallback to a
+    // null-tenant (legacy / tenant-enforcement-off) or any-site doc — so a logo
+    // stored on a null-tenant doc (the normal case when enforcement is OFF)
+    // produced a 404 and a permanently BROKEN logo, even though getSettings
+    // happily served its proxy URL. Order: requested tenant → default tenant →
+    // null-tenant/legacy → any site doc that actually has a logo.
     let doc = tid ? await readLogo({ key: "site", tenantId: tid }) : null;
-    if (!doc?.logoUrl) {
-      // Fall back to the default/platform tenant's settings.
+    if (!hasLogo(doc)) {
       const def = await runUnscoped(() => Tenant.findOne({ isDefault: true }).select("_id").lean());
-      doc = def ? await readLogo({ key: "site", tenantId: def._id }) : await readLogo({ key: "site" });
+      if (def) doc = await readLogo({ key: "site", tenantId: def._id });
     }
+    if (!hasLogo(doc)) doc = await readLogo({ key: "site", tenantId: null }); // legacy / enforcement OFF
+    if (!hasLogo(doc)) doc = await readLogo({ key: "site" });                  // last resort: any site doc
     const logo = String(doc?.logoUrl || "").trim();
     if (!logo) return res.status(404).end();
     // Guard against a logo that was accidentally saved as this very endpoint's
@@ -217,8 +227,9 @@ export async function updateSettings(req, res) {
     "fbTextWatermarkEnabled", "fbTextWatermarkText", "fbTextWatermarkSize", "fbTextWatermarkOpacity",
     "fbFlashcardTemplateUrl", "fbFlashcardTemplateEnabled",
     "fbReelAudios",
+    "fbAutoCommentEnabled", "fbAutoComment",
     "fbNotifyEmail", "fbNotifyOnPost", "fbNotifyOnError", "fbNotifyOnComplete",
-    "fbAutoCommentsEnabled", "fbAutoComments", "fbAutoCommentMode", "fbAutoCommentToFacebook", "fbAutoCommentToInstagram",
+    "fbAutoComments", "fbAutoCommentMode", "fbAutoCommentToFacebook", "fbAutoCommentToInstagram",
     "igEnabled", "igUserId",
     "googleClientId",
   ];
@@ -265,6 +276,9 @@ export async function updateSettings(req, res) {
   if ("fbSelfieWatermarkUrl" in update) update.fbSelfieWatermarkUrl = String(update.fbSelfieWatermarkUrl || "").trim();
   if ("fbFlashcardTemplateUrl" in update) update.fbFlashcardTemplateUrl = String(update.fbFlashcardTemplateUrl || "").trim();
   if ("fbFlashcardTemplateEnabled" in update) update.fbFlashcardTemplateEnabled = !!update.fbFlashcardTemplateEnabled;
+  // Auto first-comment: trim and cap (Facebook/Instagram comment length limit).
+  if ("fbAutoComment" in update) update.fbAutoComment = String(update.fbAutoComment || "").slice(0, 2000);
+  if ("fbAutoCommentEnabled" in update) update.fbAutoCommentEnabled = !!update.fbAutoCommentEnabled;
   // Shared Reel music library: keep only safe public http(s) URLs, dedupe, cap 30.
   if ("fbReelAudios" in update) {
     const arr = Array.isArray(update.fbReelAudios) ? update.fbReelAudios : [];
@@ -277,7 +291,6 @@ export async function updateSettings(req, res) {
   // (trim, drop blanks, cap each to 2200 chars — the IG comment limit — and the
   // list to 50). The rotation pointer (fbAutoCommentIndex) is server-managed and
   // intentionally NOT settable here.
-  if ("fbAutoCommentsEnabled" in update) update.fbAutoCommentsEnabled = !!update.fbAutoCommentsEnabled;
   if ("fbAutoCommentToFacebook" in update) update.fbAutoCommentToFacebook = !!update.fbAutoCommentToFacebook;
   if ("fbAutoCommentToInstagram" in update) update.fbAutoCommentToInstagram = !!update.fbAutoCommentToInstagram;
   if ("fbAutoCommentMode" in update) {

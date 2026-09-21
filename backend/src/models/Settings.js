@@ -242,6 +242,13 @@ const settingsSchema = new mongoose.Schema(
     // onto this uploaded image instead of the built-in design. Cloudinary URL.
     fbFlashcardTemplateUrl: { type: String, default: "" },
     fbFlashcardTemplateEnabled: { type: Boolean, default: true },
+    // Auto first-comment (see the full auto-comment block lower down). Master
+    // on/off toggle + the LEGACY single comment. `fbAutoComment` is kept for
+    // back-compat and used as a fallback when the `fbAutoComments` list is empty.
+    // @everyone/@followers appear as plain text — the platform APIs don't expose
+    // a notify-all action for Pages/IG.
+    fbAutoCommentEnabled: { type: Boolean, default: false },
+    fbAutoComment: { type: String, default: "" },
     // SHARED Reel music library (public track URLs). Added ONCE here and reused
     // by every question/flashcard schedule set to post as a Reel — each such
     // schedule ROTATES through these tracks (one per Reel, then starts over), so
@@ -268,8 +275,9 @@ const settingsSchema = new mongoose.Schema(
     // A GLOBAL list of comments the admin writes once; after EVERY scheduled
     // auto-post/reel publishes, the app adds a saved comment as the first
     // comment under it (the classic "put your link/CTA in the first comment"
-    // technique). Stories are excluded — the API can't comment on a Story.
-    fbAutoCommentsEnabled: { type: Boolean, default: false }, // master on/off
+    // technique). Enabled by `fbAutoCommentEnabled` above; when this list is
+    // empty the legacy single `fbAutoComment` is used. Stories are excluded —
+    // the API can't comment on a Story.
     fbAutoComments: { type: [String], default: [] }, // the saved comment lines
     // How a comment is chosen per post: rotate one-per-post (default), post ALL
     // of them, or a random one.

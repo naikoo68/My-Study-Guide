@@ -4,7 +4,7 @@
 import Settings from "../models/Settings.js";
 import User from "../models/User.js";
 import { sendMail } from "./mailer.js";
-import { toInstagramSafeUrl } from "../utils/instagramImage.js";
+import { toInstagramSafeUrl, toInstagramStoryUrl } from "../utils/instagramImage.js";
 import { toFacebookSafeUrl } from "../utils/facebookImage.js";
 
 // Facebook Page auto-posting via the Graph API. The Page ID + long-lived Page
@@ -233,17 +233,38 @@ export async function postToFacebookPage({ message, link, imageUrl } = {}, cfgOv
 
 // Resolve the Instagram Business account id linked to the Facebook Page. Uses
 // the configured igUserId if set, else auto-detects it from the Page.
+// CACHED (like the Page token): a single scheduled run publishes a feed post,
+// a Reel and/or a Story — each of which needs the IG account id. Re-fetching it
+// every time burns extra Graph calls and helps trip Meta's app rate limit
+// ("Application request limit reached"), which then fails a post that would
+// otherwise succeed. Caching resolves it once per Page/token for a few minutes.
+const _igUserIdCache = new Map();
 export async function getInstagramUserId(cfgOverride) {
   const cfg = cfgOverride || (await getFacebookConfig());
   if (cfg.igUserId) return cfg.igUserId;
   if (!isFacebookConfigured(cfg)) return null;
+  const key = `${cfg.pageId}:${String(cfg.token).slice(0, 16)}`;
+  const hit = _igUserIdCache.get(key);
+  if (hit && Date.now() - hit.ts < 10 * 60 * 1000) return hit.id;
   try {
     const res = await fbFetch(`https://graph.facebook.com/${cfg.version}/${encodeURIComponent(cfg.pageId)}?fields=instagram_business_account&access_token=${encodeURIComponent(cfg.token)}`);
     const data = await res.json().catch(() => ({}));
-    return data?.instagram_business_account?.id || null;
+    const id = data?.instagram_business_account?.id || null;
+    if (id) _igUserIdCache.set(key, { id, ts: Date.now() });
+    return id;
   } catch {
     return null;
   }
+}
+
+// Whether an Instagram publish error is TRANSIENT and worth retrying: the media
+// container is already created and valid, so re-issuing media_publish after a
+// short wait usually succeeds. Covers the brief post-processing propagation lag
+// ("Media ID is not available") AND Meta's app-level rate limit ("Application
+// request limit reached", errors #4/#17/#32) — the latter is exactly what made a
+// feed post fail while the Story, published a few seconds later, went through.
+function isRetryableIgPublishError(msg) {
+  return /not available|not ready|request limit|rate limit|reduce the amount|temporarily|#4\b|#17\b|#32\b/i.test(String(msg || ""));
 }
 
 // Post a single image with caption to Instagram (create container → publish).
@@ -279,14 +300,16 @@ export async function postToInstagram({ imageUrl, caption } = {}, cfgOverride) {
     p.set("creation_id", cData.id);
     p.set("access_token", pageToken);
     let pData = {};
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 5; attempt++) {
       const pRes = await fbFetch(`https://graph.facebook.com/${cfg.version}/${igId}/media_publish`, { method: "POST", headers, body: p });
       pData = await pRes.json().catch(() => ({}));
       if (pRes.ok && pData.id) return { ok: true, id: pData.id };
       const msg = String(pData?.error?.message || "");
       // Only retry the transient "not available/ready" case; bail on real errors.
-      if (!/not available|not ready/i.test(msg)) break;
-      await sleep(2000);
+      if (!isRetryableIgPublishError(msg)) break;
+      // Back off longer for a rate limit than for the brief propagation lag —
+      // a few seconds is usually enough for the limit window to free up.
+      await sleep(/request limit|rate limit|#4\b|#17\b|#32\b/i.test(msg) ? 5000 : 2000);
     }
     return { ok: false, error: pData?.error?.message || `Instagram publish error.` };
   } catch (err) {
@@ -329,13 +352,13 @@ export async function postReelToInstagram({ videoUrl, caption } = {}, cfgOverrid
     p.set("creation_id", cData.id);
     p.set("access_token", pageToken);
     let pData = {};
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 5; attempt++) {
       const pRes = await fbFetch(`https://graph.facebook.com/${cfg.version}/${igId}/media_publish`, { method: "POST", headers, body: p });
       pData = await pRes.json().catch(() => ({}));
       if (pRes.ok && pData.id) return { ok: true, id: pData.id };
       const msg = String(pData?.error?.message || "");
-      if (!/not available|not ready/i.test(msg)) break;
-      await sleep(3000);
+      if (!isRetryableIgPublishError(msg)) break;
+      await sleep(/request limit|rate limit|#4\b|#17\b|#32\b/i.test(msg) ? 5000 : 3000);
     }
     return { ok: false, error: pData?.error?.message || "Instagram Reel publish error." };
   } catch (err) {
@@ -421,7 +444,9 @@ export async function postReelToFacebookPage({ videoUrl, description } = {}, cfg
 export async function postStoryToInstagram({ imageUrl } = {}, cfgOverride) {
   const cfg = cfgOverride || (await getFacebookConfig());
   if (!isFacebookConfigured(cfg)) return { ok: false, error: "Facebook/Instagram is not connected." };
-  const img = String(imageUrl || "").trim();
+  // Pad the card onto a 9:16 story canvas so Instagram can't crop off the sides
+  // (a feed-shaped card filled into the full-screen story loses its edges).
+  const img = toInstagramStoryUrl(String(imageUrl || "").trim());
   if (!img) return { ok: false, error: "Instagram needs an image to post a Story." };
   const igId = await getInstagramUserId(cfg);
   if (!igId) return { ok: false, error: "No Instagram Business account is linked to this Facebook Page." };
@@ -447,13 +472,15 @@ export async function postStoryToInstagram({ imageUrl } = {}, cfgOverride) {
     p.set("creation_id", cData.id);
     p.set("access_token", pageToken);
     let pData = {};
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 5; attempt++) {
       const pRes = await fbFetch(`https://graph.facebook.com/${cfg.version}/${igId}/media_publish`, { method: "POST", headers, body: p });
       pData = await pRes.json().catch(() => ({}));
       if (pRes.ok && pData.id) return { ok: true, id: pData.id };
       const msg = String(pData?.error?.message || "");
-      if (!/not available|not ready/i.test(msg)) break;
-      await sleep(2000);
+      if (!isRetryableIgPublishError(msg)) break;
+      // Back off longer for a rate limit than for the brief propagation lag —
+      // a few seconds is usually enough for the limit window to free up.
+      await sleep(/request limit|rate limit|#4\b|#17\b|#32\b/i.test(msg) ? 5000 : 2000);
     }
     return { ok: false, error: pData?.error?.message || "Instagram Story publish error." };
   } catch (err) {
@@ -468,7 +495,9 @@ export async function postStoryToInstagram({ imageUrl } = {}, cfgOverride) {
 export async function postStoryToFacebookPage({ imageUrl } = {}, cfgOverride) {
   const cfg = cfgOverride || (await getFacebookConfig());
   if (!isFacebookConfigured(cfg)) return { ok: false, error: "Facebook Page ID or access token is not set." };
-  const img = String(imageUrl || "").trim();
+  // Facebook Page Stories are the same full-screen 9:16 canvas as Instagram, so
+  // pad the card to 9:16 here too — otherwise a wide/tall card is side-cropped.
+  const img = toInstagramStoryUrl(String(imageUrl || "").trim());
   if (!img) return { ok: false, error: "Facebook needs an image to post a Story." };
   const pageToken = await resolvePageToken(cfg);
   const base = `https://graph.facebook.com/${cfg.version}/${encodeURIComponent(cfg.pageId)}`;
@@ -490,95 +519,96 @@ export async function postStoryToFacebookPage({ imageUrl } = {}, cfgOverride) {
   }
 }
 
-// Add a comment under an existing Facebook Page post (the "first comment"
-// technique). `postId` is the {page}_{post} id returned when the post was
-// published. Needs the pages_manage_engagement permission. Best-effort:
-// returns { ok, id?, error? } and never throws.
-export async function postCommentToFacebookPage({ postId, message } = {}, cfgOverride) {
+// Post the FIRST COMMENT on a just-published Facebook Page object (feed post,
+// photo post or reel) via /{object-id}/comments. Used for the auto-comment
+// feature (a fixed comment added to every post). Best-effort; never throws.
+// NOTE: the comment TEXT is posted verbatim — "@everyone/@followers/@all" appear
+// as plain text. Facebook's Graph API does not expose an @everyone/notify-all
+// action for Pages, so those tokens can't actually tag followers programmatically.
+export async function commentOnFacebookPost({ postId, message } = {}, cfgOverride) {
   const cfg = cfgOverride || (await getFacebookConfig());
-  if (!isFacebookConfigured(cfg)) return { ok: false, error: "Facebook Page ID or access token is not set." };
+  if (!isFacebookConfigured(cfg)) return { ok: false, error: "Facebook is not connected." };
   const id = String(postId || "").trim();
   const msg = String(message || "").trim();
-  if (!id) return { ok: false, error: "No post id to comment on." };
-  if (!msg) return { ok: false, error: "Empty comment." };
+  if (!id || !msg) return { ok: false, error: "A post id and comment text are both required." };
+  const pageToken = await resolvePageToken(cfg);
   try {
-    const pageToken = await resolvePageToken(cfg);
     const r = await fbGraphPost(`https://graph.facebook.com/${cfg.version}/${encodeURIComponent(id)}/comments`, { message: msg }, pageToken);
-    const cid = r.data?.id;
-    if (r.ok && cid) return { ok: true, id: String(cid) };
-    return decorateFbError(r.data?.error?.message || `Comment failed (${r.status}).`, r.status);
+    if (r.ok && r.data?.id) return { ok: true, id: String(r.data.id) };
+    return { ok: false, error: r.data?.error?.message || `Facebook comment failed (${r.status}).` };
   } catch (err) {
     return { ok: false, error: err.message || "Could not reach Facebook." };
   }
 }
 
-// Add a comment under an Instagram media (post/reel) we published. `mediaId` is
-// the id returned by media_publish. Needs the instagram_manage_comments
-// permission on the linked IG Business account. Best-effort; never throws.
-export async function postCommentToInstagram({ mediaId, message } = {}, cfgOverride) {
+// Post the FIRST COMMENT on a just-published Instagram media via
+// /{ig-media-id}/comments. Requires the instagram_manage_comments permission.
+// Best-effort; never throws. (Same @everyone caveat as above.)
+export async function commentOnInstagramMedia({ mediaId, message } = {}, cfgOverride) {
   const cfg = cfgOverride || (await getFacebookConfig());
-  if (!isFacebookConfigured(cfg)) return { ok: false, error: "Facebook/Instagram is not connected." };
+  if (!isFacebookConfigured(cfg)) return { ok: false, error: "Instagram is not connected." };
   const id = String(mediaId || "").trim();
   const msg = String(message || "").trim();
-  if (!id) return { ok: false, error: "No media id to comment on." };
-  if (!msg) return { ok: false, error: "Empty comment." };
+  if (!id || !msg) return { ok: false, error: "A media id and comment text are both required." };
+  const pageToken = await resolvePageToken(cfg);
   try {
-    const pageToken = await resolvePageToken(cfg);
-    const r = await fbGraphPost(`https://graph.facebook.com/${cfg.version}/${encodeURIComponent(id)}/comments`, { message: msg }, pageToken);
-    const cid = r.data?.id;
-    if (r.ok && cid) return { ok: true, id: String(cid) };
-    return { ok: false, error: r.data?.error?.message || `Instagram comment failed (${r.status}).` };
+    const headers = { "Content-Type": "application/x-www-form-urlencoded" };
+    const body = new URLSearchParams({ message: msg, access_token: pageToken });
+    const res = await fbFetch(`https://graph.facebook.com/${cfg.version}/${encodeURIComponent(id)}/comments`, { method: "POST", headers, body });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data?.id) return { ok: true, id: String(data.id) };
+    return { ok: false, error: data?.error?.message || `Instagram comment failed (${res.status}).` };
   } catch (err) {
     return { ok: false, error: err.message || "Could not reach Instagram." };
   }
 }
 
-// Best-effort: after a scheduled post/reel publishes, add the admin's saved
-// GLOBAL auto-comment(s) as the first comment(s) under it. Stories are excluded
-// (the API can't comment on a Story). Reads the comment list/mode/pointer from
-// `site`, posts to the networks that actually published, then advances and
-// persists the rotation pointer globally. Returns notes[] and NEVER throws — a
-// comment failure must never affect the post's success.
-async function postScheduledAutoComments({ site, cfg, fbPostId, igPostId, wantFb, wantIg }) {
-  const notes = [];
+// Shared: post the configured auto first-comment(s) on the MAIN Facebook Page
+// post (fbAttempts[0]) and the published Instagram media. Reads a GLOBAL list
+// (`fbAutoComments`) and picks comment(s) per the mode (rotate/all/random),
+// falling back to the legacy single `fbAutoComment` when the list is empty.
+// Per-network toggles decide FB vs IG. No-op unless the feature is enabled and
+// there is text. Best-effort — records only failures into `notes`, advances +
+// persists the rotation pointer, and NEVER throws (a comment must never break a
+// post). Stories are NOT handled here (the API can't comment on a Story).
+async function postAutoFirstComment({ site, cfg, fbAttempts = [], igMediaId = null, notes = [] } = {}) {
+  if (!site?.fbAutoCommentEnabled) return;
+  // Prefer the multi-comment list; fall back to the legacy single comment.
+  let list = (Array.isArray(site.fbAutoComments) ? site.fbAutoComments : [])
+    .map((s) => String(s || "").trim()).filter(Boolean);
+  if (!list.length && String(site.fbAutoComment || "").trim()) list = [String(site.fbAutoComment).trim()];
+  if (!list.length) return;
+
+  const mode = site.fbAutoCommentMode || "rotate";
+  const index = Number(site.fbAutoCommentIndex) || 0;
+  const { comments, nextIndex } = selectAutoComments(list, mode, index);
+  if (!comments.length) return;
+
+  const toFb = site.fbAutoCommentToFacebook !== false; // default ON
+  const toIg = site.fbAutoCommentToInstagram === true;  // default OFF (needs instagram_manage_comments)
+
   try {
-    if (!site || site.fbAutoCommentsEnabled !== true) return { notes };
-    const list = (Array.isArray(site.fbAutoComments) ? site.fbAutoComments : [])
-      .map((s) => String(s || "").trim()).filter(Boolean);
-    if (!list.length) return { notes };
-
-    const mode = site.fbAutoCommentMode || "rotate";
-    const index = Number(site.fbAutoCommentIndex) || 0;
-    const { comments, nextIndex } = selectAutoComments(list, mode, index);
-    if (!comments.length) return { notes };
-
-    const toFb = site.fbAutoCommentToFacebook !== false; // default ON
-    const toIg = site.fbAutoCommentToInstagram === true;  // default OFF (needs extra permission)
-
-    if (wantFb && toFb && fbPostId) {
-      let ok = 0;
+    // Only the MAIN Page post (pushed first). Extra Pages use their own tokens,
+    // so commenting on them with the main token would fail — skip them.
+    const mainFbPostId = fbAttempts[0]?.ok ? fbAttempts[0].id : null;
+    if (toFb && mainFbPostId) {
       for (const c of comments) {
-        const rc = await postCommentToFacebookPage({ postId: fbPostId, message: c }, cfg);
-        if (rc.ok) ok += 1; else if (notes.length < 3) notes.push(`FB comment ✗ (${rc.error})`);
+        const r = await commentOnFacebookPost({ postId: mainFbPostId, message: c }, cfg);
+        if (!r.ok) notes.push(`FB comment ✗ (${r.error})`);
       }
-      if (ok) notes.push(ok > 1 ? `FB comments ✓ (${ok})` : "FB comment ✓");
     }
-    if (wantIg && toIg && igPostId) {
-      let ok = 0;
+    if (toIg && igMediaId) {
       for (const c of comments) {
-        const rc = await postCommentToInstagram({ mediaId: igPostId, message: c }, cfg);
-        if (rc.ok) ok += 1; else if (notes.length < 4) notes.push(`IG comment ✗ (${rc.error})`);
+        const r = await commentOnInstagramMedia({ mediaId: igMediaId, message: c }, cfg);
+        if (!r.ok) notes.push(`IG comment ✗ (${r.error})`);
       }
-      if (ok) notes.push(ok > 1 ? `IG comments ✓ (${ok})` : "IG comment ✓");
     }
-
     // Advance + persist the rotation pointer so the NEXT post continues the cycle
     // (site-wide; Settings is tenant-scoped by the ODM, matching how `site` loaded).
     if (nextIndex !== index) {
       await Settings.updateOne({ key: "site" }, { $set: { fbAutoCommentIndex: nextIndex } }).catch(() => {});
     }
-  } catch { /* best-effort — comments never break a post */ }
-  return { notes };
+  } catch { /* never propagate — the post already succeeded */ }
 }
 
 // Verify the token/page WITHOUT posting — reads the Page name via the Graph API.
@@ -713,6 +743,7 @@ import Stream from "../models/Stream.js";
 import TestSeries from "../models/TestSeries.js";
 import { renderQuestionImage } from "./socialImage.js";
 import { renderQuestionCardShot, renderFlashcardCardShot } from "./cardShot.js";
+import { isQuestionComplete } from "../utils/questionComplete.js";
 import { selectAutoComments } from "../utils/autoComments.js";
 import { composeImageAudioToVideo } from "./cloudinary.js";
 import { tenantStore, runUnscoped } from "../utils/tenantContext.js";
@@ -910,40 +941,70 @@ function scopeFilter(source = {}) {
 }
 
 // Pick the next question for a schedule (random or sequential), skipping ones
-// already posted until the pool is exhausted, then cycling. Returns the doc.
+// already posted until the pool is exhausted, then cycling. INCOMPLETE questions
+// (missing options/statements/columns/assertion-reason etc. — see
+// utils/questionComplete.js) are also skipped so we never publish a broken card;
+// the number skipped is reported back so the caller can note it. Returns the doc
+// as { q, recycled, poolSize, skipped } or { exhausted, poolSize, skipped }.
 export async function pickQuestionForSchedule(sch) {
   // A single specific question (scheduled straight from the question view).
+  // Nothing to skip TO, so an incomplete one is reported (never posted).
   if (sch.source?.question) {
     const q = await Question.findById(sch.source.question).lean();
-    return q ? { q, recycled: false } : null;
+    if (!q) return null;
+    if (!isQuestionComplete(q).ok) return { exhausted: true, poolSize: 1, skipped: 1 };
+    return { q, recycled: false };
   }
   const filter = scopeFilter(sch.source);
   if (!filter) return null;
-  const posted = (sch.postedQuestionIds || []).map(String);
 
   const poolSize = await Question.countDocuments(filter); // total questions in this source
   if (poolSize === 0) return null; // no questions at all in this scope
 
-  const unusedFilter = posted.length ? { ...filter, _id: { $nin: sch.postedQuestionIds } } : filter;
-  let count = posted.length ? await Question.countDocuments(unusedFilter) : poolSize;
-  let useFilter = unusedFilter;
-  let recycled = false;
-  if (count === 0) {
-    // Every question has been posted. Either STOP (default) or recycle the pool.
-    if (sch.stopWhenExhausted !== false) return { exhausted: true, poolSize };
-    count = poolSize;
-    useFilter = filter;
-    recycled = true;
-  }
+  const postedIds = sch.postedQuestionIds || [];
+  const skipped = []; // ids of INCOMPLETE questions skipped during THIS pick
 
-  let q;
-  if (sch.order === "sequential") {
-    q = await Question.findOne(useFilter).sort({ createdAt: 1 }).lean();
-  } else {
-    const skip = Math.floor(Math.random() * count);
-    q = await Question.findOne(useFilter).skip(skip).lean();
+  // Fetch the next candidate that is neither already posted nor skipped this
+  // run. Recycles (ignores `posted`) only when the schedule allows it and there
+  // is still a complete question to recycle to. Returns { q, recycled } or
+  // { exhausted: true }.
+  const nextCandidate = async () => {
+    const exclude = [...postedIds, ...skipped];
+    let useFilter = exclude.length ? { ...filter, _id: { $nin: exclude } } : filter;
+    let count = await Question.countDocuments(useFilter);
+    let recycled = false;
+    if (count === 0) {
+      // Nothing unposted (and not-yet-skipped) remains.
+      if (sch.stopWhenExhausted !== false) return { exhausted: true };
+      // Recycle across the whole pool, but keep this run's skipped-incomplete
+      // ones excluded so we can't loop on them forever.
+      useFilter = skipped.length ? { ...filter, _id: { $nin: skipped } } : filter;
+      count = await Question.countDocuments(useFilter);
+      if (count === 0) return { exhausted: true }; // every remaining question is incomplete
+      recycled = true;
+    }
+    let q;
+    if (sch.order === "sequential") {
+      q = await Question.findOne(useFilter).sort({ createdAt: 1 }).lean();
+    } else {
+      const skip = Math.floor(Math.random() * count);
+      q = await Question.findOne(useFilter).skip(skip).lean();
+    }
+    return q ? { q, recycled } : { exhausted: true };
+  };
+
+  // Try candidates until a COMPLETE one is found, skipping incomplete ones.
+  // Cap attempts so a pool of entirely-incomplete questions can't spin forever.
+  const maxAttempts = Math.min(poolSize, 500);
+  for (let i = 0; i < maxAttempts; i++) {
+    const cand = await nextCandidate();
+    if (cand.exhausted) return { exhausted: true, poolSize, skipped: skipped.length };
+    if (isQuestionComplete(cand.q).ok) {
+      return { q: cand.q, recycled: cand.recycled, poolSize, skipped: skipped.length };
+    }
+    skipped.push(cand.q._id); // incomplete → skip it and try the next one
   }
-  return q ? { q, recycled, poolSize } : null;
+  return { exhausted: true, poolSize, skipped: skipped.length };
 }
 
 // Short one-line excerpt of a question stem for notification emails.
@@ -1072,7 +1133,7 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
   // Track each network INDEPENDENTLY (Instagram success must not mark Facebook posted).
   let fbOk = false; // a Facebook Page (main OR an extra Page) published OK
   let igOk = false; // Instagram published OK
-  let igPostId = null; // Instagram media id (for auto-comments)
+  let igMediaId = null; // the published IG media id (for the auto first-comment)
   const fbAttempts = []; // raw per-Page results → collectFacebookPublications() decides what's recorded
 
   if (wantFb) {
@@ -1099,23 +1160,26 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
   if (wantIg) {
     if (isReel) {
       const r = await postReelToInstagram({ videoUrl, caption: message }, cfg);
-      if (r.ok) { igOk = true; igPostId = r.id || igPostId; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
+      if (r.ok) { igOk = true; igMediaId = r.id || igMediaId; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
     } else if (!rawImageUrl) {
       notes.push("Instagram ✗ (a custom Instagram post needs an image or a video)");
     } else {
       const igImageUrl = toInstagramSafeUrl(rawImageUrl);
       const r = await postToInstagram({ imageUrl: igImageUrl, caption: message }, cfg);
-      if (r.ok) { igOk = true; igPostId = r.id || igPostId; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
+      if (r.ok) { igOk = true; igMediaId = r.id || igMediaId; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
     }
   }
 
-  // ALSO share the uploaded image as a 24h Story (additive, best-effort).
+  // ALSO share the uploaded image as a 24h Story (additive, best-effort). A
+  // successful Facebook Story is recorded in the ledger too (kind "story").
+  const storyFbAttempts = [];
   if (sch.asStory) {
     if (!rawImageUrl) {
       notes.push("Story ✗ (needs an image)");
     } else {
       if (wantFb) {
         const rs = await postStoryToFacebookPage({ imageUrl: rawImageUrl }, cfg);
+        storyFbAttempts.push({ ok: rs.ok, id: rs.id, pageId: cfg.pageId, pageLabel: "" });
         notes.push(rs.ok ? "FB Story ✓" : `FB Story ✗ (${rs.error})`);
       }
       if (wantIg) {
@@ -1125,12 +1189,10 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
     }
   }
 
-  // Auto-comment (first comment) on whatever published — best-effort.
-  {
-    const fbMainPostId = fbAttempts.find((a) => a.ok && a.id)?.id || null;
-    const { notes: cNotes } = await postScheduledAutoComments({ site, cfg, fbPostId: fbMainPostId, igPostId, wantFb, wantIg });
-    notes.push(...cNotes);
-  }
+  // Auto first-comment(s): add the saved comment(s) to the just-published MAIN
+  // Page post and the IG media (a pinned link / CTA / extra hashtags).
+  // Best-effort — a comment failure never affects the post's success.
+  await postAutoFirstComment({ site, cfg, fbAttempts, igMediaId, notes });
 
   sch.lastRunAt = new Date();
   // Published to at least one selected network (FB and IG tracked separately).
@@ -1139,6 +1201,11 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
   const fbPublications = collectFacebookPublications(fbAttempts);
   if (fbPublications.length) {
     await recordFbPublications(fbPublications, { schedule: sch, scheduleTitle: schTitle, kind: isReel ? "reel" : "custom", sourceLabel: sch.source?.label });
+  }
+  // Record Facebook Story publications too, so they aren't missing from the audit.
+  const storyPublications = collectFacebookPublications(storyFbAttempts);
+  if (storyPublications.length) {
+    await recordFbPublications(storyPublications, { schedule: sch, scheduleTitle: schTitle, kind: "story", sourceLabel: sch.source?.label });
   }
   if (anyOk) {
     sch.postCount = (sch.postCount || 0) + 1;
@@ -1182,23 +1249,45 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   const picked = await pickQuestionForSchedule(sch);
   // Source fully posted → STOP this schedule (unless it's set to recycle).
   if (picked?.exhausted) {
+    // Distinguish a genuine "all posted" completion from a stop caused only by
+    // INCOMPLETE questions being skipped — so the admin knows to fix content
+    // rather than think the pool is done.
+    const blockedByIncomplete = (picked.skipped || 0) > 0;
     sch.enabled = false;
     sch.completedAt = new Date();
     sch.poolSize = picked.poolSize || sch.poolSize || 0;
     sch.lastRunAt = new Date();
-    sch.lastResult = `Completed — all ${picked.poolSize} question(s) in this source have been posted. Schedule paused.`;
+    sch.lastResult = blockedByIncomplete
+      ? `Paused — no complete question to post. Skipped ${picked.skipped} incomplete question(s) (missing content). Fix them and re-enable.`
+      : `Completed — all ${picked.poolSize} question(s) in this source have been posted. Schedule paused.`;
     if (notify && site?.fbNotifyOnComplete !== false) {
-      await fbNotify({
-        site,
-        subject: `✅ Auto-post complete — ${schTitle}`,
-        text: `All ${picked.poolSize} question(s) from "${sch.source?.label || schTitle}" have been posted. The schedule was paused automatically so nothing repeats.`,
-        html: `<p>✅ <b>${schTitle}</b> has finished.</p><p>All <b>${picked.poolSize}</b> question(s) from <b>${sch.source?.label || "the selected source"}</b> have been posted. The schedule was paused automatically so no questions repeat.</p>`,
-      });
+      await fbNotify(
+        blockedByIncomplete
+          ? {
+              site,
+              subject: `⚠️ Auto-post paused — ${schTitle}`,
+              text: `"${sch.source?.label || schTitle}" was paused because no complete question was available to post. ${picked.skipped} incomplete question(s) were skipped (missing options / statements / columns / assertion-reason). Fix them, then re-enable the schedule.`,
+              html: `<p>⚠️ <b>${schTitle}</b> was paused.</p><p>No complete question was available to post — <b>${picked.skipped}</b> incomplete question(s) were skipped (missing content such as options, statements, columns or assertion/reason).</p><p>Fix those questions and re-enable the schedule to resume.</p>`,
+            }
+          : {
+              site,
+              subject: `✅ Auto-post complete — ${schTitle}`,
+              text: `All ${picked.poolSize} question(s) from "${sch.source?.label || schTitle}" have been posted. The schedule was paused automatically so nothing repeats.`,
+              html: `<p>✅ <b>${schTitle}</b> has finished.</p><p>All <b>${picked.poolSize}</b> question(s) from <b>${sch.source?.label || "the selected source"}</b> have been posted. The schedule was paused automatically so no questions repeat.</p>`,
+            }
+      );
     }
-    return { ok: false, exhausted: true, completed: true, error: "All questions in this source have been posted." };
+    return {
+      ok: false,
+      exhausted: true,
+      completed: !blockedByIncomplete,
+      error: blockedByIncomplete
+        ? `No complete question to post — ${picked.skipped} incomplete question(s) skipped.`
+        : "All questions in this source have been posted.",
+    };
   }
   if (!picked || !picked.q) return { ok: false, error: "No published questions found in the selected source." };
-  const { q, recycled, poolSize } = picked;
+  const { q, recycled, poolSize, skipped: skippedIncomplete = 0 } = picked;
 
   const wantFb = sch.toFacebook !== false;
   const wantIg = !!sch.toInstagram && cfg.igEnabled;
@@ -1316,12 +1405,15 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   }
 
   const notes = [];
+  // Note any incomplete questions we skipped to reach this one, so the schedule
+  // result shows they were passed over (and should be fixed).
+  if (skippedIncomplete > 0) notes.push(`Skipped ${skippedIncomplete} incomplete`);
   // Track each network INDEPENDENTLY so success on one is never attributed to the
   // other (Instagram succeeding must NOT mark Facebook as posted, and vice-versa).
   let fbOk = false;    // a Facebook Page (main OR an extra Page) published OK
   let igOk = false;    // Instagram published OK
   let fbPostId = null; // Meta's post id for the main Page — a real publication reference
-  let igPostId = null; // Instagram media id (for auto-comments)
+  let igMediaId = null; // the published IG media id (for the auto first-comment)
   const fbAttempts = []; // raw per-Page results → collectFacebookPublications() decides what's recorded
 
   // Reel mode: ROTATE through the schedule's music library and mix the NEXT
@@ -1388,7 +1480,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
     if (reelVideoUrl) {
       // Publish the composed video as an Instagram Reel.
       const r = await postReelToInstagram({ videoUrl: reelVideoUrl, caption: message }, cfg);
-      if (r.ok) { igOk = true; igPostId = r.id || igPostId; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
+      if (r.ok) { igOk = true; igMediaId = r.id || igMediaId; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
     } else if (!imageUrl) {
       notes.push(`Instagram ✗ (image failed${imageErr ? `: ${imageErr}` : ""})`);
     } else {
@@ -1399,20 +1491,24 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
       // accepts any ratio. Padding never crops, so the full card stays visible.
       const igImageUrl = toInstagramSafeUrl(imageUrl);
       const r = await postToInstagram({ imageUrl: igImageUrl, caption: message }, cfg);
-      if (r.ok) { igOk = true; igPostId = r.id || igPostId; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
+      if (r.ok) { igOk = true; igMediaId = r.id || igMediaId; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
     }
   }
   if (!wantFb && !wantIg) return { ok: false, error: "No destination selected (enable Facebook and/or Instagram)." };
 
   // ALSO share the card image as a 24h Story (in addition to the feed/reel post),
   // to whichever networks are selected. Additive & best-effort — a Story failure
-  // never changes the main post's success.
+  // never changes the main post's success. A successful Facebook Story is a real
+  // publication, so it's recorded in the ledger too (kind "story") — otherwise
+  // Stories would be MISSING from the Facebook audit.
+  const storyFbAttempts = [];
   if (sch.asStory) {
     if (!imageUrl) {
       notes.push("Story ✗ (no card image)");
     } else {
       if (wantFb) {
         const rs = await postStoryToFacebookPage({ imageUrl }, cfg);
+        storyFbAttempts.push({ ok: rs.ok, id: rs.id, pageId: cfg.pageId, pageLabel: "" });
         notes.push(rs.ok ? "FB Story ✓" : `FB Story ✗ (${rs.error})`);
       }
       if (wantIg) {
@@ -1422,12 +1518,8 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
     }
   }
 
-  // Auto-comment (first comment) on whatever published — best-effort, so a
-  // comment failure never changes the post's success.
-  {
-    const { notes: cNotes } = await postScheduledAutoComments({ site, cfg, fbPostId, igPostId, wantFb, wantIg });
-    notes.push(...cNotes);
-  }
+  // Auto first-comment(s) on the just-published MAIN Page post + IG media.
+  await postAutoFirstComment({ site, cfg, fbAttempts, igMediaId, notes });
 
   // A post counts as "made" (advance the pool / mark the question posted) when it
   // published to at least ONE selected network. FB and IG are tracked separately
@@ -1441,6 +1533,14 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
     await recordFbPublications(fbPublications, {
       schedule: sch, scheduleTitle: schTitle, question: q,
       kind: reelVideoUrl ? "reel" : (isFlashcard ? "flashcard" : "question"), sourceLabel: sch.source?.label, postSerial: postNumber,
+    });
+  }
+  // Record Facebook Story publications too (kind "story"), so they aren't
+  // missing from the audit/lifetime count.
+  const storyPublications = collectFacebookPublications(storyFbAttempts);
+  if (storyPublications.length) {
+    await recordFbPublications(storyPublications, {
+      schedule: sch, scheduleTitle: schTitle, question: q, kind: "story", sourceLabel: sch.source?.label,
     });
   }
 

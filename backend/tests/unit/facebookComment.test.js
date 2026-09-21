@@ -1,13 +1,8 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { postCommentToFacebookPage, postCommentToInstagram } from "../../src/config/facebook.js";
+import { commentOnFacebookPost, commentOnInstagramMedia } from "../../src/config/facebook.js";
 
-// ─────────────────────────────────────────────────────────────────────────
-// Auto-comment ("first comment") publishing paths.
-//   Facebook: POST /{post_id}/comments { message } → { id }
-//   Instagram: POST /{media_id}/comments { message } → { id }
-// global.fetch is mocked. resolvePageToken caches by pageId, so each test uses
-// a UNIQUE pageId to stay isolated.
-// ─────────────────────────────────────────────────────────────────────────
+// Auto first-comment helpers: post a comment on a published FB post / IG media.
+// global.fetch is mocked; unique pageIds keep resolvePageToken's cache isolated.
 
 const VERSION = "v21.0";
 const reply = (data, { ok = true, status = 200 } = {}) => ({ ok, status, json: async () => data });
@@ -26,53 +21,57 @@ function installFetch(router) {
 }
 afterEach(() => { vi.restoreAllMocks(); delete global.fetch; });
 
-describe("postCommentToFacebookPage", () => {
-  it("posts the comment message on the given post id", async () => {
-    const pageId = "page-comment-fb";
+describe("commentOnFacebookPost", () => {
+  it("posts the comment on /{post-id}/comments and returns the comment id", async () => {
+    const pageId = "page-cmt-fb";
     const cfg = { pageId, token: "tok", version: VERSION };
-
     installFetch((url, opts) => {
       if (opts.method !== "POST" && url.includes("fields=access_token")) return reply({ access_token: "PAGE_TOKEN" });
       if (url.includes("/POST_1/comments")) {
-        expect(field(opts, "message")).toBe("First! 👇");
+        expect(field(opts, "message")).toBe("Follow us! @everyone");
         return reply({ id: "COMMENT_1" });
       }
       throw new Error(`unexpected call: ${url}`);
     });
-
-    const r = await postCommentToFacebookPage({ postId: "POST_1", message: "First! 👇" }, cfg);
+    const r = await commentOnFacebookPost({ postId: "POST_1", message: "Follow us! @everyone" }, cfg);
     expect(r.ok).toBe(true);
     expect(r.id).toBe("COMMENT_1");
   });
 
-  it("errors clearly with no post id or empty message", async () => {
-    const cfg = { pageId: "p1", token: "t", version: VERSION };
-    expect((await postCommentToFacebookPage({ postId: "", message: "hi" }, cfg)).ok).toBe(false);
-    expect((await postCommentToFacebookPage({ postId: "X", message: "  " }, cfg)).ok).toBe(false);
+  it("errors when the post id or text is missing", async () => {
+    const cfg = { pageId: "p", token: "t", version: VERSION };
+    expect((await commentOnFacebookPost({ postId: "", message: "hi" }, cfg)).ok).toBe(false);
+    expect((await commentOnFacebookPost({ postId: "X", message: "" }, cfg)).ok).toBe(false);
   });
 });
 
-describe("postCommentToInstagram", () => {
-  it("posts the comment on the given media id", async () => {
-    const pageId = "page-comment-ig";
+describe("commentOnInstagramMedia", () => {
+  it("posts the comment on /{ig-media-id}/comments and returns the comment id", async () => {
+    const pageId = "page-cmt-ig";
     const cfg = { pageId, token: "tok", version: VERSION };
-
     installFetch((url, opts) => {
       if (opts.method !== "POST" && url.includes("fields=access_token")) return reply({ access_token: "PAGE_TOKEN" });
-      if (url.includes("/IG_MEDIA_1/comments")) {
-        expect(field(opts, "message")).toBe("Follow for more");
-        return reply({ id: "IG_COMMENT_1" });
+      if (url.includes("/IGMEDIA_1/comments")) {
+        expect(field(opts, "message")).toBe("Link in bio 🔗");
+        return reply({ id: "IGCOMMENT_1" });
       }
       throw new Error(`unexpected call: ${url}`);
     });
-
-    const r = await postCommentToInstagram({ mediaId: "IG_MEDIA_1", message: "Follow for more" }, cfg);
+    const r = await commentOnInstagramMedia({ mediaId: "IGMEDIA_1", message: "Link in bio 🔗" }, cfg);
     expect(r.ok).toBe(true);
-    expect(r.id).toBe("IG_COMMENT_1");
+    expect(r.id).toBe("IGCOMMENT_1");
   });
 
-  it("errors clearly with no media id", async () => {
-    const r = await postCommentToInstagram({ mediaId: "", message: "hi" }, { pageId: "p2", token: "t", version: VERSION });
+  it("surfaces a Graph API error", async () => {
+    const pageId = "page-cmt-ig-err";
+    const cfg = { pageId, token: "tok", version: VERSION };
+    installFetch((url, opts) => {
+      if (opts.method !== "POST" && url.includes("fields=access_token")) return reply({ access_token: "PAGE_TOKEN" });
+      if (url.includes("/M/comments")) return reply({ error: { message: "Permission missing" } }, { ok: false, status: 403 });
+      throw new Error(`unexpected call: ${url}`);
+    });
+    const r = await commentOnInstagramMedia({ mediaId: "M", message: "hi" }, cfg);
     expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/permission/i);
   });
 });

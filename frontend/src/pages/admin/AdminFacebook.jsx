@@ -5,7 +5,7 @@ import { useEffect, useState, useRef } from "react";
 import {
   Send, Loader2, CheckCircle2, AlertTriangle, KeyRound, Plus, Trash2, Pencil, X,
   Clock, CalendarClock, ListChecks, Power, Save, Upload, UserCircle, Type, Search, Mail,
-  ImagePlus, FileText, Wand2, RefreshCw, Film, Music, Camera, MessageSquare,
+  ImagePlus, FileText, Wand2, RefreshCw, Film, Music, Camera, ChevronDown, MessageCircle,
 } from "lucide-react";
 import { Facebook, Instagram } from "../../components/ui/SocialIcons";
 import { settingsService, facebookService, contentService, practiceService, uploadService } from "../../services";
@@ -162,6 +162,24 @@ const SHAPES = [
   { value: "rectangle", label: "Rectangle (banner/stamp)" },
 ];
 
+// A card whose body is hidden until the admin taps the header (accordion). Keeps
+// this long settings page compact — each section (Connection, Hashtags, …) opens
+// on tap. `defaultOpen` can force a section open on load.
+function CollapsibleCard({ title, icon: Icon, iconClass = "h-5 w-5 text-[#1877F2]", defaultOpen = false, children }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="card overflow-hidden p-0">
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
+        className="flex w-full items-center gap-2 px-5 py-4 text-left font-bold hover:bg-slate-50 dark:hover:bg-slate-800/50">
+        {Icon && <Icon className={iconClass} />}
+        <span>{title}</span>
+        <ChevronDown className={`ml-auto h-5 w-5 flex-shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && <div className="border-t border-slate-100 px-5 pb-5 pt-4 dark:border-slate-800">{children}</div>}
+    </div>
+  );
+}
+
 function SelfieWatermarkSection({ settings, saveSettings }) {
   const fileRef = useRef(null);
   const [uploading, setUploading] = useState(false);
@@ -221,8 +239,7 @@ function SelfieWatermarkSection({ settings, saveSettings }) {
   const isCircle = shape === "circle";
 
   return (
-    <div className="card p-5">
-      <h2 className="flex items-center gap-2 font-bold"><Upload className="h-5 w-5 text-[#1877F2]" /> Post Watermark</h2>
+    <CollapsibleCard title="Post Watermark" icon={Upload}>
       <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
         Upload <b>any image</b> (selfie, logo, stamp, banner) to appear as a watermark on every Facebook &amp; Instagram image post. Choose the shape, position, size, and opacity.
       </p>
@@ -292,7 +309,7 @@ function SelfieWatermarkSection({ settings, saveSettings }) {
         </button>
         {msg && <span className={`inline-flex items-center gap-1 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {msg.text}</span>}
       </div>
-    </div>
+    </CollapsibleCard>
   );
 }
 
@@ -332,8 +349,7 @@ function TextWatermarkSection({ settings, saveSettings }) {
   };
 
   return (
-    <div className="card p-5">
-      <h2 className="flex items-center gap-2 font-bold"><Type className="h-5 w-5 text-[#1877F2]" /> Center Text Watermark</h2>
+    <CollapsibleCard title="Center Text Watermark" icon={Type}>
       <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
         Print a diagonal line of text across the <b>middle</b> of every Facebook &amp; Instagram question-card image. Leave the text blank to use <b>{fallback}</b>.
       </p>
@@ -369,7 +385,7 @@ function TextWatermarkSection({ settings, saveSettings }) {
         </button>
         {msg && <span className={`inline-flex items-center gap-1 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {msg.text}</span>}
       </div>
-    </div>
+    </CollapsibleCard>
   );
 }
 
@@ -408,8 +424,7 @@ function FbLedgerStats() {
   };
 
   return (
-    <div className="card p-5">
-      <h2 className="flex items-center gap-2 font-bold"><Facebook className="h-4 w-4 text-[#1877F2]" /> Facebook publications</h2>
+    <CollapsibleCard title="Facebook publications" icon={Facebook} iconClass="h-4 w-4 text-[#1877F2]">
       <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
         A permanent record of every post successfully published to your Page, keyed by Facebook's own post ID. It survives editing, completing or deleting schedules.
       </p>
@@ -456,7 +471,7 @@ function FbLedgerStats() {
           </ul>
         </div>
       )}
-    </div>
+    </CollapsibleCard>
   );
 }
 
@@ -494,8 +509,7 @@ function FbNotifySection({ settings, saveSettings }) {
   ];
 
   return (
-    <div className="card p-5">
-      <h2 className="flex items-center gap-2 font-bold"><Mail className="h-5 w-5 text-[#1877F2]" /> Email notifications</h2>
+    <CollapsibleCard title="Email notifications" icon={Mail}>
       <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
         Get emailed about what the auto-poster is doing. Leave the address blank to use the default admin email.
       </p>
@@ -520,7 +534,7 @@ function FbNotifySection({ settings, saveSettings }) {
         </button>
         {msg && <span className={`inline-flex items-center gap-1 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {msg.text}</span>}
       </div>
-    </div>
+    </CollapsibleCard>
   );
 }
 
@@ -897,8 +911,7 @@ function FlashcardTemplateSection({ settings, saveSettings }) {
   const toggle = async () => { const next = !enabled; setEnabled(next); try { await saveSettings({ fbFlashcardTemplateEnabled: next }); } catch { /* ignore */ } };
 
   return (
-    <div className="card p-5">
-      <h2 className="flex items-center gap-2 font-bold"><ImagePlus className="h-5 w-5 text-[#1877F2]" /> Flashcard template image</h2>
+    <CollapsibleCard title="Flashcard template image" icon={ImagePlus}>
       <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
         Upload your <b>flashcard template</b> — the branded frame (header + footer) with an <b>empty middle</b>. Flashcard auto-posts render each
         quiz question's content (question, options, correct answer, explanation, key points &amp; quick recall) into the empty area and
@@ -930,7 +943,7 @@ function FlashcardTemplateSection({ settings, saveSettings }) {
         </div>
       </div>
       {msg && <p className={`mt-3 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.text}</p>}
-    </div>
+    </CollapsibleCard>
   );
 }
 
@@ -951,15 +964,133 @@ function ReelMusicLibrarySection({ settings, saveSettings }) {
   };
 
   return (
-    <div className="card p-5">
-      <h2 className="flex items-center gap-2 font-bold"><Music className="h-5 w-5 text-[#1877F2]" /> Reel music library</h2>
+    <CollapsibleCard title="Reel music library" icon={Music}>
       <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
         Add your music <b>once here</b>. Any question or flashcard schedule set to post as a <b>Reel</b> rotates through
         these tracks — one per Reel, then starts over — so you never upload or paste them again. Upload files or paste public links.
       </p>
       <div className="mt-4"><ReelAudioLibrary value={tracks} onChange={onChange} /></div>
       {msg && <p className={`mt-3 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.text}</p>}
-    </div>
+    </CollapsibleCard>
+  );
+}
+
+// Auto first-comment — a GLOBAL list of comments the admin writes once (with a
+// ＋ add button). After every published Facebook post & Instagram media, the
+// poster adds a saved comment as the FIRST comment (a pinned link / CTA / extra
+// hashtags). The list is used per the chosen mode (rotate / all / random) and
+// per-network toggles. Saved to site settings.
+function AutoCommentSection({ settings, saveSettings }) {
+  const [enabled, setEnabled] = useState(settings?.fbAutoCommentEnabled === true);
+  // Seed the list from fbAutoComments, falling back to the legacy single comment.
+  const seedList = (s) => {
+    const list = Array.isArray(s?.fbAutoComments) ? s.fbAutoComments : [];
+    if (list.length) return list;
+    return String(s?.fbAutoComment || "").trim() ? [String(s.fbAutoComment).trim()] : [];
+  };
+  const [comments, setComments] = useState(seedList(settings));
+  const [mode, setMode] = useState(settings?.fbAutoCommentMode || "rotate");
+  const [toFb, setToFb] = useState(settings?.fbAutoCommentToFacebook !== false);
+  const [toIg, setToIg] = useState(settings?.fbAutoCommentToInstagram === true);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  useEffect(() => {
+    setEnabled(settings?.fbAutoCommentEnabled === true);
+    setComments(seedList(settings));
+    setMode(settings?.fbAutoCommentMode || "rotate");
+    setToFb(settings?.fbAutoCommentToFacebook !== false);
+    setToIg(settings?.fbAutoCommentToInstagram === true);
+  }, [settings?.fbAutoCommentEnabled, settings?.fbAutoComment, settings?.fbAutoComments, settings?.fbAutoCommentMode, settings?.fbAutoCommentToFacebook, settings?.fbAutoCommentToInstagram]);
+
+  const setComment = (i, v) => setComments((cs) => cs.map((c, idx) => (idx === i ? v : c)));
+  const addComment = () => setComments((cs) => [...cs, ""]);
+  const removeComment = (i) => setComments((cs) => cs.filter((_, idx) => idx !== i));
+
+  const save = async () => {
+    setSaving(true); setMsg(null);
+    try {
+      const fbAutoComments = comments.map((c) => String(c || "").trim()).filter(Boolean);
+      await saveSettings({
+        fbAutoCommentEnabled: enabled,
+        fbAutoComments,
+        fbAutoCommentMode: mode,
+        fbAutoCommentToFacebook: toFb,
+        fbAutoCommentToInstagram: toIg,
+        // Keep the legacy single field in sync (first comment) for back-compat.
+        fbAutoComment: fbAutoComments[0] || "",
+      });
+      setMsg({ ok: true, text: "Settings saved." });
+    } catch (err) { setMsg({ ok: false, text: err.message || "Save failed." }); }
+    finally { setSaving(false); }
+  };
+
+  const toggle = (val, on) => (
+    <button type="button" onClick={on}
+      className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${val ? "bg-[#1877F2]" : "bg-slate-300 dark:bg-slate-600"}`}>
+      <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${val ? "left-6" : "left-1"}`} />
+    </button>
+  );
+
+  return (
+    <CollapsibleCard title="Auto first comment" icon={MessageCircle}>
+      <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
+        Write comments once here — after every scheduled post &amp; reel publishes, one is added automatically as the <b>first comment</b> (a pinned link / CTA / extra hashtags). <b>Stories don't support comments</b>, so they're skipped.
+      </p>
+      <div className="mt-4 space-y-3">
+        <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
+          <span className="text-sm font-medium">Add a first comment to every post</span>
+          {toggle(enabled, () => setEnabled((v) => !v))}
+        </label>
+
+        {/* The saved comment list */}
+        <div className="space-y-2">
+          {comments.length === 0 && <p className="text-sm text-slate-400">No comments yet — add one below.</p>}
+          {comments.map((c, i) => (
+            <div key={i} className="flex items-start gap-2">
+              <textarea className="input min-h-[42px] flex-1 resize-y" rows={1} maxLength={2000} value={c}
+                onChange={(e) => setComment(i, e.target.value)}
+                placeholder="e.g. 👉 Follow for daily quizzes! Practice at mystudyguide.in  #JKSSB #GK" />
+              <button type="button" onClick={() => removeComment(i)} title="Remove" className="mt-1 rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30"><Trash2 className="h-4 w-4" /></button>
+            </div>
+          ))}
+          <button type="button" onClick={addComment} className="btn-outline"><Plus className="h-4 w-4" /> Add comment</button>
+        </div>
+
+        {/* How a comment is chosen per post */}
+        <div>
+          <label className="mb-1 block text-sm font-medium">How to use them per post</label>
+          <select className="input" value={mode} onChange={(e) => setMode(e.target.value)}>
+            <option value="rotate">Rotate — one comment per post, in order</option>
+            <option value="all">All — post every comment on each post</option>
+            <option value="random">Random — a random comment each post</option>
+          </select>
+        </div>
+
+        {/* Which networks get the comment */}
+        <div className="grid gap-2 sm:grid-cols-2">
+          <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
+            <span className="flex items-center gap-2 text-sm font-medium"><Facebook className="h-4 w-4 text-[#1877F2]" /> Comment on Facebook</span>
+            {toggle(toFb, () => setToFb((v) => !v))}
+          </label>
+          <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
+            <span className="flex items-center gap-2 text-sm font-medium"><Instagram className="h-4 w-4 text-[#E1306C]" /> Comment on Instagram</span>
+            {toggle(toIg, () => setToIg((v) => !v))}
+          </label>
+        </div>
+
+        <p className="text-xs text-slate-400">
+          Note: <b>@everyone / @followers / @all</b> are posted as plain text — Facebook &amp; Instagram don't let apps tag all
+          followers, so use them as a caption, not a notification. Instagram commenting needs the <b>instagram_manage_comments</b> permission.
+        </p>
+      </div>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button type="button" onClick={save} disabled={saving} className="btn-primary">
+          {saving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> Save comment settings</>}
+        </button>
+        {msg && <span className={`inline-flex items-center gap-1 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {msg.text}</span>}
+      </div>
+    </CollapsibleCard>
   );
 }
 
@@ -980,11 +1111,7 @@ export default function AdminFacebook() {
   const { settings, save: saveSettings } = useSettings();
 
   // ---- Connection config ----
-  const [fb, setFb] = useState({
-    fbEnabled: false, fbPageId: "", fbGraphVersion: "v21.0", igEnabled: false, igUserId: "", fbDefaultHashtags: "", fbAutoHashtags: true,
-    fbAutoCommentsEnabled: false, fbAutoCommentMode: "rotate", fbAutoCommentToFacebook: true, fbAutoCommentToInstagram: false,
-  });
-  const [comments, setComments] = useState([]); // saved auto-comment lines (global "first comment")
+  const [fb, setFb] = useState({ fbEnabled: false, fbPageId: "", fbGraphVersion: "v21.0", igEnabled: false, igUserId: "", fbDefaultHashtags: "", fbAutoHashtags: true });
   const [targets, setTargets] = useState([]); // extra cross-post Pages: [{label, pageId, token, tokenSet}]
   const [fbToken, setFbToken] = useState("");
   const [fbSaving, setFbSaving] = useState(false);
@@ -998,22 +1125,13 @@ export default function AdminFacebook() {
       fbEnabled: settings?.fbEnabled === true, fbPageId: settings?.fbPageId || "", fbGraphVersion: settings?.fbGraphVersion || "v21.0",
       igEnabled: settings?.igEnabled === true, igUserId: settings?.igUserId || "",
       fbDefaultHashtags: settings?.fbDefaultHashtags || "", fbAutoHashtags: settings?.fbAutoHashtags !== false,
-      fbAutoCommentsEnabled: settings?.fbAutoCommentsEnabled === true,
-      fbAutoCommentMode: settings?.fbAutoCommentMode || "rotate",
-      fbAutoCommentToFacebook: settings?.fbAutoCommentToFacebook !== false,
-      fbAutoCommentToInstagram: settings?.fbAutoCommentToInstagram === true,
     });
-    setComments(Array.isArray(settings?.fbAutoComments) ? settings.fbAutoComments : []);
     setTargets((settings?.fbExtraTargets || []).map((t) => ({ label: t.label || "", pageId: t.pageId || "", token: "", tokenSet: !!t.tokenSet })));
-  }, [settings?.fbEnabled, settings?.fbPageId, settings?.fbGraphVersion, settings?.igEnabled, settings?.igUserId, settings?.fbDefaultHashtags, settings?.fbAutoHashtags, settings?.fbExtraTargets, settings?.fbAutoCommentsEnabled, settings?.fbAutoCommentMode, settings?.fbAutoCommentToFacebook, settings?.fbAutoCommentToInstagram, settings?.fbAutoComments]);
+  }, [settings?.fbEnabled, settings?.fbPageId, settings?.fbGraphVersion, settings?.igEnabled, settings?.igUserId, settings?.fbDefaultHashtags, settings?.fbAutoHashtags, settings?.fbExtraTargets]);
 
   const setTarget = (i, k, v) => setTargets((ts) => ts.map((t, idx) => (idx === i ? { ...t, [k]: v } : t)));
   const addTarget = () => setTargets((ts) => [...ts, { label: "", pageId: "", token: "", tokenSet: false }]);
   const removeTarget = (i) => setTargets((ts) => ts.filter((_, idx) => idx !== i));
-
-  const setComment = (i, v) => setComments((cs) => cs.map((c, idx) => (idx === i ? v : c)));
-  const addComment = () => setComments((cs) => [...cs, ""]);
-  const removeComment = (i) => setComments((cs) => cs.filter((_, idx) => idx !== i));
 
   const saveFb = async () => {
     setFbSaving(true); setFbMsg(null);
@@ -1021,8 +1139,7 @@ export default function AdminFacebook() {
       const fbExtraTargets = targets
         .filter((t) => String(t.pageId).trim())
         .map((t) => ({ label: String(t.label).trim(), pageId: String(t.pageId).trim(), token: String(t.token).trim() }));
-      const fbAutoComments = comments.map((c) => String(c || "").trim()).filter(Boolean);
-      await saveSettings({ ...fb, fbAutoComments, fbExtraTargets, ...(fbToken.trim() ? { fbPageAccessToken: fbToken.trim() } : {}) });
+      await saveSettings({ ...fb, fbExtraTargets, ...(fbToken.trim() ? { fbPageAccessToken: fbToken.trim() } : {}) });
       setFbToken(""); setFbMsg({ ok: true, text: "Saved." });
     } catch (e) { setFbMsg({ ok: false, text: e.message }); } finally { setFbSaving(false); }
   };
@@ -1188,8 +1305,7 @@ export default function AdminFacebook() {
       </div>
 
       {/* Connection */}
-      <div className="card p-5">
-        <h2 className="flex items-center gap-2 font-bold"><Power className="h-4 w-4 text-[#1877F2]" /> Connection</h2>
+      <CollapsibleCard title="Connection" icon={Power} iconClass="h-4 w-4 text-[#1877F2]" defaultOpen>
         <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">Your access token is stored on the server and never shown in the browser.</p>
 
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -1219,11 +1335,10 @@ export default function AdminFacebook() {
           <button type="button" onClick={testFb} disabled={fbTesting || !settings?.fbTokenSet} className="btn-outline">{fbTesting ? <><Loader2 className="h-4 w-4 animate-spin" /> Posting…</> : <><Send className="h-4 w-4" /> Send test post</>}</button>
           {fbMsg && <span className={`inline-flex items-center gap-1 text-sm font-medium ${fbMsg.ok ? "text-emerald-600" : "text-rose-600"}`}>{fbMsg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {fbMsg.text}</span>}
         </div>
-      </div>
+      </CollapsibleCard>
 
       {/* Hashtags */}
-      <div className="card p-5">
-        <h2 className="flex items-center gap-2 font-bold"><ListChecks className="h-4 w-4 text-[#1877F2]" /> Hashtags</h2>
+      <CollapsibleCard title="Hashtags" icon={ListChecks} iconClass="h-4 w-4 text-[#1877F2]">
         <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">Added to every question post. Auto tags are also built from each question's subject &amp; topic.</p>
         <div className="mt-4 space-y-3">
           <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
@@ -1242,73 +1357,10 @@ export default function AdminFacebook() {
         <div className="mt-4">
           <button type="button" onClick={saveFb} disabled={fbSaving} className="btn-primary">{fbSaving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> Save hashtags</>}</button>
         </div>
-      </div>
-
-      {/* Auto-comments (first comment) */}
-      <div className="card p-5">
-        <h2 className="flex items-center gap-2 font-bold"><MessageSquare className="h-4 w-4 text-[#1877F2]" /> Auto-comments (first comment)</h2>
-        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-          Write comments once here — after every scheduled post &amp; reel publishes, one is added automatically as the first comment.
-          <b> Stories don't support comments</b>, so they're skipped.
-        </p>
-        <div className="mt-4 space-y-3">
-          <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
-            <span className="text-sm font-medium">Turn on auto-comments</span>
-            <button type="button" onClick={() => setFb((f) => ({ ...f, fbAutoCommentsEnabled: !f.fbAutoCommentsEnabled }))}
-              className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${fb.fbAutoCommentsEnabled ? "bg-[#1877F2]" : "bg-slate-300 dark:bg-slate-600"}`}>
-              <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${fb.fbAutoCommentsEnabled ? "left-6" : "left-1"}`} />
-            </button>
-          </label>
-
-          {/* The saved comment list */}
-          <div className="space-y-2">
-            {comments.length === 0 && <p className="text-sm text-slate-400">No comments yet — add one below.</p>}
-            {comments.map((c, i) => (
-              <div key={i} className="flex items-start gap-2">
-                <textarea className="input min-h-[42px] flex-1 resize-y" rows={1} value={c} onChange={(e) => setComment(i, e.target.value)} placeholder="e.g. 👉 Follow @mystudyguide for daily questions!" />
-                <button type="button" onClick={() => removeComment(i)} title="Remove" className="mt-1 rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30"><Trash2 className="h-4 w-4" /></button>
-              </div>
-            ))}
-            <button type="button" onClick={addComment} className="btn-outline"><Plus className="h-4 w-4" /> Add comment</button>
-          </div>
-
-          {/* How a comment is chosen per post */}
-          <div>
-            <label className="mb-1 block text-sm font-medium">How to use them per post</label>
-            <select className="input" value={fb.fbAutoCommentMode} onChange={(e) => setFb((f) => ({ ...f, fbAutoCommentMode: e.target.value }))}>
-              <option value="rotate">Rotate — one comment per post, in order</option>
-              <option value="all">All — post every comment on each post</option>
-              <option value="random">Random — a random comment each post</option>
-            </select>
-          </div>
-
-          {/* Which networks get the comment */}
-          <div className="grid gap-2 sm:grid-cols-2">
-            <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
-              <span className="flex items-center gap-2 text-sm font-medium"><Facebook className="h-4 w-4 text-[#1877F2]" /> Comment on Facebook</span>
-              <button type="button" onClick={() => setFb((f) => ({ ...f, fbAutoCommentToFacebook: !f.fbAutoCommentToFacebook }))}
-                className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${fb.fbAutoCommentToFacebook ? "bg-[#1877F2]" : "bg-slate-300 dark:bg-slate-600"}`}>
-                <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${fb.fbAutoCommentToFacebook ? "left-6" : "left-1"}`} />
-              </button>
-            </label>
-            <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
-              <span className="flex items-center gap-2 text-sm font-medium"><Instagram className="h-4 w-4 text-[#E1306C]" /> Comment on Instagram</span>
-              <button type="button" onClick={() => setFb((f) => ({ ...f, fbAutoCommentToInstagram: !f.fbAutoCommentToInstagram }))}
-                className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${fb.fbAutoCommentToInstagram ? "bg-[#1877F2]" : "bg-slate-300 dark:bg-slate-600"}`}>
-                <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${fb.fbAutoCommentToInstagram ? "left-6" : "left-1"}`} />
-              </button>
-            </label>
-          </div>
-          <p className="text-xs text-slate-400">Instagram auto-commenting needs the <code>instagram_manage_comments</code> permission on your connected Instagram Business account.</p>
-        </div>
-        <div className="mt-4">
-          <button type="button" onClick={saveFb} disabled={fbSaving} className="btn-primary">{fbSaving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> Save comments</>}</button>
-        </div>
-      </div>
+      </CollapsibleCard>
 
       {/* Cross-post to more Pages */}
-      <div className="card p-5">
-        <h2 className="flex items-center gap-2 font-bold"><Send className="h-4 w-4 text-[#1877F2]" /> Cross-post to more Pages</h2>
+      <CollapsibleCard title="Cross-post to more Pages" icon={Send} iconClass="h-4 w-4 text-[#1877F2]">
         <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
           Every post also goes to these Pages. Each needs its OWN Page access token (a Page ID + token — a plain link can't authorise posting).
           <b> Facebook Groups can't be posted to via the API</b>, so only Pages you manage work here.
@@ -1328,11 +1380,10 @@ export default function AdminFacebook() {
           <button type="button" onClick={addTarget} className="btn-outline"><Plus className="h-4 w-4" /> Add Page</button>
           <button type="button" onClick={saveFb} disabled={fbSaving} className="btn-primary">{fbSaving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> Save Pages</>}</button>
         </div>
-      </div>
+      </CollapsibleCard>
 
       {/* Instagram */}
-      <div className="card p-5">
-        <h2 className="flex items-center gap-2 font-bold"><Instagram className="h-5 w-5 text-[#E1306C]" /> Instagram cross-posting</h2>
+      <CollapsibleCard title="Instagram cross-posting" icon={Instagram} iconClass="h-5 w-5 text-[#E1306C]">
         <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
           Also post to Instagram. Requires an <b>Instagram Business/Creator account linked to your Facebook Page</b>. Instagram posts are always images, so those schedules auto-generate a question image.
         </p>
@@ -1354,7 +1405,7 @@ export default function AdminFacebook() {
           <button type="button" onClick={testIg} disabled={igTesting || !settings?.fbTokenSet} className="btn-outline">{igTesting ? <><Loader2 className="h-4 w-4 animate-spin" /> Posting…</> : <><Send className="h-4 w-4" /> Send test to Instagram</>}</button>
           {igMsg && <span className={`inline-flex items-center gap-1 text-sm font-medium ${igMsg.ok ? "text-emerald-600" : "text-rose-600"}`}>{igMsg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {igMsg.text}</span>}
         </div>
-      </div>
+      </CollapsibleCard>
 
       {/* Selfie / logo Watermark */}
       <SelfieWatermarkSection settings={settings} saveSettings={saveSettings} />
@@ -1367,6 +1418,9 @@ export default function AdminFacebook() {
 
       {/* Shared Reel music library (set once, reused by every Reel schedule) */}
       <ReelMusicLibrarySection settings={settings} saveSettings={saveSettings} />
+
+      {/* Auto first comment (applied to every FB + IG post) */}
+      <AutoCommentSection settings={settings} saveSettings={saveSettings} />
 
       {/* Email notifications */}
       <FbNotifySection settings={settings} saveSettings={saveSettings} />

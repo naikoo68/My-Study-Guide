@@ -70,6 +70,45 @@ export function toInstagramSafeUrl(url) {
   return `${m[1]}${IG_TRANSFORM}/${m[2]}`;
 }
 
+// ─── Instagram / Facebook STORY images ──────────────────────────────────────
+// A Story is a fixed full-screen 9:16 canvas (1080×1920). When we hand a
+// feed-shaped card (a portrait question card, or the WIDE two-panel flashcard)
+// straight to the Stories API, the platform scales it to FILL that 9:16 frame,
+// which CROPS whatever doesn't fit — so a wide card loses its left/right edges
+// and the text is chopped off (the bug reported from the live IG Story).
+//
+// Fix: pre-pad the card onto an exact 9:16 canvas ourselves with Cloudinary
+// `c_pad` (CONTAIN — scale to fit, then add white bars). The delivered image is
+// already 9:16, so the platform has nothing to crop and the WHOLE card stays
+// visible. White bars match the card background and blend in.
+
+// Story canvas — Instagram's recommended full-screen resolution.
+export const STORY_WIDTH = 1080;
+export const STORY_HEIGHT = 1920; // 9:16
+
+// Force JPEG (Instagram only reliably accepts JPEG), then contain-pad the whole
+// card onto the 1080×1920 story canvas with a white background. `c_pad` never
+// crops — it scales the card to fit and fills the remainder, so nothing is lost.
+const STORY_TRANSFORM =
+  `${IG_FORMAT_TRANSFORM}/` +
+  `c_pad,w_${STORY_WIDTH},h_${STORY_HEIGHT},b_white`;
+
+// Given ANY image URL, return one padded onto a 9:16 story canvas so the Stories
+// API can't crop it. For a Cloudinary URL we inject the contain-pad transform;
+// non-Cloudinary URLs and already-processed URLs are returned unchanged.
+export function toInstagramStoryUrl(url) {
+  const u = String(url || "").trim();
+  if (!u) return u;
+
+  const m = CLOUDINARY_UPLOAD_RE.exec(u);
+  if (!m) return u; // not a Cloudinary URL — leave it untouched
+
+  // Idempotent: don't stack a second story pad if one is already present.
+  if (u.includes(`c_pad,w_${STORY_WIDTH},h_${STORY_HEIGHT}`)) return u;
+
+  return `${m[1]}${STORY_TRANSFORM}/${m[2]}`;
+}
+
 // True when a width/height is already inside Instagram's accepted aspect-ratio
 // window (i.e. no padding is needed). Exposed for tests and any future caller
 // that knows the exact dimensions up front.
