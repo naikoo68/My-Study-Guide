@@ -227,6 +227,7 @@ export async function updateSettings(req, res) {
     "fbTextWatermarkEnabled", "fbTextWatermarkText", "fbTextWatermarkSize", "fbTextWatermarkOpacity",
     "fbFlashcardTemplateUrl", "fbFlashcardTemplateEnabled",
     "fbReelAudios",
+    "fbAutoCommentEnabled", "fbAutoComment",
     "fbNotifyEmail", "fbNotifyOnPost", "fbNotifyOnError", "fbNotifyOnComplete",
     "igEnabled", "igUserId",
     "googleClientId",
@@ -274,6 +275,9 @@ export async function updateSettings(req, res) {
   if ("fbSelfieWatermarkUrl" in update) update.fbSelfieWatermarkUrl = String(update.fbSelfieWatermarkUrl || "").trim();
   if ("fbFlashcardTemplateUrl" in update) update.fbFlashcardTemplateUrl = String(update.fbFlashcardTemplateUrl || "").trim();
   if ("fbFlashcardTemplateEnabled" in update) update.fbFlashcardTemplateEnabled = !!update.fbFlashcardTemplateEnabled;
+  // Auto first-comment: trim and cap (Facebook/Instagram comment length limit).
+  if ("fbAutoComment" in update) update.fbAutoComment = String(update.fbAutoComment || "").slice(0, 2000);
+  if ("fbAutoCommentEnabled" in update) update.fbAutoCommentEnabled = !!update.fbAutoCommentEnabled;
   // Shared Reel music library: keep only safe public http(s) URLs, dedupe, cap 30.
   if ("fbReelAudios" in update) {
     const arr = Array.isArray(update.fbReelAudios) ? update.fbReelAudios : [];

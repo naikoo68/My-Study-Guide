@@ -519,6 +519,73 @@ export async function postStoryToFacebookPage({ imageUrl } = {}, cfgOverride) {
   }
 }
 
+// Post the FIRST COMMENT on a just-published Facebook Page object (feed post,
+// photo post or reel) via /{object-id}/comments. Used for the auto-comment
+// feature (a fixed comment added to every post). Best-effort; never throws.
+// NOTE: the comment TEXT is posted verbatim — "@everyone/@followers/@all" appear
+// as plain text. Facebook's Graph API does not expose an @everyone/notify-all
+// action for Pages, so those tokens can't actually tag followers programmatically.
+export async function commentOnFacebookPost({ postId, message } = {}, cfgOverride) {
+  const cfg = cfgOverride || (await getFacebookConfig());
+  if (!isFacebookConfigured(cfg)) return { ok: false, error: "Facebook is not connected." };
+  const id = String(postId || "").trim();
+  const msg = String(message || "").trim();
+  if (!id || !msg) return { ok: false, error: "A post id and comment text are both required." };
+  const pageToken = await resolvePageToken(cfg);
+  try {
+    const r = await fbGraphPost(`https://graph.facebook.com/${cfg.version}/${encodeURIComponent(id)}/comments`, { message: msg }, pageToken);
+    if (r.ok && r.data?.id) return { ok: true, id: String(r.data.id) };
+    return { ok: false, error: r.data?.error?.message || `Facebook comment failed (${r.status}).` };
+  } catch (err) {
+    return { ok: false, error: err.message || "Could not reach Facebook." };
+  }
+}
+
+// Post the FIRST COMMENT on a just-published Instagram media via
+// /{ig-media-id}/comments. Requires the instagram_manage_comments permission.
+// Best-effort; never throws. (Same @everyone caveat as above.)
+export async function commentOnInstagramMedia({ mediaId, message } = {}, cfgOverride) {
+  const cfg = cfgOverride || (await getFacebookConfig());
+  if (!isFacebookConfigured(cfg)) return { ok: false, error: "Instagram is not connected." };
+  const id = String(mediaId || "").trim();
+  const msg = String(message || "").trim();
+  if (!id || !msg) return { ok: false, error: "A media id and comment text are both required." };
+  const pageToken = await resolvePageToken(cfg);
+  try {
+    const headers = { "Content-Type": "application/x-www-form-urlencoded" };
+    const body = new URLSearchParams({ message: msg, access_token: pageToken });
+    const res = await fbFetch(`https://graph.facebook.com/${cfg.version}/${encodeURIComponent(id)}/comments`, { method: "POST", headers, body });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data?.id) return { ok: true, id: String(data.id) };
+    return { ok: false, error: data?.error?.message || `Instagram comment failed (${res.status}).` };
+  } catch (err) {
+    return { ok: false, error: err.message || "Could not reach Instagram." };
+  }
+}
+
+// Shared: post the configured auto first-comment on the MAIN Facebook Page post
+// (fbAttempts[0]) and the published Instagram media. No-op unless the feature is
+// enabled and has text. Best-effort — records only failures into `notes`, and
+// never throws (a comment must never break or fail a post).
+async function postAutoFirstComment({ site, cfg, fbAttempts = [], igMediaId = null, notes = [] } = {}) {
+  const text = site?.fbAutoCommentEnabled && String(site?.fbAutoComment || "").trim()
+    ? String(site.fbAutoComment).trim() : "";
+  if (!text) return;
+  try {
+    // Only the MAIN Page post (pushed first). Extra Pages use their own tokens,
+    // so commenting on them with the main token would fail — skip them.
+    const mainFbPostId = fbAttempts[0]?.ok ? fbAttempts[0].id : null;
+    if (mainFbPostId) {
+      const c = await commentOnFacebookPost({ postId: mainFbPostId, message: text }, cfg);
+      if (!c.ok) notes.push(`FB comment ✗ (${c.error})`);
+    }
+    if (igMediaId) {
+      const c = await commentOnInstagramMedia({ mediaId: igMediaId, message: text }, cfg);
+      if (!c.ok) notes.push(`IG comment ✗ (${c.error})`);
+    }
+  } catch { /* never propagate — the post already succeeded */ }
+}
+
 // Verify the token/page WITHOUT posting — reads the Page name via the Graph API.
 export async function verifyFacebook(cfgOverride) {
   const cfg = cfgOverride || (await getFacebookConfig());
@@ -1040,6 +1107,7 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
   // Track each network INDEPENDENTLY (Instagram success must not mark Facebook posted).
   let fbOk = false; // a Facebook Page (main OR an extra Page) published OK
   let igOk = false; // Instagram published OK
+  let igMediaId = null; // the published IG media id (for the auto first-comment)
   const fbAttempts = []; // raw per-Page results → collectFacebookPublications() decides what's recorded
 
   if (wantFb) {
@@ -1066,13 +1134,13 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
   if (wantIg) {
     if (isReel) {
       const r = await postReelToInstagram({ videoUrl, caption: message }, cfg);
-      if (r.ok) { igOk = true; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
+      if (r.ok) { igOk = true; igMediaId = r.id || igMediaId; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
     } else if (!rawImageUrl) {
       notes.push("Instagram ✗ (a custom Instagram post needs an image or a video)");
     } else {
       const igImageUrl = toInstagramSafeUrl(rawImageUrl);
       const r = await postToInstagram({ imageUrl: igImageUrl, caption: message }, cfg);
-      if (r.ok) { igOk = true; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
+      if (r.ok) { igOk = true; igMediaId = r.id || igMediaId; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
     }
   }
 
@@ -1094,6 +1162,11 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
       }
     }
   }
+
+  // Auto first-comment: add a fixed comment to the just-published MAIN Page post
+  // and the IG media (a pinned link / CTA / extra hashtags). Best-effort — a
+  // comment failure never affects the post's success.
+  await postAutoFirstComment({ site, cfg, fbAttempts, igMediaId, notes });
 
   sch.lastRunAt = new Date();
   // Published to at least one selected network (FB and IG tracked separately).
@@ -1314,6 +1387,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   let fbOk = false;    // a Facebook Page (main OR an extra Page) published OK
   let igOk = false;    // Instagram published OK
   let fbPostId = null; // Meta's post id for the main Page — a real publication reference
+  let igMediaId = null; // the published IG media id (for the auto first-comment)
   const fbAttempts = []; // raw per-Page results → collectFacebookPublications() decides what's recorded
 
   // Reel mode: ROTATE through the schedule's music library and mix the NEXT
@@ -1380,7 +1454,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
     if (reelVideoUrl) {
       // Publish the composed video as an Instagram Reel.
       const r = await postReelToInstagram({ videoUrl: reelVideoUrl, caption: message }, cfg);
-      if (r.ok) { igOk = true; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
+      if (r.ok) { igOk = true; igMediaId = r.id || igMediaId; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
     } else if (!imageUrl) {
       notes.push(`Instagram ✗ (image failed${imageErr ? `: ${imageErr}` : ""})`);
     } else {
@@ -1391,7 +1465,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
       // accepts any ratio. Padding never crops, so the full card stays visible.
       const igImageUrl = toInstagramSafeUrl(imageUrl);
       const r = await postToInstagram({ imageUrl: igImageUrl, caption: message }, cfg);
-      if (r.ok) { igOk = true; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
+      if (r.ok) { igOk = true; igMediaId = r.id || igMediaId; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
     }
   }
   if (!wantFb && !wantIg) return { ok: false, error: "No destination selected (enable Facebook and/or Instagram)." };
@@ -1417,6 +1491,9 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
       }
     }
   }
+
+  // Auto first-comment on the just-published MAIN Page post + IG media.
+  await postAutoFirstComment({ site, cfg, fbAttempts, igMediaId, notes });
 
   // A post counts as "made" (advance the pool / mark the question posted) when it
   // published to at least ONE selected network. FB and IG are tracked separately
