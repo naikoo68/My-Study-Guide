@@ -10,14 +10,14 @@ import {
 } from "../../src/utils/instagramImage.js";
 
 const CLOUD = "https://res.cloudinary.com/demo/image/upload";
-// The injected chain: force JPEG (Instagram only accepts JPEG), then pad ONLY
-// when too tall (<4:5) or too wide (>1.91), otherwise deliver the exact card.
-// NOTE: each `if_<condition>` is its OWN `/`-separated component. The earlier
-// comma-joined form (`if_ar_lt_0.8,c_pad,…`) made Cloudinary return HTTP 400,
-// so Instagram could not fetch the image. This form is verified to deliver a
-// valid JPEG.
+// The injected chain caps width at 1440 px (Meta rejects oversize images with
+// subcode 2207076), forces JPEG (Instagram only accepts JPEG), then pads ONLY
+// when too tall (<4:5) or too wide (>1.91) — otherwise the exact card is
+// delivered. Each `if_<condition>` is its OWN `/`-separated component; the
+// comma-joined form (`if_ar_lt_0.8,c_pad,…`) makes Cloudinary return HTTP 400.
 const TRANSFORM =
-  "f_jpg,fl_lossy,q_auto/" +
+  "c_limit,w_1440/" +
+  "f_jpg,fl_lossy,q_auto:eco/" +
   "if_ar_lt_0.8/c_pad,ar_4:5,b_white/if_end/" +
   "if_ar_gt_1.91/c_pad,ar_1.91,b_white/if_end";
 
@@ -60,9 +60,18 @@ describe("toInstagramSafeUrl", () => {
     const once = toInstagramSafeUrl(`${CLOUD}/v123/card.png`);
     const twice = toInstagramSafeUrl(once);
     expect(twice).toBe(once);
-    // Exactly one format + conditional block.
+    // Exactly one width cap + format + conditional block.
+    expect(twice.match(/c_limit,w_1440/g)).toHaveLength(1);
     expect(twice.match(/f_jpg/g)).toHaveLength(1);
     expect(twice.match(/if_ar_lt_0\.8/g)).toHaveLength(1);
+  });
+
+  it("caps the delivered width so Meta never gets an oversize source image", () => {
+    // Meta's transcoder intermittently fails with subcode 2207076 or status
+    // "Fatal" when the source image is far larger than IG's 1440 px recommendation.
+    // c_limit only downscales — a smaller card is unaffected.
+    const out = toInstagramSafeUrl(`${CLOUD}/v1/card.png`);
+    expect(out).toContain("c_limit,w_1440");
   });
 
   it("leaves non-Cloudinary URLs untouched", () => {
@@ -86,7 +95,8 @@ describe("toInstagramStoryUrl", () => {
   // A Story is a fixed 9:16 full-screen canvas. Without this, the platform fills
   // the canvas with a feed-shaped card and CROPS the left/right edges (the bug
   // seen on the live IG Story). We contain-pad to 1080×1920 so nothing is lost.
-  const STORY_PAD = `f_jpg,fl_lossy,q_auto/c_pad,w_${STORY_WIDTH},h_${STORY_HEIGHT},b_white`;
+  const STORY_PAD =
+    `c_limit,w_1440/f_jpg,fl_lossy,q_auto:eco/c_pad,w_${STORY_WIDTH},h_${STORY_HEIGHT},b_white`;
 
   it("targets Instagram's recommended 1080×1920 (9:16) story canvas", () => {
     expect(STORY_WIDTH).toBe(1080);

@@ -87,12 +87,28 @@ async function waitForIgContainerReady(cfg, containerId, token, { tries = 15, de
     const code = data?.status_code;
     if (code === "FINISHED") return { ok: true };
     if (code === "ERROR" || code === "EXPIRED") {
-      return { ok: false, error: data?.status || `Instagram could not process the media (${String(code).toLowerCase()}).` };
+      return { ok: false, terminal: true, error: data?.status || `Instagram could not process the media (${String(code).toLowerCase()}).` };
     }
     // IN_PROGRESS / unknown — wait and poll again.
     await sleep(delayMs);
   }
   return { ok: false, error: "Instagram media did not finish processing in time." };
+}
+
+// Meta's transcoder occasionally reports a freshly created container as ERROR/
+// EXPIRED with a terse status ("Fatal", "Error: Media upload has failed with
+// error code 2207076") even when the same image published fine minutes earlier.
+// This decides whether that message describes a transient Meta-side hiccup that
+// is worth trying ONCE more (with a fresh container after a short wait), or a
+// permanent client-side problem (invalid aspect ratio, bad URL, wrong media
+// type) that a retry will never fix.
+function isTransientIgContainerFailure(status) {
+  const s = String(status || "");
+  if (!s) return false;
+  return /^fatal$/i.test(s) ||
+    /media upload has failed/i.test(s) ||
+    /2207076|2207020|2207052/.test(s) ||
+    /temporar|try again|processing failed/i.test(s);
 }
 
 // A Facebook Page Reel uploaded from a hosted file_url is DOWNLOADED by
@@ -298,24 +314,32 @@ export async function postToInstagram({ imageUrl, caption } = {}, cfgOverride) {
 
   const headers = { "Content-Type": "application/x-www-form-urlencoded" };
   try {
-    // 1) Create a media container.
-    const c = new URLSearchParams();
-    c.set("image_url", img);
-    if (caption) c.set("caption", String(caption).slice(0, 2100));
-    c.set("access_token", pageToken);
-    const cRes = await fbFetch(`https://graph.facebook.com/${cfg.version}/${igId}/media`, { method: "POST", headers, body: c });
-    const cData = await cRes.json().catch(() => ({}));
-    if (!cRes.ok || !cData.id) return { ok: false, error: cData?.error?.message || `Instagram container error (${cRes.status}).` };
-
-    // 2) Wait for the container to finish processing BEFORE publishing —
-    // publishing early is what triggers the "Media ID is not available" error.
-    const ready = await waitForIgContainerReady(cfg, cData.id, pageToken);
-    if (!ready.ok) return { ok: false, error: ready.error };
+    // 1+2) Create a media container and wait for Instagram to finish downloading
+    // + processing the image. If Meta's transcoder reports a transient "Fatal"
+    // / 2207076 the whole container is rebuilt once with a fresh id.
+    const build = async () => {
+      const c = new URLSearchParams();
+      c.set("image_url", img);
+      if (caption) c.set("caption", String(caption).slice(0, 2100));
+      c.set("access_token", pageToken);
+      const cRes = await fbFetch(`https://graph.facebook.com/${cfg.version}/${igId}/media`, { method: "POST", headers, body: c }, 30000);
+      const cData = await cRes.json().catch(() => ({}));
+      if (!cRes.ok || !cData.id) return { ok: false, containerId: null, terminal: true, error: cData?.error?.message || `Instagram container error (${cRes.status}).` };
+      const ready = await waitForIgContainerReady(cfg, cData.id, pageToken);
+      if (!ready.ok) return { ok: false, containerId: cData.id, terminal: !!ready.terminal, error: ready.error };
+      return { ok: true, containerId: cData.id };
+    };
+    let container = await build();
+    if (!container.ok && container.terminal && isTransientIgContainerFailure(container.error)) {
+      await sleep(6000);
+      container = await build();
+    }
+    if (!container.ok) return { ok: false, error: container.error };
 
     // 3) Publish the container. Even once FINISHED, Instagram can briefly report
     // "Media ID is not available" due to propagation lag, so retry a few times.
     const p = new URLSearchParams();
-    p.set("creation_id", cData.id);
+    p.set("creation_id", container.containerId);
     p.set("access_token", pageToken);
     let pData = {};
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -350,24 +374,32 @@ export async function postReelToInstagram({ videoUrl, caption } = {}, cfgOverrid
 
   const headers = { "Content-Type": "application/x-www-form-urlencoded" };
   try {
-    // 1) Create a REELS media container pointing at the hosted video.
-    const c = new URLSearchParams();
-    c.set("media_type", "REELS");
-    c.set("video_url", vid);
-    if (caption) c.set("caption", String(caption).slice(0, 2100));
-    c.set("access_token", pageToken);
-    const cRes = await fbFetch(`https://graph.facebook.com/${cfg.version}/${igId}/media`, { method: "POST", headers, body: c });
-    const cData = await cRes.json().catch(() => ({}));
-    if (!cRes.ok || !cData.id) return { ok: false, error: cData?.error?.message || `Instagram Reel container error (${cRes.status}).` };
-
-    // 2) Wait for Instagram to finish DOWNLOADING + TRANSCODING the video before
-    // publishing. Video takes far longer than an image, so poll longer (~3 min).
-    const ready = await waitForIgContainerReady(cfg, cData.id, pageToken, { tries: 40, delayMs: 5000 });
-    if (!ready.ok) return { ok: false, error: ready.error };
+    // 1+2) Create the REELS container and wait for Instagram to finish
+    // downloading + transcoding the video (~3 min). One retry with a fresh
+    // container if Meta reports a transient "Fatal"/2207076-style failure.
+    const build = async () => {
+      const c = new URLSearchParams();
+      c.set("media_type", "REELS");
+      c.set("video_url", vid);
+      if (caption) c.set("caption", String(caption).slice(0, 2100));
+      c.set("access_token", pageToken);
+      const cRes = await fbFetch(`https://graph.facebook.com/${cfg.version}/${igId}/media`, { method: "POST", headers, body: c }, 45000);
+      const cData = await cRes.json().catch(() => ({}));
+      if (!cRes.ok || !cData.id) return { ok: false, containerId: null, terminal: true, error: cData?.error?.message || `Instagram Reel container error (${cRes.status}).` };
+      const ready = await waitForIgContainerReady(cfg, cData.id, pageToken, { tries: 40, delayMs: 5000 });
+      if (!ready.ok) return { ok: false, containerId: cData.id, terminal: !!ready.terminal, error: ready.error };
+      return { ok: true, containerId: cData.id };
+    };
+    let container = await build();
+    if (!container.ok && container.terminal && isTransientIgContainerFailure(container.error)) {
+      await sleep(10000);
+      container = await build();
+    }
+    if (!container.ok) return { ok: false, error: container.error };
 
     // 3) Publish the container. Retry the brief "not available" propagation lag.
     const p = new URLSearchParams();
-    p.set("creation_id", cData.id);
+    p.set("creation_id", container.containerId);
     p.set("access_token", pageToken);
     let pData = {};
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -472,22 +504,34 @@ export async function postStoryToInstagram({ imageUrl } = {}, cfgOverride) {
 
   const headers = { "Content-Type": "application/x-www-form-urlencoded" };
   try {
-    // 1) Create a STORIES media container pointing at the hosted image.
-    const c = new URLSearchParams();
-    c.set("media_type", "STORIES");
-    c.set("image_url", img);
-    c.set("access_token", pageToken);
-    const cRes = await fbFetch(`https://graph.facebook.com/${cfg.version}/${igId}/media`, { method: "POST", headers, body: c });
-    const cData = await cRes.json().catch(() => ({}));
-    if (!cRes.ok || !cData.id) return { ok: false, error: cData?.error?.message || `Instagram Story container error (${cRes.status}).` };
-
-    // 2) Wait for the container to finish processing before publishing.
-    const ready = await waitForIgContainerReady(cfg, cData.id, pageToken);
-    if (!ready.ok) return { ok: false, error: ready.error };
+    // 1+2) Create the STORIES container and wait for it to finish. Meta
+    // synchronously fetches and validates image_url (9:16 aspect) BEFORE
+    // returning the container id, which under load routinely exceeds the
+    // default 15 s fetch abort — the exact source of "IG Story ✗ (This
+    // operation was aborted)". Give the create call 45 s, and rebuild the
+    // container once if Meta transcoder reports a transient "Fatal"/2207076.
+    const build = async () => {
+      const c = new URLSearchParams();
+      c.set("media_type", "STORIES");
+      c.set("image_url", img);
+      c.set("access_token", pageToken);
+      const cRes = await fbFetch(`https://graph.facebook.com/${cfg.version}/${igId}/media`, { method: "POST", headers, body: c }, 45000);
+      const cData = await cRes.json().catch(() => ({}));
+      if (!cRes.ok || !cData.id) return { ok: false, containerId: null, terminal: true, error: cData?.error?.message || `Instagram Story container error (${cRes.status}).` };
+      const ready = await waitForIgContainerReady(cfg, cData.id, pageToken);
+      if (!ready.ok) return { ok: false, containerId: cData.id, terminal: !!ready.terminal, error: ready.error };
+      return { ok: true, containerId: cData.id };
+    };
+    let container = await build();
+    if (!container.ok && container.terminal && isTransientIgContainerFailure(container.error)) {
+      await sleep(6000);
+      container = await build();
+    }
+    if (!container.ok) return { ok: false, error: container.error };
 
     // 3) Publish. Retry the brief "not available" propagation lag.
     const p = new URLSearchParams();
-    p.set("creation_id", cData.id);
+    p.set("creation_id", container.containerId);
     p.set("access_token", pageToken);
     let pData = {};
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -542,6 +586,40 @@ export async function postStoryToFacebookPage({ imageUrl } = {}, cfgOverride) {
 // message itself says a permission "is not available" and must never be retried.
 function isCommentPermissionError(message, code) {
   return [10, 200].includes(Number(code)) || /permission|permissions|oauth/i.test(String(message || ""));
+}
+
+// Ask Meta which scopes the current token was granted, and cache them per token
+// prefix for 10 minutes. Used to short-circuit auto-comment attempts when the
+// token is missing pages_manage_engagement / instagram_manage_comments — before
+// the commit that added this, every scheduled publish re-hit Meta and appended
+// the same permission error to lastResult. Returns null when Meta cannot tell
+// us (fetch failed / unexpected shape), so callers still try the write instead
+// of silently skipping.
+const _tokenScopeCache = new Map();
+async function getGrantedTokenScopes(cfg) {
+  if (!cfg?.token) return null;
+  const cacheKey = `${cfg.pageId || ""}:${String(cfg.token).slice(0, 16)}`;
+  const hit = _tokenScopeCache.get(cacheKey);
+  if (hit && Date.now() - hit.ts < 10 * 60 * 1000) return hit.scopes;
+  try {
+    // debug_token needs an app or user access_token to introspect an input_token.
+    // Using the same token for both is Meta's documented shortcut when an app
+    // access token isn't available (works for Page tokens).
+    const url = `https://graph.facebook.com/${cfg.version}/debug_token?input_token=${encodeURIComponent(cfg.token)}&access_token=${encodeURIComponent(cfg.token)}`;
+    const res = await fbFetch(url);
+    const data = await res.json().catch(() => ({}));
+    const scopes = Array.isArray(data?.data?.scopes) ? data.data.scopes.map((s) => String(s)) : null;
+    if (scopes) _tokenScopeCache.set(cacheKey, { scopes, ts: Date.now() });
+    return scopes;
+  } catch {
+    return null;
+  }
+}
+
+// Reset the scope cache when the Page token/id changes so a freshly re-authorised
+// token isn't blocked by a stale "missing scope" verdict from the previous one.
+export function invalidateTokenScopeCache() {
+  _tokenScopeCache.clear();
 }
 
 // Newly published feed/reel objects can take a few seconds to become available
@@ -650,13 +728,28 @@ export async function postAutoFirstComment({ site, cfg, fbAttempts = [], igMedia
   const toFb = site.fbAutoCommentToFacebook !== false; // default ON
   const toIg = site.fbAutoCommentToInstagram === true;  // default OFF (needs instagram_manage_comments)
 
+  // Preflight: if we already know the saved token was NOT granted the required
+  // comment scope, don't hammer Meta with N failing requests per publish. Emit
+  // ONE actionable note and move on. Callers still get to publish the main
+  // post; only the auto-comment step is short-circuited.
+  const grantedScopes = await getGrantedTokenScopes(cfg);
+  const hasScope = (name) => !Array.isArray(grantedScopes) || grantedScopes.includes(name);
+  const canCommentFb = hasScope("pages_manage_engagement");
+  const canCommentIg = hasScope("instagram_manage_comments");
+
   let successfulComments = 0;
   const pushUniqueNote = (note) => { if (!notes.includes(note)) notes.push(note); };
   try {
     // Only the MAIN Page post (pushed first). Extra Pages use their own tokens,
     // so commenting on them with the main token would fail — skip them.
     const mainFbPostId = fbAttempts[0]?.ok ? fbAttempts[0].id : null;
-    if (toFb && mainFbPostId) {
+    if (toFb && mainFbPostId && !canCommentFb) {
+      pushUniqueNote("FB comment ✗ (pages_manage_engagement is not on the saved Page token — approve it and save a new token).");
+    }
+    if (toIg && igMediaId && !canCommentIg) {
+      pushUniqueNote("IG comment ✗ (instagram_manage_comments is not on the saved token — approve it and save a new token).");
+    }
+    if (toFb && mainFbPostId && canCommentFb) {
       for (let i = 0; i < comments.length; i++) {
         const r = await commentOnFacebookPost({ postId: mainFbPostId, message: comments[i] }, cfg);
         if (r.ok) {
@@ -668,7 +761,7 @@ export async function postAutoFirstComment({ site, cfg, fbAttempts = [], igMedia
         if (r.permissionDenied) break;
       }
     }
-    if (toIg && igMediaId) {
+    if (toIg && igMediaId && canCommentIg) {
       for (let i = 0; i < comments.length; i++) {
         const r = await commentOnInstagramMedia({ mediaId: igMediaId, message: comments[i] }, cfg);
         if (r.ok) {

@@ -20,10 +20,16 @@ export const IG_MAX_AR = 1.91; // 1.91:1 landscape — the widest IG allows
 // Instagram's Content Publishing API only reliably accepts JPEG images — a PNG
 // (what our card renderer uploads) is rejected with "Only photo or video can be
 // accepted as media type.". So we ALWAYS force JPEG delivery for Instagram via
-// Cloudinary's `f_jpg`. `fl_lossy,q_auto` keeps the JPEG a sensible size. This
-// is applied unconditionally (it's the first transform component); the card
-// looks identical — only the delivered file format changes.
-const IG_FORMAT_TRANSFORM = `f_jpg,fl_lossy,q_auto`;
+// Cloudinary's `f_jpg`. `fl_lossy,q_auto:eco` keeps the JPEG a sensible size.
+//
+// We ALSO cap the delivered width at 1440 px with `c_limit,w_1440`. Instagram's
+// feed recommends ≤ 1440 px wide and ≤ 8 MB per image; our card renderer
+// produces 2×-density PNGs (flashcard ~3200×2240, question card ~2080×2800)
+// that Meta's transcoder intermittently rejects with subcode 2207076
+// ("Media upload has failed") or reports as status "Fatal" once transcoding
+// fails. `c_limit` never upscales, only downscales in proportion, so smaller
+// cards deliver unchanged. This applies to feed/reel/story image URLs.
+const IG_FORMAT_TRANSFORM = `c_limit,w_1440/f_jpg,fl_lossy,q_auto:eco`;
 
 // Cloudinary conditional transform (runs AFTER the format component):
 //   if the image is TALLER than 4:5  -> pad (add side bars) up to 4:5
@@ -65,7 +71,7 @@ export function toInstagramSafeUrl(url) {
 
   // Idempotent: if we already inserted our transform, don't stack another one
   // (e.g. if a made-safe URL is passed back in).
-  if (u.includes("f_jpg") || u.includes("if_ar_lt_0.8")) return u;
+  if (u.includes("f_jpg") || u.includes("if_ar_lt_0.8") || u.includes("c_limit,w_1440")) return u;
 
   return `${m[1]}${IG_TRANSFORM}/${m[2]}`;
 }
