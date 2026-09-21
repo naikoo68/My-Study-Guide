@@ -102,11 +102,37 @@ async function waitForIgContainerReady(cfg, containerId, token, { tries = 15, de
 // is worth trying ONCE more (with a fresh container after a short wait), or a
 // permanent client-side problem (invalid aspect ratio, bad URL, wrong media
 // type) that a retry will never fix.
+// Meta's error responses often carry the useful diagnostic in `error_subcode`
+// or `error_user_msg`, NOT in `error.message`. The generic message is often a
+// broad category ("Only photo or video can be accepted as media type.") while
+// the subcode narrows it down (2207052 = media_download_error → Cloudinary hit
+// a hiccup on Meta's first fetch, retry usually works; 2207076 = media upload
+// failed → the transcoder can't validate the file, retry might work; anything
+// else is likely permanent). Formatting the message with the subcode ALSO lets
+// `isTransientIgContainerFailure` — which already matches the subcodes it
+// knows to retry — trigger the retry that Meta's plain message would miss.
+function formatMetaError(err, fallback = "") {
+  const e = err || {};
+  const msg = String(e.message || fallback || "").trim();
+  const sub = e.error_subcode ?? e.error_data?.error_subcode;
+  const userMsg = String(e.error_user_msg || "").trim();
+  const bits = [msg];
+  if (sub) bits.push(`#${sub}`);
+  if (userMsg && userMsg.toLowerCase() !== msg.toLowerCase()) bits.push(userMsg);
+  return bits.filter(Boolean).join(" ").trim() || "Unknown Meta error.";
+}
+
 function isTransientIgContainerFailure(status) {
   const s = String(status || "");
   if (!s) return false;
   return /^fatal$/i.test(s) ||
     /media upload has failed/i.test(s) ||
+    /media download has failed/i.test(s) ||
+    // "Only photo or video can be accepted as media type." — Meta's own error
+    // message when it couldn't determine the media type of the fetched URL,
+    // usually because Cloudinary was still deriving a transform on the first
+    // hit. A fresh container after a short wait almost always succeeds.
+    /only photo or video can be accepted/i.test(s) ||
     /2207076|2207020|2207052/.test(s) ||
     /temporar|try again|processing failed/i.test(s);
 }
@@ -324,7 +350,7 @@ export async function postToInstagram({ imageUrl, caption } = {}, cfgOverride) {
       c.set("access_token", pageToken);
       const cRes = await fbFetch(`https://graph.facebook.com/${cfg.version}/${igId}/media`, { method: "POST", headers, body: c }, 30000);
       const cData = await cRes.json().catch(() => ({}));
-      if (!cRes.ok || !cData.id) return { ok: false, containerId: null, terminal: true, error: cData?.error?.message || `Instagram container error (${cRes.status}).` };
+      if (!cRes.ok || !cData.id) return { ok: false, containerId: null, terminal: true, error: formatMetaError(cData?.error, `Instagram container error (${cRes.status}).`) };
       const ready = await waitForIgContainerReady(cfg, cData.id, pageToken);
       if (!ready.ok) return { ok: false, containerId: cData.id, terminal: !!ready.terminal, error: ready.error };
       return { ok: true, containerId: cData.id };
@@ -353,7 +379,7 @@ export async function postToInstagram({ imageUrl, caption } = {}, cfgOverride) {
       // a few seconds is usually enough for the limit window to free up.
       await sleep(/request limit|rate limit|#4\b|#17\b|#32\b/i.test(msg) ? 5000 : 2000);
     }
-    return { ok: false, error: pData?.error?.message || `Instagram publish error.` };
+    return { ok: false, error: formatMetaError(pData?.error, "Instagram publish error.") };
   } catch (err) {
     return { ok: false, error: err.message || "Could not reach Instagram." };
   }
@@ -385,7 +411,7 @@ export async function postReelToInstagram({ videoUrl, caption } = {}, cfgOverrid
       c.set("access_token", pageToken);
       const cRes = await fbFetch(`https://graph.facebook.com/${cfg.version}/${igId}/media`, { method: "POST", headers, body: c }, 45000);
       const cData = await cRes.json().catch(() => ({}));
-      if (!cRes.ok || !cData.id) return { ok: false, containerId: null, terminal: true, error: cData?.error?.message || `Instagram Reel container error (${cRes.status}).` };
+      if (!cRes.ok || !cData.id) return { ok: false, containerId: null, terminal: true, error: formatMetaError(cData?.error, `Instagram Reel container error (${cRes.status}).`) };
       const ready = await waitForIgContainerReady(cfg, cData.id, pageToken, { tries: 40, delayMs: 5000 });
       if (!ready.ok) return { ok: false, containerId: cData.id, terminal: !!ready.terminal, error: ready.error };
       return { ok: true, containerId: cData.id };
@@ -410,7 +436,7 @@ export async function postReelToInstagram({ videoUrl, caption } = {}, cfgOverrid
       if (!isRetryableIgPublishError(msg)) break;
       await sleep(/request limit|rate limit|#4\b|#17\b|#32\b/i.test(msg) ? 5000 : 3000);
     }
-    return { ok: false, error: pData?.error?.message || "Instagram Reel publish error." };
+    return { ok: false, error: formatMetaError(pData?.error, "Instagram Reel publish error.") };
   } catch (err) {
     return { ok: false, error: err.message || "Could not reach Instagram." };
   }
@@ -517,7 +543,7 @@ export async function postStoryToInstagram({ imageUrl } = {}, cfgOverride) {
       c.set("access_token", pageToken);
       const cRes = await fbFetch(`https://graph.facebook.com/${cfg.version}/${igId}/media`, { method: "POST", headers, body: c }, 45000);
       const cData = await cRes.json().catch(() => ({}));
-      if (!cRes.ok || !cData.id) return { ok: false, containerId: null, terminal: true, error: cData?.error?.message || `Instagram Story container error (${cRes.status}).` };
+      if (!cRes.ok || !cData.id) return { ok: false, containerId: null, terminal: true, error: formatMetaError(cData?.error, `Instagram Story container error (${cRes.status}).`) };
       const ready = await waitForIgContainerReady(cfg, cData.id, pageToken);
       if (!ready.ok) return { ok: false, containerId: cData.id, terminal: !!ready.terminal, error: ready.error };
       return { ok: true, containerId: cData.id };
@@ -544,7 +570,7 @@ export async function postStoryToInstagram({ imageUrl } = {}, cfgOverride) {
       // a few seconds is usually enough for the limit window to free up.
       await sleep(/request limit|rate limit|#4\b|#17\b|#32\b/i.test(msg) ? 5000 : 2000);
     }
-    return { ok: false, error: pData?.error?.message || "Instagram Story publish error." };
+    return { ok: false, error: formatMetaError(pData?.error, "Instagram Story publish error.") };
   } catch (err) {
     return { ok: false, error: err.message || "Could not reach Instagram." };
   }

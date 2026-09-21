@@ -79,12 +79,19 @@ export async function renderFlashcardCardShot(question, { templateUrl = "" } = {
     await page.waitForSelector('[data-card-ready="1"]', { timeout: 20000 });
     const el = await page.$("[data-card-el]");
     if (!el) throw new Error("Flashcard element not found.");
-    const buf = await el.screenshot({ type: "png" });
+    // Upload as JPEG, not PNG. Instagram's Content Publishing API only reliably
+    // accepts JPEG (a PNG source with an `f_jpg` transform prepended by
+    // toInstagramSafeUrl otherwise makes Cloudinary re-transcode on-the-fly
+    // every first fetch — occasionally slow enough for Meta's downloader to
+    // give up with "Only photo or video can be accepted as media type."
+    // subcode 2207052 = media_download_error). A native JPEG source removes
+    // that on-demand format conversion entirely.
+    const buf = await el.screenshot({ type: "jpeg", quality: 92 });
     await browser.close();
     browser = null;
 
-    const dataUri = `data:image/png;base64,${Buffer.from(buf).toString("base64")}`;
-    const { url: hosted } = await uploadImage(dataUri, { format: "png", folder: "mystudyguide/social" });
+    const dataUri = `data:image/jpeg;base64,${Buffer.from(buf).toString("base64")}`;
+    const { url: hosted } = await uploadImage(dataUri, { format: "jpg", folder: "mystudyguide/social" });
     if (hosted) return { url: hosted };
     return { error: "Cloudinary returned no URL." };
   } catch (err) {
@@ -131,12 +138,15 @@ export async function renderQuestionCardShot(question, { includeAnswer = false, 
     await page.waitForSelector('[data-card-ready="1"]', { timeout: 20000 });
     const el = await page.$("[data-card-el]");
     if (!el) throw new Error("Card element not found.");
-    const buf = await el.screenshot({ type: "png" });
+    // Upload as JPEG (not PNG). See renderFlashcardCardShot above for the full
+    // reason: it lets Instagram fetch the delivered URL directly without asking
+    // Cloudinary to re-transcode a PNG on the fly via `f_jpg`.
+    const buf = await el.screenshot({ type: "jpeg", quality: 92 });
     await browser.close();
     browser = null;
 
-    const dataUri = `data:image/png;base64,${Buffer.from(buf).toString("base64")}`;
-    const { url: hosted } = await uploadImage(dataUri, { format: "png", folder: "mystudyguide/social" });
+    const dataUri = `data:image/jpeg;base64,${Buffer.from(buf).toString("base64")}`;
+    const { url: hosted } = await uploadImage(dataUri, { format: "jpg", folder: "mystudyguide/social" });
     if (hosted) return { url: hosted };
     return { error: "Cloudinary returned no URL." };
   } catch (err) {
