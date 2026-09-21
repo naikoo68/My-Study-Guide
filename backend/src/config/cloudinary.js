@@ -59,12 +59,15 @@ export async function composeImageAudioToVideo({
   const aud = String(audioUrl || "").trim();
   if (!img) throw new Error("An image is required to build the Reel.");
   if (!aud) throw new Error("An audio track is required to build the Reel.");
-  // Clamp the length to a safe Reel range. Instagram's documented minimum is
-  // 3 s but its transcoder rejects short still-image-over-audio Reels as
-  // "Fatal" much more often than longer ones — a 5 s floor gives every
-  // Cloudinary-composed Reel enough real video content for Meta's validator
-  // to accept it. Facebook is more lenient and posts fine at any duration.
-  const REEL_MIN_SEC = 5;
+  // Clamp the length to a sane Reel range. Instagram's documented minimum is
+  // 3 s; keep a light 3 s floor (their real tracks are ~30 s, so this rarely
+  // matters) and Facebook's ~90 s cap. NOTE: we intentionally keep the ENCODE
+  // simple — the heavier settings we tried (explicit 5 Mbps bitrate, baseline
+  // profile, keyframe interval, faststart, a 5 s floor) made Cloudinary take
+  // much longer to BUILD the video, so it often wasn't ready when Meta came to
+  // download it → "Unable to fetch video file from URL." A simple, fast encode
+  // is what worked when the feature was first added.
+  const REEL_MIN_SEC = 3;
   const REEL_MAX_SEC = 90;
   const dur = Math.max(REEL_MIN_SEC, Math.min(REEL_MAX_SEC, Math.round(Number(durationSec) || 30)));
 
@@ -86,16 +89,13 @@ export async function composeImageAudioToVideo({
   //    a) pad to a black WxH canvas + trim to `outDur` seconds (start_offset 0)
   //    b) overlay the image (c_fit)   → whole card visible, centered
   //    c) fl_layer_apply              → bake the overlay in
-  //    d) explicit 30 fps + 5 Mbps H.264 (baseline profile) + AAC at 48 kHz
-  //       + a 2 s keyframe interval + `faststart` moov placement.
-  //       Instagram Reel ingest is much stricter than Facebook: it requires
-  //       a constant frame rate (23-60 fps), a real video bitrate (a still-
-  //       image-over-audio render otherwise picks a very low fps/bitrate),
-  //       and the moov atom at the START of the file for progressive
-  //       playback. `keyframe_interval: 2` guarantees an I-frame every 2 s,
-  //       which Meta's transcoder validates against; without it we saw
-  //       "Fatal" more often on longer flashcard Reels.
-  //    e) h264 / aac / mp4            → a standard, widely-playable Reel file
+  //    d) h264 / aac / mp4            → a standard, widely-playable Reel file.
+  //       Keep this SIMPLE (just the codec, no explicit bitrate/fps/keyframe/
+  //       faststart). This is the encode that worked when Reels were first
+  //       added; a light encode builds fast on Cloudinary, so the file is ready
+  //       when Meta downloads it. Delivery reliability is handled downstream
+  //       (config/facebook.js warms the render, then re-hosts it as a plain
+  //       asset Meta can fetch, and falls back to an image if all else fails).
   // Run eagerly + synchronously so the derived file exists before we return it.
   const result = await cloudinary.uploader.explicit(audio.public_id, {
     type: "upload",
@@ -107,15 +107,7 @@ export async function composeImageAudioToVideo({
           { width, height, crop: "pad", background: "black", start_offset: 0, duration: outDur },
           { overlay: overlayId, width, height, crop: "fit" },
           { flags: "layer_apply" },
-          {
-            video_codec: "h264:baseline:3.1",
-            audio_codec: "aac",
-            fps: 30,
-            bit_rate: "5m",
-            audio_frequency: 48000,
-            keyframe_interval: 2,
-            flags: "faststart",
-          },
+          { video_codec: "h264", audio_codec: "aac" },
         ],
         format: "mp4",
       },
@@ -143,15 +135,7 @@ export async function composeImageAudioToVideo({
           { width, height, crop: "pad", background: "black", start_offset: 0, duration: outDur },
           { overlay: overlayId, width, height, crop: "fit" },
           { flags: "layer_apply" },
-          {
-            video_codec: "h264:baseline:3.1",
-            audio_codec: "aac",
-            fps: 30,
-            bit_rate: "5m",
-            audio_frequency: 48000,
-            keyframe_interval: 2,
-            flags: "faststart",
-          },
+          { video_codec: "h264", audio_codec: "aac" },
         ],
       });
     } catch {
