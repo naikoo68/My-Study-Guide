@@ -1106,6 +1106,16 @@ const ASSERTION_OPTIONS = [
   "A is false but R is true",
 ];
 
+// Pair questions ask how many listed pairs are correct. For the supported
+// 3/4-row shapes those choices are deterministic, so recover them when a model
+// returned four blank placeholders instead of discarding an otherwise complete
+// question. The model's correct index still points into this required order.
+function canonicalPairOptions(count) {
+  if (count === 4) return ["Only one pair", "Only two pairs", "Only three pairs", "All four pairs"];
+  if (count === 3) return ["Only one pair", "Only two pairs", "All three pairs", "None of the pairs"];
+  return null;
+}
+
 function recoverAssertionReason(assertion, reason, text) {
   let a = String(assertion == null ? "" : assertion).trim();
   let r = String(reason == null ? "" : reason).trim();
@@ -1185,6 +1195,13 @@ function normalize(list) {
         const { columnA, columnB } = derivePairColumns(q);
         out.columnA = columnA.map(stripListMarker);
         out.columnB = columnB.map(stripListMarker);
+        if (type === "pair" && out.options.every((option) => !option.trim())) {
+          const aligned = out.columnA.length === out.columnB.length
+            && out.columnA.every((item) => item.trim())
+            && out.columnB.every((item) => item.trim());
+          const inferred = aligned ? canonicalPairOptions(out.columnA.length) : null;
+          if (inferred) out.options = inferred;
+        }
       }
       if (type === "statement") {
         // Statements live in columnA. Models sometimes send them under a
@@ -1228,6 +1245,9 @@ function normalize(list) {
         const ar = recoverAssertionReason(q?.assertion, q?.reason, q?.text);
         out.assertion = ar.assertion;
         out.reason = ar.reason;
+        // Assertion answer choices are a fixed rubric. Persist that rubric even
+        // when the model omitted its text so new questions never store blanks.
+        out.options = [...ASSERTION_OPTIONS];
         // The A/R now live in their own fields — remove any copy left in the
         // stem so they don't render twice (keep only the intro line).
         if (out.assertion && out.reason) out.text = stripAssertionFromStem(out.text);
