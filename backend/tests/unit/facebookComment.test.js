@@ -182,4 +182,45 @@ describe("postAutoFirstComment — scheduled publish integration", () => {
       .toEqual(["@everyone", "Follow My Study Guide"]);
     expect(notes).toEqual([]);
   });
+
+  it("appends fbAutoCommentMentions to every comment (IG @handle, FB @[page-id])", async () => {
+    const cfg = { pageId: "page-auto-mentions", token: "tok", version: VERSION };
+    const posted = [];
+    installFetch((url, opts) => {
+      if (opts.method !== "POST" && url.includes("fields=access_token")) return reply({ access_token: "PAGE_TOKEN" });
+      if (url.includes("/FB_POST/comments") || url.includes("/IG_MEDIA/comments")) {
+        posted.push({ url, message: field(opts, "message") });
+        return reply({ id: `COMMENT_${posted.length}` });
+      }
+      throw new Error(`unexpected call: ${url}`);
+    });
+
+    const notes = [];
+    await postAutoFirstComment({
+      site: {
+        fbAutoCommentEnabled: true,
+        fbAutoComments: ["Follow My Study Guide"],
+        fbAutoCommentMode: "rotate",
+        fbAutoCommentToFacebook: true,
+        fbAutoCommentToInstagram: true,
+        fbAutoCommentMentions: ["@mystudyguide_", "@[123456789]"],
+      },
+      cfg,
+      fbAttempts: [{ ok: true, id: "FB_POST" }],
+      igMediaId: "IG_MEDIA",
+      notes,
+    });
+
+    expect(posted).toHaveLength(2);
+    const fbMsg = posted.find((p) => p.url.includes("/FB_POST/comments"))?.message;
+    const igMsg = posted.find((p) => p.url.includes("/IG_MEDIA/comments"))?.message;
+    // Facebook: plain handles lose their "@" (Facebook wouldn't render them as
+    // mentions anyway) and Page tags stay in the bracketed form so Facebook
+    // renders them as a clickable Page mention.
+    expect(fbMsg).toBe("Follow My Study Guide\n\nmystudyguide_ @[123456789]");
+    // Instagram: bare `@handle` is a real clickable mention; the FB bracket
+    // form is unwrapped so it doesn't render as literal text.
+    expect(igMsg).toBe("Follow My Study Guide\n\n@mystudyguide_ @123456789");
+    expect(notes).toEqual([]);
+  });
 });
