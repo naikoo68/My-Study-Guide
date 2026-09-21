@@ -6,12 +6,14 @@ import {
 } from "../../src/utils/facebookImage.js";
 
 const CLOUD = "https://res.cloudinary.com/demo/image/upload";
-// The injected chain: pad ONLY when the card is WIDER than 1.91:1, down to a
-// 1.91:1 canvas (a tiny white sliver) so Facebook shows it in full. Any card
-// already within range is a no-op at delivery (exact card served). NOTE: the
-// `if_` condition is its OWN `/`-separated component — the comma-joined form
-// makes Cloudinary 400.
-const TRANSFORM = "if_ar_gt_1.91/c_pad,ar_1.91,b_white/if_end";
+// The injected chain caps width at 1440 px + q_auto:eco (Meta's transcoder
+// intermittently rejects oversize source images with subcode 2207076), then
+// pads ONLY when the card is WIDER than 1.91:1, down to a 1.91:1 canvas (a
+// tiny white sliver) so Facebook shows it in full. Any card already within
+// range is a no-op at delivery. Each `if_` condition is its OWN `/`-separated
+// component — the comma-joined form makes Cloudinary 400.
+const TRANSFORM =
+  "c_limit,w_1440/q_auto:eco/if_ar_gt_1.91/c_pad,ar_1.91,b_white/if_end";
 
 describe("toFacebookSafeUrl", () => {
   it("injects the conditional pad transform into a plain Cloudinary URL", () => {
@@ -58,6 +60,15 @@ describe("toFacebookSafeUrl", () => {
     const twice = toFacebookSafeUrl(once);
     expect(twice).toBe(once);
     expect(twice.match(/if_ar_gt_1\.91/g)).toHaveLength(1);
+    expect(twice.match(/c_limit,w_1440/g)).toHaveLength(1);
+  });
+
+  it("caps the delivered width so Meta never gets an oversize source image", () => {
+    // Meta's transcoder intermittently fails with subcode 2207076 when the
+    // source image is far larger than the 1440 px recommendation.
+    // c_limit only downscales — a smaller card is unaffected.
+    const out = toFacebookSafeUrl(`${CLOUD}/v1/card.png`);
+    expect(out).toContain("c_limit,w_1440");
   });
 
   it("leaves non-Cloudinary URLs untouched", () => {

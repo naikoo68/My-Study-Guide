@@ -18,8 +18,10 @@ const WEEKDAYS = [
 ];
 
 // Older schedule rows can contain the same full Meta permission response once
-// per saved comment. Keep useful publish notes, but collapse those historical
-// duplicates into one actionable message per platform.
+// per saved comment, or now the shorter preflight note the backend emits when
+// it already knows the token is missing the required comment scope. Both cases
+// collapse to one actionable message per platform, and the visible IG "Fatal"
+// and 2207076 lines get a friendlier one-liner too.
 function compactScheduleResult(value) {
   const parts = String(value || "").split(/\s+·\s+/).map((part) => part.trim()).filter(Boolean);
   const normalized = parts.map((part) => {
@@ -28,6 +30,12 @@ function compactScheduleResult(value) {
     }
     if (/^IG comment\s*✗/i.test(part) && /permission|\(#?10\)|instagram_manage_comments/i.test(part)) {
       return "IG comment ✗ Meta permission missing: approve instagram_manage_comments, then save a newly authorized token.";
+    }
+    if (/^Instagram\s*✗/i.test(part) && /2207076|Media upload has failed|^Instagram ✗ \(Fatal\)$/i.test(part)) {
+      return "Instagram ✗ Meta transcoder rejected the image (retried once). Card width is now capped at 1440 px; if it repeats, wait a few minutes and try again.";
+    }
+    if (/^IG Story\s*✗/i.test(part) && /operation was aborted|aborted/i.test(part)) {
+      return "IG Story ✗ Meta took too long to validate the 9:16 image (timeout raised to 45s). Try again — the retry usually succeeds.";
     }
     return part;
   });

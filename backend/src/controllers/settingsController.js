@@ -1,7 +1,7 @@
 import Settings from "../models/Settings.js";
 import Tenant from "../models/Tenant.js";
 import { getCurrentTenantId, runUnscoped } from "../utils/tenantContext.js";
-import { postToFacebookPage, verifyFacebook, getFacebookConfig, getInstagramUserId, postToInstagram } from "../config/facebook.js";
+import { postToFacebookPage, verifyFacebook, getFacebookConfig, getInstagramUserId, postToInstagram, invalidateTokenScopeCache } from "../config/facebook.js";
 import { renderQuestionImage } from "../config/socialImage.js";
 import { uploadToCloudinary } from "../config/cloudinary.js";
 import { toInstagramSafeUrl } from "../utils/instagramImage.js";
@@ -251,9 +251,11 @@ export async function updateSettings(req, res) {
 
   // Facebook: keep the token server-side. Only overwrite it when a NEW non-empty
   // value is provided (the admin UI submits it blank to keep the saved one).
+  // Also drop the granted-scope cache so a freshly authorised token isn't
+  // held back by the previous token's "missing scope" verdict.
   if ("fbPageAccessToken" in update) {
     const tok = String(update.fbPageAccessToken || "").trim();
-    if (tok) update.fbPageAccessToken = tok; else delete update.fbPageAccessToken;
+    if (tok) { update.fbPageAccessToken = tok; invalidateTokenScopeCache(); } else delete update.fbPageAccessToken;
   }
   if ("fbPageId" in update) update.fbPageId = String(update.fbPageId || "").trim();
   // Extra cross-post Pages: keep each page's saved token when the UI submits a

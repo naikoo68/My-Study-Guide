@@ -33,6 +33,18 @@ export const FB_MAX_AR = 1.91; // 1.91:1 — Facebook's widest supported ratio
 // HTTP 400 (an error page, not an image) and Facebook then fails to fetch it.
 const FB_CONDITIONAL_TRANSFORM = `if_ar_gt_1.91/c_pad,ar_1.91,b_white/if_end`;
 
+// Cap the delivered width at 1440 px. Our card renderer produces 2×-density
+// PNGs (question card ~2080×2800, flashcard ~3200×2240) that occasionally
+// trigger Meta's transcoder to fail with subcode 2207076 ("Media upload has
+// failed"). `c_limit` never upscales, only downscales in proportion, so smaller
+// cards deliver unchanged. `q_auto:eco` keeps the file size well under Meta's
+// 8 MB limit without a visible quality change.
+const FB_SIZE_TRANSFORM = `c_limit,w_1440/q_auto:eco`;
+
+// Full transform chain for a Facebook feed image: cap width and optimise
+// quality first, then pad only if the card is wider than 1.91:1.
+const FB_TRANSFORM = `${FB_SIZE_TRANSFORM}/${FB_CONDITIONAL_TRANSFORM}`;
+
 // Recognise a Cloudinary delivery URL and split it at `/upload/`.
 //   https://res.cloudinary.com/<cloud>/image/upload/<transforms?>/v123/<public_id>.<fmt>
 const CLOUDINARY_UPLOAD_RE = /^(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)(.*)$/;
@@ -49,9 +61,9 @@ export function toFacebookSafeUrl(url) {
   if (!m) return u; // not a Cloudinary URL — leave it untouched
 
   // Idempotent: if we already inserted our transform, don't stack another one.
-  if (u.includes("if_ar_gt_1.91")) return u;
+  if (u.includes("if_ar_gt_1.91") || u.includes("c_limit,w_1440")) return u;
 
-  return `${m[1]}${FB_CONDITIONAL_TRANSFORM}/${m[2]}`;
+  return `${m[1]}${FB_TRANSFORM}/${m[2]}`;
 }
 
 // True when a width/height is already inside Facebook's fully-shown window (i.e.
