@@ -45,7 +45,8 @@ export default function ExtendExplanationsModal({ open, target, title, onClose, 
   const [shuffleOptions, setShuffleOptions] = useState(false); // also reorder options (answer position changes, stays correct)
   const [qType, setQType] = useState("all"); // limit to one question type, or "all"
   const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState(null); // { done, total }
+  const [progress, setProgress] = useState(null); // { done, total, remainingRun }
+  const [remainingQuestionIds, setRemainingQuestionIds] = useState(null); // exact unfinished ids after a partial run
   const [msg, setMsg] = useState("");
   const [keyStats, setKeyStats] = useState(null); // live per-key activity this run { label: {requests,ok,limited,error,questions} }
   const jobRef = useRef(null);      // current background job id (for Cancel)
@@ -55,6 +56,8 @@ export default function ExtendExplanationsModal({ open, target, title, onClose, 
     if (!open) return;
     setMsg("");
     setProgress(null);
+    setRemainingQuestionIds(null);
+    setKeyStats(null);
     setBusy(false);
     setNotes("");
     setFixOptions(false);
@@ -84,8 +87,10 @@ export default function ExtendExplanationsModal({ open, target, title, onClose, 
   };
 
   const run = async () => {
+    const runWasResume = Array.isArray(remainingQuestionIds) && remainingQuestionIds.length > 0;
+    const idsToRun = runWasResume ? remainingQuestionIds : (scoped ? questionIds : undefined);
     setBusy(true);
-    setMsg("Starting…");
+    setMsg(runWasResume ? `Starting ${remainingQuestionIds.length} remaining question(s)…` : "Starting…");
     setProgress(null);
     setKeyStats(null);
     cancelRef.current = false;
@@ -98,48 +103,62 @@ export default function ExtendExplanationsModal({ open, target, title, onClose, 
         fixOptions: fixOptions || undefined,
         extendQuestion: extendQuestion || undefined,
         shuffleOptions: shuffleOptions || undefined,
-        // A selection overrides the type filter (only the ticked questions run).
-        type: (!scoped && qType !== "all") ? qType : undefined,
-        questionIds: scoped ? questionIds : undefined,
+        // On a partial run, submit the exact unfinished ids returned by the job.
+        // Otherwise a selection overrides the type filter.
+        type: (!runWasResume && !scoped && qType !== "all") ? qType : undefined,
+        questionIds: idsToRun,
       });
       if (!jobId) throw new Error("Could not start.");
       jobRef.current = jobId;
-      setProgress({ done: 0, total: requested });
+      setProgress({ done: 0, total: requested, remainingRun: runWasResume });
       const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       let done = false;
       let lastCount = 0;
       for (let i = 0; i < 400 && !done; i++) {
         await sleep(2000);
-        if (cancelRef.current) {
-          setMsg(`✓ Cancelled — kept the ${lastCount} question(s) already updated.`);
-          onDone?.();
-          break;
-        }
         let s;
         try { s = await aiService.job(jobId); } catch { continue; }
         if (s.keyStats && Object.keys(s.keyStats).length) setKeyStats(s.keyStats);
         const total = s.requested || requested;
-        lastCount = s.count ?? lastCount;
+        const doneCount = s.count ?? lastCount;
+        lastCount = doneCount;
+        const returnedRemainingIds = Array.isArray(s.remainingQuestionIds) ? s.remainingQuestionIds : null;
+        const remainingCount = returnedRemainingIds?.length ?? Math.max(0, total - doneCount);
+
         if (s.status === "done") {
-          const doneCount = s.count ?? total;
-          setProgress({ done: doneCount, total });
-          const note = s.error === "quota"
-            ? " — the AI kept hitting its rate/quota limit even after waiting (often a DAILY free-tier limit). Add another API key or try later, then click “Extend all explanations” to resume."
-            : s.error === "partial" || doneCount < total
-            ? ` — ${total - doneCount} couldn't be generated. Click “Extend all explanations” again to finish them.`
-            : "";
-          setMsg(`✓ Updated explanations for ${doneCount} of ${total} question(s)${note}`);
+          if (returnedRemainingIds) setRemainingQuestionIds(returnedRemainingIds);
+          setProgress({ done: doneCount, total, remainingRun: runWasResume });
+          if (cancelRef.current || s.cancelled) {
+            setMsg(`✓ Cancelled — kept ${doneCount} updated question(s)${remainingCount ? `; ${remainingCount} remaining.` : "."}`);
+          } else if (remainingCount > 0) {
+            const reason = s.error === "quota"
+              ? "The available API keys are still rate/quota limited. Add another key or try later."
+              : "Some explanations could not be generated.";
+            setMsg(`✓ Updated explanations for ${doneCount} of ${total} ${runWasResume ? "remaining " : ""}question(s) — ${remainingCount} remaining. ${reason}`);
+          } else {
+            setMsg(`✓ Updated explanations for all ${doneCount} ${runWasResume ? "remaining " : ""}question(s).`);
+          }
           done = true;
           onDone?.();
         } else if (s.status === "error") {
-          setMsg(s.error || "Failed.");
+          if (returnedRemainingIds) setRemainingQuestionIds(returnedRemainingIds);
+          setProgress({ done: doneCount, total, remainingRun: runWasResume });
+          setMsg(cancelRef.current || s.cancelled
+            ? `✓ Cancelled — kept ${doneCount} updated question(s)${remainingCount ? `; ${remainingCount} remaining.` : "."}`
+            : `${s.error || "Failed."}${remainingCount ? ` ${remainingCount} question(s) remain.` : ""}`);
           done = true;
+          if (doneCount > 0) onDone?.();
         } else {
-          setProgress({ done: s.count || 0, total });
-          const waitLeft = s.waitUntil ? Math.ceil((s.waitUntil - Date.now()) / 1000) : 0;
-          setMsg(waitLeft > 0
-            ? `⏳ AI rate limit reached at ${s.count || 0} of ${total} — auto-continuing in ${waitLeft}s…`
-            : `Updating explanations… ${s.count || 0} of ${total}`);
+          setProgress({ done: doneCount, total, remainingRun: runWasResume });
+          const waitLeft = s.waitUntil ? Math.max(0, Math.ceil((s.waitUntil - Date.now()) / 1000)) : 0;
+          if (cancelRef.current) {
+            setMsg(`Cancelling… keeping ${doneCount} question(s) already updated.`);
+          } else if (waitLeft > 0) {
+            const waitingKeys = s.waitingKeys || 1;
+            setMsg(`⏳ ${waitingKeys} API key${waitingKeys === 1 ? "" : "s"} rate limited at ${doneCount} of ${total} — next retry in ${waitLeft}s…`);
+          } else {
+            setMsg(`Updating ${runWasResume ? "remaining " : ""}explanations… ${doneCount} of ${total}`);
+          }
         }
       }
       if (!done) setMsg("Still working — this is taking longer than expected. It keeps running in the background; reopen later.");
@@ -151,6 +170,7 @@ export default function ExtendExplanationsModal({ open, target, title, onClose, 
     }
   };
 
+  const remainingCount = remainingQuestionIds?.length || 0;
   const pct = progress && progress.total ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 0;
 
   return (
@@ -192,7 +212,11 @@ export default function ExtendExplanationsModal({ open, target, title, onClose, 
                 {" "}More keys spread the load, so bulk jobs hit rate-limit pauses less often.
               </p>
             )}
-            {scoped ? (
+            {remainingCount > 0 ? (
+              <div className="mb-3 rounded-xl border border-brand-200 bg-brand-50 p-3 text-xs font-medium text-brand-700 dark:border-brand-900/50 dark:bg-brand-900/20 dark:text-brand-300">
+                <b>{remainingCount} question{remainingCount === 1 ? "" : "s"} remain.</b> The next run will extend only these unfinished questions; explanations already completed in this session will not run again.
+              </div>
+            ) : scoped ? (
               <div className="mb-3 rounded-xl border border-brand-200 bg-brand-50 p-3 text-xs font-medium text-brand-700 dark:border-brand-900/50 dark:bg-brand-900/20 dark:text-brand-300">
                 Applying to the <b>{questionIds.length} selected question{questionIds.length === 1 ? "" : "s"}</b> only. The questions, options and correct answers are <b>not</b> changed — only the explanations get richer.
               </div>
@@ -204,7 +228,7 @@ export default function ExtendExplanationsModal({ open, target, title, onClose, 
               </div>
             )}
 
-            {!scoped && (
+            {!scoped && remainingCount === 0 && (
               <div className="mb-3">
                 <label className="mb-1 block text-sm font-semibold">Apply to</label>
                 <select className="input" value={qType} onChange={(e) => setQType(e.target.value)} disabled={busy}>
@@ -251,7 +275,7 @@ export default function ExtendExplanationsModal({ open, target, title, onClose, 
             {progress && (
               <div className="mt-4">
                 <div className="mb-1 flex items-center justify-between text-xs font-medium text-slate-500 dark:text-slate-400">
-                  <span>{progress.done} / {progress.total} updated</span>
+                  <span>{progress.done} / {progress.total} {progress.remainingRun ? "remaining questions updated" : "updated"}</span>
                   <span>{pct}%</span>
                 </div>
                 <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
@@ -261,7 +285,13 @@ export default function ExtendExplanationsModal({ open, target, title, onClose, 
             )}
 
             <button type="button" onClick={run} disabled={busy} className="btn-primary mt-4 w-full">
-              {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Extending…</> : <><Wand2 className="h-4 w-4" /> Extend all explanations</>}
+              {busy ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> {progress?.remainingRun ? `Extending ${progress.total} remaining…` : "Extending…"}</>
+              ) : remainingCount > 0 ? (
+                <><Wand2 className="h-4 w-4" /> Extend remaining {remainingCount} explanation{remainingCount === 1 ? "" : "s"}</>
+              ) : (
+                <><Wand2 className="h-4 w-4" /> Extend all explanations</>
+              )}
             </button>
             {busy && (
               <button type="button" onClick={cancel} className="btn-outline mt-2 w-full text-rose-600">

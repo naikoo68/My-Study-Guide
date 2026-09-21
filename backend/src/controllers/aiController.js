@@ -1446,6 +1446,13 @@ function retryWaitMs(headers, body) {
   return 0;
 }
 
+// Free-tier daily quota errors cannot recover during a short retry countdown.
+// Detect them separately so bulk workers retire that key immediately instead of
+// showing the user several countdowns that can never succeed.
+function isDailyQuotaLimit(detail = "") {
+  return /per[\s_-]*day|dailylimit|daily limit|GenerateRequests?PerDay|quota.*(exceeded|exhausted).*(day|daily)|free[\s_-]*tier.*(day|daily)/i.test(String(detail || ""));
+}
+
 // Turn a provider 429 body into ACTIONABLE guidance. Free tiers enforce two
 // separate limits: a per-MINUTE rate (clears in seconds) and a per-DAY quota
 // (only resets the next day). Crucially, several keys from the SAME Google/
@@ -1453,8 +1460,7 @@ function retryWaitMs(headers, body) {
 // from the same account adds NO capacity. This is the most common reason
 // "I added another key but it still says quota" happens.
 function quota429Message(detail = "") {
-  const d = String(detail || "");
-  const perDay = /per[\s_-]*day|dailylimit|daily limit|GenerateRequests?PerDay|quota.*(exceeded|exhausted).*(day|daily)|FreeTier|free[\s_-]*tier.*(day|daily)/i.test(d);
+  const perDay = isDailyQuotaLimit(detail);
   const shared =
     " Note: multiple keys from the SAME Google/provider account share ONE quota, so adding more keys from that account won't help — add a key from a DIFFERENT account/project (or enable billing).";
   if (perDay) {
@@ -2186,10 +2192,17 @@ export function jobStatus(req, res) {
       have: have[`${b.type}|${b.difficulty}`] || 0,
     }));
   }
+  const completedQuestionIds = Array.isArray(job.completedQuestionIds) ? job.completedQuestionIds : undefined;
+  const completedQuestionIdSet = new Set(completedQuestionIds || []);
+  const remainingQuestionIds = Array.isArray(job.targetQuestionIds)
+    ? job.targetQuestionIds.filter((id) => !completedQuestionIdSet.has(id))
+    : undefined;
   res.json({
     status: job.status, // pending | done | error
     count: job.questions.length,
     requested: job.requested,
+    remaining: remainingQuestionIds?.length,
+    remainingQuestionIds: job.status === "pending" ? undefined : remainingQuestionIds,
     byBucket, // [{ type, difficulty, want, have }] — undefined for legacy/count-mode jobs
     chunksTotal: job.chunksTotal, // for import jobs (source split into pieces)
     chunksDone: job.chunksDone,
@@ -2198,7 +2211,8 @@ export function jobStatus(req, res) {
     warning: job.warning || null, // weak-model heads-up (persists across polls)
     cancelled: !!job.cancelled,
     keyStats: job.keyStats || {}, // live per-key activity this run
-    waitUntil: job.waitUntil || null, // epoch ms until an auto-retry after a rate limit → UI shows a countdown
+    waitUntil: job.waitUntil || null, // epoch ms until the next API-key retry → UI shows one stable countdown
+    waitingKeys: job.waitingKeys || 0,
     questions: job.status === "done" ? job.questions : undefined,
   });
 }
@@ -4334,7 +4348,18 @@ async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = n
   // single path, so bulk output is just as detailed. Multiple API keys still run
   // in parallel, so throughput stays high.
   const CHUNK = 2;
-  let activeWaits = 0; // workers currently sleeping on a 429 — drives the UI countdown (job.waitUntil)
+  // Keep every key's cooldown deadline separately. A later 429 must not replace
+  // the countdown already visible for an earlier retry (the old shared scalar
+  // made a 10-second countdown jump back up unexpectedly).
+  const waitDeadlines = new Map();
+  const syncWaitState = () => {
+    const now = Date.now();
+    const active = [...waitDeadlines.values()].filter((until) => until > now);
+    save({
+      waitUntil: active.length ? Math.min(...active) : null,
+      waitingKeys: active.length,
+    });
+  };
 
   const sysPrompt = String(systemPrompt || "") + BATCH_REWRITE_SUFFIX;
   const queue = [...questions];
@@ -4379,17 +4404,35 @@ async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = n
         if (!parsed || !isUsable(parsed)) continue;
         const set = buildSet(q, parsed);
         if (!set || !Object.keys(set).length) continue;
-        await Question.updateOne({ _id: q._id }, { $set: set }).catch(() => {});
+        let writeResult;
+        try {
+          writeResult = await Question.updateOne({ _id: q._id }, { $set: set });
+        } catch {
+          continue;
+        }
+        // Count only a confirmed database write. This keeps both progress and
+        // the exact resume list truthful when an individual update fails.
+        if (!writeResult?.acknowledged || writeResult.matchedCount !== 1) continue;
+        const questionId = String(q._id);
         updated += 1;
-        filled.add(String(q._id));
+        filled.add(questionId);
         job.questions.push(1); // progress = questions filled (jobStatus reports count)
+        if (Array.isArray(job.completedQuestionIds)) job.completedQuestionIds.push(questionId);
       }
       ks.ok += 1; ks.questions += filled.size; save({});
       AiKey.updateOne({ keyHash: keyFingerprint(ep.key), owner: owner ?? null }, { $inc: { usedRequests: 1, usedTokens: r.tokens || 0 } }).catch(() => {});
       return { outcome: filled.size ? "ok" : "soft", filled };
     }
     lastError = r;
-    if (r.status === 429) { ks.limited += 1; save({}); return { outcome: "limited", filled }; }
+    if (r.status === 429) {
+      ks.limited += 1;
+      save({});
+      return {
+        outcome: isDailyQuotaLimit(r.detail) ? "exhausted" : "limited",
+        filled,
+        retryMs: retryWaitMs(null, r.detail) || 30000,
+      };
+    }
     if ([401, 403, 404].includes(r.status)) { ks.error += 1; save({}); return { outcome: "dead", filled }; }
     ks.error += 1; save({});
     return { outcome: "soft", filled };
@@ -4404,24 +4447,23 @@ async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = n
     while (Date.now() < deadline && !job.cancelled) {
       const chunk = reserveChunk();
       if (!chunk) break;
-      let outcome, filled;
-      try { ({ outcome, filled } = await runChunkOnKey(chunk, ep, ks)); }
+      let outcome, filled, retryMs;
+      try { ({ outcome, filled, retryMs } = await runChunkOnKey(chunk, ep, ks)); }
       catch { outcome = "soft"; filled = new Set(); }
-      if (outcome === "dead") { for (const q of chunk) queue.push(q); break; }
+      if (outcome === "dead" || outcome === "exhausted") { for (const q of chunk) queue.push(q); break; }
       if (outcome === "limited") {
         for (const q of chunk) queue.push(q);
         if (quotaWaits >= MAX_QUOTA_WAITS) break;
-        const waitMs = Math.min(retryWaitMs(null, lastError?.detail) || 30000, 60000);
+        const waitMs = Math.min(retryMs || 30000, 60000);
         if (Date.now() + waitMs >= deadline) break;
         quotaWaits += 1;
-        // Surface the wait to the UI as a live countdown. jobStatus returns
-        // job.waitUntil (epoch ms) and the modal renders "auto-continuing in Ns".
-        // Track concurrent waiters so a resuming key doesn't clear a countdown
-        // another key is still waiting on.
-        activeWaits += 1;
-        save({ waitUntil: Date.now() + waitMs });
+        const waiterId = Symbol(_kl);
+        const waitUntil = Date.now() + waitMs;
+        waitDeadlines.set(waiterId, waitUntil);
+        syncWaitState();
         await sleep(waitMs);
-        if (--activeWaits === 0) save({ waitUntil: null });
+        waitDeadlines.delete(waiterId);
+        syncWaitState();
         continue;
       }
       // ok / soft: re-queue every question the reply did NOT fill (skipped item
@@ -4512,17 +4554,25 @@ export async function extendExplanations(req, res) {
     filter._id = { $in: req.body.questionIds };
   }
 
-  // Process LEAST-RECENTLY-UPDATED first. Extending a question bumps its
-  // updatedAt, so when a run stops early on quota, clicking "Extend" again
-  // starts with the questions that were NOT reached last time — so repeated runs
-  // actually finish the whole quiz instead of re-doing the first few each time.
+  // Keep a least-recently-updated order as a fallback for a completely new
+  // modal session. Within the current modal, exact remaining ids are returned
+  // by the job and submitted on resume, so completed questions are excluded.
   const questions = await Question.find(filter).sort("updatedAt").select("_id type text options correct columnA columnB tableRows assertion reason explanation optionExplanations").lean();
   if (!questions.length) return res.status(400).json({ message: filter.type ? `No "${filter.type}" questions found here (try "All question types").` : "No questions found to update (or not your content)." });
 
   const notes = String(req.body?.notes || "").trim();
   cleanupJobs();
   const id = newJobId();
-  genJobs.set(id, { status: "pending", questions: [], requested: questions.length, error: null, model: chosen.model, updatedAt: Date.now() });
+  genJobs.set(id, {
+    status: "pending",
+    questions: [],
+    requested: questions.length,
+    targetQuestionIds: questions.map((q) => String(q._id)),
+    completedQuestionIds: [],
+    error: null,
+    model: chosen.model,
+    updatedAt: Date.now(),
+  });
   guardJob(id, runExtendJob(id, { endpoints: chosen.endpoints, model: chosen.model, questions, owner: scope.owner, notes, fixOptions: !!req.body?.fixOptions, extendQuestion: !!req.body?.extendQuestion, shuffleOptions: !!req.body?.shuffleOptions }));
   res.json({ jobId: id, requested: questions.length, model: chosen.model });
 }
