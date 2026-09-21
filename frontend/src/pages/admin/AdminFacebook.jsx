@@ -17,6 +17,23 @@ const WEEKDAYS = [
   { v: 4, l: "Thu" }, { v: 5, l: "Fri" }, { v: 6, l: "Sat" },
 ];
 
+// Older schedule rows can contain the same full Meta permission response once
+// per saved comment. Keep useful publish notes, but collapse those historical
+// duplicates into one actionable message per platform.
+function compactScheduleResult(value) {
+  const parts = String(value || "").split(/\s+·\s+/).map((part) => part.trim()).filter(Boolean);
+  const normalized = parts.map((part) => {
+    if (/^FB comment\s*✗/i.test(part) && /permission|\(#?200\)|pages_manage_engagement/i.test(part)) {
+      return "FB comment ✗ Meta permission missing: approve pages_manage_engagement, then save a newly authorized Page token.";
+    }
+    if (/^IG comment\s*✗/i.test(part) && /permission|\(#?10\)|instagram_manage_comments/i.test(part)) {
+      return "IG comment ✗ Meta permission missing: approve instagram_manage_comments, then save a newly authorized token.";
+    }
+    return part;
+  });
+  return [...new Set(normalized)].join(" · ");
+}
+
 // Cascading source picker: Stream → Subject → Topic → Session → Quiz. The admin
 // can stop at any level; the deepest queryable scope (quiz > session > subject)
 // is reported up via onChange along with a readable label.
@@ -1081,9 +1098,10 @@ function AutoCommentSection({ settings, saveSettings }) {
 
         <p className="text-xs text-slate-400">
           Note: <b>@everyone / @followers / @all</b> are posted as plain text — Facebook &amp; Instagram don't let apps tag all
-          followers, so use them as a caption, not a notification. Your reconnected Meta token must include Facebook
-          <b> pages_manage_engagement</b> + <b>pages_read_engagement</b>, and Instagram <b>instagram_manage_comments</b> permissions;
-          posting permission alone cannot create comments.
+          followers, so use them as a caption, not a notification. Posting and commenting use separate Meta permissions.
+          Facebook comments require <b>pages_manage_engagement</b> (plus any read permission Meta requests), and Instagram
+          comments require <b>instagram_manage_comments</b>. Approve them in Meta App Review/Advanced Access, then generate
+          and save a <b>new token</b>; an existing token does not gain newly approved permissions automatically.
         </p>
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -1777,7 +1795,7 @@ export default function AdminFacebook() {
                         <span className="inline-flex items-center gap-1"><ListChecks className="h-3 w-3" /> {s.postCount || 0}{s.poolSize ? ` / ${s.poolSize}` : ""} posted</span>
                         {s.mode !== "once" && <span className="text-slate-400">{s.timezone}</span>}
                       </div>
-                      {(rowMsg[s._id] || s.lastResult) && <p className="mt-1 text-xs text-slate-400">{rowMsg[s._id] || s.lastResult}</p>}
+                      {(rowMsg[s._id] || s.lastResult) && <p className="mt-1 text-xs text-slate-400">{compactScheduleResult(rowMsg[s._id] || s.lastResult)}</p>}
                     </div>
                     <div className="flex flex-shrink-0 items-center gap-1">
                       <button onClick={() => postNow(s)} disabled={busyId === s._id} title="Post one now" className="rounded-lg p-2 text-[#1877F2] hover:bg-blue-50 disabled:opacity-50 dark:hover:bg-blue-900/30">{busyId === s._id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</button>
