@@ -1516,28 +1516,85 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   // merged with any per-post tags — so every post is tagged consistently.
   const finalTags = await hashtagsForQuestion(q, site, sch.hashtags);
   const breadcrumb = await breadcrumbForQuestion(q);
-  // Reserve the next SITE-WIDE post number so every scheduled post is numbered
-  // in one continuous sequence (1, 2, 3, …) regardless of which schedule, stream,
-  // subject, topic, quiz or flashcard it came from. Atomic $inc avoids two posts
-  // grabbing the same number. Only for saved schedules (an ad-hoc "Post now" from
-  // the question view has no _id and isn't part of the series). A failed post may
-  // leave a small gap — acceptable, and rare.
-  let postNumber;
-  if ((wantFb || wantIg) && sch._id && site?._id) {
+  // Reserve the next post number PER PLATFORM so each feed shows a continuous
+  // 1, 2, 3, … sequence regardless of the other platform's failures. Previously
+  // a shared counter was advanced once per run and used on BOTH platforms — if
+  // Facebook succeeded and Instagram failed, that number was "used up" on FB
+  // only, so IG then showed 241 → 243 (missing 242). Independent counters,
+  // reserved before the publish and rolled back on failure, keep each feed
+  // gap-free (concurrent-schedule races may still leave a rare gap — the
+  // release step only rolls back when no other run has moved the counter).
+  //
+  // The aggregation pipeline update seeds each new per-platform field from
+  // the legacy `fbPostSerial` on FIRST use, so existing sites keep numbering
+  // continuously from whichever number the shared counter was on.
+  const reserveSerial = async (field) => {
+    if (!sch._id || !site?._id) return null;
+    // `$max` seeds each new per-platform field from the legacy `fbPostSerial`
+    // on first use — Mongoose's default of 0 on the schema means a plain
+    // `$ifNull` would resolve to 0 (the stored value) and reset the numbering
+    // for existing sites. Taking the greater of the two guarantees each feed
+    // continues from where the shared counter left off.
     const bumped = await Settings.findOneAndUpdate(
       { _id: site._id },
-      { $inc: { fbPostSerial: 1 } },
+      [
+        {
+          $set: {
+            [field]: {
+              $add: [
+                {
+                  $max: [
+                    { $ifNull: [`$${field}`, 0] },
+                    { $ifNull: ["$fbPostSerial", 0] },
+                  ],
+                },
+                1,
+              ],
+            },
+          },
+        },
+      ],
       { new: true }
-    ).select("fbPostSerial").lean().catch(() => null);
-    postNumber = bumped?.fbPostSerial;
-  }
-  const message = formatQuestionPost(q, {
+    ).select(field).lean().catch(() => null);
+    return bumped?.[field] ?? null;
+  };
+  const releaseSerial = async (field, reserved) => {
+    if (!site?._id || !Number.isInteger(reserved)) return;
+    // Only roll back when NOTHING else has advanced the counter since we took
+    // this number — otherwise a concurrent schedule would silently reuse it.
+    await Settings.updateOne(
+      { _id: site._id, [field]: reserved },
+      { $inc: { [field]: -1 } }
+    ).catch(() => {});
+  };
+
+  const fbPostNumber = wantFb ? await reserveSerial("fbPostSerialFacebook") : null;
+  const igPostNumber = wantIg ? await reserveSerial("fbPostSerialInstagram") : null;
+  // Legacy `postNumber` is still recorded on the FbPost ledger — prefer the FB
+  // number when Facebook is enabled, otherwise the IG one, so the ledger keeps
+  // a numeric reference for every publish.
+  const postNumber = fbPostNumber ?? igPostNumber ?? null;
+
+  // Build the caption WITHOUT the number here; each platform gets its own
+  // number-prefixed version below so the per-feed sequence is honoured.
+  const captionBase = formatQuestionPost(q, {
     includeOptions: isFlashcard ? false : sch.includeOptions,
     includeAnswer: isFlashcard ? false : sch.includeAnswer,
     hashtags: finalTags,
     breadcrumb,
     number: postNumber,
   });
+  const captionFor = (platformNumber) => {
+    if (!Number.isInteger(platformNumber) || platformNumber <= 0 || platformNumber === postNumber) return captionBase;
+    return formatQuestionPost(q, {
+      includeOptions: isFlashcard ? false : sch.includeOptions,
+      includeAnswer: isFlashcard ? false : sch.includeAnswer,
+      hashtags: finalTags,
+      breadcrumb,
+      number: platformNumber,
+    });
+  };
+  const message = captionBase; // preserved for downstream references that don't need the platform split
   const link = sch.includeLink && cfg.siteUrl ? cfg.siteUrl : undefined;
 
   // Render an image if a photo post is requested, or if Instagram is a target
@@ -1673,14 +1730,21 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
     // utils/facebookImage.js.
     const fbRawImageUrl = (sch.asImage || selfieWatermarkActive || isFlashcard) ? imageUrl : undefined;
     const fbImageUrl = fbRawImageUrl ? toFacebookSafeUrl(fbRawImageUrl) : undefined;
+    // Facebook-side caption uses the FB counter so this feed stays continuous
+    // even when Instagram fails, and vice-versa.
+    const fbMessage = captionFor(fbPostNumber);
     // In Reel mode publish the composed video as a Reel; otherwise the normal
     // photo/text post. Same per-Page helper covers the main Page + extra Pages.
     const postFb = (pageCfg) => reelVideoUrl
-      ? postReelToFacebookPage({ videoUrl: reelVideoUrl, description: message }, pageCfg)
-      : postToFacebookPage({ message, link, imageUrl: fbImageUrl }, pageCfg);
+      ? postReelToFacebookPage({ videoUrl: reelVideoUrl, description: fbMessage }, pageCfg)
+      : postToFacebookPage({ message: fbMessage, link, imageUrl: fbImageUrl }, pageCfg);
     const r = await postFb(cfg);
     fbAttempts.push({ ok: r.ok, id: r.id, pageId: cfg.pageId, pageLabel: "" });
     if (r.ok) { fbOk = true; fbPostId = r.id || fbPostId; notes.push("Facebook ✓"); } else notes.push(`Facebook ✗ (${r.error})`);
+    // Roll back the FB serial if the main Page publish failed AND no extra
+    // Page succeeded — that number wasn't used on any Facebook Page, so the
+    // next run should reuse it instead of leaving a gap.
+    // (The rollback runs after the extra-Page loop below.)
 
     // Cross-post to any extra Facebook Pages the admin added (each with its own
     // token). Groups are NOT supported by the Facebook API, so only Pages work.
@@ -1695,9 +1759,11 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
     }
   }
   if (wantIg) {
+    // Instagram caption uses the IG counter — same reason as Facebook above.
+    const igMessage = captionFor(igPostNumber);
     if (reelVideoUrl) {
       // Publish the composed video as an Instagram Reel.
-      const r = await postReelToInstagram({ videoUrl: reelVideoUrl, caption: message }, cfg);
+      const r = await postReelToInstagram({ videoUrl: reelVideoUrl, caption: igMessage }, cfg);
       if (r.ok) { igOk = true; igMediaId = r.id || igMediaId; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
     } else if (!imageUrl) {
       notes.push(`Instagram ✗ (image failed${imageErr ? `: ${imageErr}` : ""})`);
@@ -1708,10 +1774,16 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
       // canvas for Instagram only — Facebook already got the untouched image and
       // accepts any ratio. Padding never crops, so the full card stays visible.
       const igImageUrl = toInstagramSafeUrl(imageUrl);
-      const r = await postToInstagram({ imageUrl: igImageUrl, caption: message }, cfg);
+      const r = await postToInstagram({ imageUrl: igImageUrl, caption: igMessage }, cfg);
       if (r.ok) { igOk = true; igMediaId = r.id || igMediaId; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
     }
   }
+  // Release each reserved serial when its platform didn't actually publish, so
+  // the next run reuses that number instead of leaving a permanent gap. The
+  // release helper only rolls back when nothing else has advanced the counter
+  // since we reserved it (concurrent runs are safe).
+  if (wantFb && !fbOk) await releaseSerial("fbPostSerialFacebook", fbPostNumber);
+  if (wantIg && !igOk) await releaseSerial("fbPostSerialInstagram", igPostNumber);
   if (!wantFb && !wantIg) return { ok: false, error: "No destination selected (enable Facebook and/or Instagram)." };
 
   // ALSO share the card image as a 24h Story (in addition to the feed/reel post),
