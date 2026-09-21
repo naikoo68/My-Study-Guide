@@ -5,7 +5,7 @@ import { useEffect, useState, useRef } from "react";
 import {
   Send, Loader2, CheckCircle2, AlertTriangle, KeyRound, Plus, Trash2, Pencil, X,
   Clock, CalendarClock, ListChecks, Power, Save, Upload, UserCircle, Type, Search, Mail,
-  ImagePlus, FileText, Wand2, RefreshCw, Film, Music, Camera, ChevronDown,
+  ImagePlus, FileText, Wand2, RefreshCw, Film, Music, Camera, ChevronDown, MessageCircle,
 } from "lucide-react";
 import { Facebook, Instagram } from "../../components/ui/SocialIcons";
 import { settingsService, facebookService, contentService, practiceService, uploadService } from "../../services";
@@ -975,6 +975,60 @@ function ReelMusicLibrarySection({ settings, saveSettings }) {
   );
 }
 
+// Auto first-comment — a fixed comment posted on EVERY published Facebook post
+// and Instagram media (a pinned link / CTA / extra hashtags). Saved to site
+// settings and applied by the poster after each publish.
+function AutoCommentSection({ settings, saveSettings }) {
+  const [enabled, setEnabled] = useState(settings?.fbAutoCommentEnabled === true);
+  const [text, setText] = useState(settings?.fbAutoComment || "");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  useEffect(() => {
+    setEnabled(settings?.fbAutoCommentEnabled === true);
+    setText(settings?.fbAutoComment || "");
+  }, [settings?.fbAutoCommentEnabled, settings?.fbAutoComment]);
+
+  const save = async () => {
+    setSaving(true); setMsg(null);
+    try {
+      await saveSettings({ fbAutoCommentEnabled: enabled, fbAutoComment: text });
+      setMsg({ ok: true, text: "Settings saved." });
+    } catch (err) { setMsg({ ok: false, text: err.message || "Save failed." }); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <CollapsibleCard title="Auto first comment" icon={MessageCircle}>
+      <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
+        Automatically add this as the <b>first comment</b> on every published Facebook &amp; Instagram post — handy for a pinned link, a call-to-action, or extra hashtags.
+      </p>
+      <div className="mt-4 space-y-3">
+        <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
+          <span className="text-sm font-medium">Add a first comment to every post</span>
+          <button type="button" onClick={() => setEnabled((v) => !v)}
+            className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${enabled ? "bg-[#1877F2]" : "bg-slate-300 dark:bg-slate-600"}`}>
+            <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${enabled ? "left-6" : "left-1"}`} />
+          </button>
+        </label>
+        <textarea className="input min-h-[80px] resize-y" rows={3} maxLength={2000} value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="e.g. 👉 Follow for daily quizzes! Practice more at mystudyguide.in  #JKSSB #GK" />
+        <p className="text-xs text-slate-400">
+          Note: <b>@everyone / @followers / @all</b> are posted as plain text — Facebook &amp; Instagram don't let apps tag all
+          followers, so use them as a caption, not a notification. Instagram commenting needs the <b>instagram_manage_comments</b> permission.
+        </p>
+      </div>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button type="button" onClick={save} disabled={saving} className="btn-primary">
+          {saving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> Save comment settings</>}
+        </button>
+        {msg && <span className={`inline-flex items-center gap-1 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {msg.text}</span>}
+      </div>
+    </CollapsibleCard>
+  );
+}
+
 const emptyForm = {
   kind: "question",
   mode: "recurring", runAt: "", // one-off (mode "once") uses runAt; recurring uses times/days
@@ -1299,6 +1353,9 @@ export default function AdminFacebook() {
 
       {/* Shared Reel music library (set once, reused by every Reel schedule) */}
       <ReelMusicLibrarySection settings={settings} saveSettings={saveSettings} />
+
+      {/* Auto first comment (applied to every FB + IG post) */}
+      <AutoCommentSection settings={settings} saveSettings={saveSettings} />
 
       {/* Email notifications */}
       <FbNotifySection settings={settings} saveSettings={saveSettings} />

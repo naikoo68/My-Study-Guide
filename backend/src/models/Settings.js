@@ -242,6 +242,12 @@ const settingsSchema = new mongoose.Schema(
     // onto this uploaded image instead of the built-in design. Cloudinary URL.
     fbFlashcardTemplateUrl: { type: String, default: "" },
     fbFlashcardTemplateEnabled: { type: Boolean, default: true },
+    // Auto first-comment: when enabled, this text is posted as the FIRST comment
+    // on every published Facebook post AND Instagram media (great for a pinned
+    // link / CTA / extra hashtags). @everyone/@followers appear as plain text —
+    // the platform APIs don't expose a notify-all action for Pages/IG.
+    fbAutoCommentEnabled: { type: Boolean, default: false },
+    fbAutoComment: { type: String, default: "" },
     // SHARED Reel music library (public track URLs). Added ONCE here and reused
     // by every question/flashcard schedule set to post as a Reel — each such
     // schedule ROTATES through these tracks (one per Reel, then starts over), so
