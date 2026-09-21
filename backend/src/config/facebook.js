@@ -368,8 +368,14 @@ function isRetryableIgPublishError(msg) {
 export async function postToInstagram({ imageUrl, caption } = {}, cfgOverride) {
   const cfg = cfgOverride || (await getFacebookConfig());
   if (!isFacebookConfigured(cfg)) return { ok: false, error: "Facebook/Instagram is not connected." };
-  const img = String(imageUrl || "").trim();
-  if (!img) return { ok: false, error: "Instagram needs an image to post." };
+  const rawImg = String(imageUrl || "").trim();
+  if (!rawImg) return { ok: false, error: "Instagram needs an image to post." };
+  // Instagram's fetch path can't download our Cloudinary TRANSFORMATION urls
+  // (subcode 2207052 "The media could not be fetched from this URI"), even
+  // though Facebook and every other client fetch them fine. Re-host as a PLAIN
+  // baked asset so IG gets a clean URL. Best-effort: returns the original on
+  // failure, so we never block the post.
+  const img = await rehostAsPlainAsset(rawImg, { resourceType: "image" });
   const igId = await getInstagramUserId(cfg);
   if (!igId) return { ok: false, error: "No Instagram Business account is linked to this Facebook Page." };
   const pageToken = await resolvePageToken(cfg); // IG publishing uses the Page token
@@ -558,8 +564,11 @@ export async function postStoryToInstagram({ imageUrl } = {}, cfgOverride) {
   if (!isFacebookConfigured(cfg)) return { ok: false, error: "Facebook/Instagram is not connected." };
   // Pad the card onto a 9:16 story canvas so Instagram can't crop off the sides
   // (a feed-shaped card filled into the full-screen story loses its edges).
-  const img = toInstagramStoryUrl(String(imageUrl || "").trim());
-  if (!img) return { ok: false, error: "Instagram needs an image to post a Story." };
+  const storyImg = toInstagramStoryUrl(String(imageUrl || "").trim());
+  if (!storyImg) return { ok: false, error: "Instagram needs an image to post a Story." };
+  // Re-host as a plain baked asset (see postToInstagram) so IG's fetch path can
+  // download it — the transformation URL otherwise fails with 2207052.
+  const img = await rehostAsPlainAsset(storyImg, { resourceType: "image" });
   const igId = await getInstagramUserId(cfg);
   if (!igId) return { ok: false, error: "No Instagram Business account is linked to this Facebook Page." };
   const pageToken = await resolvePageToken(cfg);
@@ -1025,7 +1034,7 @@ import { renderQuestionImage } from "./socialImage.js";
 import { renderQuestionCardShot, renderFlashcardCardShot } from "./cardShot.js";
 import { isQuestionComplete } from "../utils/questionComplete.js";
 import { selectAutoComments } from "../utils/autoComments.js";
-import { composeImageAudioToVideo } from "./cloudinary.js";
+import { composeImageAudioToVideo, rehostAsPlainAsset } from "./cloudinary.js";
 import { tenantStore, runUnscoped } from "../utils/tenantContext.js";
 import { getDefaultTenantId } from "../utils/platformScope.js";
 
@@ -1771,11 +1780,20 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
         const composed = await composeImageAudioToVideo({ imageUrl, audioUrl: chosenAudio, durationSec: sch.reelDuration });
         reelVideoUrl = composed?.url || "";
         if (reelVideoUrl) {
-          // WARM the composed video before handing it to Meta/Facebook. The
-          // derivation is lazy, so we force Cloudinary to finish generating it
-          // now — otherwise Meta is the first to fetch it, times out, and the
-          // Reel fails with "Unable to fetch video file from URL." / 2207076.
-          await warmMediaUrl(reelVideoUrl, { attempts: 15, delayMs: 4000, perTryTimeoutMs: 30000 });
+          // The composed URL is a Cloudinary TRANSFORMATION url (overlay +
+          // H.264 encode). Meta's Reel ingestion — Facebook's file_url fetch AND
+          // Instagram's video_url fetch — fails to download such transformation
+          // urls ("Unable to fetch video file from URL." / code 2207076), the
+          // same fetch-path asymmetry that breaks IG image posts. Re-host the
+          // finished video as a PLAIN stored asset (no transform in the URL);
+          // Cloudinary bakes + stores it and Meta can then fetch it. Best-effort
+          // — on failure we keep the transform URL and just warm it instead.
+          const plain = await rehostAsPlainAsset(reelVideoUrl, { resourceType: "video" });
+          if (plain && plain !== reelVideoUrl) {
+            reelVideoUrl = plain; // plain asset is already generated + stored
+          } else {
+            await warmMediaUrl(reelVideoUrl, { attempts: 15, delayMs: 4000, perTryTimeoutMs: 30000 });
+          }
           // Advance to the next track for the following run (wraps around).
           sch.audioIndex = (idx + 1) % audioLibrary.length;
         } else {

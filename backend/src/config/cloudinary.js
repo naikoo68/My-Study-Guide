@@ -162,4 +162,38 @@ export async function composeImageAudioToVideo({
   return { url, duration: outDur };
 }
 
+// Re-host an already-transformed Cloudinary delivery URL as a NEW, PLAIN stored
+// asset — one whose delivery URL carries NO on-the-fly transformation chain
+// (just `/upload/v<version>/<folder>/<id>.<ext>`).
+//
+// WHY: Instagram's media ingestion uses a DIFFERENT server-side fetch path from
+// Facebook's (confirmed by Meta/aggregators). That IG path fails to fetch our
+// long Cloudinary TRANSFORMATION URLs — it returns subcode 2207052 "The media
+// could not be fetched from this URI" — even though the exact URL is public and
+// returns HTTP 200/206 to every other client, including Facebook's own
+// ingestion path and the `facebookexternalhit` crawler. The same asymmetry
+// makes Facebook Reels (which also fetch by file_url) fail to download a
+// composed-video transformation URL. Handing Meta a PLAIN, fully-baked stored
+// asset removes the transformation from its fetch entirely and sidesteps the
+// problem.
+//
+// HOW: Cloudinary fetches its OWN transform URL internally (fast, same-origin),
+// bakes the result into a brand-new stored asset, and returns a plain delivery
+// URL for it. For images the stored bytes are the final baseline JPEG (already
+// width-capped, aspect-padded); for video the final H.264 MP4.
+//
+// Best-effort: on ANY failure (or when Cloudinary isn't configured) it returns
+// the ORIGINAL url unchanged, so posting is never blocked by the re-host step.
+export async function rehostAsPlainAsset(url, { resourceType = "image", folder = "mystudyguide/social/meta" } = {}) {
+  const u = String(url || "").trim();
+  if (!u) return u;
+  if (!isCloudinaryConfigured()) return u;
+  try {
+    const result = await cloudinary.uploader.upload(u, { folder, resource_type: resourceType });
+    return result?.secure_url || result?.url || u;
+  } catch {
+    return u; // keep the original URL — no worse than before the re-host attempt
+  }
+}
+
 export default cloudinary;

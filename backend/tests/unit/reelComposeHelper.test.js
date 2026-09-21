@@ -20,7 +20,7 @@ vi.mock("cloudinary", () => ({
   },
 }));
 
-const { composeImageAudioToVideo } = await import("../../src/config/cloudinary.js");
+const { composeImageAudioToVideo, rehostAsPlainAsset } = await import("../../src/config/cloudinary.js");
 
 beforeEach(() => {
   upload.mockReset();
@@ -168,5 +168,53 @@ describe("composeImageAudioToVideo", () => {
       secure: true,
       transformation: expect.any(Array),
     }));
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// rehostAsPlainAsset — re-uploads an already-transformed Cloudinary URL as a
+// NEW plain stored asset so Instagram (whose fetch path fails on our long
+// transformation URLs with subcode 2207052) gets a clean, baked URL.
+// ─────────────────────────────────────────────────────────────────────────
+describe("rehostAsPlainAsset", () => {
+  const TRANSFORM_URL =
+    "https://res.cloudinary.com/x/image/upload/c_limit,w_1440/f_jpg,q_auto:good,fl_progressive:none/if_ar_lt_0.8/c_pad,ar_4:5,b_white/if_end/v1/mystudyguide/social/card.jpg";
+
+  it("returns the original URL untouched when Cloudinary is not configured (best-effort no-op)", async () => {
+    // No CLOUDINARY_* env in the test runner → never blocks a post.
+    const out = await rehostAsPlainAsset(TRANSFORM_URL);
+    expect(out).toBe(TRANSFORM_URL);
+    expect(upload).not.toHaveBeenCalled();
+  });
+
+  it("re-uploads the transformed URL and returns the new PLAIN secure_url when configured", async () => {
+    vi.stubEnv("CLOUDINARY_CLOUD_NAME", "x");
+    vi.stubEnv("CLOUDINARY_API_KEY", "k");
+    vi.stubEnv("CLOUDINARY_API_SECRET", "s");
+    upload.mockResolvedValue({ secure_url: "https://res.cloudinary.com/x/image/upload/v2/mystudyguide/social/meta/plain.jpg" });
+
+    const out = await rehostAsPlainAsset(TRANSFORM_URL, { resourceType: "image" });
+
+    // Meta now receives a plain, transform-free stored asset URL.
+    expect(out).toBe("https://res.cloudinary.com/x/image/upload/v2/mystudyguide/social/meta/plain.jpg");
+    // Cloudinary fetched the ORIGINAL transform URL and stored the baked result.
+    expect(upload).toHaveBeenCalledWith(TRANSFORM_URL, expect.objectContaining({ resource_type: "image" }));
+    vi.unstubAllEnvs();
+  });
+
+  it("falls back to the original URL if the re-upload throws (never blocks posting)", async () => {
+    vi.stubEnv("CLOUDINARY_CLOUD_NAME", "x");
+    vi.stubEnv("CLOUDINARY_API_KEY", "k");
+    vi.stubEnv("CLOUDINARY_API_SECRET", "s");
+    upload.mockRejectedValue(new Error("cloudinary upload failed"));
+
+    const out = await rehostAsPlainAsset(TRANSFORM_URL);
+    expect(out).toBe(TRANSFORM_URL);
+    vi.unstubAllEnvs();
+  });
+
+  it("handles empty input safely", async () => {
+    expect(await rehostAsPlainAsset("")).toBe("");
+    expect(await rehostAsPlainAsset(null)).toBe("");
   });
 });
