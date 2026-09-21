@@ -30,8 +30,33 @@
 // the URL with a HEAD request. An Accept-based check wrongly 404s all of those.
 // Requests for real files (a stray .js/.css/.png) keep their 404, so a broken
 // asset is never masked as the HTML shell (which would be the wrong MIME type).
+
+// PAGES.DEV → CANONICAL DOMAIN REDIRECT
+// -------------------------------------
+// Cloudflare Pages projects always keep their default `*.pages.dev` hostname
+// reachable — you can't disable it from the dashboard — so social-network
+// crawlers (Facebook, Twitter, LinkedIn) can end up caching the pages.dev URL
+// as the canonical origin, and a shared link ends up displaying
+// "my-study-guide.pages.dev" instead of the real "mystudyguide.in" domain.
+// Redirect every hit to the pages.dev hostname to the canonical one before the
+// SPA shell is served, so the real domain is the ONLY one that ever renders a
+// page — and the ONLY one crawlers can index.
+const CANONICAL_HOST = "www.mystudyguide.in";
+const isPagesDevHost = (host) => /\.pages\.dev$/i.test(String(host || ""));
+
 export const onRequest = async (context) => {
   const { request, next, env } = context;
+
+  // Send anyone (or any crawler) hitting the pages.dev host to the canonical
+  // domain with a 301 so browsers + link-preview scrapers update their cache.
+  // Path and query are preserved so deep links still work after the bounce.
+  const requestUrl = new URL(request.url);
+  if (isPagesDevHost(requestUrl.hostname)) {
+    requestUrl.hostname = CANONICAL_HOST;
+    requestUrl.protocol = "https:";
+    requestUrl.port = "";
+    return Response.redirect(requestUrl.toString(), 301);
+  }
 
   const response = await next();
   if (response.status !== 404) return response;
