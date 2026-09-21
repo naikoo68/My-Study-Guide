@@ -59,12 +59,12 @@ export async function composeImageAudioToVideo({
   const aud = String(audioUrl || "").trim();
   if (!img) throw new Error("An image is required to build the Reel.");
   if (!aud) throw new Error("An audio track is required to build the Reel.");
-  // Clamp the length to a sane Reel range. Instagram's Content Publishing API
-  // REJECTS Reels under 3 s ("Fatal") — the flashcard/quiz schedules that were
-  // failing had their duration silently clamped to whatever the shortest track
-  // supplied (sometimes 1-2 s). Facebook is more lenient, which is why the
-  // same publish showed `Facebook ✓ · Instagram ✗` in the schedule notes.
-  const REEL_MIN_SEC = 3;
+  // Clamp the length to a safe Reel range. Instagram's documented minimum is
+  // 3 s but its transcoder rejects short still-image-over-audio Reels as
+  // "Fatal" much more often than longer ones — a 5 s floor gives every
+  // Cloudinary-composed Reel enough real video content for Meta's validator
+  // to accept it. Facebook is more lenient and posts fine at any duration.
+  const REEL_MIN_SEC = 5;
   const REEL_MAX_SEC = 90;
   const dur = Math.max(REEL_MIN_SEC, Math.min(REEL_MAX_SEC, Math.round(Number(durationSec) || 30)));
 
@@ -74,24 +74,27 @@ export async function composeImageAudioToVideo({
   const image = await cloudinary.uploader.upload(img, { folder, resource_type: "image" });
   // Overlay public ids use ':' in place of '/' for assets inside a folder.
   const overlayId = String(image.public_id).replace(/\//g, ":");
-  // Never ask for more than the track actually has (avoids a trailing freeze).
-  // Enforce Instagram's 3 s floor here too — a 2 s audio track would otherwise
-  // still produce a sub-minimum Reel that Meta rejects. When the track really
-  // is shorter than 3 s Cloudinary just holds the last audio sample; the video
-  // is still 3 s long, which is what Instagram requires.
+  // Never ask for more than the track actually has (avoids a trailing freeze),
+  // and never fall below the 5 s Reel minimum. When the audio really is
+  // shorter than 5 s Cloudinary holds the last sample; the composed video is
+  // still 5 s long so Instagram's transcoder has enough content to validate.
   const outDur = audio.duration
-    ? Math.max(REEL_MIN_SEC, Math.min(dur, Math.ceil(audio.duration)))
+    ? Math.max(REEL_MIN_SEC, Math.min(dur, Math.max(REEL_MIN_SEC, Math.ceil(audio.duration))))
     : dur;
 
   // 3) Render the Reel. Chained transform on the AUDIO base:
   //    a) pad to a black WxH canvas + trim to `outDur` seconds (start_offset 0)
   //    b) overlay the image (c_fit)   → whole card visible, centered
   //    c) fl_layer_apply              → bake the overlay in
-  //    d) explicit 30 fps + 3.5 Mbps video + 128 kbps AAC audio at 48 kHz
-  //       → Instagram Reel ingest expects a constant frame rate (23-60 fps)
-  //         and a plausible video bitrate. A still-image-over-audio render
-  //         would otherwise pick a very low fps / bitrate that Meta rejects
-  //         with `Fatal` even though Facebook accepts it.
+  //    d) explicit 30 fps + 5 Mbps H.264 (baseline profile) + AAC at 48 kHz
+  //       + a 2 s keyframe interval + `faststart` moov placement.
+  //       Instagram Reel ingest is much stricter than Facebook: it requires
+  //       a constant frame rate (23-60 fps), a real video bitrate (a still-
+  //       image-over-audio render otherwise picks a very low fps/bitrate),
+  //       and the moov atom at the START of the file for progressive
+  //       playback. `keyframe_interval: 2` guarantees an I-frame every 2 s,
+  //       which Meta's transcoder validates against; without it we saw
+  //       "Fatal" more often on longer flashcard Reels.
   //    e) h264 / aac / mp4            → a standard, widely-playable Reel file
   // Run eagerly + synchronously so the derived file exists before we return it.
   const result = await cloudinary.uploader.explicit(audio.public_id, {
@@ -105,11 +108,13 @@ export async function composeImageAudioToVideo({
           { overlay: overlayId, width, height, crop: "fit" },
           { flags: "layer_apply" },
           {
-            video_codec: "h264",
+            video_codec: "h264:baseline:3.1",
             audio_codec: "aac",
             fps: 30,
-            bit_rate: "3500k",
+            bit_rate: "5m",
             audio_frequency: 48000,
+            keyframe_interval: 2,
+            flags: "faststart",
           },
         ],
         format: "mp4",

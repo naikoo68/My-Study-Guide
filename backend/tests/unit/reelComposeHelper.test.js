@@ -58,15 +58,19 @@ describe("composeImageAudioToVideo", () => {
     expect(tx[1]).toMatchObject({ overlay: "mystudyguide:social:img456", width: 1080, height: 1920, crop: "fit" });
     expect(tx[2].flags).toBe("layer_apply");
     // 3) explicit encoding parameters Meta expects for an Instagram Reel:
-    //    H.264 + AAC in an MP4 container, a constant 30 fps, a real video
-    //    bitrate (still-image-over-audio otherwise renders at very low fps/
-    //    bitrate and Meta rejects it with `Fatal`), and 48 kHz audio.
+    //    H.264 baseline + AAC in an MP4 container, a constant 30 fps, a real
+    //    5 Mbps video bitrate (still-image-over-audio otherwise renders at
+    //    very low fps/bitrate and Meta rejects it with `Fatal`), 48 kHz
+    //    audio, a 2 s keyframe interval, and the `faststart` flag so the
+    //    moov atom is at the head of the file for progressive playback.
     expect(tx[3]).toMatchObject({
-      video_codec: "h264",
+      video_codec: "h264:baseline:3.1",
       audio_codec: "aac",
       fps: 30,
-      bit_rate: "3500k",
+      bit_rate: "5m",
       audio_frequency: 48000,
+      keyframe_interval: 2,
+      flags: "faststart",
     });
   });
 
@@ -95,11 +99,12 @@ describe("composeImageAudioToVideo", () => {
     expect(r.duration).toBe(8);
   });
 
-  it("enforces Instagram's 3-second Reel minimum even for very short audio tracks", async () => {
-    // A 1-2 second audio track would previously produce a Reel under Instagram's
-    // 3 s floor and Meta rejected it with `Fatal`. The composer now bumps the
-    // rendered duration up to 3 s (Cloudinary holds the last audio sample) so
-    // the Reel is always long enough to publish.
+  it("enforces a 5-second composed-Reel floor even for very short audio tracks", async () => {
+    // Meta's Instagram Reel spec allows 3 s, but flashcard Reels that ride an
+    // ~3-second audio track were still coming back "Fatal" from IG — the
+    // transcoder needs a bit more headroom to validate a static-image render.
+    // The composer now bumps the rendered duration up to 5 s (Cloudinary holds
+    // the last audio sample) so the Reel is always long enough to publish.
     upload.mockImplementation(async (file, opts) => {
       if (opts.resource_type === "video") return { public_id: "aud", duration: 1 };
       return { public_id: "img" };
@@ -107,12 +112,12 @@ describe("composeImageAudioToVideo", () => {
     explicit.mockResolvedValue({ eager: [{ secure_url: "https://cdn/out.mp4" }] });
 
     let r = await composeImageAudioToVideo({ imageUrl: "https://cdn/x.png", audioUrl: "https://cdn/a.mp3", durationSec: 1 });
-    expect(r.duration).toBe(3);
-    expect(explicit.mock.calls.at(-1)[1].eager[0].transformation[0].duration).toBe(3);
+    expect(r.duration).toBe(5);
+    expect(explicit.mock.calls.at(-1)[1].eager[0].transformation[0].duration).toBe(5);
 
     r = await composeImageAudioToVideo({ imageUrl: "https://cdn/x.png", audioUrl: "https://cdn/a.mp3", durationSec: 2 });
-    expect(r.duration).toBe(3);
-    expect(explicit.mock.calls.at(-1)[1].eager[0].transformation[0].duration).toBe(3);
+    expect(r.duration).toBe(5);
+    expect(explicit.mock.calls.at(-1)[1].eager[0].transformation[0].duration).toBe(5);
   });
 
   it("errors before any upload when the image or audio URL is missing", async () => {
