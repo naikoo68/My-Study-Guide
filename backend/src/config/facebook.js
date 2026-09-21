@@ -537,21 +537,29 @@ export async function postStoryToFacebookPage({ imageUrl } = {}, cfgOverride) {
   }
 }
 
+// Permission failures are permanent for the current token. Check them before
+// generic "not available" propagation wording because Meta's #200 permission
+// message itself says a permission "is not available" and must never be retried.
+function isCommentPermissionError(message, code) {
+  return [10, 200].includes(Number(code)) || /permission|permissions|oauth/i.test(String(message || ""));
+}
+
 // Newly published feed/reel objects can take a few seconds to become available
 // on the comments edge. Retry only propagation/rate-limit failures; permission
 // and validation errors must fail immediately.
 function isRetryableCommentError(message, code) {
+  if (isCommentPermissionError(message, code)) return false;
   const msg = String(message || "");
   return [1, 2, 4, 17, 32].includes(Number(code)) ||
     /not available|not ready|does not exist|unsupported get request|temporar|try again|request limit|rate limit/i.test(msg);
 }
 
-function friendlyCommentError(message, platform, status) {
+function friendlyCommentError(message, platform, status, code) {
   const msg = String(message || `${platform} comment failed${status ? ` (${status})` : ""}.`);
-  if (/permission|permissions|oauth|\(#200\)|code\s*200/i.test(msg)) {
+  if (isCommentPermissionError(msg, code)) {
     return platform === "Instagram"
-      ? `${msg} Reconnect Meta with the instagram_manage_comments permission.`
-      : `${msg} Reconnect Meta with pages_manage_engagement and pages_read_engagement permissions.`;
+      ? `Instagram comment permission denied${code ? ` (#${code})` : ""}. Approve instagram_manage_comments in Meta App Review, then generate and save a newly authorized token.`
+      : `Facebook comment permission denied${code ? ` (#${code})` : ""}. Approve pages_manage_engagement (and any read permission Meta requests) in App Review, then generate and save a newly authorized Page token.`;
   }
   return msg;
 }
@@ -570,15 +578,18 @@ export async function commentOnFacebookPost({ postId, message } = {}, cfgOverrid
   if (!id || !msg) return { ok: false, error: "A post id and comment text are both required." };
   const pageToken = await resolvePageToken(cfg);
   let lastError = "";
+  let permissionDenied = false;
   try {
     for (let attempt = 0; attempt < 4; attempt++) {
       const r = await fbGraphPost(`https://graph.facebook.com/${cfg.version}/${encodeURIComponent(id)}/comments`, { message: msg }, pageToken);
       if (r.ok && r.data?.id) return { ok: true, id: String(r.data.id) };
-      lastError = friendlyCommentError(r.data?.error?.message, "Facebook", r.status);
-      if (!isRetryableCommentError(r.data?.error?.message, r.data?.error?.code) || attempt === 3) break;
+      const graphError = r.data?.error || {};
+      permissionDenied = isCommentPermissionError(graphError.message, graphError.code);
+      lastError = friendlyCommentError(graphError.message, "Facebook", r.status, graphError.code);
+      if (!isRetryableCommentError(graphError.message, graphError.code) || attempt === 3) break;
       await sleep(2000 * (attempt + 1));
     }
-    return { ok: false, error: lastError || "Facebook comment failed." };
+    return { ok: false, error: lastError || "Facebook comment failed.", permissionDenied };
   } catch (err) {
     return { ok: false, error: err.message || "Could not reach Facebook." };
   }
@@ -595,6 +606,7 @@ export async function commentOnInstagramMedia({ mediaId, message } = {}, cfgOver
   if (!id || !msg) return { ok: false, error: "A media id and comment text are both required." };
   const pageToken = await resolvePageToken(cfg);
   let lastError = "";
+  let permissionDenied = false;
   try {
     const headers = { "Content-Type": "application/x-www-form-urlencoded" };
     const body = new URLSearchParams({ message: msg, access_token: pageToken });
@@ -602,11 +614,13 @@ export async function commentOnInstagramMedia({ mediaId, message } = {}, cfgOver
       const res = await fbFetch(`https://graph.facebook.com/${cfg.version}/${encodeURIComponent(id)}/comments`, { method: "POST", headers, body });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data?.id) return { ok: true, id: String(data.id) };
-      lastError = friendlyCommentError(data?.error?.message, "Instagram", res.status);
-      if (!isRetryableCommentError(data?.error?.message, data?.error?.code) || attempt === 3) break;
+      const graphError = data?.error || {};
+      permissionDenied = isCommentPermissionError(graphError.message, graphError.code);
+      lastError = friendlyCommentError(graphError.message, "Instagram", res.status, graphError.code);
+      if (!isRetryableCommentError(graphError.message, graphError.code) || attempt === 3) break;
       await sleep(2000 * (attempt + 1));
     }
-    return { ok: false, error: lastError || "Instagram comment failed." };
+    return { ok: false, error: lastError || "Instagram comment failed.", permissionDenied };
   } catch (err) {
     return { ok: false, error: err.message || "Could not reach Instagram." };
   }
@@ -637,22 +651,33 @@ export async function postAutoFirstComment({ site, cfg, fbAttempts = [], igMedia
   const toIg = site.fbAutoCommentToInstagram === true;  // default OFF (needs instagram_manage_comments)
 
   let successfulComments = 0;
+  const pushUniqueNote = (note) => { if (!notes.includes(note)) notes.push(note); };
   try {
     // Only the MAIN Page post (pushed first). Extra Pages use their own tokens,
     // so commenting on them with the main token would fail — skip them.
     const mainFbPostId = fbAttempts[0]?.ok ? fbAttempts[0].id : null;
     if (toFb && mainFbPostId) {
-      for (const c of comments) {
-        const r = await commentOnFacebookPost({ postId: mainFbPostId, message: c }, cfg);
-        if (r.ok) successfulComments += 1;
-        else notes.push(`FB comment ✗ (${r.error})`);
+      for (let i = 0; i < comments.length; i++) {
+        const r = await commentOnFacebookPost({ postId: mainFbPostId, message: comments[i] }, cfg);
+        if (r.ok) {
+          successfulComments += 1;
+          continue;
+        }
+        const skipped = r.permissionDenied ? comments.length - i - 1 : 0;
+        pushUniqueNote(`FB comment ✗ (${r.error}${skipped ? ` ${skipped} additional comment(s) skipped.` : ""})`);
+        if (r.permissionDenied) break;
       }
     }
     if (toIg && igMediaId) {
-      for (const c of comments) {
-        const r = await commentOnInstagramMedia({ mediaId: igMediaId, message: c }, cfg);
-        if (r.ok) successfulComments += 1;
-        else notes.push(`IG comment ✗ (${r.error})`);
+      for (let i = 0; i < comments.length; i++) {
+        const r = await commentOnInstagramMedia({ mediaId: igMediaId, message: comments[i] }, cfg);
+        if (r.ok) {
+          successfulComments += 1;
+          continue;
+        }
+        const skipped = r.permissionDenied ? comments.length - i - 1 : 0;
+        pushUniqueNote(`IG comment ✗ (${r.error}${skipped ? ` ${skipped} additional comment(s) skipped.` : ""})`);
+        if (r.permissionDenied) break;
       }
     }
     // Advance only after at least one comment was REALLY created; otherwise a
