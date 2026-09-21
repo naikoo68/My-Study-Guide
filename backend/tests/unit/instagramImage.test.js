@@ -17,7 +17,7 @@ const CLOUD = "https://res.cloudinary.com/demo/image/upload";
 // comma-joined form (`if_ar_lt_0.8,c_pad,…`) makes Cloudinary return HTTP 400.
 const TRANSFORM =
   "c_limit,w_1440/" +
-  "f_jpg,fl_lossy,q_auto:eco/" +
+  "f_jpg,q_auto:good,fl_progressive:none/" +
   "if_ar_lt_0.8/c_pad,ar_4:5,b_white/if_end/" +
   "if_ar_gt_1.91/c_pad,ar_1.91,b_white/if_end";
 
@@ -35,6 +35,17 @@ describe("toInstagramSafeUrl", () => {
   it("always forces JPEG (Instagram rejects PNG as an invalid media type)", () => {
     const out = toInstagramSafeUrl(`${CLOUD}/v1/card.png`);
     expect(out).toContain("f_jpg");
+  });
+
+  it("forces a BASELINE JPEG (Instagram cannot decode progressive JPEGs → subcode 2207052)", () => {
+    // Cloudinary's default lossy encoder emits a PROGRESSIVE JPEG, which Meta's
+    // image ingest rejects with "Only photo or video can be accepted as media
+    // type." even though the URL is public and returns HTTP 200. Baseline is
+    // forced with fl_progressive:none; fl_lossy (which produced progressive) is
+    // gone.
+    const out = toInstagramSafeUrl(`${CLOUD}/v1/card.png`);
+    expect(out).toContain("fl_progressive:none");
+    expect(out).not.toContain("fl_lossy");
   });
 
   it("keeps each if_ condition as its OWN component (never comma-joined)", () => {
@@ -96,7 +107,7 @@ describe("toInstagramStoryUrl", () => {
   // the canvas with a feed-shaped card and CROPS the left/right edges (the bug
   // seen on the live IG Story). We contain-pad to 1080×1920 so nothing is lost.
   const STORY_PAD =
-    `c_limit,w_1440/f_jpg,fl_lossy,q_auto:eco/c_pad,w_${STORY_WIDTH},h_${STORY_HEIGHT},b_white`;
+    `c_limit,w_1440/f_jpg,q_auto:good,fl_progressive:none/c_pad,w_${STORY_WIDTH},h_${STORY_HEIGHT},b_white`;
 
   it("targets Instagram's recommended 1080×1920 (9:16) story canvas", () => {
     expect(STORY_WIDTH).toBe(1080);

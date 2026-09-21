@@ -18,18 +18,27 @@ export const IG_MIN_AR = 0.8; // 4:5 portrait — the tallest IG allows
 export const IG_MAX_AR = 1.91; // 1.91:1 landscape — the widest IG allows
 
 // Instagram's Content Publishing API only reliably accepts JPEG images — a PNG
-// (what our card renderer uploads) is rejected with "Only photo or video can be
-// accepted as media type.". So we ALWAYS force JPEG delivery for Instagram via
-// Cloudinary's `f_jpg`. `fl_lossy,q_auto:eco` keeps the JPEG a sensible size.
+// would be rejected with "Only photo or video can be accepted as media type.".
+// We force JPEG delivery with `f_jpg` (also a safety net for custom PNG media a
+// schedule can carry).
 //
-// We ALSO cap the delivered width at 1440 px with `c_limit,w_1440`. Instagram's
-// feed recommends ≤ 1440 px wide and ≤ 8 MB per image; our card renderer
-// produces 2×-density PNGs (flashcard ~3200×2240, question card ~2080×2800)
-// that Meta's transcoder intermittently rejects with subcode 2207076
-// ("Media upload has failed") or reports as status "Fatal" once transcoding
-// fails. `c_limit` never upscales, only downscales in proportion, so smaller
-// cards deliver unchanged. This applies to feed/reel/story image URLs.
-const IG_FORMAT_TRANSFORM = `c_limit,w_1440/f_jpg,fl_lossy,q_auto:eco`;
+// CRITICAL: the JPEG must be BASELINE, not PROGRESSIVE. Cloudinary's default
+// lossy JPEG encoder (`fl_lossy` / `q_auto`) emits a PROGRESSIVE JPEG, and
+// Instagram's media ingest CANNOT decode a progressive JPEG — it rejects the
+// URL with subcode 2207052 "The media could not be fetched from this URI /
+// Only photo or video can be accepted as media type." even though the URL is
+// public, small, in-range and returns HTTP 200 (verified: `file` reported the
+// delivered image as "progressive", and Meta's crawler could fetch it fine but
+// still rejected it). `fl_progressive:none` forces a BASELINE JPEG, which Meta
+// accepts. Facebook is more lenient and accepted the progressive image, which
+// is why the SAME post showed `Facebook ✓ · Instagram ✗`.
+//
+// `q_auto:good` keeps the baseline JPEG a sensible size (~175 KB for a 1440 px
+// card), and `c_limit,w_1440` caps the delivered width so a 2×-density render
+// (flashcard ~3200×2048, question card ~2080×2800) doesn't trigger subcode
+// 2207076 ("Media upload has failed"). `c_limit` never upscales, only
+// downscales in proportion, so smaller cards deliver unchanged.
+const IG_FORMAT_TRANSFORM = `c_limit,w_1440/f_jpg,q_auto:good,fl_progressive:none`;
 
 // Cloudinary conditional transform (runs AFTER the format component):
 //   if the image is TALLER than 4:5  -> pad (add side bars) up to 4:5

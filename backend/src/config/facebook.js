@@ -67,6 +67,42 @@ async function fbFetch(url, opts = {}, timeoutMs = 15000) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Cloudinary derives a transformed asset LAZILY — the first request for a
+// derivation triggers its generation, which for VIDEO (our composed Reels) can
+// take several seconds. If Meta/Facebook is the first client to hit that URL,
+// its own download times out and the post fails with "Unable to fetch video
+// file from URL." (Facebook) or subcode 2207076 "Media upload has failed"
+// (Instagram) — even though the URL becomes perfectly fetchable a moment later.
+//
+// We WARM the URL from our own server first: a tiny ranged GET that patiently
+// waits for Cloudinary to finish generating (and caching) the derivative. By
+// the time we hand the URL to Meta the file is already built and served from
+// cache, so their download is instant. A HEAD request does NOT trigger
+// generation, so we must use GET (with a 2-byte Range to avoid downloading the
+// whole file). Best-effort: returns true once the media is fetchable, false if
+// it never became ready within the budget — in which case we still attempt the
+// post (no worse than before) but note it.
+async function warmMediaUrl(url, { attempts = 12, delayMs = 4000, perTryTimeoutMs = 30000 } = {}) {
+  const u = String(url || "").trim();
+  if (!u) return false;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fbFetch(u, { method: "GET", headers: { Range: "bytes=0-1" } }, perTryTimeoutMs);
+      const ready = res.ok || res.status === 206;
+      // Drain/cancel the body so the socket is released without downloading the
+      // whole (multi-MB) file when Cloudinary ignores the Range header.
+      try { await res.body?.cancel?.(); } catch { /* ignore */ }
+      if (ready) return true;
+      // 423 Locked / 420 / 429 / 5xx → still processing or throttled; retry.
+    } catch {
+      /* our timeout fired while Cloudinary was still rendering, or a transient
+         network hiccup — wait and try again. */
+    }
+    await sleep(delayMs);
+  }
+  return false;
+}
+
 // Instagram creates media ASYNCHRONOUSLY: after a container is created, Instagram
 // must finish DOWNLOADING and PROCESSING the image (from image_url) before the
 // container can be published. Calling media_publish too early fails with
@@ -1735,6 +1771,11 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
         const composed = await composeImageAudioToVideo({ imageUrl, audioUrl: chosenAudio, durationSec: sch.reelDuration });
         reelVideoUrl = composed?.url || "";
         if (reelVideoUrl) {
+          // WARM the composed video before handing it to Meta/Facebook. The
+          // derivation is lazy, so we force Cloudinary to finish generating it
+          // now — otherwise Meta is the first to fetch it, times out, and the
+          // Reel fails with "Unable to fetch video file from URL." / 2207076.
+          await warmMediaUrl(reelVideoUrl, { attempts: 15, delayMs: 4000, perTryTimeoutMs: 30000 });
           // Advance to the next track for the following run (wraps around).
           sch.audioIndex = (idx + 1) % audioLibrary.length;
         } else {
