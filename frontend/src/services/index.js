@@ -370,7 +370,9 @@ export const facebookService = {
   ttsVoices: () => api.get("/facebook/tts-voices"), // allowed AI narration voices → { voices: [...] }
   // Build an AI Educational Slideshow (branded slides + TTS narration → 9:16 MP4)
   // for one question/schedule WITHOUT publishing → { success, videoUrl, slides, duration, voice }.
-  testSlideshow: (data) => api.post("/facebook/slideshow/test", data, { timeout: 300000 }),
+  // Starts a BACKGROUND job → { jobId }; poll testSlideshowStatus(jobId) until done/failed.
+  testSlideshow: (data) => api.post("/facebook/slideshow/test", data, { timeout: 60000 }),
+  testSlideshowStatus: (jobId) => api.get(`/facebook/slideshow/test/${jobId}`, { timeout: 30000 }), // → { status, stage, videoUrl?, slides?, duration?, voice?, provider?, message? }
 };
 
 // ---- Contact messages ----
