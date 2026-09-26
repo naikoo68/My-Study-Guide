@@ -1706,7 +1706,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
       imageUrl = r.url || null;
       imageErr = imageErr || r.error || "";
     }
-  } else if (sch.asImage || wantIg || selfieWatermarkActive || textWatermarkActive || sch.asReel || sch.asStory || sch.asSlideshow) {
+  } else if (sch.asImage || wantIg || selfieWatermarkActive || textWatermarkActive || sch.asReel || sch.asStory || sch.asSlideshow || sch.kind === "slideshow") {
     // PREFER a pixel-identical screenshot of the REAL quiz card (matches the
     // admin Download button exactly — same React/Tailwind/Inter). Best-effort:
     // any failure falls through to the lightweight SVG card so posting never
@@ -1784,7 +1784,8 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   // IS the audio, so this mode does NOT use the music Reel library — when it's
   // on, the normal music Reel (asReel) is ignored. Best-effort: any failure logs
   // a note and falls back to the normal image/text post so a run is never lost.
-  const wantSlideshow = !!sch.asSlideshow;
+  // The "slideshow" post type (older schedules: the asSlideshow toggle).
+  const wantSlideshow = sch.kind === "slideshow" || !!sch.asSlideshow;
   if (wantSlideshow) {
     // Persist coarse job status as the (potentially slow) render progresses so
     // the admin can see where it got to. Best-effort — never blocks posting.
@@ -1797,6 +1798,8 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
         voice: sch.ttsVoice,
         autoCaptions: sch.autoCaptions !== false,
         generateImages: !!sch.generateImages,
+        questionSec: sch.questionSec,
+        answerSec: sch.answerSec,
         site, // raw settings doc → resolves the TTS provider/key/model
         brandColor: site?.brandColor || site?.primaryColor || "#2563eb",
         siteName: site?.siteName || "My Study Guide",

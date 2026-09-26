@@ -88,7 +88,8 @@ export async function probeDuration(file) {
 }
 
 // Build the slideshow MP4.
-//   slides:  [{ imagePath, audioPath }]  (local files, in order)
+//   slides:  [{ imagePath, audioPath, minSec? }]  (local files, in order;
+//            minSec = how long this slide stays up at least)
 //   outPath: where to write the final MP4
 // Returns { duration } (seconds).
 export async function composeSlideshowMp4({
@@ -117,7 +118,9 @@ export async function composeSlideshowMp4({
     const vf =
       `[0:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
       `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:white,format=yuv420p[v]`;
-    const af = `[1:a]aresample=44100,apad=pad_dur=${tailSec},apad=whole_dur=${minSec}[a]`;
+    // Each slide may carry its own on-screen time (question / answer time).
+    const slideMin = Math.max(1, Number(list[i].minSec) || minSec);
+    const af = `[1:a]aresample=44100,apad=pad_dur=${tailSec},apad=whole_dur=${slideMin}[a]`;
     await runFfmpeg([
       "-hide_banner", "-loglevel", "error", "-y",
       "-loop", "1", "-framerate", String(fps), "-i", list[i].imagePath,

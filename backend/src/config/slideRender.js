@@ -170,7 +170,7 @@ function buildSlideSvg(slide, opts = {}) {
   {
   const els = contentEls;         // everything below is the slide's content
 
-  // Tag pill (e.g. "QUESTION OF THE DAY").
+  // Tag pill (e.g. "QUESTION").
   if (slide.tag) {
     const tw = Math.max(220, slide.tag.length * 20 + 80);
     els.push(RR(PAD, y, tw, 64, 32, pal.pill));
@@ -190,6 +190,15 @@ function buildSlideSvg(slide, opts = {}) {
   }
 
   const availW = W - PAD * 2;
+
+  // Lead items — the question text and anything read before the options
+  // (assertion/reason, numbered statements).
+  for (const item of slide.lead || []) {
+    const b = block(PAD, y, availW, item, brandColor);
+    els.push(b.svg);
+    y += b.height + 6;
+  }
+  if ((slide.lead || []).length) y += 12;
 
   // Columns (matching questions).
   if (slide.columns) {
@@ -230,10 +239,20 @@ function buildSlideSvg(slide, opts = {}) {
     caption = `<rect x="50" y="${bandY}" width="${W - 100}" height="${bandH}" rx="24" fill="#0f172a" fill-opacity="0.82"/>\n${inner}`;
   }
 
-  // Centre the content block in the free space (slightly above true centre,
-  // which reads better on a phone). Never move it up past the header.
-  const freeSpace = captionTop - 40 - y;
-  const contentShift = Math.max(0, freeSpace * (slide.brand ? 0.5 : 0.4));
+  // Fit the content between the header and the caption/footer: a long
+  // question (e.g. assertion + reason + four options) is scaled DOWN so nothing
+  // runs off the slide; a short one is centred in the free space (slightly
+  // above true centre, which reads better on a phone).
+  const room = captionTop - 40 - CONTENT_TOP;
+  const used = y - CONTENT_TOP;
+  const scale = used > room ? Math.max(0.55, room / used) : 1;
+  const freeSpace = room - used * scale;
+  const shiftY = Math.max(0, freeSpace * (slide.brand ? 0.5 : 0.4));
+  const tx = (W - W * scale) / 2;
+  const ty = CONTENT_TOP - CONTENT_TOP * scale + shiftY;
+  const contentTransform = scale < 1
+    ? `translate(${tx.toFixed(1)},${ty.toFixed(1)}) scale(${scale.toFixed(4)})`
+    : `translate(0,${shiftY.toFixed(0)})`;
 
   // Footer brand line (skip on the CTA slide, which is itself the brand slide).
   const footer = slide.brand
@@ -249,7 +268,7 @@ function buildSlideSvg(slide, opts = {}) {
     </defs>
     <rect width="${W}" height="${H}" fill="url(#bg)"/>
     ${headerEls.join("\n    ")}
-    <g transform="translate(0,${contentShift.toFixed(0)})">
+    <g transform="${contentTransform}">
     ${contentEls.join("\n    ")}
     </g>
     ${caption}
