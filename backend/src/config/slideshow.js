@@ -72,6 +72,9 @@ async function downloadTo(url, dest, { timeoutMs = 60000 } = {}) {
 // in one video: Q1 → A1 → Q2 → A2 → …).
 export async function generateSlideshow(question, opts = {}) {
   const onStatus = typeof opts.onStatus === "function" ? opts.onStatus : () => {};
+  // Fine-grained progress (stage, done, total) — kept separate from onStatus so
+  // callers that persist the status (the scheduled poster) aren't hit per slide.
+  const onProgress = typeof opts.onProgress === "function" ? opts.onProgress : () => {};
   const questions = (Array.isArray(question) ? question : [question]).filter((x) => x && typeof x === "object");
   if (!questions.length) throw new Error("A question is required for the slideshow.");
   if (!isCloudinaryConfigured()) throw new Error("Cloudinary is not configured (media processing unavailable).");
@@ -124,6 +127,7 @@ export async function generateSlideshow(question, opts = {}) {
     // 2) Render every slide image (branded 9:16 SVG → JPEG on Cloudinary) and
     //    pull it down locally for ffmpeg.
     onStatus(SLIDESHOW_STATUS.GENERATING_SLIDES);
+    onProgress(SLIDESHOW_STATUS.GENERATING_SLIDES, 0, plan.length);
     // Download each template once (if set). A template that can't be fetched
     // is skipped — that slide type falls back to the built-in design.
     const templatePaths = {};
@@ -139,11 +143,13 @@ export async function generateSlideshow(question, opts = {}) {
       const p = path.join(workDir, `slide${String(i).padStart(2, "0")}.${withTemplate ? "png" : "jpg"}`);
       await downloadTo(img.url, p);
       imagePaths.push(p);
+      onProgress(SLIDESHOW_STATUS.GENERATING_SLIDES, i + 1, plan.length);
     }
 
     // 3) Narrate every slide. Split PER SLIDE (never one giant request) so each
     //    slide is timed to its own narration.
     onStatus(SLIDESHOW_STATUS.GENERATING_AUDIO);
+    onProgress(SLIDESHOW_STATUS.GENERATING_AUDIO, 0, plan.length);
     const audioPaths = [];
     for (let i = 0; i < plan.length; i++) {
       let result;
@@ -155,11 +161,13 @@ export async function generateSlideshow(question, opts = {}) {
       const p = path.join(workDir, `audio${String(i).padStart(2, "0")}.mp3`);
       await fs.writeFile(p, result.buffer);
       audioPaths.push(p);
+      onProgress(SLIDESHOW_STATUS.GENERATING_AUDIO, i + 1, plan.length);
     }
 
     // 4) Compose the MP4 locally (each slide lasts as long as its narration),
     //    then host ONE plain video file on Cloudinary for Meta to fetch.
     onStatus(SLIDESHOW_STATUS.RENDERING_VIDEO);
+    onProgress(SLIDESHOW_STATUS.RENDERING_VIDEO, 0, plan.length);
     const outPath = path.join(workDir, "slideshow.mp4");
     const { duration } = await composeSlideshowMp4({
       // Slide 1 stays up for the question time, slide 2 for the answer time —
@@ -172,6 +180,7 @@ export async function generateSlideshow(question, opts = {}) {
       })),
       outPath,
       workDir,
+      onProgress: (done, total) => onProgress(SLIDESHOW_STATUS.RENDERING_VIDEO, done, total),
     });
     const uploaded = await uploadFileToCloudinary(outPath, {
       resourceType: "video",
