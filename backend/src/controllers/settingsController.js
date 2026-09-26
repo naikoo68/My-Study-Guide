@@ -101,6 +101,10 @@ function safeSettings(s) {
   const obj = s && s.toObject ? s.toObject() : { ...(s || {}) };
   obj.fbTokenSet = !!obj.fbPageAccessToken;
   delete obj.fbPageAccessToken;
+  // TTS narration API key (AI Slideshow) — never send the raw key to the
+  // browser; expose a boolean so the UI can show "key saved".
+  obj.ttsApiKeySet = !!obj.ttsApiKey;
+  delete obj.ttsApiKey;
   // Extra cross-post pages: never send their tokens to the browser.
   if (Array.isArray(obj.fbExtraTargets)) {
     obj.fbExtraTargets = obj.fbExtraTargets.map((t) => ({ label: t.label || "", pageId: t.pageId || "", tokenSet: !!t.token }));
@@ -231,6 +235,7 @@ export async function updateSettings(req, res) {
     "fbNotifyEmail", "fbNotifyOnPost", "fbNotifyOnError", "fbNotifyOnComplete",
     "fbAutoComments", "fbAutoCommentMode", "fbAutoCommentToFacebook", "fbAutoCommentToInstagram",
     "igEnabled", "igUserId",
+    "ttsProvider", "ttsApiKey", "ttsModel",
     "googleClientId",
   ];
   const update = {};
@@ -258,6 +263,19 @@ export async function updateSettings(req, res) {
     if (tok) { update.fbPageAccessToken = tok; invalidateTokenScopeCache(); } else delete update.fbPageAccessToken;
   }
   if ("fbPageId" in update) update.fbPageId = String(update.fbPageId || "").trim();
+
+  // AI Slideshow TTS: validate the provider, and keep the API key server-side —
+  // only overwrite it when a NEW non-empty value is provided (the UI submits it
+  // blank to keep the saved one, same as the Facebook token).
+  if ("ttsProvider" in update) {
+    const p = String(update.ttsProvider || "").trim().toLowerCase();
+    update.ttsProvider = ["edge", "openai"].includes(p) ? p : "edge";
+  }
+  if ("ttsModel" in update) update.ttsModel = String(update.ttsModel || "").trim().slice(0, 120);
+  if ("ttsApiKey" in update) {
+    const k = String(update.ttsApiKey || "").trim();
+    if (k) update.ttsApiKey = k; else delete update.ttsApiKey;
+  }
   // Extra cross-post Pages: keep each page's saved token when the UI submits a
   // blank one (tokens are never sent to the browser, so blank = "unchanged").
   if (Array.isArray(update.fbExtraTargets)) {

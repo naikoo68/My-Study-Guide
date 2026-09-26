@@ -1797,6 +1797,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
         voice: sch.ttsVoice,
         autoCaptions: sch.autoCaptions !== false,
         generateImages: !!sch.generateImages,
+        site, // raw settings doc → resolves the TTS provider/key/model
         brandColor: site?.brandColor || site?.primaryColor || "#2563eb",
         siteName: site?.siteName || "My Study Guide",
         siteUrl: (cfg.siteUrl || "https://www.mystudyguide.in").replace(/^https?:\/\//, "").replace(/\/+$/, ""),
