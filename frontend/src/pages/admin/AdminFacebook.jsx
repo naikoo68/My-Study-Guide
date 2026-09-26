@@ -1242,10 +1242,19 @@ export default function AdminFacebook() {
   const [error, setError] = useState("");
   const [form, setForm] = useState(null); // null = closed; else the schedule being created/edited
   const [saving, setSaving] = useState(false);
-  // AI Slideshow test-preview state (Generate Test Slideshow button in the form).
-  const [ttsVoiceList, setTtsVoiceList] = useState(["coral", "alloy", "ash", "echo", "fable", "nova", "onyx", "sage", "shimmer"]);
+  // AI Slideshow: narration engine (TTS provider/key/model) + test-preview state.
+  const [voicesByProvider, setVoicesByProvider] = useState({
+    edge: [{ id: "en-IN-NeerjaNeural", label: "Neerja (India, female)" }],
+    openai: [{ id: "coral", label: "Coral" }],
+  });
+  const [ttsProviders, setTtsProviders] = useState(["edge", "openai"]);
+  const [ttsProvider, setTtsProvider] = useState("edge"); // engine chosen in the panel
+  const [ttsModel, setTtsModel] = useState("");           // optional model override
+  const [ttsKey, setTtsKey] = useState("");               // new API key to save (kept server-side)
+  const [ttsSaving, setTtsSaving] = useState(false);
+  const [ttsMsg, setTtsMsg] = useState(null);
   const [ssTesting, setSsTesting] = useState(false); // a test render is in progress
-  const [ssResult, setSsResult] = useState(null);    // { videoUrl, slides, duration, voice }
+  const [ssResult, setSsResult] = useState(null);    // { videoUrl, slides, duration, voice, provider }
   const [ssError, setSsError] = useState("");        // last test error message
   const [busyId, setBusyId] = useState(null); // per-row action in progress
   const [rowMsg, setRowMsg] = useState({}); // id → text
@@ -1319,13 +1328,33 @@ export default function AdminFacebook() {
       : (s.customAudio ? [s.customAudio] : []),
   }); };
 
-  // Load the server's allow-listed narration voices once (best-effort — the
-  // hard-coded default list is used if the request fails).
+  // Load the server's TTS providers + voices once (best-effort — hard-coded
+  // defaults are used if the request fails).
   useEffect(() => {
     facebookService.ttsVoices().then((r) => {
-      if (Array.isArray(r?.voices) && r.voices.length) setTtsVoiceList(r.voices);
+      if (r?.voicesByProvider && typeof r.voicesByProvider === "object") setVoicesByProvider(r.voicesByProvider);
+      if (Array.isArray(r?.providers) && r.providers.length) setTtsProviders(r.providers);
     }).catch(() => {});
   }, []);
+
+  // Keep the narration-engine panel in sync with the saved settings.
+  useEffect(() => {
+    setTtsProvider(settings?.ttsProvider || "edge");
+    setTtsModel(settings?.ttsModel || "");
+  }, [settings?.ttsProvider, settings?.ttsModel]);
+
+  // Voices for the currently-selected engine (used by the voice dropdown).
+  const providerVoices = voicesByProvider[ttsProvider] || voicesByProvider.edge || [];
+
+  // Save the narration engine to site settings. The API key is only sent when a
+  // NEW value is typed (blank keeps the saved one — same as the FB token).
+  const saveTts = async () => {
+    setTtsSaving(true); setTtsMsg(null);
+    try {
+      await saveSettings({ ttsProvider, ttsModel: ttsModel.trim(), ...(ttsKey.trim() ? { ttsApiKey: ttsKey.trim() } : {}) });
+      setTtsKey(""); setTtsMsg({ ok: true, text: "Saved." });
+    } catch (e) { setTtsMsg({ ok: false, text: e.message }); } finally { setTtsSaving(false); }
+  };
 
   // Generate a TEST slideshow for the current form (no publishing). Uses the
   // saved schedule's source when editing, otherwise the picked source in the
@@ -1813,17 +1842,56 @@ export default function AdminFacebook() {
 
                 {form.asSlideshow && (
                   <div className="mt-3 space-y-3">
-                    {/* Voice selector */}
+                    {/* Narration engine (TTS provider + key) — saved to site settings */}
+                    <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                      <p className="mb-2 text-sm font-semibold">Narration engine (Text-to-Speech)</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <label className="text-sm font-medium">Provider</label>
+                        <select className="input h-9 w-56" value={ttsProvider}
+                          onChange={(e) => { setTtsProvider(e.target.value); const v = (voicesByProvider[e.target.value] || [])[0]; if (v) setForm((f) => ({ ...f, ttsVoice: v.id })); }}>
+                          {ttsProviders.map((p) => (
+                            <option key={p} value={p}>{p === "edge" ? "Free — Microsoft Edge (no key)" : p === "openai" ? "OpenAI (needs API key)" : p}</option>
+                          ))}
+                        </select>
+                      </div>
+                      {ttsProvider === "edge" && (
+                        <p className="mt-1.5 text-xs text-slate-400">
+                          Free neural voices — no API key or account needed. Uses Microsoft Edge's online voices (unofficial endpoint; if your server can't reach it, switch to OpenAI below).
+                        </p>
+                      )}
+                      {ttsProvider !== "edge" && (
+                        <div className="mt-2 space-y-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <KeyRound className="h-4 w-4 text-slate-400" />
+                            <input type="password" autoComplete="off"
+                              className="input h-9 w-72"
+                              placeholder={settings?.ttsApiKeySet ? "•••••••• (saved — leave blank to keep)" : "Paste API key"}
+                              value={ttsKey} onChange={(e) => setTtsKey(e.target.value)} />
+                            <input type="text" className="input h-9 w-52" placeholder="Model (default gpt-4o-mini-tts)"
+                              value={ttsModel} onChange={(e) => setTtsModel(e.target.value)} />
+                          </div>
+                          <p className="text-xs text-slate-400">The key is stored on the server and never shown again. Paid — uses your OpenAI credits.</p>
+                        </div>
+                      )}
+                      <div className="mt-2 flex flex-wrap items-center gap-3">
+                        <button type="button" onClick={saveTts} disabled={ttsSaving} className="btn-outline !py-1.5 text-sm">
+                          {ttsSaving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> Save engine</>}
+                        </button>
+                        {ttsMsg && <span className={`inline-flex items-center gap-1 text-xs font-medium ${ttsMsg.ok ? "text-emerald-600" : "text-rose-600"}`}>{ttsMsg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {ttsMsg.text}</span>}
+                      </div>
+                    </div>
+
+                    {/* Voice selector (voices depend on the chosen engine) */}
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="inline-flex items-center gap-1.5 text-sm font-medium">
                         <Volume2 className="h-4 w-4 text-slate-400" /> Voice
                       </span>
                       <select
-                        className="input h-9 w-40"
-                        value={form.ttsVoice || "coral"}
+                        className="input h-9 w-64"
+                        value={providerVoices.some((v) => v.id === form.ttsVoice) ? form.ttsVoice : (providerVoices[0]?.id || "")}
                         onChange={(e) => setForm((f) => ({ ...f, ttsVoice: e.target.value }))}>
-                        {ttsVoiceList.map((v) => (
-                          <option key={v} value={v}>{v.charAt(0).toUpperCase() + v.slice(1)}</option>
+                        {providerVoices.map((v) => (
+                          <option key={v.id} value={v.id}>{v.label}</option>
                         ))}
                       </select>
                     </div>

@@ -22,4 +22,11 @@ regexes = [
   # existed as a single "AIza…" literal across older commits, so gitleaks' GCP
   # API-key rule flags it. Allowlisted by its exact value.
   '''AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8''',
+  # Microsoft Edge's PUBLIC "read aloud" TrustedClientToken — a fixed, well-known
+  # constant baked into the Edge browser and shipped in every open-source
+  # edge-tts client. It is NOT one of our credentials (no account/billing is
+  # attached); it merely identifies the free Edge TTS endpoint the AI Slideshow
+  # narration uses (backend/src/config/edgeTts.js). Its 32-hex shape trips
+  # gitleaks' generic-api-key rule, so it is allowlisted by its exact value.
+  '''6A5AA1D4EAFF4E9FB37E23D68491D6F4''',
 ]

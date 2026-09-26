@@ -1,35 +1,85 @@
-// The set of Text-to-Speech voices the AI Slideshow feature may use. These are
-// the standard OpenAI TTS voices (used with the gpt-4o-mini-tts model). Keeping
-// the list here — one shared source of truth — lets the schedule model default,
-// the field whitelist (pickScheduleFields), the TTS service and the Admin UI all
-// agree on exactly which voices are allowed, so an invalid value can never reach
-// the paid API.
+// Text-to-Speech providers and their voices — one shared source of truth so the
+// schedule model, the field whitelist, the TTS service and the Admin UI all
+// agree on the allowed providers/voices.
+//
+// Two providers are supported out of the box:
+//   • "edge"   — Microsoft Edge online TTS. FREE, needs NO API key. Neural
+//                voices. This is the default so the AI Slideshow works with no
+//                paid account and nothing to configure.
+//   • "openai" — OpenAI TTS (gpt-4o-mini-tts). Needs an API key (entered in the
+//                Admin panel or an env var). Paid.
+// New providers can be added later without touching the callers.
 
-// Lower-case ids exactly as the OpenAI TTS API expects them.
-export const TTS_VOICES = [
-  "alloy",
-  "ash",
-  "coral",
-  "echo",
-  "fable",
-  "nova",
-  "onyx",
-  "sage",
-  "shimmer",
+export const TTS_PROVIDERS = ["edge", "openai"];
+export const DEFAULT_TTS_PROVIDER = "edge";
+
+// OpenAI standard TTS voices.
+const OPENAI_VOICES = [
+  { id: "alloy", label: "Alloy" },
+  { id: "ash", label: "Ash" },
+  { id: "coral", label: "Coral" },
+  { id: "echo", label: "Echo" },
+  { id: "fable", label: "Fable" },
+  { id: "nova", label: "Nova" },
+  { id: "onyx", label: "Onyx" },
+  { id: "sage", label: "Sage" },
+  { id: "shimmer", label: "Shimmer" },
 ];
 
-// The default voice used when a schedule doesn't specify one.
+// A curated set of Microsoft Edge neural voices (English, incl. India-first
+// picks since the audience is Indian exam aspirants). The `id` is the exact
+// Edge voice name required by the service.
+const EDGE_VOICES = [
+  { id: "en-IN-NeerjaNeural", label: "Neerja (India, female)" },
+  { id: "en-IN-PrabhatNeural", label: "Prabhat (India, male)" },
+  { id: "en-US-AriaNeural", label: "Aria (US, female)" },
+  { id: "en-US-GuyNeural", label: "Guy (US, male)" },
+  { id: "en-US-JennyNeural", label: "Jenny (US, female)" },
+  { id: "en-GB-SoniaNeural", label: "Sonia (UK, female)" },
+  { id: "en-GB-RyanNeural", label: "Ryan (UK, male)" },
+  { id: "en-AU-NatashaNeural", label: "Natasha (Australia, female)" },
+];
+
+export const PROVIDER_VOICES = {
+  openai: OPENAI_VOICES,
+  edge: EDGE_VOICES,
+};
+
+// The default voice per provider.
+export const DEFAULT_VOICE = {
+  openai: "coral",
+  edge: "en-IN-NeerjaNeural",
+};
+
+// Back-compat: a flat list of OpenAI voice ids (the feature originally shipped
+// OpenAI-only). Still exported so older imports keep working.
+export const TTS_VOICES = OPENAI_VOICES.map((v) => v.id);
 export const DEFAULT_TTS_VOICE = "coral";
 
-// True when `v` is one of the allowed voices (case-insensitive).
-export function isAllowedVoice(v) {
-  return TTS_VOICES.includes(String(v || "").trim().toLowerCase());
+export function normalizeProvider(p) {
+  const s = String(p || "").trim().toLowerCase();
+  return TTS_PROVIDERS.includes(s) ? s : DEFAULT_TTS_PROVIDER;
 }
 
-// Normalise any incoming value to a SAFE allowed voice — falls back to the
-// default when the value is empty or not in the allow-list. Never throws, so it
-// can be used directly when building a TTS request.
-export function normalizeVoice(v) {
-  const s = String(v || "").trim().toLowerCase();
-  return isAllowedVoice(s) ? s : DEFAULT_TTS_VOICE;
+export function voicesForProvider(p) {
+  return PROVIDER_VOICES[normalizeProvider(p)] || EDGE_VOICES;
+}
+
+export function defaultVoiceForProvider(p) {
+  return DEFAULT_VOICE[normalizeProvider(p)] || EDGE_VOICES[0].id;
+}
+
+export function isAllowedVoice(provider, v) {
+  const id = String(v || "").trim();
+  return voicesForProvider(provider).some((x) => x.id.toLowerCase() === id.toLowerCase());
+}
+
+// Return a SAFE voice id for the given provider — falls back to that provider's
+// default when the value is empty or doesn't belong to the provider. Never
+// throws, so it can be used right before building a request.
+export function normalizeVoiceForProvider(provider, v) {
+  const p = normalizeProvider(provider);
+  const id = String(v || "").trim();
+  const match = voicesForProvider(p).find((x) => x.id.toLowerCase() === id.toLowerCase());
+  return match ? match.id : defaultVoiceForProvider(p);
 }

@@ -16,10 +16,10 @@
 // (the scheduler or the test endpoint) logs it and, in the scheduler, falls back
 // to a normal image/text post so a run is never silently lost.
 import { isCloudinaryConfigured, composeSlideshowVideo } from "./cloudinary.js";
-import { isTtsConfigured, generateNarrationAudio } from "./tts.js";
+import { resolveTtsConfig, generateNarrationAudio } from "./tts.js";
 import { buildSlidePlan } from "./slidePlan.js";
 import { renderSlideImage } from "./slideRender.js";
-import { normalizeVoice } from "../utils/ttsVoices.js";
+import { normalizeVoiceForProvider } from "../utils/ttsVoices.js";
 
 // Job-status states (mirrored onto the schedule's slideshowStatus for the UI).
 export const SLIDESHOW_STATUS = {
@@ -33,23 +33,26 @@ export const SLIDESHOW_STATUS = {
   FAILED: "FAILED",
 };
 
-// True only when everything the slideshow needs is configured.
+// True only when everything the slideshow needs is configured. The FREE Edge TTS
+// provider needs no key, so this is effectively just "is Cloudinary configured".
 export function isSlideshowConfigured() {
-  return isCloudinaryConfigured() && isTtsConfigured();
+  return isCloudinaryConfigured();
 }
 
 // Build the whole slideshow for `question`. Returns:
-//   { videoUrl, slides, duration, voice, slidePlan }
+//   { videoUrl, slides, duration, voice, provider, slidePlan }
 // `opts`:
 //   voice, autoCaptions, generateImages, brandColor, siteName, siteUrl,
-//   subjectName, onStatus(status) — a callback fired as the job progresses.
+//   subjectName, site (raw Settings doc → resolves the TTS provider/key),
+//   onStatus(status) — a callback fired as the job progresses.
 export async function generateSlideshow(question, opts = {}) {
   const onStatus = typeof opts.onStatus === "function" ? opts.onStatus : () => {};
   if (!question || typeof question !== "object") throw new Error("A question is required for the slideshow.");
   if (!isCloudinaryConfigured()) throw new Error("Cloudinary is not configured (media processing unavailable).");
-  if (!isTtsConfigured()) throw new Error("Text-to-Speech is not configured (OPENAI_TTS_API_KEY missing).");
 
-  const voice = normalizeVoice(opts.voice);
+  // Resolve the TTS provider/key/model from the admin settings (+ env fallback).
+  const ttsCfg = resolveTtsConfig(opts.site || null);
+  const voice = normalizeVoiceForProvider(ttsCfg.provider, opts.voice);
   const autoCaptions = opts.autoCaptions !== false; // default ON
   const brandOpts = {
     brandColor: opts.brandColor || "#2563eb",
@@ -78,7 +81,7 @@ export async function generateSlideshow(question, opts = {}) {
   onStatus(SLIDESHOW_STATUS.GENERATING_AUDIO);
   const audios = [];
   for (const slide of plan) {
-    const audio = await generateNarrationAudio({ text: slide.narration, voice });
+    const audio = await generateNarrationAudio({ text: slide.narration, voice, cfg: ttsCfg });
     audios.push(audio);
   }
 
@@ -97,6 +100,7 @@ export async function generateSlideshow(question, opts = {}) {
     slides: plan.length,
     duration: Math.round(composed.duration),
     voice,
+    provider: ttsCfg.provider,
     slidePlan: plan.map((s) => ({ id: s.id, tag: s.tag })),
   };
 }

@@ -13,7 +13,7 @@ import PracticeTopic from "../models/PracticeTopic.js";
 import { isSafePublicUrl } from "../utils/urlGuard.js";
 import { composeImageAudioToVideo, isCloudinaryConfigured } from "../config/cloudinary.js";
 import { generateSlideshow, isSlideshowConfigured } from "../config/slideshow.js";
-import { normalizeVoice, TTS_VOICES } from "../utils/ttsVoices.js";
+import { TTS_PROVIDERS, PROVIDER_VOICES, DEFAULT_TTS_PROVIDER } from "../utils/ttsVoices.js";
 
 // POST /api/facebook/compose-reel  (admin) — build a vertical MP4 (a Reel) from
 // a still image + an audio track, both given as PUBLIC http(s) URLs (uploaded
@@ -57,11 +57,8 @@ export async function composeReel(req, res) {
 //   {}                           — no source ⇒ 400.
 // Plus optional overrides: { ttsVoice, autoCaptions, generateImages }.
 export async function testSlideshow(req, res) {
-  if (!isCloudinaryConfigured()) {
-    return res.status(503).json({ success: false, message: "Media processing isn't set up yet (Cloudinary keys missing)." });
-  }
   if (!isSlideshowConfigured()) {
-    return res.status(503).json({ success: false, message: "Text-to-Speech isn't set up yet (OPENAI_TTS_API_KEY missing)." });
+    return res.status(503).json({ success: false, message: "Media processing isn't set up yet (Cloudinary keys missing)." });
   }
 
   // Resolve the question: an explicit id, or the one the schedule would pick.
@@ -111,17 +108,18 @@ export async function testSlideshow(req, res) {
     return res.status(400).json({ success: false, message: e?.message || "Could not load the question." });
   }
 
+  // RAW settings doc (carries the unmasked ttsApiKey) so the provider resolves.
   const site = await Settings.findOne({ key: "site" }).lean().catch(() => null);
   const cfg = await getFacebookConfig().catch(() => ({}));
-  const voice = normalizeVoice(req.body?.ttsVoice);
   const autoCaptions = req.body?.autoCaptions !== false;
   const generateImages = !!req.body?.generateImages;
 
   try {
     const result = await generateSlideshow(q, {
-      voice,
+      voice: req.body?.ttsVoice, // normalised to the effective provider inside
       autoCaptions,
       generateImages,
+      site,
       brandColor: site?.brandColor || site?.primaryColor || "#2563eb",
       siteName: site?.siteName || "My Study Guide",
       siteUrl: String(cfg?.siteUrl || "https://www.mystudyguide.in").replace(/^https?:\/\//, "").replace(/\/+$/, ""),
@@ -132,16 +130,24 @@ export async function testSlideshow(req, res) {
       slides: result.slides,
       duration: result.duration,
       voice: result.voice,
+      provider: result.provider,
     });
   } catch (err) {
     return res.status(502).json({ success: false, message: err?.message || "Could not build the slideshow." });
   }
 }
 
-// GET /api/facebook/tts-voices  (admin) — the allow-listed narration voices, so
-// the UI never hard-codes a list that can drift from the server's validation.
+// GET /api/facebook/tts-voices  (admin) — the TTS providers and their voices, so
+// the UI never hard-codes lists that can drift from the server. The current
+// provider + "key saved" flag come from the site settings (safeSettings).
 export function ttsVoices(_req, res) {
-  res.json({ voices: TTS_VOICES });
+  res.json({
+    providers: TTS_PROVIDERS,
+    defaultProvider: DEFAULT_TTS_PROVIDER,
+    voicesByProvider: PROVIDER_VOICES,
+    // Back-compat: a flat default list (the edge/free provider's voices).
+    voices: PROVIDER_VOICES[DEFAULT_TTS_PROVIDER],
+  });
 }
 
 // GET /api/facebook/suggest-tags/:id — hashtags for one question (global default
@@ -241,8 +247,9 @@ export function pickScheduleFields(body = {}) {
     // slideshow video from the selected question and posts it as a Reel — the
     // narration is the audio, so it does NOT use the music Reel library.
     asSlideshow: !!body.asSlideshow,
-    // Narration voice — validated against the allow-list (never trust the body).
-    ttsVoice: normalizeVoice(body.ttsVoice),
+    // Narration voice — kept as a trimmed string (voices are provider-specific,
+    // so it's normalised against the effective provider at generation time).
+    ttsVoice: String(body.ttsVoice || "").trim().slice(0, 60),
     // Burn readable captions onto each slide (default ON).
     autoCaptions: body.autoCaptions !== false,
     // Generate AI illustrations per slide (default OFF for cost control).

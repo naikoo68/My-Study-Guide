@@ -263,6 +263,17 @@ const settingsSchema = new mongoose.Schema(
     // schedule ROTATES through these tracks (one per Reel, then starts over), so
     // the admin never re-uploads music per schedule.
     fbReelAudios: { type: [String], default: [] },
+    // ---- AI Slideshow narration (Text-to-Speech) ----
+    // Provider for the "AI Slideshow + Voice" post type. "edge" = FREE Microsoft
+    // Edge TTS (no key needed, default); "openai" = OpenAI TTS (needs a key).
+    ttsProvider: { type: String, default: "" }, // "" resolves to "edge" (free)
+    // SENSITIVE — API key for a paid provider (OpenAI). Never sent to the
+    // browser (masked as ttsApiKeySet, exactly like fbPageAccessToken). Only the
+    // "edge" provider works without this. Falls back to the OPENAI_TTS_API_KEY
+    // env var when blank.
+    ttsApiKey: { type: String, default: "" },
+    // Optional model override for the paid provider (default gpt-4o-mini-tts).
+    ttsModel: { type: String, default: "" },
     // Center TEXT watermark drawn diagonally across the middle of every
     // Facebook/Instagram question-card image (in addition to the selfie/logo
     // above). Text is optional — when blank it falls back to the site watermark
