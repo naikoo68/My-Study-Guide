@@ -12,7 +12,7 @@ import { Facebook, Instagram } from "../../components/ui/SocialIcons";
 import { settingsService, facebookService, contentService, practiceService, uploadService } from "../../services";
 import { useSettings } from "../../context/SettingsContext";
 import { Loading, ErrorState } from "../../components/ui/AsyncState";
-import { estimateSlideshowEta, learnSlideshowProfile, loadSlideshowProfile, saveSlideshowProfile, fmtDuration } from "../../lib/slideshowEta";
+import { estimateSlideshowEta, smoothRemaining, learnSlideshowProfile, loadSlideshowProfile, saveSlideshowProfile, fmtDuration } from "../../lib/slideshowEta";
 
 const WEEKDAYS = [
   { v: 0, l: "Sun" }, { v: 1, l: "Mon" }, { v: 2, l: "Tue" }, { v: 3, l: "Wed" },
@@ -1184,8 +1184,11 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
         if (st?.status === "failed") { setTestError(st?.message || "Could not build the test slideshow."); break; }
         if (st?.stage) {
           const live = liveRef.current;
-          if (st.stage !== live.stage) { live.stage = st.stage; live.since = Date.now(); marks.push({ stage: st.stage, at: live.since }); }
-          live.progress = st.progress?.total > 0 ? st.progress : null;
+          if (st.stage !== live.stage) { live.stage = st.stage; live.since = Date.now(); live.doneAt = 0; marks.push({ stage: st.stage, at: live.since }); }
+          const nextProgress = st.progress?.total > 0 ? st.progress : null;
+          // Remember when the slide count last went up (for the per-slide speed).
+          if (nextProgress && nextProgress.done !== live.progress?.done) live.doneAt = Date.now();
+          live.progress = nextProgress;
           setStage(st.stage); setProgress(live.progress);
         }
         if (Date.now() > deadline) { setTestError("The test slideshow is taking too long — please try again."); break; }
@@ -1199,7 +1202,8 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
   };
 
   // Once a second while the test build runs: tick the stopwatch and refresh the
-  // % / time-left estimate (the % never goes backwards, so the bar only grows).
+  // % / time-left estimate. The % is work-based and never goes backwards; the
+  // time left counts down smoothly instead of jumping on each server update.
   useEffect(() => {
     if (!testing || !testStartedAt) return undefined;
     const id = setInterval(() => {
@@ -1208,13 +1212,16 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
       const e = estimateSlideshowEta({
         stage: live.stage,
         stageElapsedSec: (now - live.since) / 1000,
-        elapsedSec: (now - testStartedAt) / 1000,
+        doneAtSec: live.doneAt ? (live.doneAt - live.since) / 1000 : 0,
         progress: live.progress,
         slides: live.slides,
         profile: live.profile,
       });
       setElapsedSec(Math.floor((now - testStartedAt) / 1000));
-      setEta((prev) => ({ percent: Math.max(prev?.percent || 0, e.percent), remainingSec: e.remainingSec }));
+      setEta((prev) => ({
+        percent: Math.max(prev?.percent || 0, e.percent),
+        remainingSec: smoothRemaining(prev?.remainingSec, e.remainingSec),
+      }));
     }, 1000);
     return () => clearInterval(id);
   }, [testing, testStartedAt]);
