@@ -1,7 +1,7 @@
 import FbSchedule from "../models/FbSchedule.js";
 import Question from "../models/Question.js";
 import Settings from "../models/Settings.js";
-import { runScheduleOnce, getFacebookConfig, hashtagsForQuestion, getFacebookPublishedCount, countFacebookPosts } from "../config/facebook.js";
+import { runScheduleOnce, getFacebookConfig, hashtagsForQuestion, getFacebookPublishedCount, countFacebookPosts, pickQuestionForSchedule } from "../config/facebook.js";
 import FbPost from "../models/FbPost.js";
 import { getCurrentTenantId } from "../utils/tenantContext.js";
 import { renderQuestionImage } from "../config/socialImage.js";
@@ -12,6 +12,8 @@ import PracticeSubject from "../models/PracticeSubject.js";
 import PracticeTopic from "../models/PracticeTopic.js";
 import { isSafePublicUrl } from "../utils/urlGuard.js";
 import { composeImageAudioToVideo, isCloudinaryConfigured } from "../config/cloudinary.js";
+import { generateSlideshow, isSlideshowConfigured } from "../config/slideshow.js";
+import { normalizeVoice, TTS_VOICES } from "../utils/ttsVoices.js";
 
 // POST /api/facebook/compose-reel  (admin) — build a vertical MP4 (a Reel) from
 // a still image + an audio track, both given as PUBLIC http(s) URLs (uploaded
@@ -42,6 +44,104 @@ export async function composeReel(req, res) {
   } catch (err) {
     return res.status(502).json({ message: err?.message || "Could not build the Reel video." });
   }
+}
+
+// POST /api/facebook/slideshow/test  (admin) — build an AI Educational Slideshow
+// (branded slides + AI text-to-speech narration → 9:16 MP4) for ONE question and
+// return the video URL + metadata, WITHOUT publishing. Used by the admin
+// "Generate Test Slideshow" button to preview before enabling scheduled posts.
+//
+// Body (any one of):
+//   { questionId }               — build for a specific question, OR
+//   { scheduleId }               — build for the question the schedule would pick, OR
+//   {}                           — no source ⇒ 400.
+// Plus optional overrides: { ttsVoice, autoCaptions, generateImages }.
+export async function testSlideshow(req, res) {
+  if (!isCloudinaryConfigured()) {
+    return res.status(503).json({ success: false, message: "Media processing isn't set up yet (Cloudinary keys missing)." });
+  }
+  if (!isSlideshowConfigured()) {
+    return res.status(503).json({ success: false, message: "Text-to-Speech isn't set up yet (OPENAI_TTS_API_KEY missing)." });
+  }
+
+  // Resolve the question: an explicit id, or the one the schedule would pick.
+  let q = null;
+  const questionId = String(req.body?.questionId || "").trim();
+  const scheduleId = String(req.body?.scheduleId || "").trim();
+  try {
+    if (questionId) {
+      q = await Question.findById(questionId).lean();
+      if (!q) return res.status(404).json({ success: false, message: "Question not found." });
+    } else if (scheduleId) {
+      const sch = await FbSchedule.findById(scheduleId).lean();
+      if (!sch) return res.status(404).json({ success: false, message: "Schedule not found." });
+      // Non-destructive: pickQuestionForSchedule reads but never saves the sched.
+      const picked = await pickQuestionForSchedule(sch);
+      if (picked?.exhausted || !picked?.q) {
+        return res.status(404).json({ success: false, message: "No complete question available in this schedule's source." });
+      }
+      q = picked.q;
+    } else if (req.body?.source && typeof req.body.source === "object") {
+      // An UNSAVED form: pick a question from the chosen source, exactly as the
+      // schedule would at run time (transient — nothing is written).
+      const src = req.body.source;
+      const transient = {
+        source: {
+          subject: src.subject || null,
+          session: src.session || null,
+          quiz: src.quiz || null,
+          testSeries: src.testSeries || null,
+          question: src.question || null,
+        },
+        order: req.body.order === "sequential" ? "sequential" : "random",
+        postedQuestionIds: [],
+      };
+      if (!transient.source.subject && !transient.source.session && !transient.source.quiz && !transient.source.testSeries && !transient.source.question) {
+        return res.status(400).json({ success: false, message: "Pick a source (subject, session, quiz or test) first." });
+      }
+      const picked = await pickQuestionForSchedule(transient);
+      if (picked?.exhausted || !picked?.q) {
+        return res.status(404).json({ success: false, message: "No complete published question found in the selected source." });
+      }
+      q = picked.q;
+    } else {
+      return res.status(400).json({ success: false, message: "Provide a questionId, a scheduleId, or a source." });
+    }
+  } catch (e) {
+    return res.status(400).json({ success: false, message: e?.message || "Could not load the question." });
+  }
+
+  const site = await Settings.findOne({ key: "site" }).lean().catch(() => null);
+  const cfg = await getFacebookConfig().catch(() => ({}));
+  const voice = normalizeVoice(req.body?.ttsVoice);
+  const autoCaptions = req.body?.autoCaptions !== false;
+  const generateImages = !!req.body?.generateImages;
+
+  try {
+    const result = await generateSlideshow(q, {
+      voice,
+      autoCaptions,
+      generateImages,
+      brandColor: site?.brandColor || site?.primaryColor || "#2563eb",
+      siteName: site?.siteName || "My Study Guide",
+      siteUrl: String(cfg?.siteUrl || "https://www.mystudyguide.in").replace(/^https?:\/\//, "").replace(/\/+$/, ""),
+    });
+    return res.json({
+      success: true,
+      videoUrl: result.videoUrl,
+      slides: result.slides,
+      duration: result.duration,
+      voice: result.voice,
+    });
+  } catch (err) {
+    return res.status(502).json({ success: false, message: err?.message || "Could not build the slideshow." });
+  }
+}
+
+// GET /api/facebook/tts-voices  (admin) — the allow-listed narration voices, so
+// the UI never hard-codes a list that can drift from the server's validation.
+export function ttsVoices(_req, res) {
+  res.json({ voices: TTS_VOICES });
 }
 
 // GET /api/facebook/suggest-tags/:id — hashtags for one question (global default
@@ -137,6 +237,16 @@ export function pickScheduleFields(body = {}) {
     reelDuration: Math.max(3, Math.min(90, Math.round(Number(body.reelDuration) || 30))),
     // Also share the card image as a 24h Story to the selected networks.
     asStory: !!body.asStory,
+    // AI Educational Slideshow + Voice. When on, the run builds a narrated 9:16
+    // slideshow video from the selected question and posts it as a Reel — the
+    // narration is the audio, so it does NOT use the music Reel library.
+    asSlideshow: !!body.asSlideshow,
+    // Narration voice — validated against the allow-list (never trust the body).
+    ttsVoice: normalizeVoice(body.ttsVoice),
+    // Burn readable captions onto each slide (default ON).
+    autoCaptions: body.autoCaptions !== false,
+    // Generate AI illustrations per slide (default OFF for cost control).
+    generateImages: !!body.generateImages,
     customAudios,
     customAudio,
     // Reset the rotation pointer when the caller sends one (e.g. after editing

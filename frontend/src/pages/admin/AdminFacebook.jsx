@@ -6,6 +6,7 @@ import {
   Send, Loader2, CheckCircle2, AlertTriangle, KeyRound, Plus, Trash2, Pencil, X,
   Clock, CalendarClock, ListChecks, Power, Save, Upload, UserCircle, Type, Search, Mail,
   ImagePlus, FileText, Wand2, RefreshCw, Film, Music, Camera, ChevronDown, MessageCircle,
+  Sparkles, Volume2, PlayCircle,
 } from "lucide-react";
 import { Facebook, Instagram } from "../../components/ui/SocialIcons";
 import { settingsService, facebookService, contentService, practiceService, uploadService } from "../../services";
@@ -1179,6 +1180,8 @@ const emptyForm = {
   toFacebook: true, toInstagram: false, asImage: false,
   asReel: false, customAudios: [], reelDuration: 30, // Reel mode for question/flashcard: rotate through these music tracks, trimmed to reelDuration seconds
   asStory: false, // also share the image as a 24h Story (Facebook + Instagram)
+  // AI Educational Slideshow + Voice — builds narrated 9:16 slides and posts a Reel.
+  asSlideshow: false, ttsVoice: "coral", autoCaptions: true, generateImages: false,
 };
 
 export default function AdminFacebook() {
@@ -1239,6 +1242,11 @@ export default function AdminFacebook() {
   const [error, setError] = useState("");
   const [form, setForm] = useState(null); // null = closed; else the schedule being created/edited
   const [saving, setSaving] = useState(false);
+  // AI Slideshow test-preview state (Generate Test Slideshow button in the form).
+  const [ttsVoiceList, setTtsVoiceList] = useState(["coral", "alloy", "ash", "echo", "fable", "nova", "onyx", "sage", "shimmer"]);
+  const [ssTesting, setSsTesting] = useState(false); // a test render is in progress
+  const [ssResult, setSsResult] = useState(null);    // { videoUrl, slides, duration, voice }
+  const [ssError, setSsError] = useState("");        // last test error message
   const [busyId, setBusyId] = useState(null); // per-row action in progress
   const [rowMsg, setRowMsg] = useState({}); // id → text
   const [fixingLabels, setFixingLabels] = useState(false); // one-off breadcrumb backfill in progress
@@ -1286,8 +1294,8 @@ export default function AdminFacebook() {
     finally { setFixingLabels(false); }
   };
 
-  const openNew = () => setForm({ ...emptyForm, times: ["09:00"] });
-  const openEdit = (s) => setForm({
+  const openNew = () => { setSsResult(null); setSsError(""); setForm({ ...emptyForm, times: ["09:00"] }); };
+  const openEdit = (s) => { setSsResult(null); setSsError(""); setForm({
     _id: s._id, kind: ["custom", "flashcard"].includes(s.kind) ? s.kind : "question",
     mode: s.mode === "once" ? "once" : "recurring",
     runAt: s.runAt ? toLocalInput(s.runAt) : "",
@@ -1301,11 +1309,43 @@ export default function AdminFacebook() {
     asReel: !!s.asReel,
     reelDuration: s.reelDuration || 30,
     asStory: !!s.asStory,
+    asSlideshow: !!s.asSlideshow,
+    ttsVoice: s.ttsVoice || "coral",
+    autoCaptions: s.autoCaptions !== false,
+    generateImages: !!s.generateImages,
     // Load the rotating music library (fall back to the legacy single track).
     customAudios: Array.isArray(s.customAudios) && s.customAudios.length
       ? s.customAudios
       : (s.customAudio ? [s.customAudio] : []),
-  });
+  }); };
+
+  // Load the server's allow-listed narration voices once (best-effort — the
+  // hard-coded default list is used if the request fails).
+  useEffect(() => {
+    facebookService.ttsVoices().then((r) => {
+      if (Array.isArray(r?.voices) && r.voices.length) setTtsVoiceList(r.voices);
+    }).catch(() => {});
+  }, []);
+
+  // Generate a TEST slideshow for the current form (no publishing). Uses the
+  // saved schedule's source when editing, otherwise the picked source in the
+  // form. Shows a preview player + slide count / duration / voice.
+  const runSlideshowTest = async () => {
+    setSsTesting(true); setSsError(""); setSsResult(null);
+    try {
+      const payload = {
+        ttsVoice: form.ttsVoice || "coral",
+        autoCaptions: form.autoCaptions !== false,
+        generateImages: !!form.generateImages,
+        ...(form._id ? { scheduleId: form._id } : { source: form.source, order: form.order }),
+      };
+      const r = await facebookService.testSlideshow(payload);
+      if (r?.success && r?.videoUrl) setSsResult(r);
+      else setSsError(r?.message || "Could not build the test slideshow.");
+    } catch (e) {
+      setSsError(e?.message || "Could not build the test slideshow.");
+    } finally { setSsTesting(false); }
+  };
 
   const setTime = (i, v) => setForm((f) => ({ ...f, times: f.times.map((t, k) => (k === i ? v : t)) }));
   const addTime = () => setForm((f) => ({ ...f, times: [...f.times, "18:00"] }));
@@ -1700,9 +1740,11 @@ export default function AdminFacebook() {
               <p className="mt-1 text-xs text-slate-400">
                 {form.kind === "custom"
                   ? "Instagram needs an image — the first uploaded image is used."
-                  : form.asReel
-                    ? "Instagram posts a Reel — the auto-generated card is mixed with your music into a video."
-                    : "Instagram always posts an image, so a question image is generated automatically."}
+                  : form.asSlideshow
+                    ? "Instagram posts a Reel — the narrated AI slideshow video is published automatically."
+                    : form.asReel
+                      ? "Instagram posts a Reel — the auto-generated card is mixed with your music into a video."
+                      : "Instagram always posts an image, so a question image is generated automatically."}
               </p>
             )}
 
@@ -1751,6 +1793,98 @@ export default function AdminFacebook() {
               </div>
             )}
 
+            {/* AI Educational Slideshow + Voice (question/flashcard schedules) */}
+            {form.kind !== "custom" && (
+              <div className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                <label className="flex items-start justify-between gap-3">
+                  <span className="flex items-center gap-1.5 text-sm font-medium">
+                    <Sparkles className="h-4 w-4 text-brand-500" /> AI Slideshow + Voice
+                    <span className="font-normal text-slate-400">— narrated educational Reel</span>
+                  </span>
+                  <button type="button"
+                    onClick={() => setForm((f) => ({ ...f, asSlideshow: !f.asSlideshow }))}
+                    className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${form.asSlideshow ? "bg-[#1877F2]" : "bg-slate-300 dark:bg-slate-600"}`}>
+                    <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${form.asSlideshow ? "left-6" : "left-1"}`} />
+                  </button>
+                </label>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  Automatically creates educational slides and narrates them with text-to-speech.
+                </p>
+
+                {form.asSlideshow && (
+                  <div className="mt-3 space-y-3">
+                    {/* Voice selector */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex items-center gap-1.5 text-sm font-medium">
+                        <Volume2 className="h-4 w-4 text-slate-400" /> Voice
+                      </span>
+                      <select
+                        className="input h-9 w-40"
+                        value={form.ttsVoice || "coral"}
+                        onChange={(e) => setForm((f) => ({ ...f, ttsVoice: e.target.value }))}>
+                        {ttsVoiceList.map((v) => (
+                          <option key={v} value={v}>{v.charAt(0).toUpperCase() + v.slice(1)}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Auto captions + AI images (optional) */}
+                    <div className="flex flex-wrap gap-4">
+                      <label className="flex items-center gap-2 text-sm">
+                        <input type="checkbox" className="h-4 w-4 accent-brand-600"
+                          checked={form.autoCaptions !== false}
+                          onChange={(e) => setForm((f) => ({ ...f, autoCaptions: e.target.checked }))} />
+                        Auto captions
+                      </label>
+                      <label className="flex items-center gap-2 text-sm">
+                        <input type="checkbox" className="h-4 w-4 accent-brand-600"
+                          checked={!!form.generateImages}
+                          onChange={(e) => setForm((f) => ({ ...f, generateImages: e.target.checked }))} />
+                        AI illustrations <span className="text-slate-400">(optional, extra cost)</span>
+                      </label>
+                    </div>
+
+                    <div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
+                      <b>Automatic process:</b> question → educational slides → AI narration → 9:16 Reel → Facebook / Instagram.
+                      The narration is the audio, so this mode does <b>not</b> use the Reel music library
+                      {form.asReel ? " (the music Reel option above is ignored while this is on)." : "."}
+                    </div>
+
+                    {/* Generate Test Slideshow (no publishing) */}
+                    <div className="flex flex-wrap items-center gap-3">
+                      <button type="button" onClick={runSlideshowTest} disabled={ssTesting} className="btn-outline !py-1.5 text-sm">
+                        {ssTesting
+                          ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating…</>
+                          : <><PlayCircle className="h-4 w-4" /> Generate Test Slideshow</>}
+                      </button>
+                      <span className="text-xs text-slate-400">Builds a preview only — it does not publish.</span>
+                    </div>
+                    {ssTesting && (
+                      <p className="text-xs text-slate-400">Rendering slides, narration and video — this can take a minute or two.</p>
+                    )}
+                    {ssError && (
+                      <p className="inline-flex items-center gap-1 text-xs font-medium text-rose-600">
+                        <AlertTriangle className="h-4 w-4" /> {ssError}
+                      </p>
+                    )}
+                    {ssResult?.videoUrl && (
+                      <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                        <video src={ssResult.videoUrl} controls playsInline className="mx-auto max-h-[420px] rounded-lg bg-black" />
+                        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+                          <span className="inline-flex items-center gap-1"><Film className="h-3 w-3" /> {ssResult.slides} slides</span>
+                          <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" /> {ssResult.duration}s</span>
+                          <span className="inline-flex items-center gap-1"><Volume2 className="h-3 w-3" /> {ssResult.voice}</span>
+                          <a href={ssResult.videoUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand-600 hover:underline">
+                            <PlayCircle className="h-3 w-3" /> Open video
+                          </a>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Also share to Stories (all post types) */}
             <div className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
               <label className="flex items-start justify-between gap-3">
@@ -1791,7 +1925,7 @@ export default function AdminFacebook() {
 
             <div className="mt-4 flex gap-2">
               <button onClick={saveForm} disabled={saving} className="btn-primary">{saving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> {form._id ? "Save changes" : "Create schedule"}</>}</button>
-              <button onClick={() => { setForm(null); setError(""); }} className="btn-outline">Cancel</button>
+              <button onClick={() => { setForm(null); setError(""); setSsResult(null); setSsError(""); }} className="btn-outline">Cancel</button>
             </div>
           </div>
         )}
@@ -1816,7 +1950,12 @@ export default function AdminFacebook() {
                         {s.title || (s.kind === "custom" ? "Custom post" : s.source?.label) || "Untitled schedule"}
                         {s.kind === "custom" && <span className="rounded-full bg-brand-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">Custom</span>}
                         {s.kind === "flashcard" && <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">Flashcard</span>}
-                        {(s.asReel || (s.kind === "custom" && s.customVideo)) && (
+                        {s.asSlideshow && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
+                            <Sparkles className="h-3 w-3" /> AI Slideshow
+                          </span>
+                        )}
+                        {((s.asReel && !s.asSlideshow) || (s.kind === "custom" && s.customVideo)) && (
                           <span className="inline-flex items-center gap-1 rounded-full bg-fuchsia-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-fuchsia-700 dark:bg-fuchsia-900/40 dark:text-fuchsia-300">
                             <Film className="h-3 w-3" /> Reel
                           </span>

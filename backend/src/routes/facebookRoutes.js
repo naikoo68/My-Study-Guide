@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { listSchedules, createSchedule, updateSchedule, deleteSchedule, postScheduleNow, postQuestionNow, scheduleQuestion, previewQuestionImage, suggestTags, backfillScheduleLabels, facebookStats, reconcileFacebook, composeReel } from "../controllers/facebookController.js";
+import { listSchedules, createSchedule, updateSchedule, deleteSchedule, postScheduleNow, postQuestionNow, scheduleQuestion, previewQuestionImage, suggestTags, backfillScheduleLabels, facebookStats, reconcileFacebook, composeReel, testSlideshow, ttsVoices } from "../controllers/facebookController.js";
 import { protect, authorize } from "../middleware/auth.js";
 
 const router = Router();
@@ -29,5 +29,10 @@ router.post("/preview-image", ...admin, previewQuestionImage);
 router.get("/suggest-tags/:id", ...admin, suggestTags);
 // Build a Reel video (vertical MP4) from an uploaded image + audio track.
 router.post("/compose-reel", ...admin, composeReel);
+// AI Educational Slideshow: the allow-listed narration voices, and a test build
+// (branded slides + TTS narration → 9:16 MP4) that returns the video WITHOUT
+// publishing — used by the admin "Generate Test Slideshow" preview button.
+router.get("/tts-voices", ...admin, ttsVoices);
+router.post("/slideshow/test", ...admin, testSlideshow);
 
 export default router;

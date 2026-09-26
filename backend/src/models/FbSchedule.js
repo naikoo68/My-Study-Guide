@@ -42,6 +42,30 @@ const fbScheduleSchema = new mongoose.Schema(
     // schedules created before the rotating library existed.
     customAudio: { type: String, default: "" },
 
+    // ---- AI Educational Slideshow + Text-to-Speech (Reel) --------------------
+    // When `asSlideshow` is on, each run builds an EDUCATIONAL slideshow video
+    // from the SAME selected question: branded 9:16 slides (question → options →
+    // answer → explanation → recall → brand/CTA) narrated by AI text-to-speech,
+    // combined into a single MP4 and published through the EXISTING Reel
+    // pipeline (Facebook Reel + Instagram Reel). The narration IS the audio, so
+    // this mode does NOT use the music Reel library — when `asSlideshow` is true
+    // the normal music Reel (`asReel`) is ignored (see runScheduleOnce).
+    asSlideshow: { type: Boolean, default: false },
+    // Which OpenAI TTS voice narrates the slides (validated against ttsVoices.js).
+    ttsVoice: { type: String, default: "coral" },
+    // Burn a readable caption band (the slide's narration) onto each slide.
+    autoCaptions: { type: Boolean, default: true },
+    // Optional: generate an AI illustration per slide (kept OFF by default for
+    // cost control — branded template slides are always used; this flag is a
+    // forward-compat hook for when an AI image provider is wired in).
+    generateImages: { type: Boolean, default: false },
+    // Lightweight job status for the (potentially slow) slideshow render, so the
+    // admin can see where a run got to. One of: "", PENDING, GENERATING_SLIDES,
+    // GENERATING_AUDIO, RENDERING_VIDEO, READY, PUBLISHING, PUBLISHED, FAILED.
+    slideshowStatus: { type: String, default: "" },
+    // The last slideshow-generation error message (for admin visibility).
+    slideshowError: { type: String, default: "" },
+
     // Where questions are drawn from. The DEEPEST set id wins (quiz > session >
     // subject > testSeries). `label` is a human-readable trail for the UI.
     source: {

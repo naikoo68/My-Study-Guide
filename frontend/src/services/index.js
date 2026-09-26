@@ -367,6 +367,10 @@ export const facebookService = {
   previewImage: (data) => api.post("/facebook/preview-image", data), // render the question card → { url }
   suggestTags: (id) => api.get(`/facebook/suggest-tags/${id}`), // auto + default hashtags for a question → { hashtags }
   composeReel: (data) => api.post("/facebook/compose-reel", data, { timeout: 180000 }), // mix an image + audio into a Reel MP4 → { url, duration }
+  ttsVoices: () => api.get("/facebook/tts-voices"), // allowed AI narration voices → { voices: [...] }
+  // Build an AI Educational Slideshow (branded slides + TTS narration → 9:16 MP4)
+  // for one question/schedule WITHOUT publishing → { success, videoUrl, slides, duration, voice }.
+  testSlideshow: (data) => api.post("/facebook/slideshow/test", data, { timeout: 300000 }),
 };
 
 // ---- Contact messages ----
