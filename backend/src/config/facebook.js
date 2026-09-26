@@ -1794,12 +1794,14 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
       if (sch.save) sch.save().catch(() => {});
     };
     try {
+      // Slide times, voice and captions come from the site-wide "AI Slideshow"
+      // section (falling back to any older per-schedule values).
       const result = await generateSlideshow(q, {
-        voice: sch.ttsVoice,
-        autoCaptions: sch.autoCaptions !== false,
+        voice: site?.slideshowVoice || sch.ttsVoice,
+        autoCaptions: (site?.slideshowAutoCaptions ?? sch.autoCaptions) !== false,
         generateImages: !!sch.generateImages,
-        questionSec: sch.questionSec,
-        answerSec: sch.answerSec,
+        questionSec: site?.slideshowQuestionSec ?? sch.questionSec,
+        answerSec: site?.slideshowAnswerSec ?? sch.answerSec,
         site, // raw settings doc → resolves the TTS provider/key/model
         brandColor: site?.brandColor || site?.primaryColor || "#2563eb",
         siteName: site?.siteName || "My Study Guide",

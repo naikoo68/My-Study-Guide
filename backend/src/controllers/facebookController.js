@@ -12,6 +12,7 @@ import PracticeStream from "../models/PracticeStream.js";
 import PracticeSubject from "../models/PracticeSubject.js";
 import PracticeTopic from "../models/PracticeTopic.js";
 import { isSafePublicUrl } from "../utils/urlGuard.js";
+import { isQuestionComplete } from "../utils/questionComplete.js";
 import { composeImageAudioToVideo, isCloudinaryConfigured } from "../config/cloudinary.js";
 import { generateSlideshow, isSlideshowConfigured } from "../config/slideshow.js";
 import { TTS_PROVIDERS, PROVIDER_VOICES, DEFAULT_TTS_PROVIDER } from "../utils/ttsVoices.js";
@@ -103,7 +104,15 @@ export async function testSlideshow(req, res) {
       }
       q = picked.q;
     } else {
-      return res.status(400).json({ success: false, message: "Provide a questionId, a scheduleId, or a source." });
+      // No source (the settings-section test button): preview with a random
+      // complete, published question from this site's bank.
+      const filter = { status: "published", deleted: { $ne: true } };
+      const count = await Question.countDocuments(filter);
+      for (let tries = 0; tries < 25 && count > 0 && !q; tries++) {
+        const cand = await Question.findOne(filter).skip(Math.floor(Math.random() * count)).lean();
+        if (cand && isQuestionComplete(cand).ok) q = cand;
+      }
+      if (!q) return res.status(404).json({ success: false, message: "No complete published question found to preview." });
     }
   } catch (e) {
     return res.status(400).json({ success: false, message: e?.message || "Could not load the question." });

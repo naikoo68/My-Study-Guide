@@ -274,6 +274,13 @@ const settingsSchema = new mongoose.Schema(
     ttsApiKey: { type: String, default: "" },
     // Optional model override for the paid provider (default gpt-4o-mini-tts).
     ttsModel: { type: String, default: "" },
+    // Site-wide AI Slideshow settings (Admin → Facebook → "AI Slideshow"),
+    // applied to every AI Slideshow schedule. Seconds each of the two slides
+    // stays on screen (it stays longer if the narration needs it).
+    slideshowQuestionSec: { type: Number, default: 10 }, // slide 1: question + options
+    slideshowAnswerSec: { type: Number, default: 8 },    // slide 2: answer reveal
+    slideshowVoice: { type: String, default: "" },       // "" = the engine's default voice
+    slideshowAutoCaptions: { type: Boolean, default: true },
     // Center TEXT watermark drawn diagonally across the middle of every
     // Facebook/Instagram question-card image (in addition to the selfie/logo
     // above). Text is optional — when blank it falls back to the site watermark
