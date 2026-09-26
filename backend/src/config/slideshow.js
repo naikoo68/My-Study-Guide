@@ -16,7 +16,7 @@
 // (the scheduler or the test endpoint) logs it and, in the scheduler, falls back
 // to a normal image/text post so a run is never silently lost.
 import { isCloudinaryConfigured, composeSlideshowVideo } from "./cloudinary.js";
-import { resolveTtsConfig, generateNarrationAudio } from "./tts.js";
+import { resolveTtsConfig, resolveWorkingTtsConfig, generateNarrationAudio } from "./tts.js";
 import { buildSlidePlan } from "./slidePlan.js";
 import { renderSlideImage } from "./slideRender.js";
 import { normalizeVoiceForProvider } from "../utils/ttsVoices.js";
@@ -50,8 +50,10 @@ export async function generateSlideshow(question, opts = {}) {
   if (!question || typeof question !== "object") throw new Error("A question is required for the slideshow.");
   if (!isCloudinaryConfigured()) throw new Error("Cloudinary is not configured (media processing unavailable).");
 
-  // Resolve the TTS provider/key/model from the admin settings (+ env fallback).
-  const ttsCfg = resolveTtsConfig(opts.site || null);
+  // Resolve the TTS provider/key/model from the admin settings (+ env fallback),
+  // then pick one that actually works on this host (a blocked free provider,
+  // e.g. Edge on a datacenter IP, auto-falls back to the other free provider).
+  const ttsCfg = await resolveWorkingTtsConfig(resolveTtsConfig(opts.site || null));
   const voice = normalizeVoiceForProvider(ttsCfg.provider, opts.voice);
   const autoCaptions = opts.autoCaptions !== false; // default ON
   const brandOpts = {

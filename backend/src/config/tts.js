@@ -14,7 +14,14 @@
 //   OPENAI_TTS_BASE_URL (default https://api.openai.com/v1).
 import { uploadBufferToCloudinary } from "./cloudinary.js";
 import { synthesizeEdgeSpeech } from "./edgeTts.js";
-import { normalizeProvider, normalizeVoiceForProvider } from "../utils/ttsVoices.js";
+import { synthesizeGoogleSpeech } from "./googleTts.js";
+import {
+  normalizeProvider,
+  normalizeVoiceForProvider,
+  defaultVoiceForProvider,
+  DEFAULT_TTS_PROVIDER,
+  FREE_TTS_PROVIDERS,
+} from "../utils/ttsVoices.js";
 
 const OPENAI_DEFAULT_BASE = "https://api.openai.com/v1";
 const OPENAI_DEFAULT_MODEL = "gpt-4o-mini-tts";
@@ -34,7 +41,7 @@ function envOpenAiKey() {
 // feature keeps working.
 export function resolveTtsConfig(site = null) {
   const envKey = envOpenAiKey();
-  let provider = normalizeProvider(site?.ttsProvider || (envKey ? "openai" : "edge"));
+  let provider = normalizeProvider(site?.ttsProvider || (envKey ? "openai" : DEFAULT_TTS_PROVIDER));
   const apiKey = String(site?.ttsApiKey || "").trim() || envKey;
   if (provider === "openai" && !apiKey) provider = "edge"; // graceful free fallback
   const model = String(site?.ttsModel || "").trim() || String(process.env.OPENAI_TTS_MODEL || "").trim() || OPENAI_DEFAULT_MODEL;
@@ -88,8 +95,31 @@ export async function synthesizeSpeech({ text, voice, cfg } = {}) {
   if (provider === "openai") {
     return synthesizeOpenAi({ text: input, voice: safeVoice, apiKey: conf.apiKey, model: conf.model, baseUrl: conf.baseUrl });
   }
-  // Default: FREE Edge TTS.
+  if (provider === "gtranslate") {
+    return synthesizeGoogleSpeech({ text: input, lang: safeVoice });
+  }
+  // FREE Microsoft Edge neural TTS.
   return synthesizeEdgeSpeech({ text: input, voice: safeVoice });
+}
+
+// Pick a provider that ACTUALLY WORKS on this host. For a paid provider we trust
+// the admin's explicit choice. For a FREE provider we do a tiny probe synth and,
+// if it's blocked (e.g. Microsoft 403s Edge from datacenter IPs), automatically
+// switch to the other free provider — so narration keeps working even if the
+// saved provider is unreachable. Returns a (possibly updated) config.
+export async function resolveWorkingTtsConfig(cfg) {
+  const conf = cfg || resolveTtsConfig();
+  if (conf.provider === "openai") return conf; // explicit paid choice — surface its errors
+  const order = [conf.provider, ...FREE_TTS_PROVIDERS.filter((p) => p !== conf.provider)];
+  for (const p of order) {
+    try {
+      await synthesizeSpeech({ text: "test", voice: defaultVoiceForProvider(p), cfg: { ...conf, provider: p } });
+      return { ...conf, provider: p };
+    } catch {
+      /* provider blocked/unavailable here — try the next free one */
+    }
+  }
+  return conf; // none worked; caller will surface the failure
 }
 
 // Synthesize AND host on Cloudinary. Returns { url, publicId, duration, bytes,
