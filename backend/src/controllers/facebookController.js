@@ -160,7 +160,9 @@ export async function testSlideshow(req, res) {
     brandColor: site?.brandColor || site?.primaryColor || "#2563eb",
     siteName: site?.siteName || "My Study Guide",
     siteUrl: String(cfg?.siteUrl || "https://www.mystudyguide.in").replace(/^https?:\/\//, "").replace(/\/+$/, ""),
-    onStatus: (st) => { job.stage = st; job.updatedAt = Date.now(); },
+    onStatus: (st) => { job.stage = st; job.progress = null; job.updatedAt = Date.now(); },
+    // Per-slide progress within the current step, so the UI can show % + time left.
+    onProgress: (st, done, total) => { job.stage = st; job.progress = { done, total }; job.updatedAt = Date.now(); },
   })
     .then((result) => {
       Object.assign(job, {
@@ -200,7 +202,7 @@ function newSlideshowJob(ownerId) {
 }
 
 // GET /api/facebook/slideshow/test/:jobId  (admin) — poll a test job.
-// → { status: "running", stage } | { status: "done", ...result } | { status: "failed", message }
+// → { status: "running", stage, progress: { done, total } | null } | { status: "done", ...result } | { status: "failed", message }
 export function testSlideshowStatus(req, res) {
   const job = slideshowJobs.get(String(req.params.jobId || ""));
   // Only the admin who started the job can read it.
@@ -209,7 +211,7 @@ export function testSlideshowStatus(req, res) {
   }
   if (job.status === "done") return res.json({ status: "done", stage: job.stage, ...job.result });
   if (job.status === "failed") return res.json({ status: "failed", stage: job.stage, success: false, message: job.error });
-  return res.json({ status: "running", stage: job.stage });
+  return res.json({ status: "running", stage: job.stage, progress: job.progress || null });
 }
 
 // GET /api/facebook/tts-voices  (admin) — the TTS providers and their voices, so

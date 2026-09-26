@@ -12,6 +12,7 @@ import { Facebook, Instagram } from "../../components/ui/SocialIcons";
 import { settingsService, facebookService, contentService, practiceService, uploadService } from "../../services";
 import { useSettings } from "../../context/SettingsContext";
 import { Loading, ErrorState } from "../../components/ui/AsyncState";
+import { estimateSlideshowEta, learnSlideshowProfile, loadSlideshowProfile, saveSlideshowProfile, fmtDuration } from "../../lib/slideshowEta";
 
 const WEEKDAYS = [
   { v: 0, l: "Sun" }, { v: 1, l: "Mon" }, { v: 2, l: "Tue" }, { v: 3, l: "Wed" },
@@ -1085,6 +1086,11 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
   const [testStartedAt, setTestStartedAt] = useState(0);
   const [elapsedSec, setElapsedSec] = useState(0);
   const [tookSec, setTookSec] = useState(null);
+  // Progress % + time left: the server's per-step counter ({ done, total }),
+  // the current estimate, and the live values the 1s ticker reads.
+  const [progress, setProgress] = useState(null);
+  const [eta, setEta] = useState(null); // { percent, remainingSec }
+  const liveRef = useRef({ stage: "PENDING", since: 0, progress: null, slides: 2, profile: {} });
   // What to post and when — creates an AI Slideshow schedule.
   const [pickerKey, setPickerKey] = useState(0); // remounts the picker after creating
   const [title, setTitle] = useState("");
@@ -1146,8 +1152,12 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
   // a background job on the server; poll until it's done.
   const test = async () => {
     const startedAt = Date.now();
-    setTesting(true); setTestError(""); setResult(null); setStage("");
+    setTesting(true); setTestError(""); setResult(null); setStage(""); setProgress(null);
     setTestStartedAt(startedAt); setElapsedSec(0); setTookSec(null);
+    const slides = qCount * 2;
+    liveRef.current = { stage: "PENDING", since: startedAt, progress: null, slides, profile: loadSlideshowProfile() };
+    const marks = [{ stage: "PENDING", at: startedAt }];
+    setEta(estimateSlideshowEta({ stage: "PENDING", slides, profile: liveRef.current.profile }));
     try {
       const start = await facebookService.testSlideshow({
         ttsVoice: voiceValue,
@@ -1161,29 +1171,53 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
       if (!start?.jobId) throw new Error(start?.message || "Could not start the test slideshow.");
       const deadline = Date.now() + 10 * 60 * 1000;
       for (;;) {
-        await new Promise((r) => setTimeout(r, 4000));
+        // Poll every 2s so step changes (and the time-left estimate) stay fresh.
+        await new Promise((r) => setTimeout(r, 2000));
         const st = await facebookService.testSlideshowStatus(start.jobId);
-        if (st?.status === "done" && st?.videoUrl) { setResult(st); break; }
+        if (st?.status === "done" && st?.videoUrl) {
+          // Teach the estimator how long each step really took on this server.
+          const live = liveRef.current;
+          saveSlideshowProfile(learnSlideshowProfile(live.profile, marks, Date.now(), (st.slides || live.slides)));
+          setEta({ percent: 100, remainingSec: 0 });
+          setResult(st); break;
+        }
         if (st?.status === "failed") { setTestError(st?.message || "Could not build the test slideshow."); break; }
-        if (st?.stage) setStage(st.stage);
+        if (st?.stage) {
+          const live = liveRef.current;
+          if (st.stage !== live.stage) { live.stage = st.stage; live.since = Date.now(); marks.push({ stage: st.stage, at: live.since }); }
+          live.progress = st.progress?.total > 0 ? st.progress : null;
+          setStage(st.stage); setProgress(live.progress);
+        }
         if (Date.now() > deadline) { setTestError("The test slideshow is taking too long — please try again."); break; }
       }
     } catch (e) {
       setTestError(e?.message || "Could not build the test slideshow.");
     } finally {
       setTookSec(Math.round((Date.now() - startedAt) / 1000));
-      setTesting(false); setStage("");
+      setTesting(false); setStage(""); setProgress(null);
     }
   };
 
-  // Tick the stopwatch once a second while the test build is running.
+  // Once a second while the test build runs: tick the stopwatch and refresh the
+  // % / time-left estimate (the % never goes backwards, so the bar only grows).
   useEffect(() => {
     if (!testing || !testStartedAt) return undefined;
-    const id = setInterval(() => setElapsedSec(Math.floor((Date.now() - testStartedAt) / 1000)), 1000);
+    const id = setInterval(() => {
+      const now = Date.now();
+      const live = liveRef.current;
+      const e = estimateSlideshowEta({
+        stage: live.stage,
+        stageElapsedSec: (now - live.since) / 1000,
+        elapsedSec: (now - testStartedAt) / 1000,
+        progress: live.progress,
+        slides: live.slides,
+        profile: live.profile,
+      });
+      setElapsedSec(Math.floor((now - testStartedAt) / 1000));
+      setEta((prev) => ({ percent: Math.max(prev?.percent || 0, e.percent), remainingSec: e.remainingSec }));
+    }, 1000);
     return () => clearInterval(id);
   }, [testing, testStartedAt]);
-
-  const fmtDuration = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
   // Create an AI Slideshow schedule for the picked content. Saves the slide /
   // voice settings first so the new schedule uses exactly what's on screen.
@@ -1392,19 +1426,33 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
           {saving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> Save settings only</>}
         </button>
         <button type="button" onClick={test} disabled={testing} className="btn-outline">
-          {testing ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating… <span className="tabular-nums">{fmtDuration(elapsedSec)}</span></> : <><PlayCircle className="h-4 w-4" /> Generate test slideshow</>}
+          {testing ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating… <span className="tabular-nums">{eta?.percent ?? 0}%</span></> : <><PlayCircle className="h-4 w-4" /> Generate test slideshow</>}
         </button>
         {msg && <span className={`inline-flex items-center gap-1 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {msg.text}</span>}
       </div>
       {createMsg && <p className={`mt-2 inline-flex items-center gap-1 text-sm font-medium ${createMsg.ok ? "text-emerald-600" : "text-rose-600"}`}>{createMsg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {createMsg.text}</p>}
       <p className="mt-1.5 text-xs text-slate-400">The test uses a question from the picked content (or a random one) and only builds a preview — it never publishes.</p>
       {testing && (
-        <p className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-400">
-          <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 font-semibold tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-            <Clock className="h-3 w-3" /> {fmtDuration(elapsedSec)}
-          </span>
-          {{ GENERATING_SLIDES: "Step 1/3 — creating the slides…", GENERATING_AUDIO: "Step 2/3 — generating the narration…", RENDERING_VIDEO: "Step 3/3 — rendering the 9:16 video…" }[stage] || "Starting… this usually takes about a minute."}
-        </p>
+        <div className="mt-2 max-w-md">
+          <div className="flex items-center justify-between gap-2 text-xs">
+            <span className="font-semibold tabular-nums text-brand-600">{eta?.percent ?? 0}% done</span>
+            <span className="font-medium tabular-nums text-slate-600 dark:text-slate-300">
+              {eta && eta.remainingSec > 0 ? `about ${fmtDuration(eta.remainingSec)} left` : "Almost done…"}
+            </span>
+          </div>
+          <div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700"
+            role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={eta?.percent ?? 0}>
+            <div className="h-full rounded-full bg-brand-600 transition-all duration-700 ease-linear" style={{ width: `${eta?.percent ?? 0}%` }} />
+          </div>
+          <p className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+            <span className="inline-flex items-center gap-1 tabular-nums"><Clock className="h-3 w-3" /> {fmtDuration(elapsedSec)} elapsed</span>
+            <span>·</span>
+            <span>
+              {{ GENERATING_SLIDES: "Step 1/3 — creating the slides", GENERATING_AUDIO: "Step 2/3 — generating the narration", RENDERING_VIDEO: "Step 3/3 — rendering the 9:16 video" }[stage] || "Starting"}
+              {progress?.total > 0 ? ` (${progress.done}/${progress.total})…` : "…"}
+            </span>
+          </p>
+        </div>
       )}
       {testError && <p className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-rose-600"><AlertTriangle className="h-4 w-4" /> {testError}{tookSec != null && ` (after ${fmtDuration(tookSec)})`}</p>}
       {result?.videoUrl && (

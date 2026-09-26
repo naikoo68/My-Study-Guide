@@ -103,6 +103,7 @@ export async function composeSlideshowMp4({
   minSec = 3,
   tailSec = 0.6,
   maxTotalSec = 88, // Facebook Reels limit is 90 s — keep a small margin
+  onProgress = null, // (done, total) after each slide segment — for the UI's ETA
 } = {}) {
   const list = (Array.isArray(slides) ? slides : []).filter((s) => s?.imagePath && s?.audioPath);
   if (!list.length) throw new Error("No slides to compose.");
@@ -145,6 +146,7 @@ export async function composeSlideshowMp4({
       seg,
     ]);
     segPaths.push(seg);
+    if (typeof onProgress === "function") onProgress(i + 1, list.length);
   }
 
   // Concatenate the (identically-encoded) segments without re-encoding, and put
