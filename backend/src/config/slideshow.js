@@ -22,7 +22,8 @@ import { isCloudinaryConfigured, uploadFileToCloudinary } from "./cloudinary.js"
 import { resolveTtsConfig, resolveWorkingTtsConfig, synthesizeSpeech } from "./tts.js";
 import { buildSlidePlan } from "./slidePlan.js";
 import { renderSlideImage } from "./slideRender.js";
-import { composeSlideshowMp4, isFfmpegAvailable } from "./videoCompose.js";
+import { renderSlideCardShots } from "./cardShot.js";
+import { composeSlideshowMp4, isFfmpegAvailable, probeImageSize } from "./videoCompose.js";
 import { normalizeVoiceForProvider } from "../utils/ttsVoices.js";
 
 // Job-status states (mirrored onto the schedule's slideshowStatus for the UI).
@@ -111,15 +112,18 @@ export async function generateSlideshow(question, opts = {}) {
   // Roughly how many characters each voice speaks per second, so the
   // narration can be fitted to the slide times (see buildSlidePlan).
   const charsPerSec = { gtranslate: 10, edge: 14, openai: 15 }[ttsCfg.provider] || 12;
-  const plan = questions.flatMap((q, i) =>
-    buildSlidePlan(q, {
+  const plan = [];
+  const planQuestions = []; // the question each slide belongs to (same order as plan)
+  questions.forEach((q, i) => {
+    const slides = buildSlidePlan(q, {
       ...brandOpts,
       index: i + 1,
       total: questions.length,
       questionChars: Math.round(questionSec * charsPerSec),
       answerChars: Math.round(answerSec * charsPerSec),
-    })
-  );
+    });
+    for (const s of slides) { plan.push(s); planQuestions.push(q); }
+  });
   if (!plan.length) throw new Error("Could not build any slides for this question.");
 
   const workDir = await fs.mkdtemp(path.join(os.tmpdir(), "msg-slideshow-"));
@@ -136,13 +140,41 @@ export async function generateSlideshow(question, opts = {}) {
       const p = path.join(workDir, `template-${role}`);
       try { await downloadTo(templates[role], p); templatePaths[role] = p; } catch { /* use built-in design */ }
     }
+    // Template sizes, so the slide can place its card inside the template as
+    // it's actually shown (fitted, never cropped — see composeSlideshowMp4).
+    const templateSizes = {};
+    for (const role of Object.keys(templatePaths)) templateSizes[role] = await probeImageSize(templatePaths[role]).catch(() => null);
+    // First choice: screenshot the real student-view components (Inter font,
+    // KaTeX math, same option / answer cards as posts and Reels) — one browser
+    // for every slide, PNGs written straight into workDir.
+    const shotPaths = plan.map((_, i) => path.join(workDir, `shot${String(i).padStart(2, "0")}.png`));
+    const shots = await renderSlideCardShots(
+      plan.map((s, i) => ({
+        questionId: planQuestions[i]?._id ? String(planQuestions[i]._id) : "",
+        role: s.role,
+        tag: s.tag,
+        caption: brandOpts.autoCaptions ? s.narration : "",
+        template: !!templatePaths[s.role],
+        templateSize: templateSizes[s.role] || null,
+        outPath: shotPaths[i],
+      })),
+      { siteUrl: brandOpts.siteUrl }
+    ).catch((e) => plan.map(() => ({ error: e?.message || String(e) })));
+    const failedShot = shots.find((r) => !r?.ok);
+    if (failedShot) console.warn("[slideshow] using the SVG slide design for some slides:", failedShot.error);
+
     const imagePaths = [];
     for (let i = 0; i < plan.length; i++) {
-      const withTemplate = !!templatePaths[plan[i].role];
-      const img = await renderSlideImage(plan[i], { ...brandOpts, transparentBackground: withTemplate });
-      const p = path.join(workDir, `slide${String(i).padStart(2, "0")}.${withTemplate ? "png" : "jpg"}`);
-      await downloadTo(img.url, p);
-      imagePaths.push(p);
+      if (shots[i]?.ok) {
+        imagePaths.push(shotPaths[i]);
+      } else {
+        // Fallback: the lightweight SVG slide (never blocks the video).
+        const withTemplate = !!templatePaths[plan[i].role];
+        const img = await renderSlideImage(plan[i], { ...brandOpts, transparentBackground: withTemplate });
+        const p = path.join(workDir, `slide${String(i).padStart(2, "0")}.${withTemplate ? "png" : "jpg"}`);
+        await downloadTo(img.url, p);
+        imagePaths.push(p);
+      }
       onProgress(SLIDESHOW_STATUS.GENERATING_SLIDES, i + 1, plan.length);
     }
 
