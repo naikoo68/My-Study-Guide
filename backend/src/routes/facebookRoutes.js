@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { listSchedules, createSchedule, updateSchedule, deleteSchedule, postScheduleNow, postQuestionNow, scheduleQuestion, previewQuestionImage, suggestTags, backfillScheduleLabels, facebookStats, reconcileFacebook, composeReel, testSlideshow, ttsVoices } from "../controllers/facebookController.js";
+import { listSchedules, createSchedule, updateSchedule, deleteSchedule, postScheduleNow, postQuestionNow, scheduleQuestion, previewQuestionImage, suggestTags, backfillScheduleLabels, facebookStats, reconcileFacebook, composeReel, testSlideshow, testSlideshowStatus, ttsVoices } from "../controllers/facebookController.js";
 import { protect, authorize } from "../middleware/auth.js";
 
 const router = Router();
@@ -34,5 +34,6 @@ router.post("/compose-reel", ...admin, composeReel);
 // publishing — used by the admin "Generate Test Slideshow" preview button.
 router.get("/tts-voices", ...admin, ttsVoices);
 router.post("/slideshow/test", ...admin, testSlideshow);
+router.get("/slideshow/test/:jobId", ...admin, testSlideshowStatus);
 
 export default router;

@@ -1,7 +1,8 @@
 import FbSchedule from "../models/FbSchedule.js";
 import Question from "../models/Question.js";
 import Settings from "../models/Settings.js";
-import { runScheduleOnce, getFacebookConfig, hashtagsForQuestion, getFacebookPublishedCount, countFacebookPosts, pickQuestionForSchedule } from "../config/facebook.js";
+import { randomUUID } from "node:crypto";
+import { runScheduleOnce, getFacebookConfig, getFacebookSiteForConfig, hashtagsForQuestion, getFacebookPublishedCount, countFacebookPosts, pickQuestionForSchedule } from "../config/facebook.js";
 import FbPost from "../models/FbPost.js";
 import { getCurrentTenantId } from "../utils/tenantContext.js";
 import { renderQuestionImage } from "../config/socialImage.js";
@@ -108,33 +109,77 @@ export async function testSlideshow(req, res) {
     return res.status(400).json({ success: false, message: e?.message || "Could not load the question." });
   }
 
-  // RAW settings doc (carries the unmasked ttsApiKey) so the provider resolves.
-  const site = await Settings.findOne({ key: "site" }).lean().catch(() => null);
+  // The SAME settings doc the scheduler uses (raw — carries the unmasked
+  // ttsApiKey) so the test resolves the same TTS provider as a real run.
   const cfg = await getFacebookConfig().catch(() => ({}));
+  const site = (await getFacebookSiteForConfig(cfg).catch(() => null))
+    || (await Settings.findOne({ key: "site" }).lean().catch(() => null));
   const autoCaptions = req.body?.autoCaptions !== false;
   const generateImages = !!req.body?.generateImages;
 
-  try {
-    const result = await generateSlideshow(q, {
-      voice: req.body?.ttsVoice, // normalised to the effective provider inside
-      autoCaptions,
-      generateImages,
-      site,
-      brandColor: site?.brandColor || site?.primaryColor || "#2563eb",
-      siteName: site?.siteName || "My Study Guide",
-      siteUrl: String(cfg?.siteUrl || "https://www.mystudyguide.in").replace(/^https?:\/\//, "").replace(/\/+$/, ""),
+  // Rendering takes a minute or more — longer than the Nginx/browser request
+  // timeouts — so run it as a BACKGROUND job and let the UI poll for the result
+  // (GET /facebook/slideshow/test/:jobId). The job keeps the request's tenant
+  // context (AsyncLocalStorage follows the promise).
+  const jobId = newSlideshowJob(req.user?._id);
+  const job = slideshowJobs.get(jobId);
+  generateSlideshow(q, {
+    voice: req.body?.ttsVoice, // normalised to the effective provider inside
+    autoCaptions,
+    generateImages,
+    site,
+    brandColor: site?.brandColor || site?.primaryColor || "#2563eb",
+    siteName: site?.siteName || "My Study Guide",
+    siteUrl: String(cfg?.siteUrl || "https://www.mystudyguide.in").replace(/^https?:\/\//, "").replace(/\/+$/, ""),
+    onStatus: (st) => { job.stage = st; job.updatedAt = Date.now(); },
+  })
+    .then((result) => {
+      Object.assign(job, {
+        status: "done",
+        stage: "READY",
+        updatedAt: Date.now(),
+        result: {
+          success: true,
+          videoUrl: result.videoUrl,
+          slides: result.slides,
+          duration: result.duration,
+          voice: result.voice,
+          provider: result.provider,
+        },
+      });
+    })
+    .catch((err) => {
+      Object.assign(job, { status: "failed", stage: "FAILED", updatedAt: Date.now(), error: err?.message || "Could not build the slideshow." });
+      console.error("[slideshow test] failed:", err?.message || err);
     });
-    return res.json({
-      success: true,
-      videoUrl: result.videoUrl,
-      slides: result.slides,
-      duration: result.duration,
-      voice: result.voice,
-      provider: result.provider,
-    });
-  } catch (err) {
-    return res.status(502).json({ success: false, message: err?.message || "Could not build the slideshow." });
+
+  return res.status(202).json({ success: true, jobId, status: "running", stage: job.stage });
+}
+
+// In-memory registry of test-slideshow jobs (admin previews only — nothing is
+// published, so losing one on a restart just means "click Generate again").
+// Entries expire after an hour.
+const slideshowJobs = new Map();
+const SLIDESHOW_JOB_TTL_MS = 60 * 60 * 1000;
+function newSlideshowJob(ownerId) {
+  const now = Date.now();
+  for (const [id, j] of slideshowJobs) if (now - j.updatedAt > SLIDESHOW_JOB_TTL_MS) slideshowJobs.delete(id);
+  const id = randomUUID();
+  slideshowJobs.set(id, { status: "running", stage: "PENDING", owner: ownerId ? String(ownerId) : "", createdAt: now, updatedAt: now });
+  return id;
+}
+
+// GET /api/facebook/slideshow/test/:jobId  (admin) — poll a test job.
+// → { status: "running", stage } | { status: "done", ...result } | { status: "failed", message }
+export function testSlideshowStatus(req, res) {
+  const job = slideshowJobs.get(String(req.params.jobId || ""));
+  // Only the admin who started the job can read it.
+  if (!job || (job.owner && job.owner !== String(req.user?._id || ""))) {
+    return res.status(404).json({ success: false, message: "Test job not found (it may have expired — generate again)." });
   }
+  if (job.status === "done") return res.json({ status: "done", stage: job.stage, ...job.result });
+  if (job.status === "failed") return res.json({ status: "failed", stage: job.stage, success: false, message: job.error });
+  return res.json({ status: "running", stage: job.stage });
 }
 
 // GET /api/facebook/tts-voices  (admin) — the TTS providers and their voices, so

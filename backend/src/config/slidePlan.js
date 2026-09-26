@@ -38,6 +38,24 @@ export function toSpeech(input) {
   return s.replace(/\s+/g, " ").trim();
 }
 
+// Shorten text to at most `max` characters, cutting at the last full sentence
+// that fits (or a word boundary with "…" if no sentence fits).
+export function clipSentences(text, max) {
+  const s = String(text || "").trim();
+  if (s.length <= max) return s;
+  const cut = s.slice(0, max);
+  const end = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
+  if (end > max * 0.4) return cut.slice(0, end + 1).trim();
+  return cut.slice(0, cut.lastIndexOf(" ") > 0 ? cut.lastIndexOf(" ") : max).trim() + "…";
+}
+
+// End a spoken fragment with exactly one full stop (avoids "sea level.." when
+// the source text already ends with punctuation).
+const said = (t) => {
+  const x = toSpeech(t).replace(/[\s.;:,]+$/, "");
+  return x ? (/[!?]$/.test(x) ? x : `${x}.`) : "";
+};
+
 // A short spoken label for the difficulty, with the correct article
 // ("an easy", "a medium", "a hard") so the narration reads naturally.
 const diffWord = (d) => {
@@ -101,29 +119,30 @@ export function buildSlidePlan(q, opts = {}) {
     if (isFilled(q.reason)) questionBody.push({ label: "Reason (R)", text: asText(q.reason) });
     questionNarration =
       `${toSpeech(stem)} ` +
-      (isFilled(q.assertion) ? `Assertion: ${toSpeech(q.assertion)}. ` : "") +
-      (isFilled(q.reason) ? `Reason: ${toSpeech(q.reason)}.` : "");
+      (isFilled(q.assertion) ? `Assertion: ${said(q.assertion)} ` : "") +
+      (isFilled(q.reason) ? `Reason: ${said(q.reason)}` : "");
   } else if (type === "statement" && arr(q.columnA).length) {
     arr(q.columnA).forEach((t, i) => questionBody.push({ badge: String(i + 1), text: asText(t) }));
     questionNarration =
       `${toSpeech(stem)} Consider the following statements. ` +
-      arr(q.columnA).map((t, i) => `Statement ${i + 1}: ${toSpeech(t)}.`).join(" ");
+      arr(q.columnA).map((t, i) => `Statement ${i + 1}: ${said(t)}`).join(" ");
   } else if (COLUMN_TYPES.has(type) && (arr(q.columnA).length || arr(q.columnB).length)) {
     slides.push({
       id: "question",
       tag: "QUESTION",
       accent: "brand",
-      heading: "Match the columns",
-      body: [{ text: stem, emphasis: true }],
+      // Stem as the heading so it renders ABOVE the two columns.
+      heading: stem,
+      body: [],
       columns: {
         a: arr(q.columnA).map((t, i) => ({ badge: String(i + 1), text: asText(t) })),
         b: arr(q.columnB).map((t, i) => ({ badge: ROMAN[i] || String(i + 1), text: asText(t) })),
       },
       narration:
         `${toSpeech(stem)} Match Column A with Column B. ` +
-        arr(q.columnA).map((t, i) => `${i + 1}: ${toSpeech(t)}.`).join(" ") +
+        arr(q.columnA).map((t, i) => `${i + 1}: ${said(t)}`).join(" ") +
         " " +
-        arr(q.columnB).map((t, i) => `${ROMAN[i] || i + 1}: ${toSpeech(t)}.`).join(" "),
+        arr(q.columnB).map((t, i) => `${ROMAN[i] || i + 1}: ${said(t)}`).join(" "),
     });
   }
 
@@ -143,7 +162,7 @@ export function buildSlidePlan(q, opts = {}) {
       options,
       narration:
         "Choose your answer. " +
-        options.map((o) => `Option ${o.badge}: ${toSpeech(o.text)}.`).join(" "),
+        options.map((o) => `Option ${o.badge}: ${said(o.text)}`).join(" "),
     });
   }
 
@@ -156,7 +175,7 @@ export function buildSlidePlan(q, opts = {}) {
       accent: "green",
       heading: `Correct Answer: ${correct.letter}`,
       body: [{ text: correct.text, emphasis: true, positive: true }],
-      narration: `The correct answer is option ${correct.letter}. ${toSpeech(correct.text)}.`,
+      narration: `The correct answer is option ${correct.letter}. ${said(correct.text)}`,
     });
   }
 
@@ -167,8 +186,10 @@ export function buildSlidePlan(q, opts = {}) {
       tag: "EXPLANATION",
       accent: "brand",
       heading: "",
-      body: [{ text: asText(q.explanation) }],
-      narration: `Here's why. ${toSpeech(q.explanation)}`,
+      body: [{ text: clipSentences(asText(q.explanation), 600) }],
+      // Keep the spoken explanation short enough that the whole Reel stays
+      // within Facebook's 90-second limit.
+      narration: `Here's why. ${clipSentences(toSpeech(q.explanation), 450)}`,
     });
   }
 

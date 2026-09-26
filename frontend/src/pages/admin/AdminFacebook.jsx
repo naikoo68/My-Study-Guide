@@ -1256,6 +1256,7 @@ export default function AdminFacebook() {
   const [ssTesting, setSsTesting] = useState(false); // a test render is in progress
   const [ssResult, setSsResult] = useState(null);    // { videoUrl, slides, duration, voice, provider }
   const [ssError, setSsError] = useState("");        // last test error message
+  const [ssStage, setSsStage] = useState("");        // current job stage while rendering
   const [busyId, setBusyId] = useState(null); // per-row action in progress
   const [rowMsg, setRowMsg] = useState({}); // id → text
   const [fixingLabels, setFixingLabels] = useState(false); // one-off breadcrumb backfill in progress
@@ -1368,12 +1369,22 @@ export default function AdminFacebook() {
         generateImages: !!form.generateImages,
         ...(form._id ? { scheduleId: form._id } : { source: form.source, order: form.order }),
       };
-      const r = await facebookService.testSlideshow(payload);
-      if (r?.success && r?.videoUrl) setSsResult(r);
-      else setSsError(r?.message || "Could not build the test slideshow.");
+      // Rendering runs as a background job on the server (it takes longer than a
+      // single HTTP request is allowed to stay open) — start it, then poll.
+      const start = await facebookService.testSlideshow(payload);
+      if (!start?.jobId) throw new Error(start?.message || "Could not start the test slideshow.");
+      const deadline = Date.now() + 10 * 60 * 1000; // give up after 10 minutes
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 4000));
+        const st = await facebookService.testSlideshowStatus(start.jobId);
+        if (st?.status === "done" && st?.videoUrl) { setSsResult(st); break; }
+        if (st?.status === "failed") { setSsError(st?.message || "Could not build the test slideshow."); break; }
+        if (st?.stage) setSsStage(st.stage);
+        if (Date.now() > deadline) { setSsError("The test slideshow is taking too long — please try again."); break; }
+      }
     } catch (e) {
       setSsError(e?.message || "Could not build the test slideshow.");
-    } finally { setSsTesting(false); }
+    } finally { setSsTesting(false); setSsStage(""); }
   };
 
   const setTime = (i, v) => setForm((f) => ({ ...f, times: f.times.map((t, k) => (k === i ? v : t)) }));
@@ -1933,7 +1944,13 @@ export default function AdminFacebook() {
                       <span className="text-xs text-slate-400">Builds a preview only — it does not publish.</span>
                     </div>
                     {ssTesting && (
-                      <p className="text-xs text-slate-400">Rendering slides, narration and video — this can take a minute or two.</p>
+                      <p className="text-xs text-slate-400">
+                        {{
+                          GENERATING_SLIDES: "Step 1/3 — creating the slides…",
+                          GENERATING_AUDIO: "Step 2/3 — generating the narration…",
+                          RENDERING_VIDEO: "Step 3/3 — rendering the 9:16 video…",
+                        }[ssStage] || "Starting… this usually takes 1–2 minutes."}
+                      </p>
                     )}
                     {ssError && (
                       <p className="inline-flex items-center gap-1 text-xs font-medium text-rose-600">

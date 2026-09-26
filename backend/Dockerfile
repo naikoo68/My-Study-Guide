@@ -18,7 +18,10 @@ RUN apk add --no-cache \
       ca-certificates \
       ttf-freefont \
       font-noto \
+      ffmpeg \
     && rm -rf /var/cache/apk/*
+# ffmpeg renders the AI Slideshow Reel (slides + narration → one 9:16 MP4) on
+# this server — see src/config/videoCompose.js.
 # puppeteer-core points here; the app also falls back to common paths.
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser \

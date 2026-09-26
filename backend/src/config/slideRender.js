@@ -52,9 +52,16 @@ function wrapLines(text, fs, w, maxLines = 30) {
       if (cur) lines.push(cur);
       cur = word.length > maxChars ? word.slice(0, maxChars - 1) + "…" : word;
     }
-    if (lines.length >= maxLines) break;
   }
-  if (cur && lines.length < maxLines) lines.push(cur);
+  if (cur) lines.push(cur);
+  if (lines.length > maxLines) {
+    // Too long for the space: keep what fits and end with an ellipsis so the
+    // text never just stops mid-sentence with no indication.
+    const kept = lines.slice(0, maxLines);
+    const last = kept[maxLines - 1];
+    kept[maxLines - 1] = (last.length > maxChars - 1 ? last.slice(0, maxChars - 1) : last).replace(/[\s.,;:]+$/, "") + "…";
+    return kept;
+  }
   return lines;
 }
 
@@ -83,7 +90,7 @@ function block(x, yTop, availW, item, brand) {
   const color = positive ? "#047857" : muted ? "#64748b" : link ? brand : "#0f172a";
   const weight = emphasis ? "800" : link ? "700" : "500";
   const bulletPrefix = item.bullet ? "•  " : "";
-  const lines = wrapLines(bulletPrefix + (item.text || ""), fs, availW, 14);
+  const lines = wrapLines(bulletPrefix + (item.text ?? item.value ?? ""), fs, availW, 14);
   const lineH = fs * 1.34;
   for (const ln of lines) {
     parts.push(T(x, y + fs, fs, color, esc(ln), { weight }));
@@ -156,7 +163,12 @@ function buildSlideSvg(slide, opts = {}) {
   els.push(T(PAD, 96, 44, "#ffffff", siteName, { weight: "800" }));
   els.push(RR(0, 150, W, 6, 0, "#ea580c"));
 
-  let y = 226;
+  const headerEls = els;          // header strip stays pinned to the top
+  const contentEls = [];
+  const CONTENT_TOP = 226;
+  let y = CONTENT_TOP;
+  {
+  const els = contentEls;         // everything below is the slide's content
 
   // Tag pill (e.g. "QUESTION OF THE DAY").
   if (slide.tag) {
@@ -200,17 +212,28 @@ function buildSlideSvg(slide, opts = {}) {
     y += b.height;
   }
 
+  }
+
   // Caption band (auto-captions) — the slide's narration, readable at the bottom.
   let caption = "";
+  let captionTop = H - 110; // top of the footer area when there's no caption
   if (opts.autoCaptions && opts.captionText) {
-    const capLines = wrapLines(opts.captionText, 32, W - PAD * 2 - 40, 3);
-    const bandH = capLines.length * 44 + 48;
-    const bandY = H - bandH - 60;
+    const capLines = wrapLines(opts.captionText, 34, W - PAD * 2 - 20, 5);
+    const bandH = capLines.length * 46 + 44;
+    const bandY = H - bandH - 70;
+    captionTop = bandY;
     const inner = capLines
-      .map((ln, i) => T(W / 2, bandY + 44 + i * 44, 32, "#ffffff", esc(ln), { weight: "600", anchor: "middle" }))
+      .map((ln, i) => T(W / 2, bandY + 52 + i * 46, 34, "#ffffff", esc(ln), { weight: "600", anchor: "middle" }))
       .join("\n");
-    caption = `${RR(50, bandY, W - 100, bandH, 24, "rgba(15,23,42,0.82)")}\n${inner}`;
+    // fill + fill-opacity (not rgba()) — the most widely supported form across
+    // SVG rasterisers, including Cloudinary's.
+    caption = `<rect x="50" y="${bandY}" width="${W - 100}" height="${bandH}" rx="24" fill="#0f172a" fill-opacity="0.82"/>\n${inner}`;
   }
+
+  // Centre the content block in the free space (slightly above true centre,
+  // which reads better on a phone). Never move it up past the header.
+  const freeSpace = captionTop - 40 - y;
+  const contentShift = Math.max(0, freeSpace * (slide.brand ? 0.5 : 0.4));
 
   // Footer brand line (skip on the CTA slide, which is itself the brand slide).
   const footer = slide.brand
@@ -225,7 +248,10 @@ function buildSlideSvg(slide, opts = {}) {
       </linearGradient>
     </defs>
     <rect width="${W}" height="${H}" fill="url(#bg)"/>
-    ${els.join("\n    ")}
+    ${headerEls.join("\n    ")}
+    <g transform="translate(0,${contentShift.toFixed(0)})">
+    ${contentEls.join("\n    ")}
+    </g>
     ${caption}
     ${footer}
   </svg>`;

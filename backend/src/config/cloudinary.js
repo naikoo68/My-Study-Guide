@@ -59,129 +59,26 @@ export async function uploadBufferToCloudinary(
   };
 }
 
-// Turn a Cloudinary folder public id into the ':' -separated form used inside an
-// overlay reference (assets in a folder use ':' in place of '/').
-const overlayRef = (publicId) => String(publicId).replace(/\//g, ":");
-
-// Combine MULTIPLE branded slides (each a still image + its own narration audio)
-// into ONE vertical MP4 slideshow — entirely on Cloudinary (no ffmpeg on our
-// host), mirroring how composeImageAudioToVideo builds a single-image Reel.
-//
-// HOW IT WORKS (all on Cloudinary):
-//   1) For each slide we build a SEGMENT video: the slide's narration audio
-//      (already uploaded as a "video" resource, so it has a duration) padded to
-//      the target 9:16 canvas with the slide image laid on top (c_fit), trimmed
-//      to the narration length (with a small minimum floor so a very short clip
-//      still validates). We render it EAGERLY + SYNCHRONOUSLY, then re-host it
-//      as a PLAIN stored asset so it has a stable public id to concatenate.
-//   2) We CONCATENATE the stored segments in order using Cloudinary's video
-//      splice (overlay a video with fl_splice + fl_layer_apply appends it),
-//      then force H.264 / AAC in an MP4 container for maximum Meta compatibility.
-//
-// Each slide's duration is derived from ITS narration length (never a fixed 5s),
-// so narration and slide timing stay in sync. Returns
-//   { url, duration, slideCount, segments: [{ publicId, duration }] }.
-//
-// `slides` is an array of:
-//   { imagePublicId, audioPublicId, audioDuration, minDurationSec? }
-// (image + audio must already be uploaded — the slideshow service does that so
-// it can reuse the audio it already fetched from the TTS API).
-export async function composeSlideshowVideo({
-  slides = [],
-  width = 1080,
-  height = 1920,
-  folder = "mystudyguide/slideshow",
-  minDurationSec = 3,
-  maxDurationSec = 20,
-} = {}) {
-  const list = Array.isArray(slides) ? slides.filter((s) => s && s.imagePublicId && s.audioPublicId) : [];
-  if (!list.length) throw new Error("No slides to compose.");
-
-  const MIN = Math.max(1, Number(minDurationSec) || 3);
-  const MAX = Math.max(MIN, Number(maxDurationSec) || 20);
-
-  // ---- 1) Build each slide segment as a stored MP4 asset --------------------
-  const segments = [];
-  let total = 0;
-  for (const slide of list) {
-    // A slide shows for as long as its narration, clamped to a sane range, plus
-    // a little tail so the last word isn't clipped.
-    const narr = Math.ceil(Number(slide.audioDuration) || 0);
-    const segDur = Math.max(MIN, Math.min(MAX, (narr || MIN) + 1));
-    const overlayId = overlayRef(slide.imagePublicId);
-
-    const transformation = [
-      { width, height, crop: "pad", background: "white", start_offset: 0, duration: segDur },
-      { overlay: overlayId, width, height, crop: "fit" },
-      { flags: "layer_apply" },
-      { video_codec: "h264", audio_codec: "aac" },
-    ];
-
-    // Render the segment synchronously so the derived file exists to re-host.
-    const explicit = await cloudinary.uploader.explicit(slide.audioPublicId, {
-      type: "upload",
-      resource_type: "video",
-      eager_async: false,
-      eager: [{ transformation, format: "mp4" }],
-    });
-    let segUrl = explicit?.eager?.[0]?.secure_url || explicit?.eager?.[0]?.url;
-    if (!segUrl) {
-      // Cloudinary promoted the eager to async and returned no URL — build the
-      // derivation URL ourselves; the first fetch finishes the render.
-      segUrl = cloudinary.url(slide.audioPublicId, {
-        resource_type: "video",
-        format: "mp4",
-        secure: true,
-        transformation,
-      });
-    }
-    if (!segUrl) throw new Error("Cloudinary did not return a slide segment URL.");
-
-    // Re-host the segment as a PLAIN stored asset so it has a stable public id
-    // (no transformation chain) that can be spliced into the final video.
-    const stored = await cloudinary.uploader.upload(segUrl, { folder: `${folder}/segments`, resource_type: "video" });
-    const storedId = stored?.public_id;
-    if (!storedId) throw new Error("Cloudinary did not store a slide segment.");
-    segments.push({ publicId: storedId, duration: segDur });
-    total += segDur;
-  }
-
-  // A single slide needs no concatenation.
-  if (segments.length === 1) {
-    const only = cloudinary.url(segments[0].publicId, { resource_type: "video", format: "mp4", secure: true });
-    return { url: only, duration: total, slideCount: 1, segments };
-  }
-
-  // ---- 2) Concatenate the stored segments (splice) --------------------------
-  const [first, ...rest] = segments;
-  const concatTransform = [];
-  for (const seg of rest) {
-    concatTransform.push({ overlay: `video:${overlayRef(seg.publicId)}`, flags: "splice" });
-    concatTransform.push({ flags: "layer_apply" });
-  }
-  concatTransform.push({ video_codec: "h264", audio_codec: "aac" });
-
-  const finalExplicit = await cloudinary.uploader.explicit(first.publicId, {
-    type: "upload",
-    resource_type: "video",
-    eager_async: false,
-    eager: [{ transformation: concatTransform, format: "mp4" }],
-  });
-  let url = finalExplicit?.eager?.[0]?.secure_url || finalExplicit?.eager?.[0]?.url;
-  if (!url) {
-    url = cloudinary.url(first.publicId, {
-      resource_type: "video",
-      format: "mp4",
-      secure: true,
-      transformation: concatTransform,
-    });
-  }
-  if (!url) throw new Error("Cloudinary did not return the composed slideshow URL.");
-
-  // Bake the concatenation into a PLAIN stored asset so Meta can fetch it (same
-  // reason as rehostAsPlainAsset for single-image Reels).
-  const plain = await rehostAsPlainAsset(url, { resourceType: "video", folder: `${folder}/final` });
-  return { url: plain || url, duration: total, slideCount: segments.length, segments };
+// Upload a LOCAL file (e.g. the finished slideshow MP4 rendered by ffmpeg) to
+// Cloudinary as a plain stored asset. Videos go through upload_large (chunked)
+// so a multi-MB MP4 uploads reliably. Returns the same shape as
+// uploadBufferToCloudinary: { secure_url, url, public_id, format, bytes, duration }.
+export async function uploadFileToCloudinary(filePath, { resourceType = "auto", folder = "mystudyguide/slideshow" } = {}) {
+  const opts = { folder, resource_type: resourceType };
+  const r = resourceType === "video"
+    ? await new Promise((resolve, reject) => {
+        cloudinary.uploader.upload_large(filePath, { ...opts, chunk_size: 6000000 }, (err, res) => (err ? reject(err) : resolve(res)));
+      })
+    : await cloudinary.uploader.upload(filePath, opts);
+  if (!r?.secure_url) throw new Error(r?.error?.message || "Cloudinary upload returned no URL.");
+  return {
+    secure_url: r.secure_url,
+    url: r.secure_url,
+    public_id: r.public_id,
+    format: r.format,
+    bytes: r.bytes,
+    duration: r.duration,
+  };
 }
 
 // Combine a still IMAGE and an AUDIO track into a single vertical MP4 — i.e. a
