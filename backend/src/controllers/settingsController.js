@@ -237,6 +237,7 @@ export async function updateSettings(req, res) {
     "igEnabled", "igUserId",
     "ttsProvider", "ttsApiKey", "ttsModel",
     "slideshowQuestionSec", "slideshowAnswerSec", "slideshowVoice", "slideshowAutoCaptions",
+    "slideshowQuestionTemplateUrl", "slideshowAnswerTemplateUrl",
     "googleClientId",
   ];
   const update = {};
@@ -280,6 +281,13 @@ export async function updateSettings(req, res) {
   if ("slideshowAnswerSec" in update) update.slideshowAnswerSec = slideSec(update.slideshowAnswerSec, 8);
   if ("slideshowVoice" in update) update.slideshowVoice = String(update.slideshowVoice || "").trim().slice(0, 60);
   if ("slideshowAutoCaptions" in update) update.slideshowAutoCaptions = !!update.slideshowAutoCaptions;
+  // Slide templates: only safe public http(s) image URLs (from the uploader); "" clears.
+  for (const k of ["slideshowQuestionTemplateUrl", "slideshowAnswerTemplateUrl"]) {
+    if (k in update) {
+      const u = String(update[k] || "").trim();
+      update[k] = u && /^https?:\/\//i.test(u) && isSafePublicUrl(u) ? u : "";
+    }
+  }
   if ("ttsApiKey" in update) {
     const k = String(update.ttsApiKey || "").trim();
     if (k) update.ttsApiKey = k; else delete update.ttsApiKey;

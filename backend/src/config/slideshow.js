@@ -68,9 +68,12 @@ async function downloadTo(url, dest, { timeoutMs = 60000 } = {}) {
 //   subjectName, questionSec, answerSec (on-screen seconds per slide),
 //   site (raw Settings doc → resolves the TTS provider/key),
 //   onStatus(status) — a callback fired as the job progresses.
+// `question` may be ONE question or an ARRAY of questions (several questions
+// in one video: Q1 → A1 → Q2 → A2 → …).
 export async function generateSlideshow(question, opts = {}) {
   const onStatus = typeof opts.onStatus === "function" ? opts.onStatus : () => {};
-  if (!question || typeof question !== "object") throw new Error("A question is required for the slideshow.");
+  const questions = (Array.isArray(question) ? question : [question]).filter((x) => x && typeof x === "object");
+  if (!questions.length) throw new Error("A question is required for the slideshow.");
   if (!isCloudinaryConfigured()) throw new Error("Cloudinary is not configured (media processing unavailable).");
   if (!(await isFfmpegAvailable())) {
     throw new Error("ffmpeg is not installed on the server — redeploy the backend (the Docker image installs it).");
@@ -95,8 +98,25 @@ export async function generateSlideshow(question, opts = {}) {
   const questionSec = secs(opts.questionSec, 10);
   const answerSec = secs(opts.answerSec, 8);
 
-  // 1) Plan the two slides (question → answer; adapts to the question type).
-  const plan = buildSlidePlan(question, brandOpts);
+  // Optional uploaded templates (backgrounds) for the question / answer slides.
+  const templates = {
+    question: String(opts.questionTemplateUrl || "").trim(),
+    answer: String(opts.answerTemplateUrl || "").trim(),
+  };
+
+  // 1) Plan two slides per question (question → answer; adapts to the type).
+  // Roughly how many characters each voice speaks per second, so the
+  // narration can be fitted to the slide times (see buildSlidePlan).
+  const charsPerSec = { gtranslate: 10, edge: 14, openai: 15 }[ttsCfg.provider] || 12;
+  const plan = questions.flatMap((q, i) =>
+    buildSlidePlan(q, {
+      ...brandOpts,
+      index: i + 1,
+      total: questions.length,
+      questionChars: Math.round(questionSec * charsPerSec),
+      answerChars: Math.round(answerSec * charsPerSec),
+    })
+  );
   if (!plan.length) throw new Error("Could not build any slides for this question.");
 
   const workDir = await fs.mkdtemp(path.join(os.tmpdir(), "msg-slideshow-"));
@@ -104,10 +124,19 @@ export async function generateSlideshow(question, opts = {}) {
     // 2) Render every slide image (branded 9:16 SVG → JPEG on Cloudinary) and
     //    pull it down locally for ffmpeg.
     onStatus(SLIDESHOW_STATUS.GENERATING_SLIDES);
+    // Download each template once (if set). A template that can't be fetched
+    // is skipped — that slide type falls back to the built-in design.
+    const templatePaths = {};
+    for (const role of ["question", "answer"]) {
+      if (!templates[role]) continue;
+      const p = path.join(workDir, `template-${role}`);
+      try { await downloadTo(templates[role], p); templatePaths[role] = p; } catch { /* use built-in design */ }
+    }
     const imagePaths = [];
     for (let i = 0; i < plan.length; i++) {
-      const img = await renderSlideImage(plan[i], brandOpts);
-      const p = path.join(workDir, `slide${String(i).padStart(2, "0")}.jpg`);
+      const withTemplate = !!templatePaths[plan[i].role];
+      const img = await renderSlideImage(plan[i], { ...brandOpts, transparentBackground: withTemplate });
+      const p = path.join(workDir, `slide${String(i).padStart(2, "0")}.${withTemplate ? "png" : "jpg"}`);
       await downloadTo(img.url, p);
       imagePaths.push(p);
     }
@@ -139,6 +168,7 @@ export async function generateSlideshow(question, opts = {}) {
         imagePath: imagePaths[i],
         audioPath: audioPaths[i],
         minSec: s.role === "answer" ? answerSec : questionSec,
+        bgPath: templatePaths[s.role] || null,
       })),
       outPath,
       workDir,
@@ -153,6 +183,7 @@ export async function generateSlideshow(question, opts = {}) {
     return {
       videoUrl: uploaded.secure_url,
       slides: plan.length,
+      questions: questions.length,
       duration: Math.round(Number(uploaded.duration) || duration || 0),
       voice,
       provider: ttsCfg.provider,

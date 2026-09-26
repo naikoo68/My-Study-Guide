@@ -26,6 +26,9 @@ export function toSpeech(input) {
   s = s.replace(/\\times/g, " times ").replace(/\\div/g, " divided by ");
   s = s.replace(/\\pm/g, " plus or minus ").replace(/\\cdot/g, " times ");
   s = s.replace(/\\rightarrow|\\to/g, " gives ").replace(/\\leftarrow/g, " from ");
+  // Arrows in sequences ("Organism → Population") become a short pause
+  // instead of being read out as "right arrow".
+  s = s.replace(/\s*(?:→|->|⟶|⇒)\s*/g, ", ");
   s = s.replace(/\\[a-zA-Z]+/g, " "); // any remaining commands
   s = s.replace(/[{}\\]/g, " ");
   return s.replace(/\s+/g, " ").trim();
@@ -78,16 +81,25 @@ function topicLabel(q, opts = {}) {
 //   slide 2 "answer"   — the correct answer, then the explanation (or the quick
 //                        recall / first key point when there's no explanation).
 // `role` tells the composer which on-screen time applies (questionSec /
-// answerSec). `opts` may carry { subjectName } for the small topic line.
+// answerSec). `opts` may carry { subjectName } for the small topic line, and
+// { index, total } when several questions share one video ("Question 2 of 5").
 export function buildSlidePlan(q, opts = {}) {
   const type = asText(q?.type) || "mcq";
   const stem = asText(q?.text) || "Question";
+  const total = Math.max(1, Number(opts.total) || 1);
+  const index = Math.max(1, Math.min(total, Number(opts.index) || 1));
+  const ofN = total > 1 ? ` ${index} OF ${total}` : "";
+  // Speech budgets (characters) so the voice fits the slide times the admin
+  // set. The stem and the correct answer are always read; the options and the
+  // explanation are read only as far as the time allows (they stay on screen).
+  const qBudget = Number(opts.questionChars) > 0 ? Number(opts.questionChars) : Infinity;
+  const aBudget = Number(opts.answerChars) > 0 ? Number(opts.answerChars) : Infinity;
 
   // ---- Slide 1: the question ------------------------------------------------
   const topic = topicLabel(q || {}, opts);
   const meta = [topic, asText(q?.difficulty) || "Medium"].filter(Boolean).join("  ·  ");
   const lead = [{ text: meta, muted: true }, { text: stem, emphasis: true }];
-  let spoken = said(stem);
+  let spoken = (total > 1 ? `Question ${index}. ` : "") + said(stem);
   let columns = null;
 
   if (type === "assertion" && (isFilled(q.assertion) || isFilled(q.reason))) {
@@ -111,14 +123,15 @@ export function buildSlidePlan(q, opts = {}) {
 
   const options = optionItems(q || {});
   if (options.length) {
-    spoken += " " + options.map((o) => `Option ${o.badge}: ${said(o.text)}`).join(" ");
+    const optSpeech = " " + options.map((o) => `Option ${o.badge}: ${said(o.text)}`).join(" ");
+    if (spoken.length + optSpeech.length <= qBudget) spoken += optSpeech;
   }
 
   const slides = [
     {
       id: "question",
       role: "question",
-      tag: "QUESTION",
+      tag: `QUESTION${ofN}`,
       accent: "brand",
       heading: "",
       lead,
@@ -139,18 +152,24 @@ export function buildSlidePlan(q, opts = {}) {
   }
   const recall = isFilled(q?.quickRecall) ? asText(q.quickRecall) : (arr(q?.keyPoints)[0] ? asText(arr(q.keyPoints)[0]) : "");
   if (isFilled(q?.explanation)) {
-    body.push({ label: "Explanation", text: clipSentences(asText(q.explanation), 520) });
-    // Kept short so the Reel stays inside Facebook's 90-second limit.
-    answerSpoken += ` ${clipSentences(toSpeech(q.explanation), 420)}`;
+    body.push({ label: "Explanation", text: clipSentences(asText(q.explanation), 420) });
+    // Read as much of the explanation as fits the answer time (whole
+    // sentences); the fuller explanation stays on screen.
+    const room = Math.min(260, aBudget - answerSpoken.length - 1);
+    if (room >= 40) {
+      const part = clipSentences(toSpeech(q.explanation), room).replace(/…$/, "");
+      if (part && part.length <= room) answerSpoken += ` ${part}`;
+    }
   }
   if (recall) {
     body.push({ label: "Quick recall", text: clipSentences(recall, 200) });
-    if (!isFilled(q?.explanation)) answerSpoken += ` Quick recall: ${said(recall)}`;
+    const r = ` Quick recall: ${said(recall)}`;
+    if (!isFilled(q?.explanation) && answerSpoken.length + r.length <= aBudget) answerSpoken += r;
   }
   slides.push({
     id: "answer",
     role: "answer",
-    tag: "ANSWER",
+    tag: `ANSWER${ofN}`,
     accent: "green",
     heading: correct ? `Correct Answer: ${correct.letter}` : "Answer",
     body,

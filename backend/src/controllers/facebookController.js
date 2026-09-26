@@ -2,7 +2,7 @@ import FbSchedule from "../models/FbSchedule.js";
 import Question from "../models/Question.js";
 import Settings from "../models/Settings.js";
 import { randomUUID } from "node:crypto";
-import { runScheduleOnce, getFacebookConfig, getFacebookSiteForConfig, hashtagsForQuestion, getFacebookPublishedCount, countFacebookPosts, pickQuestionForSchedule } from "../config/facebook.js";
+import { runScheduleOnce, getFacebookConfig, getFacebookSiteForConfig, hashtagsForQuestion, getFacebookPublishedCount, countFacebookPosts, pickQuestionForSchedule, pickQuestionsForSlideshow } from "../config/facebook.js";
 import FbPost from "../models/FbPost.js";
 import { getCurrentTenantId } from "../utils/tenantContext.js";
 import { renderQuestionImage } from "../config/socialImage.js";
@@ -65,6 +65,9 @@ export async function testSlideshow(req, res) {
 
   // Resolve the question: an explicit id, or the one the schedule would pick.
   let q = null;
+  let pickFrom = null; // schedule-like object to draw MORE questions from
+  const extraRandom = []; // extra random questions (no source picked)
+  const wantCount = clampQuestionCount(req.body?.slideshowQuestions);
   const questionId = String(req.body?.questionId || "").trim();
   const scheduleId = String(req.body?.scheduleId || "").trim();
   try {
@@ -80,6 +83,7 @@ export async function testSlideshow(req, res) {
         return res.status(404).json({ success: false, message: "No complete question available in this schedule's source." });
       }
       q = picked.q;
+      pickFrom = sch;
     } else if (req.body?.source && typeof req.body.source === "object") {
       // An UNSAVED form: pick a question from the chosen source, exactly as the
       // schedule would at run time (transient — nothing is written).
@@ -103,15 +107,18 @@ export async function testSlideshow(req, res) {
         return res.status(404).json({ success: false, message: "No complete published question found in the selected source." });
       }
       q = picked.q;
+      pickFrom = transient;
     } else {
       // No source (the settings-section test button): preview with a random
       // complete, published question from this site's bank.
       const filter = { status: "published", deleted: { $ne: true } };
       const count = await Question.countDocuments(filter);
-      for (let tries = 0; tries < 25 && count > 0 && !q; tries++) {
+      const seen = new Set();
+      for (let tries = 0; tries < 25 * wantCount && count > 0 && extraRandom.length < wantCount; tries++) {
         const cand = await Question.findOne(filter).skip(Math.floor(Math.random() * count)).lean();
-        if (cand && isQuestionComplete(cand).ok) q = cand;
+        if (cand && !seen.has(String(cand._id)) && isQuestionComplete(cand).ok) { seen.add(String(cand._id)); extraRandom.push(cand); }
       }
+      q = extraRandom[0] || null;
       if (!q) return res.status(404).json({ success: false, message: "No complete published question found to preview." });
     }
   } catch (e) {
@@ -130,15 +137,25 @@ export async function testSlideshow(req, res) {
   // timeouts — so run it as a BACKGROUND job and let the UI poll for the result
   // (GET /facebook/slideshow/test/:jobId). The job keeps the request's tenant
   // context (AsyncLocalStorage follows the promise).
+  // The questions for this preview video (up to the requested count).
+  let questions = [q];
+  if (wantCount > 1) {
+    if (pickFrom) questions = await pickQuestionsForSlideshow(pickFrom, wantCount, q).catch(() => [q]);
+    else if (extraRandom.length) questions = extraRandom;
+  }
+
   const jobId = newSlideshowJob(req.user?._id);
   const job = slideshowJobs.get(jobId);
-  generateSlideshow(q, {
+  generateSlideshow(questions, {
     voice: req.body?.ttsVoice, // normalised to the effective provider inside
     autoCaptions,
     generateImages,
     // The form's current slide times (so a test reflects unsaved edits).
     questionSec: clampSlideSec(req.body?.questionSec, 10),
     answerSec: clampSlideSec(req.body?.answerSec, 8),
+    // The saved question / answer slide templates (uploads save immediately).
+    questionTemplateUrl: site?.slideshowQuestionTemplateUrl || "",
+    answerTemplateUrl: site?.slideshowAnswerTemplateUrl || "",
     site,
     brandColor: site?.brandColor || site?.primaryColor || "#2563eb",
     siteName: site?.siteName || "My Study Guide",
@@ -154,6 +171,7 @@ export async function testSlideshow(req, res) {
           success: true,
           videoUrl: result.videoUrl,
           slides: result.slides,
+          questions: result.questions,
           duration: result.duration,
           voice: result.voice,
           provider: result.provider,
@@ -243,6 +261,12 @@ function clampSlideSec(v, def) {
   return Number.isFinite(n) && n > 0 ? Math.max(3, Math.min(40, n)) : def;
 }
 
+// How many questions go in one slideshow video: whole number 1–10 (default 1).
+function clampQuestionCount(v) {
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) && n > 0 ? Math.min(10, n) : 1;
+}
+
 // Exported for unit tests (pure, no I/O).
 export function pickScheduleFields(body = {}) {
   const src = body.source || {};
@@ -320,6 +344,8 @@ export function pickScheduleFields(body = {}) {
     // narration needs it). Clamped so the two slides fit a Reel.
     questionSec: clampSlideSec(body.questionSec, 10),
     answerSec: clampSlideSec(body.answerSec, 8),
+    // Questions per slideshow video (1–10).
+    slideshowQuestions: clampQuestionCount(body.slideshowQuestions),
     // Narration voice — kept as a trimmed string (voices are provider-specific,
     // so it's normalised against the effective provider at generation time).
     ttsVoice: String(body.ttsVoice || "").trim().slice(0, 60),
