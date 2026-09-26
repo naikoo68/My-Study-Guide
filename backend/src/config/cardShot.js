@@ -155,3 +155,63 @@ export async function renderQuestionCardShot(question, { includeAnswer = false, 
     if (browser) { try { await browser.close(); } catch { /* ignore */ } }
   }
 }
+
+
+// Screenshot the 9:16 AI Slideshow slides from /slide-card/:id (the SAME quiz
+// components + Inter font students see) straight to local PNG files for ffmpeg.
+//   items: [{ questionId, role, tag, caption, template, templateSize?: { width, height }, outPath }]
+//   opts:  { siteUrl }
+// Uses ONE browser for all slides. Returns an array (same order) of
+// { ok: true } or { error } per slide — callers fall back to the SVG slide for
+// any that failed. If the first slide fails (e.g. the frontend with the
+// /slide-card route isn't deployed yet), the rest are skipped immediately
+// instead of each waiting for a timeout.
+export async function renderSlideCardShots(items = [], { siteUrl = "" } = {}) {
+  const results = items.map(() => ({ error: "not rendered" }));
+  if (!items.length) return results;
+  let browser;
+  try {
+    browser = await launchBrowser();
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1080, height: 1920, deviceScaleFactor: 1 });
+    // The site is a PWA: after the first slide its service worker would serve
+    // later navigations/API calls (stale cache, stuck "Loading…"). Every slide
+    // must load fresh, so bypass it.
+    await page.setBypassServiceWorker(true).catch(() => {});
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      try {
+        if (!it?.questionId) throw new Error("No question id.");
+        const p = new URLSearchParams();
+        p.set("role", it.role === "answer" ? "answer" : "question");
+        if (it.tag) p.set("tag", String(it.tag));
+        if (it.caption) p.set("cap", String(it.caption).slice(0, 600));
+        if (it.template) p.set("tpl", "1");
+        if (it.template && it.templateSize?.width > 0 && it.templateSize?.height > 0) {
+          p.set("tw", String(it.templateSize.width));
+          p.set("th", String(it.templateSize.height));
+        }
+        if (siteUrl) p.set("site", siteUrl);
+        await page.goto(`${siteOrigin()}/slide-card/${it.questionId}?${p}`, { waitUntil: "networkidle0", timeout: 25000 });
+        await page.waitForSelector('[data-card-ready="1"]', { timeout: 15000 });
+        // Question / explanation figures must be loaded before the capture.
+        await page.waitForFunction(() => Array.from(document.images).every((im) => im.complete), { timeout: 8000 }).catch(() => {});
+        const el = await page.$("[data-card-el]");
+        if (!el) throw new Error("Slide element not found.");
+        // PNG with a transparent page in template mode, so the template
+        // (composited underneath by ffmpeg) shows around the card.
+        await el.screenshot({ path: it.outPath, type: "png", omitBackground: !!it.template });
+        results[i] = { ok: true };
+      } catch (err) {
+        results[i] = { error: `Slide screenshot failed: ${err?.message || err}` };
+        if (i === 0) break;
+      }
+    }
+  } catch (err) {
+    const msg = `Slide screenshot failed: ${err?.message || err}`;
+    for (let i = 0; i < results.length; i++) if (!results[i].ok) results[i] = { error: msg };
+  } finally {
+    if (browser) { try { await browser.close(); } catch { /* ignore */ } }
+  }
+  return results;
+}

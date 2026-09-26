@@ -134,6 +134,7 @@ const ResumeBuilder = lazy(() => import("./pages/resume/ResumeBuilder"));
 // pixel-identical Facebook/Instagram post images (see backend cardShot).
 const QuestionCardImage = lazy(() => import("./pages/QuestionCardImage"));
 const FlashcardCardImage = lazy(() => import("./pages/FlashcardCardImage"));
+const SlideCardImage = lazy(() => import("./pages/SlideCardImage"));
 
 // Wraps a lazily-loaded page in a Suspense boundary with a loading fallback.
 const S = (Comp) => (
@@ -267,6 +268,11 @@ const router = createBrowserRouter([
   {
     path: "/flashcard/:id",
     element: S(FlashcardCardImage),
+  },
+  // Chrome-less 9:16 slide (question / answer) for the AI Slideshow Reel.
+  {
+    path: "/slide-card/:id",
+    element: S(SlideCardImage),
   },
 
   // Full-screen test interface (outside main layout). Gated: attempting a

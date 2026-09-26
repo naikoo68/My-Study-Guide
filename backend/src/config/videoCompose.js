@@ -76,6 +76,15 @@ function parseDuration(text) {
   return Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
 }
 
+// Pixel size of an image/video file → { width, height } (0s when unknown), from
+// the "Stream … Video: …, 1200x1600" line ffmpeg prints for an input.
+export async function probeImageSize(file) {
+  let text = "";
+  try { text = await runFfmpeg(["-hide_banner", "-i", file], { timeoutMs: 30000 }); } catch (e) { text = e?.message || ""; }
+  const m = /Video:.*?(\d{2,5})x(\d{2,5})/.exec(String(text));
+  return m ? { width: Number(m[1]), height: Number(m[2]) } : { width: 0, height: 0 };
+}
+
 // Duration (s) of a media file, via ffmpeg's input probe (ffmpeg exits non-zero
 // with no output specified, so read its stderr either way).
 export async function probeDuration(file) {
@@ -117,11 +126,17 @@ export async function composeSlideshowMp4({
     // Audio: resample, add a short tail, and pad to at least `minSec`; the
     //        segment ends with the audio (-shortest), so the slide stays up for
     //        exactly its narration (+tail), never a fixed length.
-    // With a TEMPLATE, the template image fills the frame (cover-cropped to
-    // 9:16) and the slide (a PNG with a transparent surround) is laid on top.
+    // With a TEMPLATE, the WHOLE template is shown — scaled to FIT (contain),
+    // never cropped, so its logo / buttons at the edges stay visible. If it
+    // isn't exactly 9:16, the leftover space is filled with a blurred, dimmed
+    // copy of the template (like Reels do) instead of black bars. The slide (a
+    // PNG with a transparent surround) is laid on top.
     const bg = list[i].bgPath;
     const vf = bg
-      ? `[0:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1[bg];` +
+      ? `[0:v]setsar=1,split[tf][tb];` +
+        `[tb]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},boxblur=40:2,eq=brightness=-0.06,setsar=1[blur];` +
+        `[tf]scale=${width}:${height}:force_original_aspect_ratio=decrease,setsar=1[fit];` +
+        `[blur][fit]overlay=(W-w)/2:(H-h)/2[bg];` +
         `[1:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,format=rgba[fg];` +
         `[bg][fg]overlay=(W-w)/2:(H-h)/2,format=yuv420p[v]`
       : `[0:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
