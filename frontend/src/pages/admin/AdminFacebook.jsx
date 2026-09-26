@@ -1080,6 +1080,11 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
   const [stage, setStage] = useState("");
   const [result, setResult] = useState(null);
   const [testError, setTestError] = useState("");
+  // Stopwatch for the test build: when it started, the live elapsed seconds,
+  // and the final time it took (kept after it finishes so it stays visible).
+  const [testStartedAt, setTestStartedAt] = useState(0);
+  const [elapsedSec, setElapsedSec] = useState(0);
+  const [tookSec, setTookSec] = useState(null);
   // What to post and when — creates an AI Slideshow schedule.
   const [pickerKey, setPickerKey] = useState(0); // remounts the picker after creating
   const [title, setTitle] = useState("");
@@ -1140,7 +1145,9 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
   // Uses the values currently on screen (so you can try before saving). Runs as
   // a background job on the server; poll until it's done.
   const test = async () => {
+    const startedAt = Date.now();
     setTesting(true); setTestError(""); setResult(null); setStage("");
+    setTestStartedAt(startedAt); setElapsedSec(0); setTookSec(null);
     try {
       const start = await facebookService.testSlideshow({
         ttsVoice: voiceValue,
@@ -1163,8 +1170,20 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
       }
     } catch (e) {
       setTestError(e?.message || "Could not build the test slideshow.");
-    } finally { setTesting(false); setStage(""); }
+    } finally {
+      setTookSec(Math.round((Date.now() - startedAt) / 1000));
+      setTesting(false); setStage("");
+    }
   };
+
+  // Tick the stopwatch once a second while the test build is running.
+  useEffect(() => {
+    if (!testing || !testStartedAt) return undefined;
+    const id = setInterval(() => setElapsedSec(Math.floor((Date.now() - testStartedAt) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [testing, testStartedAt]);
+
+  const fmtDuration = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
   // Create an AI Slideshow schedule for the picked content. Saves the slide /
   // voice settings first so the new schedule uses exactly what's on screen.
@@ -1373,18 +1392,21 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
           {saving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> Save settings only</>}
         </button>
         <button type="button" onClick={test} disabled={testing} className="btn-outline">
-          {testing ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating…</> : <><PlayCircle className="h-4 w-4" /> Generate test slideshow</>}
+          {testing ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating… <span className="tabular-nums">{fmtDuration(elapsedSec)}</span></> : <><PlayCircle className="h-4 w-4" /> Generate test slideshow</>}
         </button>
         {msg && <span className={`inline-flex items-center gap-1 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {msg.text}</span>}
       </div>
       {createMsg && <p className={`mt-2 inline-flex items-center gap-1 text-sm font-medium ${createMsg.ok ? "text-emerald-600" : "text-rose-600"}`}>{createMsg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {createMsg.text}</p>}
       <p className="mt-1.5 text-xs text-slate-400">The test uses a question from the picked content (or a random one) and only builds a preview — it never publishes.</p>
       {testing && (
-        <p className="mt-2 text-xs text-slate-400">
+        <p className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+          <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 font-semibold tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            <Clock className="h-3 w-3" /> {fmtDuration(elapsedSec)}
+          </span>
           {{ GENERATING_SLIDES: "Step 1/3 — creating the slides…", GENERATING_AUDIO: "Step 2/3 — generating the narration…", RENDERING_VIDEO: "Step 3/3 — rendering the 9:16 video…" }[stage] || "Starting… this usually takes about a minute."}
         </p>
       )}
-      {testError && <p className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-rose-600"><AlertTriangle className="h-4 w-4" /> {testError}</p>}
+      {testError && <p className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-rose-600"><AlertTriangle className="h-4 w-4" /> {testError}{tookSec != null && ` (after ${fmtDuration(tookSec)})`}</p>}
       {result?.videoUrl && (
         <div className="mt-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
           <video src={result.videoUrl} controls playsInline className="mx-auto max-h-[420px] rounded-lg bg-black" />
@@ -1392,6 +1414,7 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
             <span className="inline-flex items-center gap-1"><Film className="h-3 w-3" /> {result.questions > 1 ? `${result.questions} questions · ` : ""}{result.slides} slides</span>
             <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" /> {result.duration}s</span>
             <span className="inline-flex items-center gap-1"><Volume2 className="h-3 w-3" /> {result.voice}</span>
+            {tookSec != null && <span className="inline-flex items-center gap-1 font-medium text-emerald-600"><CheckCircle2 className="h-3 w-3" /> Generated in {fmtDuration(tookSec)}</span>}
             <a href={result.videoUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand-600 hover:underline"><PlayCircle className="h-3 w-3" /> Open video</a>
           </div>
         </div>
