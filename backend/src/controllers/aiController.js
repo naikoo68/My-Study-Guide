@@ -6280,3 +6280,42 @@ export async function checkQuestionsSemantic(req, res) {
   const found = summary.exact + summary.strong + summary.related;
   res.json({ total: items.length, found, summary, results, deep: true });
 }
+
+
+// ---------------------------------------------------------------------------
+// Test surface — pure, side-effect-free helpers exported for unit testing.
+//
+// These are the deterministic building blocks of the generation pipeline
+// (JSON repair, model-output parsing, pair/column extraction and model/quota
+// classification). They take plain values in and return plain values out — no
+// DB, network or `req`/`res` — so they can be characterised in isolation. This
+// export block is also the seam along which this file can later be carved into
+// focused modules without changing behaviour.
+export {
+  // JSON repair pipeline (single-backslash LaTeX + raw control chars).
+  escapeRawControlCharsInStrings,
+  escapeLatexBackslashes,
+  repairJson,
+  reviveLatex,
+  deepReviveLatex,
+  // Model-output parsing / salvage.
+  salvageObjects,
+  parseQuestions,
+  parseStringArray,
+  // Pair / matching column extraction.
+  splitPairString,
+  derivePairColumns,
+  splitCombinedIfNeeded,
+  extractNumbered,
+  extractRomanNumbered,
+  // Duplicate-detection primitives.
+  contentTokens,
+  jaccard,
+  correctAnswerNorm,
+  // Model selection + quota/error classification.
+  isWeakModel,
+  retryWaitMs,
+  isDailyQuotaLimit,
+  quota429Message,
+  pickPreferredModel,
+};
