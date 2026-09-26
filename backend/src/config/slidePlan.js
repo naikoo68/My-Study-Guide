@@ -1,16 +1,9 @@
 // Build the SLIDE PLAN (what each slide shows + what the narrator says) for one
-// question, adapting to the question TYPE. This is PURE logic (no I/O), so it is
-// easy to unit-test and reuse. The renderer (slideRender.js) turns each slide
-// into a branded image, and the TTS service (tts.js) speaks each `narration`.
-//
-// It works across the app's question types — it never assumes a plain MCQ:
-//   • mcq / numericalmcq / image / etc. : stem → options → answer → explanation
-//   • assertion                          : assertion+reason → options → answer …
-//   • statement                          : statements → options → answer …
-//   • matching / pair / pairselect       : Column A + Column B → options → answer
-//   • table                              : stem (+ the table on the stem slide)
-// Slides whose content is missing are skipped, so a sparse question yields fewer
-// slides and a rich one yields more (roughly 4–7).
+// question. Every question becomes exactly TWO slides — the question, then the
+// answer reveal — and it adapts to the question TYPE (it never assumes a plain
+// MCQ): assertion/reason, statements and matching columns are shown on the
+// question slide with the options. PURE logic (no I/O). The renderer
+// (slideRender.js) draws each slide; the TTS service speaks each `narration`.
 
 const LETTERS = ["A", "B", "C", "D", "E", "F"];
 const ROMAN = ["I", "II", "III", "IV", "V", "VI"];
@@ -56,13 +49,6 @@ const said = (t) => {
   return x ? (/[!?]$/.test(x) ? x : `${x}.`) : "";
 };
 
-// A short spoken label for the difficulty, with the correct article
-// ("an easy", "a medium", "a hard") so the narration reads naturally.
-const diffWord = (d) => {
-  const w = ["Easy", "Medium", "Hard"].includes(d) ? d.toLowerCase() : "medium";
-  return `${/^[aeiou]/.test(w) ? "an" : "a"} ${w}`;
-};
-
 // Options as { badge, text } — badge is A/B/C/D (or a number if there are more).
 function optionItems(q) {
   return arr(q.options).map((t, i) => ({ badge: LETTERS[i] || String(i + 1), text: asText(t) }));
@@ -85,143 +71,90 @@ function topicLabel(q, opts = {}) {
   return uniq.slice(0, 2).join(" — ");
 }
 
-// Build the ordered list of slides. `opts` may carry { subjectName, siteName,
-// siteUrl, tagline } for branding text.
+// Build the TWO slides for one question:
+//   slide 1 "question" — the question with everything needed to answer it
+//                        (assertion/reason, statements or matching columns, and
+//                        the options), read aloud by the narrator;
+//   slide 2 "answer"   — the correct answer, then the explanation (or the quick
+//                        recall / first key point when there's no explanation).
+// `role` tells the composer which on-screen time applies (questionSec /
+// answerSec). `opts` may carry { subjectName } for the small topic line.
 export function buildSlidePlan(q, opts = {}) {
-  const siteName = asText(opts.siteName) || "My Study Guide";
-  const siteUrl = asText(opts.siteUrl) || "www.mystudyguide.in";
-  const tagline = asText(opts.tagline) || "PREPARE SMART, ACHIEVE MORE";
   const type = asText(q?.type) || "mcq";
-  const slides = [];
+  const stem = asText(q?.text) || "Question";
 
-  // ---- Slide 1: intro / "Question of the day" ------------------------------
-  const topic = topicLabel(q, opts);
-  slides.push({
-    id: "intro",
-    tag: "QUESTION OF THE DAY",
-    accent: "brand",
-    heading: topic || "Test Your Knowledge",
-    body: [
-      ...(topic ? [] : []),
-      { label: "Difficulty", value: (q.difficulty || "Medium") },
-      { text: "Can you answer before the reveal?", muted: true },
-    ],
-    narration: `Here is today's question from ${siteName}. This is ${diffWord(q.difficulty)} level question${topic ? ` on ${toSpeech(topic)}` : ""}. Try to answer it before the solution is revealed.`,
-  });
-
-  // ---- Slide 2: the question (adapts to type) ------------------------------
-  const stem = asText(q.text) || "Question";
-  const questionBody = [{ text: stem, emphasis: true }];
-  let questionNarration = `Question. ${toSpeech(stem)}`;
+  // ---- Slide 1: the question ------------------------------------------------
+  const topic = topicLabel(q || {}, opts);
+  const meta = [topic, asText(q?.difficulty) || "Medium"].filter(Boolean).join("  ·  ");
+  const lead = [{ text: meta, muted: true }, { text: stem, emphasis: true }];
+  let spoken = said(stem);
+  let columns = null;
 
   if (type === "assertion" && (isFilled(q.assertion) || isFilled(q.reason))) {
-    if (isFilled(q.assertion)) questionBody.push({ label: "Assertion (A)", text: asText(q.assertion) });
-    if (isFilled(q.reason)) questionBody.push({ label: "Reason (R)", text: asText(q.reason) });
-    questionNarration =
-      `${toSpeech(stem)} ` +
-      (isFilled(q.assertion) ? `Assertion: ${said(q.assertion)} ` : "") +
-      (isFilled(q.reason) ? `Reason: ${said(q.reason)}` : "");
+    if (isFilled(q.assertion)) lead.push({ label: "Assertion (A)", text: asText(q.assertion) });
+    if (isFilled(q.reason)) lead.push({ label: "Reason (R)", text: asText(q.reason) });
+    spoken +=
+      (isFilled(q.assertion) ? ` Assertion: ${said(q.assertion)}` : "") +
+      (isFilled(q.reason) ? ` Reason: ${said(q.reason)}` : "");
   } else if (type === "statement" && arr(q.columnA).length) {
-    arr(q.columnA).forEach((t, i) => questionBody.push({ badge: String(i + 1), text: asText(t) }));
-    questionNarration =
-      `${toSpeech(stem)} Consider the following statements. ` +
-      arr(q.columnA).map((t, i) => `Statement ${i + 1}: ${said(t)}`).join(" ");
+    arr(q.columnA).forEach((t, i) => lead.push({ text: `${i + 1}. ${asText(t)}` }));
+    spoken += " " + arr(q.columnA).map((t, i) => `Statement ${i + 1}: ${said(t)}`).join(" ");
   } else if (COLUMN_TYPES.has(type) && (arr(q.columnA).length || arr(q.columnB).length)) {
-    slides.push({
+    columns = {
+      a: arr(q.columnA).map((t, i) => ({ badge: String(i + 1), text: asText(t) })),
+      b: arr(q.columnB).map((t, i) => ({ badge: ROMAN[i] || String(i + 1), text: asText(t) })),
+    };
+    spoken +=
+      " Column A: " + arr(q.columnA).map((t, i) => `${i + 1}, ${said(t)}`).join(" ") +
+      " Column B: " + arr(q.columnB).map((t, i) => `${ROMAN[i] || i + 1}, ${said(t)}`).join(" ");
+  }
+
+  const options = optionItems(q || {});
+  if (options.length) {
+    spoken += " " + options.map((o) => `Option ${o.badge}: ${said(o.text)}`).join(" ");
+  }
+
+  const slides = [
+    {
       id: "question",
+      role: "question",
       tag: "QUESTION",
       accent: "brand",
-      // Stem as the heading so it renders ABOVE the two columns.
-      heading: stem,
-      body: [],
-      columns: {
-        a: arr(q.columnA).map((t, i) => ({ badge: String(i + 1), text: asText(t) })),
-        b: arr(q.columnB).map((t, i) => ({ badge: ROMAN[i] || String(i + 1), text: asText(t) })),
-      },
-      narration:
-        `${toSpeech(stem)} Match Column A with Column B. ` +
-        arr(q.columnA).map((t, i) => `${i + 1}: ${said(t)}`).join(" ") +
-        " " +
-        arr(q.columnB).map((t, i) => `${ROMAN[i] || i + 1}: ${said(t)}`).join(" "),
-    });
-  }
-
-  // Push the generic question slide unless we already pushed a columns slide.
-  if (!(COLUMN_TYPES.has(type) && (arr(q.columnA).length || arr(q.columnB).length))) {
-    slides.push({ id: "question", tag: "QUESTION", accent: "brand", heading: "", body: questionBody, narration: questionNarration });
-  }
-
-  // ---- Slide 3: the options ------------------------------------------------
-  const options = optionItems(q);
-  if (options.length) {
-    slides.push({
-      id: "options",
-      tag: "CHOOSE YOUR ANSWER",
-      accent: "orange",
       heading: "",
+      lead,
+      columns,
       options,
-      narration:
-        "Choose your answer. " +
-        options.map((o) => `Option ${o.badge}: ${said(o.text)}`).join(" "),
-    });
-  }
+      body: [],
+      narration: spoken.trim(),
+    },
+  ];
 
-  // ---- Slide 4: the answer -------------------------------------------------
-  const correct = correctInfo(q);
+  // ---- Slide 2: the answer reveal -------------------------------------------
+  const correct = correctInfo(q || {});
+  const body = [];
+  let answerSpoken = "";
   if (correct) {
-    slides.push({
-      id: "answer",
-      tag: "ANSWER",
-      accent: "green",
-      heading: `Correct Answer: ${correct.letter}`,
-      body: [{ text: correct.text, emphasis: true, positive: true }],
-      narration: `The correct answer is option ${correct.letter}. ${said(correct.text)}`,
-    });
+    body.push({ text: `${correct.letter}. ${correct.text}`, emphasis: true, positive: true });
+    answerSpoken = `The correct answer is option ${correct.letter}. ${said(correct.text)}`;
   }
-
-  // ---- Slide 5: explanation ------------------------------------------------
-  if (isFilled(q.explanation)) {
-    slides.push({
-      id: "explanation",
-      tag: "EXPLANATION",
-      accent: "brand",
-      heading: "",
-      body: [{ text: clipSentences(asText(q.explanation), 600) }],
-      // Keep the spoken explanation short enough that the whole Reel stays
-      // within Facebook's 90-second limit.
-      narration: `Here's why. ${clipSentences(toSpeech(q.explanation), 450)}`,
-    });
+  const recall = isFilled(q?.quickRecall) ? asText(q.quickRecall) : (arr(q?.keyPoints)[0] ? asText(arr(q.keyPoints)[0]) : "");
+  if (isFilled(q?.explanation)) {
+    body.push({ label: "Explanation", text: clipSentences(asText(q.explanation), 520) });
+    // Kept short so the Reel stays inside Facebook's 90-second limit.
+    answerSpoken += ` ${clipSentences(toSpeech(q.explanation), 420)}`;
   }
-
-  // ---- Slide 6: quick recall / key point -----------------------------------
-  const recall = isFilled(q.quickRecall) ? asText(q.quickRecall) : (arr(q.keyPoints)[0] ? asText(arr(q.keyPoints)[0]) : "");
   if (recall) {
-    const keyPts = arr(q.keyPoints).slice(0, 3);
-    slides.push({
-      id: "recall",
-      tag: "QUICK RECALL",
-      accent: "orange",
-      heading: "",
-      body: isFilled(q.quickRecall)
-        ? [{ text: asText(q.quickRecall), emphasis: true }]
-        : keyPts.map((t) => ({ bullet: true, text: asText(t) })),
-      narration: `Quick recall. ${toSpeech(recall)}`,
-    });
+    body.push({ label: "Quick recall", text: clipSentences(recall, 200) });
+    if (!isFilled(q?.explanation)) answerSpoken += ` Quick recall: ${said(recall)}`;
   }
-
-  // ---- Slide 7: brand / CTA ------------------------------------------------
   slides.push({
-    id: "cta",
-    tag: "",
-    accent: "brand",
-    brand: true,
-    heading: siteName,
-    body: [
-      { text: tagline, emphasis: true },
-      { text: "LEARN • PRACTICE • SUCCEED", muted: true },
-      { text: siteUrl, link: true },
-    ],
-    narration: `Prepare smart, achieve more with ${siteName}. Learn, practice, test and improve. Follow us for a new question every day.`,
+    id: "answer",
+    role: "answer",
+    tag: "ANSWER",
+    accent: "green",
+    heading: correct ? `Correct Answer: ${correct.letter}` : "Answer",
+    body,
+    narration: answerSpoken.trim() || "Here is the answer.",
   });
 
   return slides;

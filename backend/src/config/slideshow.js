@@ -4,7 +4,7 @@
 // builds a narrated, branded, vertical (9:16) slideshow MP4 that the existing
 // Reel pipeline then publishes to Facebook and Instagram:
 //
-//   question → slide plan → branded slide images (Cloudinary) →
+//   question → 2 slides (question, answer) → branded images (Cloudinary) →
 //   TTS narration per slide → ffmpeg MP4 (on this server) → ONE plain MP4
 //   uploaded to Cloudinary → public URL
 //
@@ -65,7 +65,8 @@ async function downloadTo(url, dest, { timeoutMs = 60000 } = {}) {
 //   { videoUrl, slides, duration, voice, provider, slidePlan }
 // `opts`:
 //   voice, autoCaptions, generateImages, brandColor, siteName, siteUrl,
-//   subjectName, site (raw Settings doc → resolves the TTS provider/key),
+//   subjectName, questionSec, answerSec (on-screen seconds per slide),
+//   site (raw Settings doc → resolves the TTS provider/key),
 //   onStatus(status) — a callback fired as the job progresses.
 export async function generateSlideshow(question, opts = {}) {
   const onStatus = typeof opts.onStatus === "function" ? opts.onStatus : () => {};
@@ -89,7 +90,12 @@ export async function generateSlideshow(question, opts = {}) {
     autoCaptions: opts.autoCaptions !== false, // default ON
   };
 
-  // 1) Plan the slides (deterministic, adapts to the question type).
+  // On-screen seconds for the two slides (minimums — see composeSlideshowMp4).
+  const secs = (v, def) => Math.max(3, Math.min(40, Math.round(Number(v)) || def));
+  const questionSec = secs(opts.questionSec, 10);
+  const answerSec = secs(opts.answerSec, 8);
+
+  // 1) Plan the two slides (question → answer; adapts to the question type).
   const plan = buildSlidePlan(question, brandOpts);
   if (!plan.length) throw new Error("Could not build any slides for this question.");
 
@@ -127,7 +133,13 @@ export async function generateSlideshow(question, opts = {}) {
     onStatus(SLIDESHOW_STATUS.RENDERING_VIDEO);
     const outPath = path.join(workDir, "slideshow.mp4");
     const { duration } = await composeSlideshowMp4({
-      slides: plan.map((_, i) => ({ imagePath: imagePaths[i], audioPath: audioPaths[i] })),
+      // Slide 1 stays up for the question time, slide 2 for the answer time —
+      // or longer when the narration needs it (the voice is never cut off).
+      slides: plan.map((s, i) => ({
+        imagePath: imagePaths[i],
+        audioPath: audioPaths[i],
+        minSec: s.role === "answer" ? answerSec : questionSec,
+      })),
       outPath,
       workDir,
     });

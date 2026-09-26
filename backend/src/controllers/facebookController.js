@@ -127,6 +127,9 @@ export async function testSlideshow(req, res) {
     voice: req.body?.ttsVoice, // normalised to the effective provider inside
     autoCaptions,
     generateImages,
+    // The form's current slide times (so a test reflects unsaved edits).
+    questionSec: clampSlideSec(req.body?.questionSec, 10),
+    answerSec: clampSlideSec(req.body?.answerSec, 8),
     site,
     brandColor: site?.brandColor || site?.primaryColor || "#2563eb",
     siteName: site?.siteName || "My Study Guide",
@@ -224,11 +227,23 @@ function postOpts(body = {}) {
 }
 
 // Only the fields an admin may set on a schedule (whitelist).
+// Slideshow slide time in whole seconds, 3–40 (two slides then stay well inside
+// the 90 s Reel limit). Falls back to `def` when missing/invalid.
+function clampSlideSec(v, def) {
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) && n > 0 ? Math.max(3, Math.min(40, n)) : def;
+}
+
 // Exported for unit tests (pure, no I/O).
 export function pickScheduleFields(body = {}) {
   const src = body.source || {};
   const cleanId = (v) => (v ? v : null);
-  const kind = ["custom", "flashcard"].includes(body.kind) ? body.kind : "question";
+  let kind = ["custom", "flashcard", "slideshow"].includes(body.kind) ? body.kind : "question";
+  // Older schedules stored the slideshow as a toggle on a "question" post. Keep
+  // them slideshows when they're re-saved (e.g. the list's pause/enable button
+  // sends the stored row back as-is).
+  if (kind === "question" && body.asSlideshow === true) kind = "slideshow";
+  const isSlideshow = kind === "slideshow";
   const mode = body.mode === "once" ? "once" : "recurring";
   // Custom media: keep only well-formed http(s) URLs (from the Cloudinary uploader), max 10.
   const customMedia = Array.isArray(body.customMedia)
@@ -282,16 +297,20 @@ export function pickScheduleFields(body = {}) {
     toInstagram: !!body.toInstagram,
     asImage: !!body.asImage,
     // Post question/flashcard runs as a Reel by mixing the card image with music.
-    asReel: !!body.asReel,
+    // (A slideshow is its own narrated Reel, so it never uses the music Reel.)
+    asReel: isSlideshow ? false : !!body.asReel,
     // Reel length in seconds — clamp to Instagram's accepted 3–90 s window
     // (below 3 s Instagram rejects the publish with a "Fatal" container).
     reelDuration: Math.max(3, Math.min(90, Math.round(Number(body.reelDuration) || 30))),
     // Also share the card image as a 24h Story to the selected networks.
     asStory: !!body.asStory,
-    // AI Educational Slideshow + Voice. When on, the run builds a narrated 9:16
-    // slideshow video from the selected question and posts it as a Reel — the
-    // narration is the audio, so it does NOT use the music Reel library.
-    asSlideshow: !!body.asSlideshow,
+    // AI Slideshow post type: a narrated 2-slide 9:16 Reel (question → answer)
+    // built from the selected question. Derived from the post type.
+    asSlideshow: isSlideshow,
+    // Seconds each slide stays on screen (minimum — it stays longer if the
+    // narration needs it). Clamped so the two slides fit a Reel.
+    questionSec: clampSlideSec(body.questionSec, 10),
+    answerSec: clampSlideSec(body.answerSec, 8),
     // Narration voice — kept as a trimmed string (voices are provider-specific,
     // so it's normalised against the effective provider at generation time).
     ttsVoice: String(body.ttsVoice || "").trim().slice(0, 60),

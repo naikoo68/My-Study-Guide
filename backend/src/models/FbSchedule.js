@@ -13,7 +13,9 @@ const fbScheduleSchema = new mongoose.Schema(
     //   "custom"              — post a fixed admin-written text + uploaded media (no question).
     //   "flashcard"           — draw a question from `source` and post it as a combined
     //                           flashcard image (question panel + answer panel).
-    kind: { type: String, enum: ["question", "custom", "flashcard"], default: "question" },
+    //   "slideshow"           — draw a question from `source` and post it as a narrated
+    //                           2-slide Reel (slide 1 = question, slide 2 = answer).
+    kind: { type: String, enum: ["question", "custom", "flashcard", "slideshow"], default: "question" },
     // Custom-post content (used only when kind === "custom").
     customText: { type: String, default: "" }, // the post text / caption
     customMedia: { type: [String], default: [] }, // hosted image URLs; the first image is attached
@@ -50,7 +52,13 @@ const fbScheduleSchema = new mongoose.Schema(
     // pipeline (Facebook Reel + Instagram Reel). The narration IS the audio, so
     // this mode does NOT use the music Reel library — when `asSlideshow` is true
     // the normal music Reel (`asReel`) is ignored (see runScheduleOnce).
+    // Set automatically for kind "slideshow"; older schedules may carry it on a
+    // "question" kind (treated as a slideshow too).
     asSlideshow: { type: Boolean, default: false },
+    // How long each of the two slides stays on screen, in seconds. The slide
+    // stays up LONGER if the narration needs more time (the voice is never cut).
+    questionSec: { type: Number, default: 10 }, // slide 1: question + options
+    answerSec: { type: Number, default: 8 },    // slide 2: answer reveal
     // Which OpenAI TTS voice narrates the slides (validated against ttsVoices.js).
     ttsVoice: { type: String, default: "coral" },
     // Burn a readable caption band (the slide's narration) onto each slide.

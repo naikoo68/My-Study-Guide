@@ -1182,6 +1182,7 @@ const emptyForm = {
   asStory: false, // also share the image as a 24h Story (Facebook + Instagram)
   // AI Educational Slideshow + Voice — builds narrated 9:16 slides and posts a Reel.
   asSlideshow: false, ttsVoice: "coral", autoCaptions: true, generateImages: false,
+  questionSec: 10, answerSec: 8, // AI Slideshow: seconds slide 1 (question) / slide 2 (answer) stay up
 };
 
 export default function AdminFacebook() {
@@ -1306,7 +1307,8 @@ export default function AdminFacebook() {
 
   const openNew = () => { setSsResult(null); setSsError(""); setForm({ ...emptyForm, times: ["09:00"] }); };
   const openEdit = (s) => { setSsResult(null); setSsError(""); setForm({
-    _id: s._id, kind: ["custom", "flashcard"].includes(s.kind) ? s.kind : "question",
+    _id: s._id,
+    kind: ["custom", "flashcard", "slideshow"].includes(s.kind) ? s.kind : (s.asSlideshow ? "slideshow" : "question"),
     mode: s.mode === "once" ? "once" : "recurring",
     runAt: s.runAt ? toLocalInput(s.runAt) : "",
     title: s.title || "", source: s.source || emptyForm.source,
@@ -1319,7 +1321,9 @@ export default function AdminFacebook() {
     asReel: !!s.asReel,
     reelDuration: s.reelDuration || 30,
     asStory: !!s.asStory,
-    asSlideshow: !!s.asSlideshow,
+    asSlideshow: s.kind === "slideshow" || !!s.asSlideshow,
+    questionSec: s.questionSec || 10,
+    answerSec: s.answerSec || 8,
     ttsVoice: s.ttsVoice || "coral",
     autoCaptions: s.autoCaptions !== false,
     generateImages: !!s.generateImages,
@@ -1367,6 +1371,8 @@ export default function AdminFacebook() {
         ttsVoice: form.ttsVoice || "coral",
         autoCaptions: form.autoCaptions !== false,
         generateImages: !!form.generateImages,
+        questionSec: Number(form.questionSec) || 10,
+        answerSec: Number(form.answerSec) || 8,
         ...(form._id ? { scheduleId: form._id } : { source: form.source, order: form.order }),
       };
       // Rendering runs as a background job on the server (it takes longer than a
@@ -1423,6 +1429,8 @@ export default function AdminFacebook() {
     try {
       const payload = {
         ...form,
+        asSlideshow: form.kind === "slideshow",
+        asReel: form.kind === "slideshow" ? false : form.asReel,
         times: form.times.filter(Boolean),
         mode: isOnce ? "once" : "recurring",
         runAt: isOnce && form.runAt ? new Date(form.runAt).toISOString() : null,
@@ -1653,7 +1661,7 @@ export default function AdminFacebook() {
 
             {/* Post type: draw a quiz question, or a fixed custom text/media post. */}
             <p className="mb-1 block text-sm font-semibold">Post type</p>
-            <div className="mb-3 flex gap-2">
+            <div className="mb-3 flex flex-wrap gap-2">
               <button type="button" onClick={() => setForm((f) => ({ ...f, kind: "question", mode: "recurring" }))}
                 className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${form.kind === "question" ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"}`}>
                 <ListChecks className="h-3.5 w-3.5" /> Quiz question
@@ -1666,10 +1674,14 @@ export default function AdminFacebook() {
                 className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${form.kind === "custom" ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"}`}>
                 <FileText className="h-3.5 w-3.5" /> Custom (text / media)
               </button>
+              <button type="button" onClick={() => setForm((f) => ({ ...f, kind: "slideshow", mode: "recurring", asReel: false }))}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${form.kind === "slideshow" ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"}`}>
+                <Sparkles className="h-3.5 w-3.5" /> AI Slideshow
+              </button>
             </div>
 
             <label className="mb-1 block text-sm font-medium">Title (optional)</label>
-            <input className="input" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder={form.kind === "custom" ? "e.g. Weekly announcement" : form.kind === "flashcard" ? "e.g. Daily Biology flashcard" : "e.g. Daily Accountancy question"} />
+            <input className="input" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder={form.kind === "custom" ? "e.g. Weekly announcement" : form.kind === "flashcard" ? "e.g. Daily Biology flashcard" : form.kind === "slideshow" ? "e.g. Daily Biology slideshow" : "e.g. Daily Accountancy question"} />
 
             {form.kind === "flashcard" && (
               <p className="mt-2 rounded-lg bg-brand-50 px-3 py-2 text-xs text-brand-700 dark:bg-brand-900/30 dark:text-brand-300">
@@ -1780,15 +1792,15 @@ export default function AdminFacebook() {
               <p className="mt-1 text-xs text-slate-400">
                 {form.kind === "custom"
                   ? "Instagram needs an image — the first uploaded image is used."
-                  : form.asSlideshow
-                    ? "Instagram posts a Reel — the narrated AI slideshow video is published automatically."
+                  : form.kind === "slideshow"
+                    ? "Instagram posts a Reel — the narrated slideshow video is published automatically."
                     : form.asReel
                       ? "Instagram posts a Reel — the auto-generated card is mixed with your music into a video."
                       : "Instagram always posts an image, so a question image is generated automatically."}
               </p>
             )}
 
-            {form.kind !== "custom" && (
+            {(form.kind === "question" || form.kind === "flashcard") && (
               <div className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
                 <label className="flex items-start justify-between gap-3">
                   <span className="flex items-center gap-1.5 text-sm font-medium">
@@ -1833,26 +1845,44 @@ export default function AdminFacebook() {
               </div>
             )}
 
-            {/* AI Educational Slideshow + Voice (question/flashcard schedules) */}
-            {form.kind !== "custom" && (
+            {/* AI Slideshow post type: one question → 2 narrated slides → 9:16 Reel */}
+            {form.kind === "slideshow" && (
               <div className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-                <label className="flex items-start justify-between gap-3">
-                  <span className="flex items-center gap-1.5 text-sm font-medium">
-                    <Sparkles className="h-4 w-4 text-brand-500" /> AI Slideshow + Voice
-                    <span className="font-normal text-slate-400">— narrated educational Reel</span>
-                  </span>
-                  <button type="button"
-                    onClick={() => setForm((f) => ({ ...f, asSlideshow: !f.asSlideshow }))}
-                    className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${form.asSlideshow ? "bg-[#1877F2]" : "bg-slate-300 dark:bg-slate-600"}`}>
-                    <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${form.asSlideshow ? "left-6" : "left-1"}`} />
-                  </button>
-                </label>
+                <p className="flex items-center gap-1.5 text-sm font-semibold">
+                  <Sparkles className="h-4 w-4 text-brand-500" /> AI Slideshow settings
+                </p>
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                  Automatically creates educational slides and narrates them with text-to-speech.
+                  Each post is one question as a narrated 2-slide Reel: <b>slide 1</b> shows the question with its options,
+                  <b> slide 2</b> reveals the answer and explanation.
                 </p>
 
-                {form.asSlideshow && (
                   <div className="mt-3 space-y-3">
+                    {/* How long each of the two slides stays on screen */}
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {[
+                        ["questionSec", "Question time", "Slide 1 — question + options", 10],
+                        ["answerSec", "Answer reveal time", "Slide 2 — answer + explanation", 8],
+                      ].map(([key, label, hint, def]) => (
+                        <div key={key}>
+                          <label className="mb-1 flex items-center gap-1.5 text-sm font-medium">
+                            <Clock className="h-4 w-4 text-slate-400" /> {label}
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <input type="number" min={3} max={40} step={1} className="input h-9 w-24"
+                              value={form[key]}
+                              onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value === "" ? "" : Math.max(1, Math.min(40, parseInt(e.target.value, 10) || 0)) }))}
+                              onBlur={(e) => { const n = parseInt(e.target.value, 10); setForm((f) => ({ ...f, [key]: n >= 3 ? Math.min(40, n) : def })); }} />
+                            <span className="text-sm text-slate-500 dark:text-slate-400">seconds</span>
+                          </div>
+                          <p className="mt-1 text-xs text-slate-400">{hint}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      Reel length ≈ {(Number(form.questionSec) || 10) + (Number(form.answerSec) || 8)}s (3–40s per slide).
+                      If the voice needs longer than the time you set, that slide stays up until the narration finishes.
+                    </p>
+
                     {/* Narration engine (TTS provider + key) — saved to site settings */}
                     <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
                       <p className="mb-2 text-sm font-semibold">Narration engine (Text-to-Speech)</p>
@@ -1912,26 +1942,17 @@ export default function AdminFacebook() {
                       </select>
                     </div>
 
-                    {/* Auto captions + AI images (optional) */}
-                    <div className="flex flex-wrap gap-4">
-                      <label className="flex items-center gap-2 text-sm">
-                        <input type="checkbox" className="h-4 w-4 accent-brand-600"
-                          checked={form.autoCaptions !== false}
-                          onChange={(e) => setForm((f) => ({ ...f, autoCaptions: e.target.checked }))} />
-                        Auto captions
-                      </label>
-                      <label className="flex items-center gap-2 text-sm">
-                        <input type="checkbox" className="h-4 w-4 accent-brand-600"
-                          checked={!!form.generateImages}
-                          onChange={(e) => setForm((f) => ({ ...f, generateImages: e.target.checked }))} />
-                        AI illustrations <span className="text-slate-400">(optional, extra cost)</span>
-                      </label>
-                    </div>
+                    {/* Auto captions */}
+                    <label className="flex items-center gap-2 text-sm">
+                      <input type="checkbox" className="h-4 w-4 accent-brand-600"
+                        checked={form.autoCaptions !== false}
+                        onChange={(e) => setForm((f) => ({ ...f, autoCaptions: e.target.checked }))} />
+                      Auto captions <span className="text-slate-400">(show the spoken words at the bottom of each slide)</span>
+                    </label>
 
                     <div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
-                      <b>Automatic process:</b> question → educational slides → AI narration → 9:16 Reel → Facebook / Instagram.
-                      The narration is the audio, so this mode does <b>not</b> use the Reel music library
-                      {form.asReel ? " (the music Reel option above is ignored while this is on)." : "."}
+                      <b>Automatic process:</b> question → slide 1 (question) → slide 2 (answer) → AI narration → 9:16 Reel → Facebook / Instagram.
+                      The narration is the audio, so no music library is needed.
                     </div>
 
                     {/* Generate Test Slideshow (no publishing) */}
@@ -1971,7 +1992,6 @@ export default function AdminFacebook() {
                       </div>
                     )}
                   </div>
-                )}
               </div>
             )}
 
@@ -2040,12 +2060,12 @@ export default function AdminFacebook() {
                         {s.title || (s.kind === "custom" ? "Custom post" : s.source?.label) || "Untitled schedule"}
                         {s.kind === "custom" && <span className="rounded-full bg-brand-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">Custom</span>}
                         {s.kind === "flashcard" && <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">Flashcard</span>}
-                        {s.asSlideshow && (
+                        {(s.kind === "slideshow" || s.asSlideshow) && (
                           <span className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
                             <Sparkles className="h-3 w-3" /> AI Slideshow
                           </span>
                         )}
-                        {((s.asReel && !s.asSlideshow) || (s.kind === "custom" && s.customVideo)) && (
+                        {((s.asReel && !s.asSlideshow && s.kind !== "slideshow") || (s.kind === "custom" && s.customVideo)) && (
                           <span className="inline-flex items-center gap-1 rounded-full bg-fuchsia-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-fuchsia-700 dark:bg-fuchsia-900/40 dark:text-fuchsia-300">
                             <Film className="h-3 w-3" /> Reel
                           </span>
