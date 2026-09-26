@@ -1369,6 +1369,43 @@ function dueSlot(sch, now) {
   return null;
 }
 
+// Pick the questions for ONE multi-question slideshow video. `first` is the
+// question the normal selection already picked; the rest are drawn from the
+// same source, excluding everything already posted and already picked, so a
+// video never repeats a question. Returns fewer than `count` when the source
+// runs out (never recycles INTO a video). Non-destructive: never saves `sch`.
+export async function pickQuestionsForSlideshow(sch, count, first) {
+  const want = Math.max(1, Math.min(10, Math.round(Number(count)) || 1));
+  const list = first ? [first] : [];
+  const posted = (sch?.postedQuestionIds || []).map(String);
+  for (let i = list.length; i < want; i++) {
+    const transient = {
+      source: sch?.source || {},
+      order: sch?.order,
+      stopWhenExhausted: true, // extras must be NEW questions — never recycle
+      postedQuestionIds: [...posted, ...list.map((x) => String(x._id))],
+    };
+    if (transient.source?.question) break; // a single-question schedule has no pool
+    const picked = await pickQuestionForSchedule(transient);
+    if (!picked?.q || picked.exhausted) break;
+    list.push(picked.q);
+  }
+  return list;
+}
+
+// Caption for a multi-question slideshow: the trail, then each question's stem
+// numbered, then hashtags. Answers are revealed in the video itself.
+export function formatSlideshowCaption(qs, { breadcrumb = "", hashtags = "", number = null } = {}) {
+  const lines = [];
+  const prefix = Number.isInteger(number) && number > 0 ? `${number}. ` : "";
+  lines.push(prefix + (breadcrumb || `${qs.length} questions`));
+  lines.push("", `🧠 ${qs.length} questions — answers revealed in the video.`);
+  qs.forEach((q, i) => lines.push("", `Q${i + 1}. ${plain(q.text)}`));
+  lines.push("", "👉 How many did you get right? Comment below!");
+  if (String(hashtags || "").trim()) lines.push("", String(hashtags).trim());
+  return lines.join("\n").slice(0, 60000);
+}
+
 // Resolve the Reel music tracks to rotate through. Order of preference:
 //   1) a schedule's OWN `customAudios` (per-schedule override, back-compat),
 //   2) the legacy single `customAudio` on the schedule,
@@ -1585,6 +1622,12 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   }
   if (!picked || !picked.q) return { ok: false, error: "No published questions found in the selected source." };
   const { q, recycled, poolSize, skipped: skippedIncomplete = 0 } = picked;
+  // AI Slideshow post type (older schedules: the asSlideshow toggle). A
+  // slideshow may carry SEVERAL questions in one video.
+  const isSlideshowRun = sch.kind === "slideshow" || !!sch.asSlideshow;
+  const slideQs = isSlideshowRun
+    ? await pickQuestionsForSlideshow(sch, sch.slideshowQuestions || 1, q)
+    : [q];
 
   const wantFb = sch.toFacebook !== false;
   const wantIg = !!sch.toInstagram && cfg.igEnabled;
@@ -1656,15 +1699,18 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
 
   // Build the caption WITHOUT the number here; each platform gets its own
   // number-prefixed version below so the per-feed sequence is honoured.
-  const captionBase = formatQuestionPost(q, {
-    includeOptions: isFlashcard ? false : sch.includeOptions,
-    includeAnswer: isFlashcard ? false : sch.includeAnswer,
-    hashtags: finalTags,
-    breadcrumb,
-    number: postNumber,
-  });
+  const captionBase = slideQs.length > 1
+    ? formatSlideshowCaption(slideQs, { breadcrumb, hashtags: finalTags, number: postNumber })
+    : formatQuestionPost(q, {
+        includeOptions: isFlashcard ? false : sch.includeOptions,
+        includeAnswer: isFlashcard ? false : sch.includeAnswer,
+        hashtags: finalTags,
+        breadcrumb,
+        number: postNumber,
+      });
   const captionFor = (platformNumber) => {
     if (!Number.isInteger(platformNumber) || platformNumber <= 0 || platformNumber === postNumber) return captionBase;
+    if (slideQs.length > 1) return formatSlideshowCaption(slideQs, { breadcrumb, hashtags: finalTags, number: platformNumber });
     return formatQuestionPost(q, {
       includeOptions: isFlashcard ? false : sch.includeOptions,
       includeAnswer: isFlashcard ? false : sch.includeAnswer,
@@ -1785,7 +1831,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   // on, the normal music Reel (asReel) is ignored. Best-effort: any failure logs
   // a note and falls back to the normal image/text post so a run is never lost.
   // The "slideshow" post type (older schedules: the asSlideshow toggle).
-  const wantSlideshow = sch.kind === "slideshow" || !!sch.asSlideshow;
+  const wantSlideshow = isSlideshowRun;
   if (wantSlideshow) {
     // Persist coarse job status as the (potentially slow) render progresses so
     // the admin can see where it got to. Best-effort — never blocks posting.
@@ -1796,12 +1842,15 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
     try {
       // Slide times, voice and captions come from the site-wide "AI Slideshow"
       // section (falling back to any older per-schedule values).
-      const result = await generateSlideshow(q, {
+      const result = await generateSlideshow(slideQs, {
         voice: site?.slideshowVoice || sch.ttsVoice,
         autoCaptions: (site?.slideshowAutoCaptions ?? sch.autoCaptions) !== false,
         generateImages: !!sch.generateImages,
         questionSec: site?.slideshowQuestionSec ?? sch.questionSec,
         answerSec: site?.slideshowAnswerSec ?? sch.answerSec,
+        // Uploaded background templates for the question / answer slides.
+        questionTemplateUrl: site?.slideshowQuestionTemplateUrl || "",
+        answerTemplateUrl: site?.slideshowAnswerTemplateUrl || "",
         site, // raw settings doc → resolves the TTS provider/key/model
         brandColor: site?.brandColor || site?.primaryColor || "#2563eb",
         siteName: site?.siteName || "My Study Guide",
@@ -1816,7 +1865,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
         await warmMediaUrl(reelVideoUrl, { attempts: 24, delayMs: 5000, perTryTimeoutMs: 45000 });
         sch.slideshowStatus = SLIDESHOW_STATUS.READY;
         sch.slideshowError = "";
-        notes.push(`Slideshow ✓ (${result.slides} slides · ${result.duration}s · ${result.voice})`);
+        notes.push(`Slideshow ✓ (${result.questions > 1 ? `${result.questions} questions · ` : ""}${result.slides} slides · ${result.duration}s · ${result.voice})`);
       } else {
         sch.slideshowStatus = SLIDESHOW_STATUS.FAILED;
         notes.push("Slideshow ✗ (no video — posted as image)");
@@ -2017,7 +2066,9 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   let finishedPool = false; // true when THIS successful post just emptied the pool
   if (anyOk) {
     if (wantSlideshow && reelVideoUrl) sch.slideshowStatus = SLIDESHOW_STATUS.PUBLISHED;
-    sch.postedQuestionIds = recycled ? [q._id] : [...(sch.postedQuestionIds || []), q._id];
+    // A multi-question slideshow used several questions — mark them all posted.
+    const usedIds = (reelVideoUrl && slideQs.length > 1 ? slideQs : [q]).map((x) => x._id);
+    sch.postedQuestionIds = recycled ? usedIds : [...(sch.postedQuestionIds || []), ...usedIds];
     sch.postCount = (sch.postCount || 0) + 1;
     const postedCount = (sch.postedQuestionIds || []).length;
     // Did this post finish the WHOLE source (stop-when-exhausted, no recycle)?

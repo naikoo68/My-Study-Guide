@@ -88,8 +88,9 @@ export async function probeDuration(file) {
 }
 
 // Build the slideshow MP4.
-//   slides:  [{ imagePath, audioPath, minSec? }]  (local files, in order;
-//            minSec = how long this slide stays up at least)
+//   slides:  [{ imagePath, audioPath, minSec?, bgPath? }]  (local files, in
+//            order; minSec = how long this slide stays up at least; bgPath =
+//            an optional template image drawn underneath the slide)
 //   outPath: where to write the final MP4
 // Returns { duration } (seconds).
 export async function composeSlideshowMp4({
@@ -115,15 +116,25 @@ export async function composeSlideshowMp4({
     // Audio: resample, add a short tail, and pad to at least `minSec`; the
     //        segment ends with the audio (-shortest), so the slide stays up for
     //        exactly its narration (+tail), never a fixed length.
-    const vf =
-      `[0:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
-      `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:white,format=yuv420p[v]`;
+    // With a TEMPLATE, the template image fills the frame (cover-cropped to
+    // 9:16) and the slide (a PNG with a transparent surround) is laid on top.
+    const bg = list[i].bgPath;
+    const vf = bg
+      ? `[0:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1[bg];` +
+        `[1:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,format=rgba[fg];` +
+        `[bg][fg]overlay=(W-w)/2:(H-h)/2,format=yuv420p[v]`
+      : `[0:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
+        `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:white,format=yuv420p[v]`;
+    const audioIdx = bg ? 2 : 1;
     // Each slide may carry its own on-screen time (question / answer time).
     const slideMin = Math.max(1, Number(list[i].minSec) || minSec);
-    const af = `[1:a]aresample=44100,apad=pad_dur=${tailSec},apad=whole_dur=${slideMin}[a]`;
+    const af = `[${audioIdx}:a]aresample=44100,apad=pad_dur=${tailSec},apad=whole_dur=${slideMin}[a]`;
+    const imageInputs = bg
+      ? ["-loop", "1", "-framerate", String(fps), "-i", bg, "-loop", "1", "-framerate", String(fps), "-i", list[i].imagePath]
+      : ["-loop", "1", "-framerate", String(fps), "-i", list[i].imagePath];
     await runFfmpeg([
       "-hide_banner", "-loglevel", "error", "-y",
-      "-loop", "1", "-framerate", String(fps), "-i", list[i].imagePath,
+      ...imageInputs,
       "-i", list[i].audioPath,
       "-filter_complex", `${vf};${af}`,
       "-map", "[v]", "-map", "[a]",
@@ -149,12 +160,13 @@ export async function composeSlideshowMp4({
 
   let duration = await probeDuration(outPath);
 
-  // Facebook Reels must be ≤ 90 s. A question with a very long explanation can
-  // narrate past that, so gently SPEED UP the whole video to fit (capped at
-  // 1.5× so speech stays understandable). Picture and sound are sped up by the
-  // same factor, so they stay in sync.
-  if (duration > maxTotalSec) {
-    const factor = Math.min(1.5, duration / maxTotalSec);
+  // Facebook Reels (via the API) must be ≤ 90 s. If the video is only a little
+  // over, gently SPEED IT UP to fit (at most 1.15×, so speech stays natural;
+  // picture and sound change together, so they stay in sync). A longer video
+  // is kept whole — it is NEVER cut off: Instagram Reels accept up to 15
+  // minutes, and Facebook falls back to a normal video post.
+  if (duration > maxTotalSec && duration / maxTotalSec <= 1.15) {
+    const factor = duration / maxTotalSec;
     const fitted = path.join(workDir, "slideshow-fit.mp4");
     await runFfmpeg([
       "-hide_banner", "-loglevel", "error", "-y",
@@ -164,8 +176,6 @@ export async function composeSlideshowMp4({
       "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-r", String(fps), "-threads", "2",
       "-c:a", "aac", "-b:a", "128k", "-ac", "2", "-ar", "44100",
       "-movflags", "+faststart",
-      // Hard cap: never exceed the Reel limit even after the 1.5× speed-up.
-      "-t", String(maxTotalSec),
       fitted,
     ]);
     await fs.rename(fitted, outPath);

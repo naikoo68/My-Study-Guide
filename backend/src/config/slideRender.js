@@ -157,15 +157,24 @@ function buildSlideSvg(slide, opts = {}) {
   const siteName = esc(uni(opts.siteName || "My Study Guide"));
   const pal = palette(slide.accent, brandColor);
   const els = [];
+  // TEMPLATE mode: the admin's uploaded image is the background (composited
+  // underneath later), so draw NO background/header/footer — just the content
+  // on a white card in the middle, leaving the template's own header and
+  // footer areas visible.
+  const templateMode = !!opts.transparentBackground;
+  const TPL_TOP = 300;
+  const TPL_BOTTOM = H - 260;
 
-  // Header: brand strip with the site name.
-  els.push(RR(0, 0, W, 150, 0, brandColor));
-  els.push(T(PAD, 96, 44, "#ffffff", siteName, { weight: "800" }));
-  els.push(RR(0, 150, W, 6, 0, "#ea580c"));
+  if (!templateMode) {
+    // Header: brand strip with the site name.
+    els.push(RR(0, 0, W, 150, 0, brandColor));
+    els.push(T(PAD, 96, 44, "#ffffff", siteName, { weight: "800" }));
+    els.push(RR(0, 150, W, 6, 0, "#ea580c"));
+  }
 
   const headerEls = els;          // header strip stays pinned to the top
   const contentEls = [];
-  const CONTENT_TOP = 226;
+  const CONTENT_TOP = templateMode ? TPL_TOP + 50 : 226;
   let y = CONTENT_TOP;
   {
   const els = contentEls;         // everything below is the slide's content
@@ -225,11 +234,11 @@ function buildSlideSvg(slide, opts = {}) {
 
   // Caption band (auto-captions) — the slide's narration, readable at the bottom.
   let caption = "";
-  let captionTop = H - 110; // top of the footer area when there's no caption
+  let captionTop = templateMode ? TPL_BOTTOM - 20 : H - 110; // bottom of the content area
   if (opts.autoCaptions && opts.captionText) {
     const capLines = wrapLines(opts.captionText, 34, W - PAD * 2 - 20, 5);
     const bandH = capLines.length * 46 + 44;
-    const bandY = H - bandH - 70;
+    const bandY = templateMode ? TPL_BOTTOM - bandH - 24 : H - bandH - 70;
     captionTop = bandY;
     const inner = capLines
       .map((ln, i) => T(W / 2, bandY + 52 + i * 46, 34, "#ffffff", esc(ln), { weight: "600", anchor: "middle" }))
@@ -255,7 +264,7 @@ function buildSlideSvg(slide, opts = {}) {
     : `translate(0,${shiftY.toFixed(0)})`;
 
   // Footer brand line (skip on the CTA slide, which is itself the brand slide).
-  const footer = slide.brand
+  const footer = slide.brand || templateMode
     ? ""
     : T(W / 2, H - 32, 28, "#94a3b8", `${siteName}  ·  ${esc(uni(opts.siteUrl || "www.mystudyguide.in"))}`, { weight: "700", anchor: "middle" });
 
@@ -266,7 +275,9 @@ function buildSlideSvg(slide, opts = {}) {
         <stop offset="1" stop-color="#eef2f7"/>
       </linearGradient>
     </defs>
-    <rect width="${W}" height="${H}" fill="url(#bg)"/>
+    ${templateMode
+      ? `<rect x="50" y="${TPL_TOP}" width="${W - 100}" height="${TPL_BOTTOM - TPL_TOP}" rx="36" fill="#ffffff" fill-opacity="0.94" stroke="#e2e8f0" stroke-width="2"/>`
+      : `<rect width="${W}" height="${H}" fill="url(#bg)"/>`}
     ${headerEls.join("\n    ")}
     <g transform="${contentTransform}">
     ${contentEls.join("\n    ")}
@@ -283,7 +294,9 @@ export async function renderSlideImage(slide, opts = {}) {
   const uploaded = await uploadBufferToCloudinary(Buffer.from(svg), {
     resourceType: "image",
     folder: "mystudyguide/slideshow/slides",
-    format: "jpg",
+    // PNG keeps the transparent area around the card so the template shows
+    // through when it's composited underneath.
+    format: opts.transparentBackground ? "png" : "jpg",
     mime: "image/svg+xml",
   });
   if (!uploaded.secure_url) throw new Error("Cloudinary returned no URL for the slide image.");

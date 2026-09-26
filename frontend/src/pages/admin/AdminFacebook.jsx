@@ -1007,6 +1007,54 @@ function ReelMusicLibrarySection({ settings, saveSettings }) {
   );
 }
 
+// Upload / remove ONE slide template image (question or answer). Saved to
+// site settings immediately, like the flashcard template.
+function SlideTemplateUploader({ label, hint, settingKey, settings, saveSettings }) {
+  const fileRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const url = settings?.[settingKey] || "";
+
+  const upload = async (e) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    if (!file.type.startsWith("image/")) { setMsg({ ok: false, text: "Please pick an image file." }); return; }
+    setUploading(true); setMsg(null);
+    try {
+      const r = await uploadService.imageDirect(file);
+      if (!r?.url) throw new Error("Upload failed.");
+      await saveSettings({ [settingKey]: r.url });
+      setMsg({ ok: true, text: "Saved." });
+    } catch (err) { setMsg({ ok: false, text: err.message || "Upload failed." }); }
+    finally { setUploading(false); if (fileRef.current) fileRef.current.value = ""; }
+  };
+  const remove = async () => {
+    try { await saveSettings({ [settingKey]: "" }); setMsg({ ok: true, text: "Removed — using the built-in design." }); }
+    catch (err) { setMsg({ ok: false, text: err.message || "Failed." }); }
+  };
+
+  return (
+    <div className="flex items-start gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+      {url ? (
+        <div className="relative flex-shrink-0">
+          <img src={url} alt={label} className="h-32 w-[72px] rounded-md border border-slate-200 object-cover dark:border-slate-700" />
+          <button type="button" onClick={remove} title="Remove" className="absolute -right-2 -top-2 rounded-full bg-rose-100 p-1 text-rose-600 shadow hover:bg-rose-200 dark:bg-rose-900/40"><Trash2 className="h-3.5 w-3.5" /></button>
+        </div>
+      ) : (
+        <div className="flex h-32 w-[72px] flex-shrink-0 items-center justify-center rounded-md border-2 border-dashed border-slate-300 text-slate-300 dark:border-slate-600"><ImagePlus className="h-6 w-6" /></div>
+      )}
+      <div className="min-w-0">
+        <p className="text-sm font-medium">{label}</p>
+        <p className="mt-0.5 text-xs text-slate-400">{hint}</p>
+        <label className={`btn-outline mt-2 cursor-pointer !py-1 text-xs ${uploading ? "pointer-events-none opacity-60" : ""}`}>
+          {uploading ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Uploading…</> : <><Upload className="h-3.5 w-3.5" /> {url ? "Replace" : "Upload"} template</>}
+          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={upload} disabled={uploading} />
+        </label>
+        {msg && <p className={`mt-1 text-xs font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.text}</p>}
+      </div>
+    </div>
+  );
+}
+
 // AI Slideshow — site-wide settings for the "AI Slideshow" post type (one
 // question → 2 narrated slides → 9:16 Reel). Set once here, applied to every
 // AI Slideshow schedule, like the Reel music library and watermarks. Includes
@@ -1043,6 +1091,7 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
   const [toFacebook, setToFacebook] = useState(true);
   const [toInstagram, setToInstagram] = useState(false);
   const [hashtags, setHashtags] = useState("");
+  const [questionCount, setQuestionCount] = useState(1); // questions per video (1–10)
   const [creating, setCreating] = useState(false);
   const [createMsg, setCreateMsg] = useState(null);
   const hasSource = !!(source.subject || source.session || source.quiz || source.testSeries);
@@ -1068,6 +1117,7 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
   const voices = voicesByProvider[provider] || [];
   const voiceValue = voices.some((v) => v.id === voice) ? voice : (voices[0]?.id || "");
   const secs = (v, def) => { const n = parseInt(v, 10); return n >= 3 ? Math.min(40, n) : def; };
+  const qCount = Math.max(1, Math.min(10, parseInt(questionCount, 10) || 1));
 
   const save = async () => {
     setSaving(true); setMsg(null);
@@ -1097,7 +1147,8 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
         autoCaptions: captions,
         questionSec: secs(questionSec, 10),
         answerSec: secs(answerSec, 8),
-        // Preview a question from the picked content (else a random one).
+        slideshowQuestions: qCount,
+        // Preview questions from the picked content (else random ones).
         ...(hasSource ? { source, order } : {}),
       });
       if (!start?.jobId) throw new Error(start?.message || "Could not start the test slideshow.");
@@ -1151,12 +1202,13 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
         toFacebook,
         toInstagram,
         hashtags: hashtags.trim(),
+        slideshowQuestions: qCount,
         includeOptions: true,
         includeAnswer: false,
       });
       setCreateMsg({ ok: true, text: `Slideshow schedule created for ${source.label || "the picked content"} — it's in Scheduled posts below.` });
       setTitle(""); setSource({ subject: null, session: null, quiz: null, testSeries: null, label: "" }); setPickerKey((k) => k + 1);
-      setTimes(["09:00"]); setDays([]); setHashtags("");
+      setTimes(["09:00"]); setDays([]); setHashtags(""); setQuestionCount(1);
       onCreated?.();
     } catch (e) {
       setCreateMsg({ ok: false, text: e.message || "Could not create the schedule." });
@@ -1177,6 +1229,19 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
       <p className="mb-1 mt-4 text-sm font-semibold">1. Content — where questions come from</p>
       <SourcePicker key={pickerKey} onPick={setSource} />
       {source.label && <p className="mt-2 text-xs text-emerald-600">Selected: {source.label}</p>}
+      <div className="mt-3">
+        <label className="mb-1 flex items-center gap-1.5 text-sm font-medium"><ListChecks className="h-4 w-4 text-slate-400" /> Questions per slideshow</label>
+        <div className="flex items-center gap-2">
+          <input type="number" min={1} max={10} step={1} className="input h-9 w-24" value={questionCount}
+            onChange={(e) => setQuestionCount(e.target.value === "" ? "" : Math.max(1, Math.min(10, parseInt(e.target.value, 10) || 1)))}
+            onBlur={() => setQuestionCount(qCount)} />
+          <span className="text-sm text-slate-500 dark:text-slate-400">question{qCount > 1 ? "s" : ""} in each video (1–10)</span>
+        </div>
+        <p className="mt-1 text-xs text-slate-400">
+          Each question gets its own question slide and answer slide: Q1 → A1 → Q2 → A2 …
+          All {qCount} question{qCount > 1 ? "s are" : " is"} marked as posted, so none repeat.
+        </p>
+      </div>
 
       {/* 2) When to post */}
       <p className="mb-1 mt-4 flex items-center gap-1.5 text-sm font-semibold"><Clock className="h-4 w-4 text-slate-400" /> 2. Times (posts one question at each)</p>
@@ -1247,9 +1312,23 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
         ))}
       </div>
       <p className="mt-2 text-xs text-slate-400">
-        Reel length ≈ {secs(questionSec, 10) + secs(answerSec, 8)}s (3–40s per slide). If the voice needs longer than the time
-        you set, that slide stays up until the narration finishes.
+        Video length ≈ {(secs(questionSec, 10) + secs(answerSec, 8)) * qCount}s ({qCount} × {secs(questionSec, 10)}s + {secs(answerSec, 8)}s). If the voice needs
+        longer than the time you set, that slide stays up until the narration finishes.
+        {(secs(questionSec, 10) + secs(answerSec, 8)) * qCount > 90 && " Over 90s: Instagram still posts it as a Reel; Facebook posts it as a normal video."}
       </p>
+
+      {/* Slide templates */}
+      <p className="mb-1 mt-5 text-sm font-semibold">Slide templates <span className="font-normal text-slate-400">(optional)</span></p>
+      <p className="mb-2 text-xs text-slate-400">
+        Upload your own background for each slide type — best at <b>1080×1920</b> (9:16). Keep the top and bottom for your branding;
+        the question / answer is placed on a white card in the middle. Leave empty to use the built-in design.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <SlideTemplateUploader label="Question slide template" hint="Background for slide 1 (question + options)"
+          settingKey="slideshowQuestionTemplateUrl" settings={settings} saveSettings={saveSettings} />
+        <SlideTemplateUploader label="Answer slide template" hint="Background for slide 2 (answer + explanation)"
+          settingKey="slideshowAnswerTemplateUrl" settings={settings} saveSettings={saveSettings} />
+      </div>
 
       {/* Narration engine */}
       <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -1310,7 +1389,7 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
         <div className="mt-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
           <video src={result.videoUrl} controls playsInline className="mx-auto max-h-[420px] rounded-lg bg-black" />
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
-            <span className="inline-flex items-center gap-1"><Film className="h-3 w-3" /> {result.slides} slides</span>
+            <span className="inline-flex items-center gap-1"><Film className="h-3 w-3" /> {result.questions > 1 ? `${result.questions} questions · ` : ""}{result.slides} slides</span>
             <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" /> {result.duration}s</span>
             <span className="inline-flex items-center gap-1"><Volume2 className="h-3 w-3" /> {result.voice}</span>
             <a href={result.videoUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand-600 hover:underline"><PlayCircle className="h-3 w-3" /> Open video</a>
@@ -1497,6 +1576,7 @@ const emptyForm = {
   // AI Educational Slideshow + Voice — builds narrated 9:16 slides and posts a Reel.
   asSlideshow: false, ttsVoice: "coral", autoCaptions: true, generateImages: false,
   questionSec: 10, answerSec: 8, // AI Slideshow: seconds slide 1 (question) / slide 2 (answer) stay up
+  slideshowQuestions: 1, // AI Slideshow: questions per video
 };
 
 export default function AdminFacebook() {
@@ -1622,6 +1702,7 @@ export default function AdminFacebook() {
     asStory: !!s.asStory,
     asSlideshow: s.kind === "slideshow" || !!s.asSlideshow,
     questionSec: s.questionSec || 10,
+    slideshowQuestions: s.slideshowQuestions || 1,
     answerSec: s.answerSec || 8,
     ttsVoice: s.ttsVoice || "coral",
     autoCaptions: s.autoCaptions !== false,
@@ -2092,7 +2173,11 @@ export default function AdminFacebook() {
             {form.kind === "slideshow" && (
               <p className="mt-4 flex items-start gap-1.5 rounded-lg bg-slate-50 p-3 text-xs text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
                 <Sparkles className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-500" />
-                <span>Each run posts one question from this source as a narrated 2-slide Reel (question → answer).
+                <span>Each run posts
+                <input type="number" min={1} max={10} className="input mx-1 inline-block h-7 w-16 !py-0 text-center"
+                  value={form.slideshowQuestions || 1}
+                  onChange={(e) => setForm((f) => ({ ...f, slideshowQuestions: Math.max(1, Math.min(10, parseInt(e.target.value, 10) || 1)) }))} />
+                question(s) from this source as a narrated Reel (question → answer for each).
                 Question time, answer reveal time, voice and captions are in the <b>AI Slideshow</b> section above (new slideshow schedules are created there too).</span>
               </p>
             )}
@@ -2164,7 +2249,7 @@ export default function AdminFacebook() {
                         {s.kind === "flashcard" && <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">Flashcard</span>}
                         {(s.kind === "slideshow" || s.asSlideshow) && (
                           <span className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
-                            <Sparkles className="h-3 w-3" /> AI Slideshow
+                            <Sparkles className="h-3 w-3" /> AI Slideshow{s.slideshowQuestions > 1 ? ` · ${s.slideshowQuestions}Q` : ""}
                           </span>
                         )}
                         {((s.asReel && !s.asSlideshow && s.kind !== "slideshow") || (s.kind === "custom" && s.customVideo)) && (

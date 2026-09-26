@@ -281,6 +281,12 @@ const settingsSchema = new mongoose.Schema(
     slideshowAnswerSec: { type: Number, default: 8 },    // slide 2: answer reveal
     slideshowVoice: { type: String, default: "" },       // "" = the engine's default voice
     slideshowAutoCaptions: { type: Boolean, default: true },
+    // Optional background TEMPLATE images (uploaded, public URLs) for the two
+    // slide types. When set, the slide is drawn on top of the template (the
+    // question/answer in a white card in the middle) instead of the built-in
+    // design. Recommended size 1080×1920.
+    slideshowQuestionTemplateUrl: { type: String, default: "" },
+    slideshowAnswerTemplateUrl: { type: String, default: "" },
     // Center TEXT watermark drawn diagonally across the middle of every
     // Facebook/Instagram question-card image (in addition to the selfie/logo
     // above). Text is optional — when blank it falls back to the site watermark

@@ -59,6 +59,9 @@ const fbScheduleSchema = new mongoose.Schema(
     // stays up LONGER if the narration needs more time (the voice is never cut).
     questionSec: { type: Number, default: 10 }, // slide 1: question + options
     answerSec: { type: Number, default: 8 },    // slide 2: answer reveal
+    // How many questions go into ONE slideshow video (each = question slide +
+    // answer slide). 1–10.
+    slideshowQuestions: { type: Number, default: 1 },
     // Which OpenAI TTS voice narrates the slides (validated against ttsVoices.js).
     ttsVoice: { type: String, default: "coral" },
     // Burn a readable caption band (the slide's narration) onto each slide.
