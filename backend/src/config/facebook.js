@@ -1042,6 +1042,7 @@ import { renderQuestionCardShot, renderFlashcardCardShot } from "./cardShot.js";
 import { isQuestionComplete } from "../utils/questionComplete.js";
 import { selectAutoComments } from "../utils/autoComments.js";
 import { composeImageAudioToVideo, rehostAsPlainAsset } from "./cloudinary.js";
+import { generateSlideshow, SLIDESHOW_STATUS } from "./slideshow.js";
 import { tenantStore, runUnscoped } from "../utils/tenantContext.js";
 import { getDefaultTenantId } from "../utils/platformScope.js";
 
@@ -1705,7 +1706,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
       imageUrl = r.url || null;
       imageErr = imageErr || r.error || "";
     }
-  } else if (sch.asImage || wantIg || selfieWatermarkActive || textWatermarkActive || sch.asReel || sch.asStory) {
+  } else if (sch.asImage || wantIg || selfieWatermarkActive || textWatermarkActive || sch.asReel || sch.asStory || sch.asSlideshow) {
     // PREFER a pixel-identical screenshot of the REAL quiz card (matches the
     // admin Download button exactly — same React/Tailwind/Inter). Best-effort:
     // any failure falls through to the lightweight SVG card so posting never
@@ -1775,9 +1776,56 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   // back to the first once every track has been used. Best-effort — if the card
   // didn't render or Cloudinary can't build the video, we fall back to the
   // normal image/text post so a post still goes out.
-  const audioLibrary = resolveReelAudios(sch, site);
-  const wantReel = !!sch.asReel && audioLibrary.length > 0;
   let reelVideoUrl = "";
+
+  // AI Educational Slideshow mode: build a narrated, branded 9:16 slideshow
+  // video from the SAME selected question (question → slides → TTS narration →
+  // MP4) and publish it through the EXISTING Reel pipeline below. The narration
+  // IS the audio, so this mode does NOT use the music Reel library — when it's
+  // on, the normal music Reel (asReel) is ignored. Best-effort: any failure logs
+  // a note and falls back to the normal image/text post so a run is never lost.
+  const wantSlideshow = !!sch.asSlideshow;
+  if (wantSlideshow) {
+    // Persist coarse job status as the (potentially slow) render progresses so
+    // the admin can see where it got to. Best-effort — never blocks posting.
+    const setStatus = (st) => {
+      sch.slideshowStatus = st;
+      if (sch.save) sch.save().catch(() => {});
+    };
+    try {
+      const result = await generateSlideshow(q, {
+        voice: sch.ttsVoice,
+        autoCaptions: sch.autoCaptions !== false,
+        generateImages: !!sch.generateImages,
+        brandColor: site?.brandColor || site?.primaryColor || "#2563eb",
+        siteName: site?.siteName || "My Study Guide",
+        siteUrl: (cfg.siteUrl || "https://www.mystudyguide.in").replace(/^https?:\/\//, "").replace(/\/+$/, ""),
+        subjectName: breadcrumb || "",
+        onStatus: setStatus,
+      });
+      reelVideoUrl = result?.videoUrl || "";
+      if (reelVideoUrl) {
+        // Warm the composed video so Cloudinary finishes rendering before Meta
+        // fetches it (the slideshow is already re-hosted as a plain asset).
+        await warmMediaUrl(reelVideoUrl, { attempts: 24, delayMs: 5000, perTryTimeoutMs: 45000 });
+        sch.slideshowStatus = SLIDESHOW_STATUS.READY;
+        sch.slideshowError = "";
+        notes.push(`Slideshow ✓ (${result.slides} slides · ${result.duration}s · ${result.voice})`);
+      } else {
+        sch.slideshowStatus = SLIDESHOW_STATUS.FAILED;
+        notes.push("Slideshow ✗ (no video — posted as image)");
+      }
+    } catch (e) {
+      sch.slideshowStatus = SLIDESHOW_STATUS.FAILED;
+      sch.slideshowError = String(e?.message || e).slice(0, 500);
+      notes.push(`Slideshow ✗ (${e?.message || e} — posted as image)`);
+    }
+  }
+
+  // Music Reel mode — DISABLED while the slideshow is active (its narration is
+  // the audio). Otherwise rotate through the shared music library as before.
+  const audioLibrary = resolveReelAudios(sch, site);
+  const wantReel = !wantSlideshow && !!sch.asReel && audioLibrary.length > 0;
   if (wantReel) {
     const { audio: chosenAudio, index: idx } = nextReelAudio(audioLibrary, sch.audioIndex);
     if (!imageUrl) {
@@ -1816,6 +1864,9 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
       }
     }
   }
+
+  // Slideshow reached the publishing stage (job status for the admin UI).
+  if (wantSlideshow && reelVideoUrl) sch.slideshowStatus = SLIDESHOW_STATUS.PUBLISHING;
 
   if (wantFb) {
     // Always attach the image when a selfie watermark is active (ensures branding on every post).
@@ -1959,6 +2010,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   if (poolSize) sch.poolSize = poolSize;
   let finishedPool = false; // true when THIS successful post just emptied the pool
   if (anyOk) {
+    if (wantSlideshow && reelVideoUrl) sch.slideshowStatus = SLIDESHOW_STATUS.PUBLISHED;
     sch.postedQuestionIds = recycled ? [q._id] : [...(sch.postedQuestionIds || []), q._id];
     sch.postCount = (sch.postCount || 0) + 1;
     const postedCount = (sch.postedQuestionIds || []).length;
