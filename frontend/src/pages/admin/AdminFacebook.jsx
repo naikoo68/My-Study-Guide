@@ -1012,7 +1012,7 @@ function ReelMusicLibrarySection({ settings, saveSettings }) {
 // AI Slideshow schedule, like the Reel music library and watermarks. Includes
 // the narration engine (free or keyed), voice, how long each slide stays on
 // screen, captions, and a test render that never publishes.
-function AiSlideshowSection({ settings, saveSettings }) {
+function AiSlideshowSection({ settings, saveSettings, onCreated }) {
   const [voicesByProvider, setVoicesByProvider] = useState({
     gtranslate: [{ id: "en", label: "English" }],
     edge: [{ id: "en-IN-NeerjaNeural", label: "Neerja (India, female)" }],
@@ -1032,6 +1032,20 @@ function AiSlideshowSection({ settings, saveSettings }) {
   const [stage, setStage] = useState("");
   const [result, setResult] = useState(null);
   const [testError, setTestError] = useState("");
+  // What to post and when — creates an AI Slideshow schedule.
+  const [pickerKey, setPickerKey] = useState(0); // remounts the picker after creating
+  const [title, setTitle] = useState("");
+  const [source, setSource] = useState({ subject: null, session: null, quiz: null, testSeries: null, label: "" });
+  const [times, setTimes] = useState(["09:00"]);
+  const [days, setDays] = useState([]);
+  const [order, setOrder] = useState("random");
+  const [stopWhenExhausted, setStopWhenExhausted] = useState(true);
+  const [toFacebook, setToFacebook] = useState(true);
+  const [toInstagram, setToInstagram] = useState(false);
+  const [hashtags, setHashtags] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [createMsg, setCreateMsg] = useState(null);
+  const hasSource = !!(source.subject || source.session || source.quiz || source.testSeries);
 
   // Server's engines + voices (hard-coded defaults above if this fails).
   useEffect(() => {
@@ -1083,6 +1097,8 @@ function AiSlideshowSection({ settings, saveSettings }) {
         autoCaptions: captions,
         questionSec: secs(questionSec, 10),
         answerSec: secs(answerSec, 8),
+        // Preview a question from the picked content (else a random one).
+        ...(hasSource ? { source, order } : {}),
       });
       if (!start?.jobId) throw new Error(start?.message || "Could not start the test slideshow.");
       const deadline = Date.now() + 10 * 60 * 1000;
@@ -1099,17 +1115,120 @@ function AiSlideshowSection({ settings, saveSettings }) {
     } finally { setTesting(false); setStage(""); }
   };
 
+  // Create an AI Slideshow schedule for the picked content. Saves the slide /
+  // voice settings first so the new schedule uses exactly what's on screen.
+  const createSchedule = async () => {
+    setCreateMsg(null);
+    const cleanTimes = times.filter(Boolean);
+    if (!hasSource) { setCreateMsg({ ok: false, text: "Pick the content first (at least a subject, or a My Quiz)." }); return; }
+    if (!cleanTimes.length) { setCreateMsg({ ok: false, text: "Add at least one posting time." }); return; }
+    if (!toFacebook && !toInstagram) { setCreateMsg({ ok: false, text: "Choose Facebook and/or Instagram." }); return; }
+    setCreating(true);
+    try {
+      await saveSettings({
+        ttsProvider: provider,
+        ttsModel: model.trim(),
+        slideshowVoice: voiceValue,
+        slideshowQuestionSec: secs(questionSec, 10),
+        slideshowAnswerSec: secs(answerSec, 8),
+        slideshowAutoCaptions: captions,
+        ...(apiKey.trim() ? { ttsApiKey: apiKey.trim() } : {}),
+      });
+      setApiKey("");
+      await facebookService.create({
+        kind: "slideshow",
+        asSlideshow: true,
+        asReel: false,
+        enabled: true,
+        mode: "recurring",
+        title: title.trim(),
+        source,
+        times: cleanTimes,
+        days,
+        timezone: "Asia/Kolkata",
+        order,
+        stopWhenExhausted,
+        toFacebook,
+        toInstagram,
+        hashtags: hashtags.trim(),
+        includeOptions: true,
+        includeAnswer: false,
+      });
+      setCreateMsg({ ok: true, text: `Slideshow schedule created for ${source.label || "the picked content"} — it's in Scheduled posts below.` });
+      setTitle(""); setSource({ subject: null, session: null, quiz: null, testSeries: null, label: "" }); setPickerKey((k) => k + 1);
+      setTimes(["09:00"]); setDays([]); setHashtags("");
+      onCreated?.();
+    } catch (e) {
+      setCreateMsg({ ok: false, text: e.message || "Could not create the schedule." });
+    } finally { setCreating(false); }
+  };
+
   const providerLabel = (p) => (p === "gtranslate" ? "Free — Google (no key, recommended)" : p === "edge" ? "Free — Microsoft Edge (no key)" : p === "openai" ? "OpenAI (needs API key)" : p);
 
   return (
     <CollapsibleCard title="AI Slideshow" icon={Sparkles}>
       <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-        Settings for the <b>AI Slideshow</b> post type. Each post is one question as a narrated 2-slide Reel:
-        <b> slide 1</b> shows the question with its options, <b>slide 2</b> reveals the answer and explanation.
-        Set this once here — every AI Slideshow schedule uses it.
+        Post questions as a narrated 2-slide Reel: <b>slide 1</b> shows the question with its options,
+        <b> slide 2</b> reveals the answer and explanation. Pick the content and when to post, set the slide times and voice,
+        then create the schedule.
       </p>
 
-      {/* Slide times */}
+      {/* 1) Content — where the questions come from */}
+      <p className="mb-1 mt-4 text-sm font-semibold">1. Content — where questions come from</p>
+      <SourcePicker key={pickerKey} onPick={setSource} />
+      {source.label && <p className="mt-2 text-xs text-emerald-600">Selected: {source.label}</p>}
+
+      {/* 2) When to post */}
+      <p className="mb-1 mt-4 flex items-center gap-1.5 text-sm font-semibold"><Clock className="h-4 w-4 text-slate-400" /> 2. Times (posts one question at each)</p>
+      <div className="flex flex-wrap items-center gap-2">
+        {times.map((t, i) => (
+          <span key={i} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 dark:border-slate-700">
+            <input type="time" value={t} onChange={(e) => setTimes((ts) => ts.map((x, k) => (k === i ? e.target.value : x)))} className="bg-transparent text-sm outline-none" />
+            {times.length > 1 && <button type="button" onClick={() => setTimes((ts) => ts.filter((_, k) => k !== i))} className="text-slate-400 hover:text-rose-600"><X className="h-3.5 w-3.5" /></button>}
+          </span>
+        ))}
+        <button type="button" onClick={() => setTimes((ts) => [...ts, "18:00"])} className="btn-outline !py-1 !text-xs"><Plus className="h-3.5 w-3.5" /> Add time</button>
+      </div>
+      <p className="mb-1 mt-3 flex items-center gap-1.5 text-sm font-semibold"><CalendarClock className="h-4 w-4 text-slate-400" /> Days <span className="font-normal text-slate-400">(none = every day)</span></p>
+      <div className="flex flex-wrap gap-1.5">
+        {WEEKDAYS.map((w) => (
+          <button type="button" key={w.v} onClick={() => setDays((d) => (d.includes(w.v) ? d.filter((x) => x !== w.v) : [...d, w.v]))}
+            className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${days.includes(w.v) ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"}`}>{w.l}</button>
+        ))}
+      </div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-sm font-medium">Order</label>
+          <select className="input" value={order} onChange={(e) => setOrder(e.target.value)}>
+            <option value="random">Random (no repeats until all used)</option>
+            <option value="sequential">Sequential (oldest first)</option>
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium">Title (optional)</label>
+          <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Daily Biology slideshow" />
+        </div>
+      </div>
+      <label className="mt-3 flex items-start gap-2 text-sm">
+        <input type="checkbox" className="mt-0.5 h-4 w-4 accent-brand-600" checked={stopWhenExhausted} onChange={(e) => setStopWhenExhausted(e.target.checked)} />
+        <span>Stop when every question has been posted <span className="text-slate-400">(don't repeat)</span></span>
+      </label>
+
+      {/* 3) Where to post */}
+      <p className="mb-1 mt-4 text-sm font-semibold">3. Post to</p>
+      <div className="flex flex-wrap gap-4">
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" className="h-4 w-4 accent-[#1877F2]" checked={toFacebook} onChange={(e) => setToFacebook(e.target.checked)} /> Facebook <span className="text-slate-400">(Reel)</span>
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" className="h-4 w-4 accent-[#E1306C]" checked={toInstagram} onChange={(e) => setToInstagram(e.target.checked)} /> Instagram <span className="text-slate-400">(Reel)</span>
+        </label>
+      </div>
+      <label className="mb-1 mt-3 block text-sm font-medium">Hashtags (optional)</label>
+      <textarea className="input min-h-[46px] resize-y" rows={2} value={hashtags} onChange={(e) => setHashtags(e.target.value)} placeholder="#GK #JKSSB #Quiz" />
+
+      {/* 4) Slide times */}
+      <p className="mb-1 mt-5 text-sm font-semibold">4. Slide times, voice &amp; captions <span className="font-normal text-slate-400">(used by every AI Slideshow schedule)</span></p>
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         {[
           ["Question time", "Slide 1 — question + options", questionSec, setQuestionSec, 10],
@@ -1168,15 +1287,19 @@ function AiSlideshowSection({ settings, saveSettings }) {
       </label>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
-        <button type="button" onClick={save} disabled={saving} className="btn-primary">
-          {saving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> Save AI Slideshow settings</>}
+        <button type="button" onClick={createSchedule} disabled={creating} className="btn-primary">
+          {creating ? <><Loader2 className="h-4 w-4 animate-spin" /> Creating…</> : <><Plus className="h-4 w-4" /> Create slideshow schedule</>}
+        </button>
+        <button type="button" onClick={save} disabled={saving} className="btn-outline">
+          {saving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> Save settings only</>}
         </button>
         <button type="button" onClick={test} disabled={testing} className="btn-outline">
           {testing ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating…</> : <><PlayCircle className="h-4 w-4" /> Generate test slideshow</>}
         </button>
         {msg && <span className={`inline-flex items-center gap-1 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {msg.text}</span>}
       </div>
-      <p className="mt-1.5 text-xs text-slate-400">The test uses a random published question and only builds a preview — it never publishes.</p>
+      {createMsg && <p className={`mt-2 inline-flex items-center gap-1 text-sm font-medium ${createMsg.ok ? "text-emerald-600" : "text-rose-600"}`}>{createMsg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {createMsg.text}</p>}
+      <p className="mt-1.5 text-xs text-slate-400">The test uses a question from the picked content (or a random one) and only builds a preview — it never publishes.</p>
       {testing && (
         <p className="mt-2 text-xs text-slate-400">
           {{ GENERATING_SLIDES: "Step 1/3 — creating the slides…", GENERATING_AUDIO: "Step 2/3 — generating the narration…", RENDERING_VIDEO: "Step 3/3 — rendering the 9:16 video…" }[stage] || "Starting… this usually takes about a minute."}
@@ -1698,7 +1821,7 @@ export default function AdminFacebook() {
       <ReelMusicLibrarySection settings={settings} saveSettings={saveSettings} />
 
       {/* AI Slideshow post type — times, narration engine, voice, test */}
-      <AiSlideshowSection settings={settings} saveSettings={saveSettings} />
+      <AiSlideshowSection settings={settings} saveSettings={saveSettings} onCreated={() => { setPage(1); load(); }} />
 
       {/* Auto first comment (applied to every FB + IG post) */}
       <AutoCommentSection settings={settings} saveSettings={saveSettings} />
@@ -1793,10 +1916,12 @@ export default function AdminFacebook() {
                 className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${form.kind === "custom" ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"}`}>
                 <FileText className="h-3.5 w-3.5" /> Custom (text / media)
               </button>
-              <button type="button" onClick={() => setForm((f) => ({ ...f, kind: "slideshow", mode: "recurring", asReel: false }))}
-                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${form.kind === "slideshow" ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"}`}>
-                <Sparkles className="h-3.5 w-3.5" /> AI Slideshow
-              </button>
+              {form.kind === "slideshow" && (
+                <button type="button"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white">
+                  <Sparkles className="h-3.5 w-3.5" /> AI Slideshow
+                </button>
+              )}
             </div>
 
             <label className="mb-1 block text-sm font-medium">Title (optional)</label>
@@ -1968,7 +2093,7 @@ export default function AdminFacebook() {
               <p className="mt-4 flex items-start gap-1.5 rounded-lg bg-slate-50 p-3 text-xs text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
                 <Sparkles className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-500" />
                 <span>Each run posts one question from this source as a narrated 2-slide Reel (question → answer).
-                Question time, answer reveal time, voice and captions are set once in the <b>AI Slideshow</b> section above.</span>
+                Question time, answer reveal time, voice and captions are in the <b>AI Slideshow</b> section above (new slideshow schedules are created there too).</span>
               </p>
             )}
 
