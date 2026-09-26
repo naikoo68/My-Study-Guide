@@ -236,6 +236,7 @@ export async function updateSettings(req, res) {
     "fbAutoComments", "fbAutoCommentMode", "fbAutoCommentToFacebook", "fbAutoCommentToInstagram",
     "igEnabled", "igUserId",
     "ttsProvider", "ttsApiKey", "ttsModel",
+    "slideshowQuestionSec", "slideshowAnswerSec", "slideshowVoice", "slideshowAutoCaptions",
     "googleClientId",
   ];
   const update = {};
@@ -272,6 +273,13 @@ export async function updateSettings(req, res) {
     update.ttsProvider = ["edge", "openai"].includes(p) ? p : "edge";
   }
   if ("ttsModel" in update) update.ttsModel = String(update.ttsModel || "").trim().slice(0, 120);
+  // AI Slideshow: slide times 3–40 s; voice is a short id (normalised against
+  // the active engine at render time); captions a boolean.
+  const slideSec = (v, def) => { const n = Math.round(Number(v)); return Number.isFinite(n) && n > 0 ? Math.max(3, Math.min(40, n)) : def; };
+  if ("slideshowQuestionSec" in update) update.slideshowQuestionSec = slideSec(update.slideshowQuestionSec, 10);
+  if ("slideshowAnswerSec" in update) update.slideshowAnswerSec = slideSec(update.slideshowAnswerSec, 8);
+  if ("slideshowVoice" in update) update.slideshowVoice = String(update.slideshowVoice || "").trim().slice(0, 60);
+  if ("slideshowAutoCaptions" in update) update.slideshowAutoCaptions = !!update.slideshowAutoCaptions;
   if ("ttsApiKey" in update) {
     const k = String(update.ttsApiKey || "").trim();
     if (k) update.ttsApiKey = k; else delete update.ttsApiKey;

@@ -1007,6 +1007,197 @@ function ReelMusicLibrarySection({ settings, saveSettings }) {
   );
 }
 
+// AI Slideshow — site-wide settings for the "AI Slideshow" post type (one
+// question → 2 narrated slides → 9:16 Reel). Set once here, applied to every
+// AI Slideshow schedule, like the Reel music library and watermarks. Includes
+// the narration engine (free or keyed), voice, how long each slide stays on
+// screen, captions, and a test render that never publishes.
+function AiSlideshowSection({ settings, saveSettings }) {
+  const [voicesByProvider, setVoicesByProvider] = useState({
+    gtranslate: [{ id: "en", label: "English" }],
+    edge: [{ id: "en-IN-NeerjaNeural", label: "Neerja (India, female)" }],
+    openai: [{ id: "coral", label: "Coral" }],
+  });
+  const [providers, setProviders] = useState(["gtranslate", "edge", "openai"]);
+  const [provider, setProvider] = useState(settings?.ttsProvider || "gtranslate");
+  const [model, setModel] = useState(settings?.ttsModel || "");
+  const [apiKey, setApiKey] = useState(""); // a NEW key to save (never shown back)
+  const [voice, setVoice] = useState(settings?.slideshowVoice || "");
+  const [questionSec, setQuestionSec] = useState(settings?.slideshowQuestionSec || 10);
+  const [answerSec, setAnswerSec] = useState(settings?.slideshowAnswerSec || 8);
+  const [captions, setCaptions] = useState(settings?.slideshowAutoCaptions !== false);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const [testing, setTesting] = useState(false);
+  const [stage, setStage] = useState("");
+  const [result, setResult] = useState(null);
+  const [testError, setTestError] = useState("");
+
+  // Server's engines + voices (hard-coded defaults above if this fails).
+  useEffect(() => {
+    facebookService.ttsVoices().then((r) => {
+      if (r?.voicesByProvider && typeof r.voicesByProvider === "object") setVoicesByProvider(r.voicesByProvider);
+      if (Array.isArray(r?.providers) && r.providers.length) setProviders(r.providers);
+    }).catch(() => {});
+  }, []);
+
+  // Re-sync when the saved settings arrive/change.
+  useEffect(() => {
+    setProvider(settings?.ttsProvider || "gtranslate");
+    setModel(settings?.ttsModel || "");
+    setVoice(settings?.slideshowVoice || "");
+    setQuestionSec(settings?.slideshowQuestionSec || 10);
+    setAnswerSec(settings?.slideshowAnswerSec || 8);
+    setCaptions(settings?.slideshowAutoCaptions !== false);
+  }, [settings?.ttsProvider, settings?.ttsModel, settings?.slideshowVoice, settings?.slideshowQuestionSec, settings?.slideshowAnswerSec, settings?.slideshowAutoCaptions]);
+
+  const voices = voicesByProvider[provider] || [];
+  const voiceValue = voices.some((v) => v.id === voice) ? voice : (voices[0]?.id || "");
+  const secs = (v, def) => { const n = parseInt(v, 10); return n >= 3 ? Math.min(40, n) : def; };
+
+  const save = async () => {
+    setSaving(true); setMsg(null);
+    try {
+      await saveSettings({
+        ttsProvider: provider,
+        ttsModel: model.trim(),
+        slideshowVoice: voiceValue,
+        slideshowQuestionSec: secs(questionSec, 10),
+        slideshowAnswerSec: secs(answerSec, 8),
+        slideshowAutoCaptions: captions,
+        // The API key is only sent when a NEW one is typed (blank keeps the saved one).
+        ...(apiKey.trim() ? { ttsApiKey: apiKey.trim() } : {}),
+      });
+      setApiKey(""); setMsg({ ok: true, text: "Saved." });
+    } catch (e) { setMsg({ ok: false, text: e.message || "Failed to save." }); } finally { setSaving(false); }
+  };
+
+  // Build a preview video with a random published question — never publishes.
+  // Uses the values currently on screen (so you can try before saving). Runs as
+  // a background job on the server; poll until it's done.
+  const test = async () => {
+    setTesting(true); setTestError(""); setResult(null); setStage("");
+    try {
+      const start = await facebookService.testSlideshow({
+        ttsVoice: voiceValue,
+        autoCaptions: captions,
+        questionSec: secs(questionSec, 10),
+        answerSec: secs(answerSec, 8),
+      });
+      if (!start?.jobId) throw new Error(start?.message || "Could not start the test slideshow.");
+      const deadline = Date.now() + 10 * 60 * 1000;
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 4000));
+        const st = await facebookService.testSlideshowStatus(start.jobId);
+        if (st?.status === "done" && st?.videoUrl) { setResult(st); break; }
+        if (st?.status === "failed") { setTestError(st?.message || "Could not build the test slideshow."); break; }
+        if (st?.stage) setStage(st.stage);
+        if (Date.now() > deadline) { setTestError("The test slideshow is taking too long — please try again."); break; }
+      }
+    } catch (e) {
+      setTestError(e?.message || "Could not build the test slideshow.");
+    } finally { setTesting(false); setStage(""); }
+  };
+
+  const providerLabel = (p) => (p === "gtranslate" ? "Free — Google (no key, recommended)" : p === "edge" ? "Free — Microsoft Edge (no key)" : p === "openai" ? "OpenAI (needs API key)" : p);
+
+  return (
+    <CollapsibleCard title="AI Slideshow" icon={Sparkles}>
+      <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
+        Settings for the <b>AI Slideshow</b> post type. Each post is one question as a narrated 2-slide Reel:
+        <b> slide 1</b> shows the question with its options, <b>slide 2</b> reveals the answer and explanation.
+        Set this once here — every AI Slideshow schedule uses it.
+      </p>
+
+      {/* Slide times */}
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        {[
+          ["Question time", "Slide 1 — question + options", questionSec, setQuestionSec, 10],
+          ["Answer reveal time", "Slide 2 — answer + explanation", answerSec, setAnswerSec, 8],
+        ].map(([label, hint, value, setValue, def]) => (
+          <div key={label}>
+            <label className="mb-1 flex items-center gap-1.5 text-sm font-medium"><Clock className="h-4 w-4 text-slate-400" /> {label}</label>
+            <div className="flex items-center gap-2">
+              <input type="number" min={3} max={40} step={1} className="input h-9 w-24" value={value}
+                onChange={(e) => setValue(e.target.value === "" ? "" : Math.max(1, Math.min(40, parseInt(e.target.value, 10) || 0)))}
+                onBlur={(e) => setValue(secs(e.target.value, def))} />
+              <span className="text-sm text-slate-500 dark:text-slate-400">seconds</span>
+            </div>
+            <p className="mt-1 text-xs text-slate-400">{hint}</p>
+          </div>
+        ))}
+      </div>
+      <p className="mt-2 text-xs text-slate-400">
+        Reel length ≈ {secs(questionSec, 10) + secs(answerSec, 8)}s (3–40s per slide). If the voice needs longer than the time
+        you set, that slide stays up until the narration finishes.
+      </p>
+
+      {/* Narration engine */}
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <label className="text-sm font-medium">Narration engine</label>
+        <select className="input h-9 w-64" value={provider} onChange={(e) => setProvider(e.target.value)}>
+          {providers.map((p) => <option key={p} value={p}>{providerLabel(p)}</option>)}
+        </select>
+      </div>
+      <p className="mt-1.5 text-xs text-slate-400">
+        {provider === "gtranslate" && "Free — no API key or account. Works from most servers."}
+        {provider === "edge" && "Free neural voices, no key. Microsoft blocks some server IPs; if it's blocked, Google is used automatically."}
+        {provider === "openai" && "Best quality. Paid — uses your OpenAI credits. The key is stored on the server and never shown again."}
+      </p>
+      {provider === "openai" && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <KeyRound className="h-4 w-4 text-slate-400" />
+          <input type="password" autoComplete="off" className="input h-9 w-72"
+            placeholder={settings?.ttsApiKeySet ? "•••••••• (saved — leave blank to keep)" : "Paste API key"}
+            value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
+          <input type="text" className="input h-9 w-52" placeholder="Model (default gpt-4o-mini-tts)"
+            value={model} onChange={(e) => setModel(e.target.value)} />
+        </div>
+      )}
+
+      {/* Voice + captions */}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <span className="inline-flex items-center gap-1.5 text-sm font-medium"><Volume2 className="h-4 w-4 text-slate-400" /> Voice</span>
+        <select className="input h-9 w-64" value={voiceValue} onChange={(e) => setVoice(e.target.value)}>
+          {voices.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+        </select>
+      </div>
+      <label className="mt-3 flex items-center gap-2 text-sm">
+        <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={captions} onChange={(e) => setCaptions(e.target.checked)} />
+        Auto captions <span className="text-slate-400">(show the spoken words at the bottom of each slide)</span>
+      </label>
+
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button type="button" onClick={save} disabled={saving} className="btn-primary">
+          {saving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> Save AI Slideshow settings</>}
+        </button>
+        <button type="button" onClick={test} disabled={testing} className="btn-outline">
+          {testing ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating…</> : <><PlayCircle className="h-4 w-4" /> Generate test slideshow</>}
+        </button>
+        {msg && <span className={`inline-flex items-center gap-1 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {msg.text}</span>}
+      </div>
+      <p className="mt-1.5 text-xs text-slate-400">The test uses a random published question and only builds a preview — it never publishes.</p>
+      {testing && (
+        <p className="mt-2 text-xs text-slate-400">
+          {{ GENERATING_SLIDES: "Step 1/3 — creating the slides…", GENERATING_AUDIO: "Step 2/3 — generating the narration…", RENDERING_VIDEO: "Step 3/3 — rendering the 9:16 video…" }[stage] || "Starting… this usually takes about a minute."}
+        </p>
+      )}
+      {testError && <p className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-rose-600"><AlertTriangle className="h-4 w-4" /> {testError}</p>}
+      {result?.videoUrl && (
+        <div className="mt-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+          <video src={result.videoUrl} controls playsInline className="mx-auto max-h-[420px] rounded-lg bg-black" />
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+            <span className="inline-flex items-center gap-1"><Film className="h-3 w-3" /> {result.slides} slides</span>
+            <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" /> {result.duration}s</span>
+            <span className="inline-flex items-center gap-1"><Volume2 className="h-3 w-3" /> {result.voice}</span>
+            <a href={result.videoUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand-600 hover:underline"><PlayCircle className="h-3 w-3" /> Open video</a>
+          </div>
+        </div>
+      )}
+    </CollapsibleCard>
+  );
+}
+
 // Auto first-comment — a GLOBAL list of comments the admin writes once (with a
 // ＋ add button). After every published Facebook post & Instagram media, the
 // poster adds a saved comment as the FIRST comment (a pinned link / CTA / extra
@@ -1243,21 +1434,6 @@ export default function AdminFacebook() {
   const [error, setError] = useState("");
   const [form, setForm] = useState(null); // null = closed; else the schedule being created/edited
   const [saving, setSaving] = useState(false);
-  // AI Slideshow: narration engine (TTS provider/key/model) + test-preview state.
-  const [voicesByProvider, setVoicesByProvider] = useState({
-    edge: [{ id: "en-IN-NeerjaNeural", label: "Neerja (India, female)" }],
-    openai: [{ id: "coral", label: "Coral" }],
-  });
-  const [ttsProviders, setTtsProviders] = useState(["edge", "openai"]);
-  const [ttsProvider, setTtsProvider] = useState("edge"); // engine chosen in the panel
-  const [ttsModel, setTtsModel] = useState("");           // optional model override
-  const [ttsKey, setTtsKey] = useState("");               // new API key to save (kept server-side)
-  const [ttsSaving, setTtsSaving] = useState(false);
-  const [ttsMsg, setTtsMsg] = useState(null);
-  const [ssTesting, setSsTesting] = useState(false); // a test render is in progress
-  const [ssResult, setSsResult] = useState(null);    // { videoUrl, slides, duration, voice, provider }
-  const [ssError, setSsError] = useState("");        // last test error message
-  const [ssStage, setSsStage] = useState("");        // current job stage while rendering
   const [busyId, setBusyId] = useState(null); // per-row action in progress
   const [rowMsg, setRowMsg] = useState({}); // id → text
   const [fixingLabels, setFixingLabels] = useState(false); // one-off breadcrumb backfill in progress
@@ -1305,8 +1481,8 @@ export default function AdminFacebook() {
     finally { setFixingLabels(false); }
   };
 
-  const openNew = () => { setSsResult(null); setSsError(""); setForm({ ...emptyForm, times: ["09:00"] }); };
-  const openEdit = (s) => { setSsResult(null); setSsError(""); setForm({
+  const openNew = () => setForm({ ...emptyForm, times: ["09:00"] });
+  const openEdit = (s) => setForm({
     _id: s._id,
     kind: ["custom", "flashcard", "slideshow"].includes(s.kind) ? s.kind : (s.asSlideshow ? "slideshow" : "question"),
     mode: s.mode === "once" ? "once" : "recurring",
@@ -1331,67 +1507,7 @@ export default function AdminFacebook() {
     customAudios: Array.isArray(s.customAudios) && s.customAudios.length
       ? s.customAudios
       : (s.customAudio ? [s.customAudio] : []),
-  }); };
-
-  // Load the server's TTS providers + voices once (best-effort — hard-coded
-  // defaults are used if the request fails).
-  useEffect(() => {
-    facebookService.ttsVoices().then((r) => {
-      if (r?.voicesByProvider && typeof r.voicesByProvider === "object") setVoicesByProvider(r.voicesByProvider);
-      if (Array.isArray(r?.providers) && r.providers.length) setTtsProviders(r.providers);
-    }).catch(() => {});
-  }, []);
-
-  // Keep the narration-engine panel in sync with the saved settings.
-  useEffect(() => {
-    setTtsProvider(settings?.ttsProvider || "edge");
-    setTtsModel(settings?.ttsModel || "");
-  }, [settings?.ttsProvider, settings?.ttsModel]);
-
-  // Voices for the currently-selected engine (used by the voice dropdown).
-  const providerVoices = voicesByProvider[ttsProvider] || voicesByProvider.edge || [];
-
-  // Save the narration engine to site settings. The API key is only sent when a
-  // NEW value is typed (blank keeps the saved one — same as the FB token).
-  const saveTts = async () => {
-    setTtsSaving(true); setTtsMsg(null);
-    try {
-      await saveSettings({ ttsProvider, ttsModel: ttsModel.trim(), ...(ttsKey.trim() ? { ttsApiKey: ttsKey.trim() } : {}) });
-      setTtsKey(""); setTtsMsg({ ok: true, text: "Saved." });
-    } catch (e) { setTtsMsg({ ok: false, text: e.message }); } finally { setTtsSaving(false); }
-  };
-
-  // Generate a TEST slideshow for the current form (no publishing). Uses the
-  // saved schedule's source when editing, otherwise the picked source in the
-  // form. Shows a preview player + slide count / duration / voice.
-  const runSlideshowTest = async () => {
-    setSsTesting(true); setSsError(""); setSsResult(null);
-    try {
-      const payload = {
-        ttsVoice: form.ttsVoice || "coral",
-        autoCaptions: form.autoCaptions !== false,
-        generateImages: !!form.generateImages,
-        questionSec: Number(form.questionSec) || 10,
-        answerSec: Number(form.answerSec) || 8,
-        ...(form._id ? { scheduleId: form._id } : { source: form.source, order: form.order }),
-      };
-      // Rendering runs as a background job on the server (it takes longer than a
-      // single HTTP request is allowed to stay open) — start it, then poll.
-      const start = await facebookService.testSlideshow(payload);
-      if (!start?.jobId) throw new Error(start?.message || "Could not start the test slideshow.");
-      const deadline = Date.now() + 10 * 60 * 1000; // give up after 10 minutes
-      for (;;) {
-        await new Promise((r) => setTimeout(r, 4000));
-        const st = await facebookService.testSlideshowStatus(start.jobId);
-        if (st?.status === "done" && st?.videoUrl) { setSsResult(st); break; }
-        if (st?.status === "failed") { setSsError(st?.message || "Could not build the test slideshow."); break; }
-        if (st?.stage) setSsStage(st.stage);
-        if (Date.now() > deadline) { setSsError("The test slideshow is taking too long — please try again."); break; }
-      }
-    } catch (e) {
-      setSsError(e?.message || "Could not build the test slideshow.");
-    } finally { setSsTesting(false); setSsStage(""); }
-  };
+  });
 
   const setTime = (i, v) => setForm((f) => ({ ...f, times: f.times.map((t, k) => (k === i ? v : t)) }));
   const addTime = () => setForm((f) => ({ ...f, times: [...f.times, "18:00"] }));
@@ -1580,6 +1696,9 @@ export default function AdminFacebook() {
 
       {/* Shared Reel music library (set once, reused by every Reel schedule) */}
       <ReelMusicLibrarySection settings={settings} saveSettings={saveSettings} />
+
+      {/* AI Slideshow post type — times, narration engine, voice, test */}
+      <AiSlideshowSection settings={settings} saveSettings={saveSettings} />
 
       {/* Auto first comment (applied to every FB + IG post) */}
       <AutoCommentSection settings={settings} saveSettings={saveSettings} />
@@ -1845,154 +1964,12 @@ export default function AdminFacebook() {
               </div>
             )}
 
-            {/* AI Slideshow post type: one question → 2 narrated slides → 9:16 Reel */}
             {form.kind === "slideshow" && (
-              <div className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-                <p className="flex items-center gap-1.5 text-sm font-semibold">
-                  <Sparkles className="h-4 w-4 text-brand-500" /> AI Slideshow settings
-                </p>
-                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                  Each post is one question as a narrated 2-slide Reel: <b>slide 1</b> shows the question with its options,
-                  <b> slide 2</b> reveals the answer and explanation.
-                </p>
-
-                  <div className="mt-3 space-y-3">
-                    {/* How long each of the two slides stays on screen */}
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      {[
-                        ["questionSec", "Question time", "Slide 1 — question + options", 10],
-                        ["answerSec", "Answer reveal time", "Slide 2 — answer + explanation", 8],
-                      ].map(([key, label, hint, def]) => (
-                        <div key={key}>
-                          <label className="mb-1 flex items-center gap-1.5 text-sm font-medium">
-                            <Clock className="h-4 w-4 text-slate-400" /> {label}
-                          </label>
-                          <div className="flex items-center gap-2">
-                            <input type="number" min={3} max={40} step={1} className="input h-9 w-24"
-                              value={form[key]}
-                              onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value === "" ? "" : Math.max(1, Math.min(40, parseInt(e.target.value, 10) || 0)) }))}
-                              onBlur={(e) => { const n = parseInt(e.target.value, 10); setForm((f) => ({ ...f, [key]: n >= 3 ? Math.min(40, n) : def })); }} />
-                            <span className="text-sm text-slate-500 dark:text-slate-400">seconds</span>
-                          </div>
-                          <p className="mt-1 text-xs text-slate-400">{hint}</p>
-                        </div>
-                      ))}
-                    </div>
-                    <p className="text-xs text-slate-400">
-                      Reel length ≈ {(Number(form.questionSec) || 10) + (Number(form.answerSec) || 8)}s (3–40s per slide).
-                      If the voice needs longer than the time you set, that slide stays up until the narration finishes.
-                    </p>
-
-                    {/* Narration engine (TTS provider + key) — saved to site settings */}
-                    <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-                      <p className="mb-2 text-sm font-semibold">Narration engine (Text-to-Speech)</p>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <label className="text-sm font-medium">Provider</label>
-                        <select className="input h-9 w-56" value={ttsProvider}
-                          onChange={(e) => { setTtsProvider(e.target.value); const v = (voicesByProvider[e.target.value] || [])[0]; if (v) setForm((f) => ({ ...f, ttsVoice: v.id })); }}>
-                          {ttsProviders.map((p) => (
-                            <option key={p} value={p}>{p === "gtranslate" ? "Free — Google (no key, recommended)" : p === "edge" ? "Free — Microsoft Edge (no key)" : p === "openai" ? "OpenAI (needs API key)" : p}</option>
-                          ))}
-                        </select>
-                      </div>
-                      {ttsProvider === "gtranslate" && (
-                        <p className="mt-1.5 text-xs text-slate-400">
-                          Free — no API key or account. Works from most servers (recommended if Microsoft Edge is blocked on your host). Clear, moderate-paced voice.
-                        </p>
-                      )}
-                      {ttsProvider === "edge" && (
-                        <p className="mt-1.5 text-xs text-slate-400">
-                          Free neural voices — no API key. Higher quality, but Microsoft blocks some server IPs (if a test returns 403, it auto-falls back to Google, or pick "Free — Google" above).
-                        </p>
-                      )}
-                      {ttsProvider === "openai" && (
-                        <div className="mt-2 space-y-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <KeyRound className="h-4 w-4 text-slate-400" />
-                            <input type="password" autoComplete="off"
-                              className="input h-9 w-72"
-                              placeholder={settings?.ttsApiKeySet ? "•••••••• (saved — leave blank to keep)" : "Paste API key"}
-                              value={ttsKey} onChange={(e) => setTtsKey(e.target.value)} />
-                            <input type="text" className="input h-9 w-52" placeholder="Model (default gpt-4o-mini-tts)"
-                              value={ttsModel} onChange={(e) => setTtsModel(e.target.value)} />
-                          </div>
-                          <p className="text-xs text-slate-400">The key is stored on the server and never shown again. Paid — uses your OpenAI credits.</p>
-                        </div>
-                      )}
-                      <div className="mt-2 flex flex-wrap items-center gap-3">
-                        <button type="button" onClick={saveTts} disabled={ttsSaving} className="btn-outline !py-1.5 text-sm">
-                          {ttsSaving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> Save engine</>}
-                        </button>
-                        {ttsMsg && <span className={`inline-flex items-center gap-1 text-xs font-medium ${ttsMsg.ok ? "text-emerald-600" : "text-rose-600"}`}>{ttsMsg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {ttsMsg.text}</span>}
-                      </div>
-                    </div>
-
-                    {/* Voice selector (voices depend on the chosen engine) */}
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="inline-flex items-center gap-1.5 text-sm font-medium">
-                        <Volume2 className="h-4 w-4 text-slate-400" /> Voice
-                      </span>
-                      <select
-                        className="input h-9 w-64"
-                        value={providerVoices.some((v) => v.id === form.ttsVoice) ? form.ttsVoice : (providerVoices[0]?.id || "")}
-                        onChange={(e) => setForm((f) => ({ ...f, ttsVoice: e.target.value }))}>
-                        {providerVoices.map((v) => (
-                          <option key={v.id} value={v.id}>{v.label}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* Auto captions */}
-                    <label className="flex items-center gap-2 text-sm">
-                      <input type="checkbox" className="h-4 w-4 accent-brand-600"
-                        checked={form.autoCaptions !== false}
-                        onChange={(e) => setForm((f) => ({ ...f, autoCaptions: e.target.checked }))} />
-                      Auto captions <span className="text-slate-400">(show the spoken words at the bottom of each slide)</span>
-                    </label>
-
-                    <div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
-                      <b>Automatic process:</b> question → slide 1 (question) → slide 2 (answer) → AI narration → 9:16 Reel → Facebook / Instagram.
-                      The narration is the audio, so no music library is needed.
-                    </div>
-
-                    {/* Generate Test Slideshow (no publishing) */}
-                    <div className="flex flex-wrap items-center gap-3">
-                      <button type="button" onClick={runSlideshowTest} disabled={ssTesting} className="btn-outline !py-1.5 text-sm">
-                        {ssTesting
-                          ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating…</>
-                          : <><PlayCircle className="h-4 w-4" /> Generate Test Slideshow</>}
-                      </button>
-                      <span className="text-xs text-slate-400">Builds a preview only — it does not publish.</span>
-                    </div>
-                    {ssTesting && (
-                      <p className="text-xs text-slate-400">
-                        {{
-                          GENERATING_SLIDES: "Step 1/3 — creating the slides…",
-                          GENERATING_AUDIO: "Step 2/3 — generating the narration…",
-                          RENDERING_VIDEO: "Step 3/3 — rendering the 9:16 video…",
-                        }[ssStage] || "Starting… this usually takes 1–2 minutes."}
-                      </p>
-                    )}
-                    {ssError && (
-                      <p className="inline-flex items-center gap-1 text-xs font-medium text-rose-600">
-                        <AlertTriangle className="h-4 w-4" /> {ssError}
-                      </p>
-                    )}
-                    {ssResult?.videoUrl && (
-                      <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-                        <video src={ssResult.videoUrl} controls playsInline className="mx-auto max-h-[420px] rounded-lg bg-black" />
-                        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
-                          <span className="inline-flex items-center gap-1"><Film className="h-3 w-3" /> {ssResult.slides} slides</span>
-                          <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" /> {ssResult.duration}s</span>
-                          <span className="inline-flex items-center gap-1"><Volume2 className="h-3 w-3" /> {ssResult.voice}</span>
-                          <a href={ssResult.videoUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand-600 hover:underline">
-                            <PlayCircle className="h-3 w-3" /> Open video
-                          </a>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-              </div>
+              <p className="mt-4 flex items-start gap-1.5 rounded-lg bg-slate-50 p-3 text-xs text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
+                <Sparkles className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-500" />
+                <span>Each run posts one question from this source as a narrated 2-slide Reel (question → answer).
+                Question time, answer reveal time, voice and captions are set once in the <b>AI Slideshow</b> section above.</span>
+              </p>
             )}
 
             {/* Also share to Stories (all post types) */}
@@ -2035,7 +2012,7 @@ export default function AdminFacebook() {
 
             <div className="mt-4 flex gap-2">
               <button onClick={saveForm} disabled={saving} className="btn-primary">{saving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> {form._id ? "Save changes" : "Create schedule"}</>}</button>
-              <button onClick={() => { setForm(null); setError(""); setSsResult(null); setSsError(""); }} className="btn-outline">Cancel</button>
+              <button onClick={() => { setForm(null); setError(""); }} className="btn-outline">Cancel</button>
             </div>
           </div>
         )}
