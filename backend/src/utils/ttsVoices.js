@@ -10,8 +10,17 @@
 //                Admin panel or an env var). Paid.
 // New providers can be added later without touching the callers.
 
-export const TTS_PROVIDERS = ["edge", "openai"];
-export const DEFAULT_TTS_PROVIDER = "edge";
+// Three providers out of the box:
+//   • "gtranslate" — FREE Google Translate TTS. No key. Reachable from cloud
+//                    servers (works where Edge is IP-blocked). Default.
+//   • "edge"       — FREE Microsoft Edge neural TTS. No key. Better quality, but
+//                    Microsoft blocks many datacenter IPs (may 403 on a VPS).
+//   • "openai"     — OpenAI TTS. Needs an API key. Paid.
+export const TTS_PROVIDERS = ["gtranslate", "edge", "openai"];
+export const DEFAULT_TTS_PROVIDER = "gtranslate";
+// The FREE providers (no API key). Used for automatic fallback: if the chosen
+// free provider is blocked on the host, the other free one is tried.
+export const FREE_TTS_PROVIDERS = ["gtranslate", "edge"];
 
 // OpenAI standard TTS voices.
 const OPENAI_VOICES = [
@@ -40,13 +49,21 @@ const EDGE_VOICES = [
   { id: "en-AU-NatashaNeural", label: "Natasha (Australia, female)" },
 ];
 
+// Google Translate TTS "voices" are language codes (a single voice per
+// language). English is what the narration is written in.
+const GTRANSLATE_VOICES = [
+  { id: "en", label: "English" },
+];
+
 export const PROVIDER_VOICES = {
+  gtranslate: GTRANSLATE_VOICES,
   openai: OPENAI_VOICES,
   edge: EDGE_VOICES,
 };
 
 // The default voice per provider.
 export const DEFAULT_VOICE = {
+  gtranslate: "en",
   openai: "coral",
   edge: "en-IN-NeerjaNeural",
 };

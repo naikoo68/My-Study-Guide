@@ -1850,16 +1850,21 @@ export default function AdminFacebook() {
                         <select className="input h-9 w-56" value={ttsProvider}
                           onChange={(e) => { setTtsProvider(e.target.value); const v = (voicesByProvider[e.target.value] || [])[0]; if (v) setForm((f) => ({ ...f, ttsVoice: v.id })); }}>
                           {ttsProviders.map((p) => (
-                            <option key={p} value={p}>{p === "edge" ? "Free — Microsoft Edge (no key)" : p === "openai" ? "OpenAI (needs API key)" : p}</option>
+                            <option key={p} value={p}>{p === "gtranslate" ? "Free — Google (no key, recommended)" : p === "edge" ? "Free — Microsoft Edge (no key)" : p === "openai" ? "OpenAI (needs API key)" : p}</option>
                           ))}
                         </select>
                       </div>
-                      {ttsProvider === "edge" && (
+                      {ttsProvider === "gtranslate" && (
                         <p className="mt-1.5 text-xs text-slate-400">
-                          Free neural voices — no API key or account needed. Uses Microsoft Edge's online voices (unofficial endpoint; if your server can't reach it, switch to OpenAI below).
+                          Free — no API key or account. Works from most servers (recommended if Microsoft Edge is blocked on your host). Clear, moderate-paced voice.
                         </p>
                       )}
-                      {ttsProvider !== "edge" && (
+                      {ttsProvider === "edge" && (
+                        <p className="mt-1.5 text-xs text-slate-400">
+                          Free neural voices — no API key. Higher quality, but Microsoft blocks some server IPs (if a test returns 403, it auto-falls back to Google, or pick "Free — Google" above).
+                        </p>
+                      )}
+                      {ttsProvider === "openai" && (
                         <div className="mt-2 space-y-2">
                           <div className="flex flex-wrap items-center gap-2">
                             <KeyRound className="h-4 w-4 text-slate-400" />
