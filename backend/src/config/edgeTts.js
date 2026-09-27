@@ -14,9 +14,13 @@ import WebSocket from "ws";
 
 const TRUSTED_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
 const WSS_BASE = "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1";
-// The Chromium version advertised in Sec-MS-GEC-Version / User-Agent. Kept
-// reasonably current; the token math (below) is what actually authenticates.
-const CHROMIUM_FULL_VERSION = "130.0.2849.68";
+// Mirrors the reference `edge-tts` client (v7.2.8). Microsoft rejects the
+// handshake with HTTP 403 when these drift: the Edge "read aloud" extension ID
+// in Origin, a current Chromium version, a MUID cookie and a ConnectionId.
+// (The old values here got 403 for EVERY Edge voice, so the slideshow silently
+// fell back to the single Google voice.)
+const CHROMIUM_FULL_VERSION = "143.0.3650.75";
+const EDGE_EXTENSION_ORIGIN = "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold";
 const CHROMIUM_MAJOR = CHROMIUM_FULL_VERSION.split(".")[0];
 const USER_AGENT =
   `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) ` +
@@ -47,7 +51,15 @@ function generateSecMsGec() {
   return crypto.createHash("sha256").update(toHash, "ascii").digest("hex").toUpperCase();
 }
 
-const isoNow = () => new Date().toISOString().replace(/\.\d+Z$/, "Z");
+// JavaScript-style UTC date, as Edge sends it:
+// "Sun Sep 27 2026 02:56:01 GMT+0000 (Coordinated Universal Time)".
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const jsDate = (d = new Date()) => {
+  const p = (n) => String(n).padStart(2, "0");
+  return `${DAYS[d.getUTCDay()]} ${MONTHS[d.getUTCMonth()]} ${p(d.getUTCDate())} ${d.getUTCFullYear()} ` +
+    `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())} GMT+0000 (Coordinated Universal Time)`;
+};
 
 const escapeXml = (s) =>
   String(s || "").replace(/[<>&'"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" }[c]));
@@ -74,6 +86,7 @@ export function synthesizeEdgeSpeech({ text, voice, timeoutMs = 60000 } = {}) {
     const sec = generateSecMsGec();
     const url =
       `${WSS_BASE}?TrustedClientToken=${TRUSTED_TOKEN}` +
+      `&ConnectionId=${randomUUID().replace(/-/g, "")}` +
       `&Sec-MS-GEC=${sec}&Sec-MS-GEC-Version=1-${CHROMIUM_FULL_VERSION}`;
 
     let ws;
@@ -82,10 +95,12 @@ export function synthesizeEdgeSpeech({ text, voice, timeoutMs = 60000 } = {}) {
         headers: {
           "Pragma": "no-cache",
           "Cache-Control": "no-cache",
-          "Origin": "chrome-extension://jdiccldimpahpijkmdrgnfmclphngdm",
-          "Accept-Encoding": "gzip, deflate, br",
+          "Origin": EDGE_EXTENSION_ORIGIN,
+          "Accept-Encoding": "gzip, deflate, br, zstd",
           "Accept-Language": "en-US,en;q=0.9",
           "User-Agent": USER_AGENT,
+          // A random per-connection MUID cookie, like the Edge browser sends.
+          "Cookie": `muid=${crypto.randomBytes(16).toString("hex").toUpperCase()};`,
         },
       });
     } catch (e) {
@@ -125,17 +140,18 @@ export function synthesizeEdgeSpeech({ text, voice, timeoutMs = 60000 } = {}) {
         },
       };
       ws.send(
-        `X-Timestamp:${isoNow()}\r\n` +
+        `X-Timestamp:${jsDate()}\r\n` +
         `Content-Type:application/json; charset=utf-8\r\n` +
         `Path:speech.config\r\n\r\n` +
-        JSON.stringify(config)
+        JSON.stringify(config) + "\r\n"
       );
       // 2) ssml — the actual text to speak.
       const requestId = randomUUID().replace(/-/g, "");
       ws.send(
         `X-RequestId:${requestId}\r\n` +
         `Content-Type:application/ssml+xml\r\n` +
-        `X-Timestamp:${isoNow()}\r\n` +
+        // The trailing "Z" after the JS-style date mirrors Edge itself.
+        `X-Timestamp:${jsDate()}Z\r\n` +
         `Path:ssml\r\n\r\n` +
         buildSsml(input, voiceName)
       );

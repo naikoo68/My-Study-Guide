@@ -1074,7 +1074,7 @@ function SlideTemplateUploader({ label, hint, settingKey, settings, saveSettings
 // screen, captions, and a test render that never publishes.
 function AiSlideshowSection({ settings, saveSettings, onCreated }) {
   const [voicesByProvider, setVoicesByProvider] = useState({
-    gtranslate: [{ id: "en", label: "English" }],
+    gtranslate: [{ id: "en-IN", label: "English (India)" }, { id: "en", label: "English (US)" }, { id: "en-GB", label: "English (UK)" }, { id: "en-AU", label: "English (Australia)" }],
     edge: [{ id: "en-IN-NeerjaNeural", label: "Neerja (India, female)" }],
     openai: [{ id: "coral", label: "Coral" }],
   });
@@ -1434,8 +1434,8 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
         </select>
       </div>
       <p className="mt-1.5 text-xs text-slate-400">
-        {provider === "gtranslate" && "Free — no API key or account. Works from most servers."}
-        {provider === "edge" && "Free neural voices, no key. Microsoft blocks some server IPs; if it's blocked, Google is used automatically."}
+        {provider === "gtranslate" && "Free — no API key or account. Works from most servers. One voice per accent (India / US / UK / Australia)."}
+        {provider === "edge" && "Free neural voices (male & female), no key. If Microsoft blocks your server, Google is used with the same accent — the test result says so."}
         {provider === "openai" && "Best quality. Paid — uses your OpenAI credits. The key is stored on the server and never shown again."}
       </p>
       {provider === "openai" && (
@@ -1536,6 +1536,11 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
             {tookSec != null && <span className="inline-flex items-center gap-1 font-medium text-emerald-600"><CheckCircle2 className="h-3 w-3" /> Generated in {fmtDuration(tookSec)}</span>}
             <a href={result.videoUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand-600 hover:underline"><PlayCircle className="h-3 w-3" /> Open video</a>
           </div>
+          {result.ttsNote && (
+            <p className="mt-2 flex items-start gap-1 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" /> <span><b>Voice:</b> {result.ttsNote}</span>
+            </p>
+          )}
           {Array.isArray(result.fallbackSlides) && result.fallbackSlides.length > 0 && (
             <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200">
               <p className="flex items-center gap-1 font-semibold"><AlertTriangle className="h-3.5 w-3.5" />

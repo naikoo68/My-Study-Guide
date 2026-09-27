@@ -49,10 +49,15 @@ const EDGE_VOICES = [
   { id: "en-AU-NatashaNeural", label: "Natasha (Australia, female)" },
 ];
 
-// Google Translate TTS "voices" are language codes (a single voice per
-// language). English is what the narration is written in.
+// Google Translate TTS "voices" are language codes — one voice per code, but
+// the regional English codes give genuinely different accents (verified: each
+// returns different audio). "en" is kept as the id of the US voice so saved
+// settings keep working.
 const GTRANSLATE_VOICES = [
-  { id: "en", label: "English" },
+  { id: "en-IN", label: "English (India)" },
+  { id: "en", label: "English (US)" },
+  { id: "en-GB", label: "English (UK)" },
+  { id: "en-AU", label: "English (Australia)" },
 ];
 
 export const PROVIDER_VOICES = {
@@ -99,4 +104,24 @@ export function normalizeVoiceForProvider(provider, v) {
   const id = String(v || "").trim();
   const match = voicesForProvider(p).find((x) => x.id.toLowerCase() === id.toLowerCase());
   return match ? match.id : defaultVoiceForProvider(p);
+}
+
+// The English accent of a voice id: "en-IN-NeerjaNeural" / "en-IN" → "IN";
+// "en" / "en-US-…" → "US"; unknown (e.g. OpenAI "coral") → "".
+function accentOf(voice) {
+  const m = /^en(?:-([A-Z]{2}))?(?:-|$)/i.exec(String(voice || "").trim());
+  return m ? (m[1] || "US").toUpperCase() : "";
+}
+
+// When the chosen FREE provider is blocked on the server and the other one is
+// used instead, keep the admin's chosen ACCENT (Neerja → Google India, Google
+// UK → Sonia, …) rather than jumping to the other provider's default voice.
+export function voiceForFallback(toProvider, fromVoice) {
+  const to = normalizeProvider(toProvider);
+  const accent = accentOf(fromVoice);
+  if (accent) {
+    const same = voicesForProvider(to).find((x) => accentOf(x.id) === accent);
+    if (same) return same.id;
+  }
+  return defaultVoiceForProvider(to);
 }
