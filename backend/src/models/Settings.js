@@ -331,6 +331,19 @@ const settingsSchema = new mongoose.Schema(
     // Instagram cross-posting (uses the same Page token; IG account linked to the Page)
     igEnabled: { type: Boolean, default: false },
     igUserId: { type: String, default: "" }, // Instagram Business account id (blank = auto-detect from the Page)
+    // ---- YouTube auto-posting (Shorts) ----
+    // Connected via Google OAuth ("Connect YouTube" in Admin → Facebook). The
+    // refresh token and client secret are SENSITIVE — stored encrypted
+    // (utils/keyCrypto.js) and never sent to the browser (see safeSettings).
+    // Client ID/secret may also come from env (YOUTUBE_CLIENT_ID / _SECRET).
+    ytEnabled: { type: Boolean, default: false },
+    ytClientId: { type: String, default: "" },
+    ytClientSecret: { type: String, default: "" }, // SENSITIVE (encrypted)
+    ytRefreshToken: { type: String, default: "" }, // SENSITIVE (encrypted)
+    ytChannelId: { type: String, default: "" },
+    ytChannelTitle: { type: String, default: "" },
+    ytConnectedAt: { type: Date, default: null },
+    ytPrivacy: { type: String, enum: ["public", "unlisted", "private"], default: "public" },
     // ---- Auto-comments ("first comment") ----
     // A GLOBAL list of comments the admin writes once; after EVERY scheduled
     // auto-post/reel publishes, the app adds a saved comment as the first

@@ -114,6 +114,11 @@ const fbScheduleSchema = new mongoose.Schema(
     // Destinations & format.
     toFacebook: { type: Boolean, default: true }, // post to the Facebook Page
     toInstagram: { type: Boolean, default: false }, // also cross-post to Instagram (forces an image)
+    // Also upload the video to YouTube as a Short (needs a video: Reel, AI
+    // Slideshow or a custom video). Title = ytTitle + " #N" (fixed, numbered).
+    toYoutube: { type: Boolean, default: false },
+    ytTitle: { type: String, default: "" }, // e.g. "Daily GK Quiz" → "Daily GK Quiz #12" ({n} places the number)
+    ytPostCount: { type: Number, default: 0 }, // YouTube uploads so far → the next title number
     asImage: { type: Boolean, default: false }, // render the question as an image card (Facebook)
     imageUrl: { type: String, default: "" }, // pre-captured screenshot (client-rendered) to post as-is
 

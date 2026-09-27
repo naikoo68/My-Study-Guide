@@ -6,6 +6,7 @@ import User from "../models/User.js";
 import { sendMail } from "./mailer.js";
 import { toInstagramSafeUrl, toInstagramStoryUrl } from "../utils/instagramImage.js";
 import { toFacebookSafeUrl } from "../utils/facebookImage.js";
+import { youtubeConfigFromSite, isYoutubeConfigured, uploadVideoToYoutube, buildYtTitle, buildYtDescription, buildYtTags } from "./youtube.js";
 
 // Facebook Page auto-posting via the Graph API. The Page ID + long-lived Page
 // access token are stored in the singleton Settings document (entered by the
@@ -32,7 +33,34 @@ export async function getFacebookConfig(filter) {
     siteUrl: String(process.env.CLIENT_URL || "").replace(/\/$/, ""),
     igEnabled: !!s?.igEnabled,
     igUserId: String(s?.igUserId || "").trim(),
+    // YouTube (Shorts) connection from the SAME settings row (decrypted, server-only).
+    ...youtubeConfigFromSite(s),
   };
+}
+
+// Upload this run's video to YouTube as a Short with the schedule's fixed,
+// numbered title ("Daily GK Quiz #12"). Pushes a note; returns true on success.
+// Advances sch.ytPostCount only when the upload actually succeeded, so the
+// title numbers stay continuous. Never throws.
+async function publishScheduleToYoutube({ sch, cfg, videoUrl, caption, notes }) {
+  if (!videoUrl) {
+    notes.push("YouTube ✗ (needs a video — turn on Reel, use AI Slideshow, or add a custom video)");
+    return false;
+  }
+  const n = (Number(sch.ytPostCount) || 0) + 1;
+  const title = buildYtTitle(sch.ytTitle, n, sch.title || "Daily Quiz");
+  const description = buildYtDescription(caption);
+  const r = await uploadVideoToYoutube(
+    { videoUrl, title, description, tags: buildYtTags(caption), privacy: cfg.ytPrivacy },
+    cfg
+  );
+  if (r.ok) {
+    sch.ytPostCount = n;
+    notes.push(`YouTube ✓ (${title} · youtu.be/${r.id}${r.privacy && r.privacy !== "public" ? ` · ${r.privacy}` : ""})`);
+    return true;
+  }
+  notes.push(`YouTube ✗ (${r.error})`);
+  return false;
 }
 
 // Load the EXACT settings document that supplied cfg's Page credentials. This
@@ -1470,9 +1498,13 @@ export function nextReelAudio(audios, index) {
 // logic — a recurring custom schedule simply re-posts the same content at each
 // slot. Returns { ok, error? } and mutates `sch` bookkeeping (caller saves it).
 async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false } = {}) {
-  const wantFb = sch.toFacebook !== false;
-  const wantIg = !!sch.toInstagram && cfg.igEnabled;
-  if (!wantFb && !wantIg) return { ok: false, error: "No destination selected (enable Facebook and/or Instagram)." };
+  const fbReady = isFacebookConfigured(cfg);
+  const wantFb = sch.toFacebook !== false && fbReady;
+  const wantIg = !!sch.toInstagram && cfg.igEnabled && fbReady;
+  const wantYt = !!sch.toYoutube && isYoutubeConfigured(cfg);
+  if (!wantFb && !wantIg && !wantYt) {
+    return { ok: false, error: sch.toYoutube && !isYoutubeConfigured(cfg) ? "YouTube is not connected." : "No destination selected (enable Facebook, Instagram or YouTube)." };
+  }
 
   // Build the message: the admin's text, plus hashtags. Apply the site-wide
   // Default hashtags (+ this schedule's own), exactly like question posts — a
@@ -1533,6 +1565,10 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
       if (r.ok) { igOk = true; igMediaId = r.id || igMediaId; notes.push("Instagram ✓"); } else notes.push(`Instagram ✗ (${r.error})`);
     }
   }
+  // YouTube Short (video only). A plain image/text custom post is skipped with a note.
+  let ytOk = false;
+  if (wantYt) ytOk = await publishScheduleToYoutube({ sch, cfg, videoUrl, caption: message, notes });
+  else if (sch.toYoutube) notes.push("YouTube ✗ (not connected)");
 
   // ALSO share the uploaded image as a 24h Story (additive, best-effort). A
   // successful Facebook Story is recorded in the ledger too (kind "story").
@@ -1559,8 +1595,8 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
   await postAutoFirstComment({ site, cfg, fbAttempts, igMediaId, notes });
 
   sch.lastRunAt = new Date();
-  // Published to at least one selected network (FB and IG tracked separately).
-  const anyOk = fbOk || igOk;
+  // Published to at least one selected network (FB, IG and YouTube tracked separately).
+  const anyOk = fbOk || igOk || ytOk;
   // Permanent Facebook ledger (survives schedule deletion) — one row per Page publish.
   const fbPublications = collectFacebookPublications(fbAttempts);
   if (fbPublications.length) {
@@ -1601,7 +1637,10 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
 // card when requested (Instagram always needs one). Returns { ok, error? }.
 export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {}) {
   const cfg = cfgOverride || (await getFacebookConfig());
-  if (!isFacebookConfigured(cfg)) return { ok: false, error: "Facebook is not connected." };
+  // Facebook OR YouTube must be connected (a YouTube-only schedule is valid).
+  if (!isFacebookConfigured(cfg) && !(sch.toYoutube && isYoutubeConfigured(cfg))) {
+    return { ok: false, error: sch.toYoutube ? "Neither Facebook nor YouTube is connected." : "Facebook is not connected." };
+  }
   // Load the SAME settings row that supplied the credentials — never a bare,
   // nondeterministic {key:"site"} row from another tenant/platform scope.
   const site = await getFacebookSiteForConfig(cfg);
@@ -1659,8 +1698,10 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
     ? await pickQuestionsForSlideshow(sch, sch.slideshowQuestions || 1, q)
     : [q];
 
-  const wantFb = sch.toFacebook !== false;
-  const wantIg = !!sch.toInstagram && cfg.igEnabled;
+  const fbReady = isFacebookConfigured(cfg);
+  const wantFb = sch.toFacebook !== false && fbReady;
+  const wantIg = !!sch.toInstagram && cfg.igEnabled && fbReady;
+  const wantYt = !!sch.toYoutube && isYoutubeConfigured(cfg);
   // A "flashcard" post publishes a combined question+answer IMAGE, so the caption
   // stays light (stem + breadcrumb + hashtags) — the options/answer live in the image.
   const isFlashcard = sch.kind === "flashcard";
@@ -2044,7 +2085,14 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   // since we reserved it (concurrent runs are safe).
   if (wantFb && !fbOk) await releaseSerial("fbPostSerialFacebook", fbPostNumber);
   if (wantIg && !igOk) await releaseSerial("fbPostSerialInstagram", igPostNumber);
-  if (!wantFb && !wantIg) return { ok: false, error: "No destination selected (enable Facebook and/or Instagram)." };
+
+  // YouTube Short — needs this run's video (AI Slideshow / music Reel). The
+  // description is the same caption the other networks got.
+  let ytOk = false;
+  if (wantYt) ytOk = await publishScheduleToYoutube({ sch, cfg, videoUrl: reelVideoUrl, caption: captionBase, notes });
+  else if (sch.toYoutube) notes.push("YouTube ✗ (not connected)");
+
+  if (!wantFb && !wantIg && !wantYt) return { ok: false, error: "No destination selected (enable Facebook, Instagram or YouTube)." };
 
   // ALSO share the card image as a 24h Story (in addition to the feed/reel post),
   // to whichever networks are selected. Additive & best-effort — a Story failure
@@ -2074,7 +2122,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   // A post counts as "made" (advance the pool / mark the question posted) when it
   // published to at least ONE selected network. FB and IG are tracked separately
   // above, so one network's failure never hides — or fakes — the other's outcome.
-  const anyOk = fbOk || igOk;
+  const anyOk = fbOk || igOk || ytOk;
 
   // Permanent Facebook ledger: one row per Page publish (main + extras), keyed by
   // Meta's post id. Independent of this schedule, so the lifetime count survives.
@@ -2138,7 +2186,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
       });
     }
   }
-  return { ok: anyOk, error: anyOk ? undefined : notes.join(" · "), id: fbPostId || undefined, fbOk, igOk, completed: finishedPool };
+  return { ok: anyOk, error: anyOk ? undefined : notes.join(" · "), id: fbPostId || undefined, fbOk, igOk, ytOk, completed: finishedPool };
 }
 
 // The scheduler tick — called every minute (server interval) and, as a
@@ -2219,7 +2267,8 @@ export async function runDueFbSchedules() {
 // Fire all due schedules for ONE tenant using THAT tenant's own credentials.
 async function runTenantSchedules(tid, stats = null) {
   let cfg = await getFacebookConfig({ tenantId: tid ?? null });
-  if (!cfg.enabled || !isFacebookConfigured(cfg)) {
+  const fbLive = (c) => !!(c.enabled && isFacebookConfigured(c));
+  if (!fbLive(cfg) && !isYoutubeConfigured(cfg)) {
     // The PLATFORM's schedules can be stamped with the default-tenant id while
     // its Facebook settings ("site" doc) live under tenantId null — or vice
     // versa (a tenant-backfill mismatch). An exact tenantId match then finds no
@@ -2242,7 +2291,11 @@ async function runTenantSchedules(tid, stats = null) {
       );
     }
   }
-  if (!cfg.enabled || !isFacebookConfigured(cfg)) return; // this institute's posting is off / not connected
+  // Facebook posting ON + connected, and/or YouTube connected. With Facebook
+  // switched off, blank its credentials so a run only uploads to YouTube.
+  const ytLive = isYoutubeConfigured(cfg);
+  if (!fbLive(cfg) && !ytLive) return; // this institute's posting is off / not connected
+  if (!fbLive(cfg)) cfg = { ...cfg, pageId: "", token: "", igEnabled: false };
   if (stats) stats.configured += 1;
   const now = new Date();
   const schedules = await FbSchedule.find({ enabled: true, tenantId: tid ?? null });

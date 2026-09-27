@@ -82,7 +82,7 @@ async function getOrCreate() {
 // (and other saves) never stuck and the setup wizard kept returning. We now
 // resolve/create the caller's OWN doc and save() it, which the plugin stamps to
 // the right tenant instead of filtering away.
-async function getOrCreateOwn() {
+export async function getOrCreateOwn() {
   const tenantId = getCurrentTenantId();
   if (tenantId) {
     const mine = await Settings.findOne({ key: "site", tenantId });
@@ -110,6 +110,11 @@ function safeSettings(s) {
     obj[`${f}Set`] = !!obj[f];
     delete obj[f];
   }
+  // YouTube: never send the OAuth refresh token or client secret to the browser.
+  obj.ytConnected = !!obj.ytRefreshToken;
+  obj.ytClientSecretSet = !!obj.ytClientSecret;
+  delete obj.ytRefreshToken;
+  delete obj.ytClientSecret;
   // Extra cross-post pages: never send their tokens to the browser.
   if (Array.isArray(obj.fbExtraTargets)) {
     obj.fbExtraTargets = obj.fbExtraTargets.map((t) => ({ label: t.label || "", pageId: t.pageId || "", tokenSet: !!t.token }));

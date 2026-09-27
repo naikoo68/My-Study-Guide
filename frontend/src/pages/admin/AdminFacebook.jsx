@@ -6,10 +6,10 @@ import {
   Send, Loader2, CheckCircle2, AlertTriangle, KeyRound, Plus, Trash2, Pencil, X,
   Clock, CalendarClock, ListChecks, Power, Save, Upload, UserCircle, Type, Search, Mail,
   ImagePlus, FileText, Wand2, RefreshCw, Film, Music, Camera, ChevronDown, MessageCircle,
-  Sparkles, Volume2, PlayCircle,
+  Sparkles, Volume2, PlayCircle, Link2, Unplug,
 } from "lucide-react";
-import { Facebook, Instagram } from "../../components/ui/SocialIcons";
-import { settingsService, facebookService, contentService, practiceService, uploadService } from "../../services";
+import { Facebook, Instagram, Youtube } from "../../components/ui/SocialIcons";
+import { settingsService, facebookService, youtubeService, contentService, practiceService, uploadService } from "../../services";
 import { useSettings } from "../../context/SettingsContext";
 import { Loading, ErrorState } from "../../components/ui/AsyncState";
 import { estimateSlideshowEta, smoothRemaining, learnSlideshowProfile, loadSlideshowProfile, saveSlideshowProfile, fmtDuration } from "../../lib/slideshowEta";
@@ -1168,6 +1168,8 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
   const [stopWhenExhausted, setStopWhenExhausted] = useState(true);
   const [toFacebook, setToFacebook] = useState(true);
   const [toInstagram, setToInstagram] = useState(false);
+  const [toYoutube, setToYoutube] = useState(false);
+  const [ytTitle, setYtTitle] = useState("");
   const [hashtags, setHashtags] = useState("");
   const [questionCount, setQuestionCount] = useState(1); // questions per video (1–10)
   const [creating, setCreating] = useState(false);
@@ -1347,7 +1349,7 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
     const cleanTimes = times.filter(Boolean);
     if (!hasSource) { setCreateMsg({ ok: false, text: "Pick the content first (at least a subject, or a My Quiz)." }); return; }
     if (!cleanTimes.length) { setCreateMsg({ ok: false, text: "Add at least one posting time." }); return; }
-    if (!toFacebook && !toInstagram) { setCreateMsg({ ok: false, text: "Choose Facebook and/or Instagram." }); return; }
+    if (!toFacebook && !toInstagram && !toYoutube) { setCreateMsg({ ok: false, text: "Choose Facebook, Instagram and/or YouTube." }); return; }
     setCreating(true);
     try {
       await saveSettings({
@@ -1376,6 +1378,8 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
         stopWhenExhausted,
         toFacebook,
         toInstagram,
+        toYoutube,
+        ytTitle: ytTitle.trim(),
         hashtags: hashtags.trim(),
         slideshowQuestions: qCount,
         includeOptions: true,
@@ -1383,7 +1387,7 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
       });
       setCreateMsg({ ok: true, text: `Slideshow schedule created for ${source.label || "the picked content"} — it's in Scheduled posts below.` });
       setTitle(""); setSource({ subject: null, session: null, quiz: null, testSeries: null, label: "" }); setPickerKey((k) => k + 1);
-      setTimes(["09:00"]); setDays([]); setHashtags(""); setQuestionCount(1);
+      setTimes(["09:00"]); setDays([]); setHashtags(""); setQuestionCount(1); setYtTitle("");
       onCreated?.();
     } catch (e) {
       setCreateMsg({ ok: false, text: e.message || "Could not create the schedule." });
@@ -1466,7 +1470,17 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" className="h-4 w-4 accent-[#E1306C]" checked={toInstagram} onChange={(e) => setToInstagram(e.target.checked)} /> Instagram <span className="text-slate-400">(Reel)</span>
         </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={toYoutube} onChange={(e) => setToYoutube(e.target.checked)} /> YouTube <span className="text-slate-400">(Short)</span>
+        </label>
       </div>
+      {toYoutube && (
+        <div className="mt-2">
+          <label className="mb-1 block text-sm font-medium">YouTube title</label>
+          <input className="input" maxLength={90} value={ytTitle} onChange={(e) => setYtTitle(e.target.value)} placeholder={title.trim() || "Daily GK Quiz"} />
+          <p className="mt-1 text-xs text-slate-400">Numbered automatically: <b>{(ytTitle || title || "Daily GK Quiz").trim()} #1</b>, #2, #3… Connect your channel in the <b>YouTube Shorts</b> card first.</p>
+        </div>
+      )}
       <label className="mb-1 mt-3 block text-sm font-medium">Hashtags (optional)</label>
       <textarea className="input min-h-[46px] resize-y" rows={2} value={hashtags} onChange={(e) => setHashtags(e.target.value)} placeholder="#GK #JKSSB #Quiz" />
 
@@ -1876,6 +1890,167 @@ function AutoCommentSection({ settings, saveSettings }) {
   );
 }
 
+// Does this schedule produce a VIDEO each run? (YouTube only accepts videos.)
+function scheduleHasVideo(f) {
+  if (f.kind === "slideshow" || f.asSlideshow) return true;
+  if (f.kind === "custom") return !!String(f.customVideo || "").trim();
+  return !!f.asReel;
+}
+
+// YouTube (Shorts) connection card: Google OAuth app credentials, the
+// Connect/Disconnect flow, default privacy and a connection test. Uploading
+// itself happens from each schedule's "YouTube" checkbox.
+function YoutubeSection() {
+  const [st, setSt] = useState(null);
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [busy, setBusy] = useState(""); // "" | "save" | "connect" | "disconnect" | "test"
+  // Result of the Google redirect (…/admin/facebook?youtube=connected|error&reason=…).
+  const [msg, setMsg] = useState(() => {
+    const qs = new URLSearchParams(window.location.search);
+    const r = qs.get("youtube");
+    if (!r) return null;
+    return r === "connected" ? { ok: true, text: "YouTube connected." } : { ok: false, text: qs.get("reason") || "Could not connect YouTube." };
+  });
+  const [showSteps, setShowSteps] = useState(false);
+  // Open the card when we've just come back from Google's login screen.
+  const [openOnReturn] = useState(() => new URLSearchParams(window.location.search).has("youtube"));
+
+  const apply = (s) => { setSt(s); setClientId(s?.clientId || ""); setClientSecret(""); };
+  const load = () => youtubeService.status().then(apply).catch((e) => setMsg({ ok: false, text: e.message }));
+
+  useEffect(() => {
+    // Strip the ?youtube=… result from the address bar (shown via `msg` above).
+    const qs = new URLSearchParams(window.location.search);
+    if (qs.has("youtube")) {
+      qs.delete("youtube"); qs.delete("reason");
+      const rest = qs.toString();
+      window.history.replaceState(null, "", `${window.location.pathname}${rest ? `?${rest}` : ""}${window.location.hash}`);
+    }
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const run = async (kind, fn) => {
+    setBusy(kind); setMsg(null);
+    try { await fn(); } catch (e) { setMsg({ ok: false, text: e.message || "Something went wrong." }); } finally { setBusy(""); }
+  };
+  const saveCreds = () => run("save", async () => {
+    apply(await youtubeService.save({ clientId: clientId.trim(), ...(clientSecret.trim() ? { clientSecret: clientSecret.trim() } : {}) }));
+    setMsg({ ok: true, text: "Saved." });
+  });
+  const connect = () => run("connect", async () => {
+    // Save any just-typed credentials first so the connection uses them.
+    if (clientId.trim() !== (st?.clientId || "") || clientSecret.trim()) {
+      apply(await youtubeService.save({ clientId: clientId.trim(), ...(clientSecret.trim() ? { clientSecret: clientSecret.trim() } : {}) }));
+    }
+    const r = await youtubeService.connect();
+    if (r?.url) window.location.assign(r.url);
+  });
+  const disconnect = () => {
+    if (!window.confirm("Disconnect YouTube? Schedules will stop uploading to YouTube until you connect again.")) return;
+    run("disconnect", async () => { apply(await youtubeService.disconnect()); setMsg({ ok: true, text: "Disconnected." }); });
+  };
+  const test = () => run("test", async () => {
+    const r = await youtubeService.test();
+    setMsg({ ok: true, text: `Working — connected to “${r.channelTitle}”.` });
+    load();
+  });
+  const setEnabled = (v) => run("save", async () => apply(await youtubeService.save({ enabled: v })));
+  const setPrivacy = (v) => run("save", async () => apply(await youtubeService.save({ privacy: v })));
+  const copy = (t) => { try { navigator.clipboard?.writeText(t); setMsg({ ok: true, text: "Copied." }); } catch { /* ignore */ } };
+
+  return (
+    <CollapsibleCard title="YouTube Shorts" icon={Youtube} iconClass="h-5 w-5 text-[#FF0000]" defaultOpen={openOnReturn}>
+      <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
+        Upload each schedule's video to your YouTube channel as a <b>Short</b>. Works for <b>AI Slideshow</b>, <b>Reel</b> and <b>custom video</b> posts (YouTube only accepts videos). Tick <b>YouTube</b> on a schedule to use it.
+      </p>
+      {!st ? <div className="mt-3"><Loading label="Loading…" /></div> : (
+        <>
+          {/* Status */}
+          <div className={`mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2 ${st.connected ? "border-emerald-200 bg-emerald-50/60 dark:border-emerald-900/50 dark:bg-emerald-900/10" : "border-slate-200 dark:border-slate-700"}`}>
+            <span className="text-sm">
+              {st.connected
+                ? <>✅ Connected to <b>{st.channelTitle || "your channel"}</b></>
+                : <>Not connected</>}
+            </span>
+            {st.connected && (
+              <label className="flex items-center gap-2 text-sm font-medium">
+                Upload enabled
+                <button type="button" onClick={() => setEnabled(!st.enabled)} disabled={!!busy}
+                  className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${st.enabled ? "bg-[#FF0000]" : "bg-slate-300 dark:bg-slate-600"}`}>
+                  <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${st.enabled ? "left-6" : "left-1"}`} />
+                </button>
+              </label>
+            )}
+          </div>
+
+          {/* Google OAuth app */}
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm font-medium">Google OAuth Client ID</label>
+              <input className="input" value={clientId} onChange={(e) => setClientId(e.target.value)}
+                placeholder={st.usingEnvCredentials ? "Using the server's YOUTUBE_CLIENT_ID" : "xxxx.apps.googleusercontent.com"} />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">Client secret</label>
+              <input className="input" type="password" autoComplete="off" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)}
+                placeholder={st.clientSecretSet ? "•••••• saved — type to replace" : (st.usingEnvCredentials ? "Using the server's secret" : "GOCSPX-…")} />
+            </div>
+          </div>
+          <div className="mt-3">
+            <label className="mb-1 block text-sm font-medium">Authorised redirect URI <span className="font-normal text-slate-400">(paste this into Google Cloud)</span></label>
+            <div className="flex gap-2">
+              <input className="input font-mono text-xs" readOnly value={st.redirectUri} onFocus={(e) => e.target.select()} />
+              <button type="button" onClick={() => copy(st.redirectUri)} className="btn-outline flex-shrink-0 !py-1.5 !text-xs">Copy</button>
+            </div>
+          </div>
+          <div className="mt-3">
+            <label className="mb-1 block text-sm font-medium">New videos are</label>
+            <select className="input max-w-xs" value={st.privacy} onChange={(e) => setPrivacy(e.target.value)} disabled={!!busy}>
+              <option value="public">Public</option>
+              <option value="unlisted">Unlisted</option>
+              <option value="private">Private</option>
+            </select>
+            <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+              Until Google approves your API project (a free “YouTube API compliance audit”), YouTube keeps API uploads <b>private</b> — you can make them public in YouTube Studio. After approval, “Public” applies automatically.
+            </p>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <button type="button" onClick={saveCreds} disabled={!!busy} className="btn-outline">{busy === "save" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save</button>
+            <button type="button" onClick={connect} disabled={!!busy || (!st.credentialsReady && !(clientId.trim() && (clientSecret.trim() || st.clientSecretSet)))} className="btn-primary !bg-[#FF0000] hover:!bg-[#d90000]">
+              {busy === "connect" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />} {st.connected ? "Reconnect YouTube" : "Connect YouTube"}
+            </button>
+            {st.connected && (
+              <>
+                <button type="button" onClick={test} disabled={!!busy} className="btn-outline">{busy === "test" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Test connection</button>
+                <button type="button" onClick={disconnect} disabled={!!busy} className="btn-outline text-rose-600">{busy === "disconnect" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unplug className="h-4 w-4" />} Disconnect</button>
+              </>
+            )}
+          </div>
+          {msg && <p className={`mt-2 inline-flex items-center gap-1 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {msg.text}</p>}
+
+          {/* One-time setup guide */}
+          <button type="button" onClick={() => setShowSteps((v) => !v)} className="mt-4 flex items-center gap-1 text-sm font-semibold text-brand-600">
+            <ChevronDown className={`h-4 w-4 transition ${showSteps ? "rotate-180" : ""}`} /> One-time setup steps (about 10 minutes)
+          </button>
+          {showSteps && (
+            <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-sm text-slate-600 dark:text-slate-300">
+              <li>Open <b>console.cloud.google.com</b> and create a project (e.g. “My Study Guide YouTube”).</li>
+              <li>Go to <b>APIs &amp; Services → Library</b>, search <b>YouTube Data API v3</b> and click <b>Enable</b>.</li>
+              <li><b>OAuth consent screen</b>: choose <b>External</b>, fill in the app name + your email, add the scopes <code>youtube.upload</code> and <code>youtube.readonly</code>, add your own Google account under <b>Test users</b>, then <b>Publish app</b> (so the login doesn't expire every 7 days).</li>
+              <li><b>Credentials → Create credentials → OAuth client ID</b> → type <b>Web application</b>. Under <b>Authorised redirect URIs</b> paste the redirect URI shown above.</li>
+              <li>Copy the <b>Client ID</b> and <b>Client secret</b> into the boxes above and click <b>Connect YouTube</b>. Sign in with the Google account that owns your channel and allow access.</li>
+              <li>Optional (to make uploads public automatically): apply for the free <b>YouTube API Services audit</b> from the YouTube Data API page in Google Cloud.</li>
+            </ol>
+          )}
+        </>
+      )}
+    </CollapsibleCard>
+  );
+}
+
 const emptyForm = {
   kind: "question",
   mode: "recurring", runAt: "", // one-off (mode "once") uses runAt; recurring uses times/days
@@ -1884,7 +2059,7 @@ const emptyForm = {
   times: ["09:00"], days: [], timezone: "Asia/Kolkata",
   includeOptions: true, includeAnswer: false, includeLink: false, hashtags: "", order: "random",
   stopWhenExhausted: true,
-  toFacebook: true, toInstagram: false, asImage: false,
+  toFacebook: true, toInstagram: false, toYoutube: false, ytTitle: "", asImage: false,
   asReel: false, customAudios: [], reelDuration: 30, // Reel mode for question/flashcard: rotate through these music tracks, trimmed to reelDuration seconds
   asStory: false, // also share the image as a 24h Story (Facebook + Instagram)
   // AI Educational Slideshow + Voice — builds narrated 9:16 slides and posts a Reel.
@@ -2010,7 +2185,7 @@ export default function AdminFacebook() {
     includeOptions: s.includeOptions !== false, includeAnswer: !!s.includeAnswer, includeLink: !!s.includeLink,
     hashtags: s.hashtags || "", order: s.order || "random",
     stopWhenExhausted: s.stopWhenExhausted !== false,
-    toFacebook: s.toFacebook !== false, toInstagram: !!s.toInstagram, asImage: !!s.asImage,
+    toFacebook: s.toFacebook !== false, toInstagram: !!s.toInstagram, toYoutube: !!s.toYoutube, ytTitle: s.ytTitle || "", asImage: !!s.asImage,
     asReel: !!s.asReel,
     reelDuration: s.reelDuration || 30,
     asStory: !!s.asStory,
@@ -2058,7 +2233,11 @@ export default function AdminFacebook() {
     if (isOnce) {
       if (!form.runAt) { setError("Pick a date & time for the one-time post."); return; }
     } else if (!form.times.filter(Boolean).length) { setError("Add at least one time."); return; }
-    if (!form.toFacebook && !form.toInstagram) { setError("Choose at least one destination (Facebook and/or Instagram)."); return; }
+    if (!form.toFacebook && !form.toInstagram && !form.toYoutube) { setError("Choose at least one destination (Facebook, Instagram or YouTube)."); return; }
+    // YouTube only accepts videos: AI Slideshow, a Reel, or a custom video.
+    if (form.toYoutube && !scheduleHasVideo(form)) {
+      setError("YouTube needs a video — use AI Slideshow, turn on Reel, or add a custom video (or untick YouTube)."); return;
+    }
     setSaving(true); setError("");
     try {
       const payload = {
@@ -2257,6 +2436,8 @@ export default function AdminFacebook() {
           {igMsg && <span className={`inline-flex items-center gap-1 text-sm font-medium ${igMsg.ok ? "text-emerald-600" : "text-rose-600"}`}>{igMsg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {igMsg.text}</span>}
         </div>
       </CollapsibleCard>
+
+      <YoutubeSection />
 
       {/* Selfie / logo Watermark */}
       <SelfieWatermarkSection settings={settings} saveSettings={saveSettings} />
@@ -2476,6 +2657,9 @@ export default function AdminFacebook() {
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" className="h-4 w-4 accent-[#E1306C]" checked={form.toInstagram} onChange={(e) => setForm((f) => ({ ...f, toInstagram: e.target.checked }))} /> Instagram <span className="text-slate-400">(image)</span>
               </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={!!form.toYoutube} onChange={(e) => setForm((f) => ({ ...f, toYoutube: e.target.checked }))} /> YouTube <span className="text-slate-400">(Short)</span>
+              </label>
               {form.kind === "question" && (
                 <label className="flex items-center gap-2 text-sm">
                   <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={form.asImage} onChange={(e) => setForm((f) => ({ ...f, asImage: e.target.checked }))} /> Post as image on Facebook
@@ -2492,6 +2676,21 @@ export default function AdminFacebook() {
                       ? "Instagram posts a Reel — the auto-generated card is mixed with your music into a video."
                       : "Instagram always posts an image, so a question image is generated automatically."}
               </p>
+            )}
+            {form.toYoutube && (
+              <div className="mt-3 rounded-lg border border-red-100 bg-red-50/40 p-3 dark:border-red-900/40 dark:bg-red-900/10">
+                <label className="mb-1 block text-sm font-medium">YouTube title</label>
+                <input className="input" maxLength={90} value={form.ytTitle || ""} onChange={(e) => setForm((f) => ({ ...f, ytTitle: e.target.value }))}
+                  placeholder={form.title || "Daily GK Quiz"} />
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  Every upload is numbered automatically: <b>{(form.ytTitle || form.title || "Daily GK Quiz").trim()} #1</b>, #2, #3… (put <code>{"{n}"}</code> anywhere to place the number yourself). The caption + hashtags become the description.
+                </p>
+                {!scheduleHasVideo(form) && (
+                  <p className="mt-1 text-xs font-medium text-amber-600 dark:text-amber-400">
+                    YouTube only accepts videos — {form.kind === "custom" ? "add a video URL above" : "turn on Reel below (or use the AI Slideshow post type)"}.
+                  </p>
+                )}
+              </div>
             )}
 
             {(form.kind === "question" || form.kind === "flashcard") && (
@@ -2664,6 +2863,11 @@ export default function AdminFacebook() {
                         {((s.asReel && !s.asSlideshow && s.kind !== "slideshow") || (s.kind === "custom" && s.customVideo)) && (
                           <span className="inline-flex items-center gap-1 rounded-full bg-fuchsia-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-fuchsia-700 dark:bg-fuchsia-900/40 dark:text-fuchsia-300">
                             <Film className="h-3 w-3" /> Reel
+                          </span>
+                        )}
+                        {s.toYoutube && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-700 dark:bg-red-900/40 dark:text-red-300">
+                            <Youtube className="h-3 w-3" /> YouTube
                           </span>
                         )}
                         {s.asStory && (
