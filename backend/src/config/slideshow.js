@@ -93,7 +93,7 @@ const templateRole = (role) => (role === "reveal" ? "question" : role);
 // Question-only mode's answer reveal (all in seconds):
 //   pauseSec — silent thinking time after the question is read (0–15, default 3)
 //   showSec  — how long the green correct option stays up (1–15, default 3)
-//   say      — also say "The correct answer is option B." (default on)
+//   say      — also say "The correct answer is option B: <its text>." (default on)
 // From the caller (the test form) else the site settings.
 export function revealOptions(input, site) {
   const src = input && typeof input === "object" ? input : {
@@ -107,7 +107,7 @@ export function revealOptions(input, site) {
 
 // The reveal slide: the question slide again, with the correct option marked
 // (green). Silent unless `say`. Null when the question has no valid answer.
-function revealSlide(qSlide, q, reveal) {
+export function revealSlide(qSlide, q, reveal) {
   const idx = Number.isInteger(q?.correct) ? q.correct : -1;
   const opt = (qSlide.options || [])[idx];
   if (!opt) return null;
@@ -116,11 +116,15 @@ function revealSlide(qSlide, q, reveal) {
     id: "reveal",
     role: "reveal",
     options: qSlide.options.map((o, i) => ({ ...o, correct: i === idx })),
-    narration: reveal.say ? `The correct answer is option ${opt.spokenBadge || opt.badge}.` : "",
+    // Say the option's TEXT too ("…option B: 1, 2 and 3."), not just the
+    // letter. `spoken` is already speech-ready (math, tables, ₹ … handled).
+    narration: reveal.say
+      ? `The correct answer is option ${opt.spokenBadge || opt.badge}${opt.spoken ? `: ${opt.spoken}` : "."}`
+      : "",
     // Always a caption (even when silent): the caption band takes room on the
     // card, so the question slide and its reveal must BOTH have one — then the
     // layout is identical and only the colour changes.
-    caption: `Correct answer: ${opt.badge}`,
+    caption: `Correct answer: ${opt.badge}${opt.text ? `. ${opt.text}` : ""}`,
     minSec: reveal.showSec,
   };
 }

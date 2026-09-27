@@ -1508,7 +1508,7 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
             ))}
             <label className="mb-4 flex items-center gap-2 text-sm">
               <input type="checkbox" className="h-4 w-4 accent-emerald-600" checked={reveal.say} onChange={(e) => setReveal((r) => ({ ...r, say: e.target.checked }))} />
-              Say “The correct answer is option B”
+              Say the answer (“The correct answer is option B: 1, 2 and 3”)
             </label>
           </div>
         </div>
