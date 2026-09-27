@@ -29,6 +29,8 @@ export function toSpeech(input) {
   // Arrows in sequences ("Organism → Population") become a short pause
   // instead of being read out as "right arrow".
   s = s.replace(/\s*(?:→|->|⟶|⇒)\s*/g, ", ");
+  // "Rust = Iron + Oxygen" (quick-recall style) → read the "=" as a word.
+  s = s.replace(/\s*=\s*/g, " equals ");
   s = s.replace(/\\[a-zA-Z]+/g, " "); // any remaining commands
   s = s.replace(/[{}\\]/g, " ");
   return s.replace(/\s+/g, " ").trim();
@@ -74,58 +76,88 @@ function topicLabel(q, opts = {}) {
   return uniq.slice(0, 2).join(" — ");
 }
 
+// What the narrator reads — admin toggles, every one ON by default:
+//   question     slide 1: the question text (+ assertion/reason, statements, columns)
+//   options      slide 1: every option ("Option A: …")
+//   explanation  slide 2: the full explanation
+//   keyPoints    slide 2: every key point
+//   quickRecall  slide 2: the quick recall line
+// (The "Question 2." intro and the correct answer are always read.) Accepts an
+// object with those keys (missing / non-boolean → ON).
+export const READ_PARTS = ["question", "options", "explanation", "keyPoints", "quickRecall"];
+export function normalizeReadOptions(read) {
+  const src = read && typeof read === "object" ? read : {};
+  return Object.fromEntries(READ_PARTS.map((k) => [k, src[k] !== false]));
+}
+
+// The read options saved in the site settings (slideshowReadQuestion, …).
+export function readOptionsFromSettings(site) {
+  const s = site || {};
+  return normalizeReadOptions({
+    question: s.slideshowReadQuestion,
+    options: s.slideshowReadOptions,
+    explanation: s.slideshowReadExplanation,
+    keyPoints: s.slideshowReadKeyPoints,
+    quickRecall: s.slideshowReadQuickRecall,
+  });
+}
+
 // Build the TWO slides for one question:
 //   slide 1 "question" — the question with everything needed to answer it
 //                        (assertion/reason, statements or matching columns, and
 //                        the options), read aloud by the narrator;
-//   slide 2 "answer"   — the correct answer, then the explanation (or the quick
-//                        recall / first key point when there's no explanation).
+//   slide 2 "answer"   — the correct answer, then the explanation, key points
+//                        and quick recall.
 // `role` tells the composer which on-screen time applies (questionSec /
-// answerSec). `opts` may carry { subjectName } for the small topic line, and
-// { index, total } when several questions share one video ("Question 2 of 5").
+// answerSec — minimums; a slide stays up until its narration ends). `opts` may
+// carry { subjectName } for the small topic line, { index, total } when several
+// questions share one video ("Question 2 of 5"), and { read } (see above).
 export function buildSlidePlan(q, opts = {}) {
   const type = asText(q?.type) || "mcq";
   const stem = asText(q?.text) || "Question";
   const total = Math.max(1, Number(opts.total) || 1);
   const index = Math.max(1, Math.min(total, Number(opts.index) || 1));
   const ofN = total > 1 ? ` ${index} OF ${total}` : "";
-  // Speech budgets (characters) so the voice fits the slide times the admin
-  // set. The stem and the correct answer are always read; the options and the
-  // explanation are read only as far as the time allows (they stay on screen).
-  const qBudget = Number(opts.questionChars) > 0 ? Number(opts.questionChars) : Infinity;
-  const aBudget = Number(opts.answerChars) > 0 ? Number(opts.answerChars) : Infinity;
+  // WHAT the narrator reads (admin choice — see normalizeReadOptions). Every
+  // part that's switched on is read IN FULL, never cut to fit the slide time:
+  // the slide simply stays up until the narration finishes.
+  const read = normalizeReadOptions(opts.read);
 
   // ---- Slide 1: the question ------------------------------------------------
   const topic = topicLabel(q || {}, opts);
   const meta = [topic, asText(q?.difficulty) || "Medium"].filter(Boolean).join("  ·  ");
   const lead = [{ text: meta, muted: true }, { text: stem, emphasis: true }];
-  let spoken = (total > 1 ? `Question ${index}. ` : "") + said(stem);
+  // The question text plus its parts (assertion/reason, statements, columns).
+  let questionSpeech = said(stem);
   let columns = null;
 
   if (type === "assertion" && (isFilled(q.assertion) || isFilled(q.reason))) {
     if (isFilled(q.assertion)) lead.push({ label: "Assertion (A)", text: asText(q.assertion) });
     if (isFilled(q.reason)) lead.push({ label: "Reason (R)", text: asText(q.reason) });
-    spoken +=
+    questionSpeech +=
       (isFilled(q.assertion) ? ` Assertion: ${said(q.assertion)}` : "") +
       (isFilled(q.reason) ? ` Reason: ${said(q.reason)}` : "");
   } else if (type === "statement" && arr(q.columnA).length) {
     arr(q.columnA).forEach((t, i) => lead.push({ text: `${i + 1}. ${asText(t)}` }));
-    spoken += " " + arr(q.columnA).map((t, i) => `Statement ${i + 1}: ${said(t)}`).join(" ");
+    questionSpeech += " " + arr(q.columnA).map((t, i) => `Statement ${i + 1}: ${said(t)}`).join(" ");
   } else if (COLUMN_TYPES.has(type) && (arr(q.columnA).length || arr(q.columnB).length)) {
     columns = {
       a: arr(q.columnA).map((t, i) => ({ badge: String(i + 1), text: asText(t) })),
       b: arr(q.columnB).map((t, i) => ({ badge: ROMAN[i] || String(i + 1), text: asText(t) })),
     };
-    spoken +=
+    questionSpeech +=
       " Column A: " + arr(q.columnA).map((t, i) => `${i + 1}, ${said(t)}`).join(" ") +
       " Column B: " + arr(q.columnB).map((t, i) => `${ROMAN[i] || i + 1}, ${said(t)}`).join(" ");
   }
 
   const options = optionItems(q || {});
-  if (options.length) {
-    const optSpeech = " " + options.map((o) => `Option ${o.badge}: ${said(o.text)}`).join(" ");
-    if (spoken.length + optSpeech.length <= qBudget) spoken += optSpeech;
+  let spoken = total > 1 ? `Question ${index}.` : "";
+  if (read.question) spoken += ` ${questionSpeech}`;
+  if (read.options && options.length) {
+    spoken += " " + options.map((o) => `Option ${o.badge}: ${said(o.text)}`).join(" ");
   }
+  // Something must be spoken (the TTS needs text, and it times the slide).
+  if (!spoken.trim()) spoken = "Here is the question.";
 
   const slides = [
     {
@@ -143,6 +175,8 @@ export function buildSlidePlan(q, opts = {}) {
   ];
 
   // ---- Slide 2: the answer reveal -------------------------------------------
+  // The correct answer is always read; the explanation, key points and quick
+  // recall are read in full when switched on.
   const correct = correctInfo(q || {});
   const body = [];
   let answerSpoken = "";
@@ -150,22 +184,21 @@ export function buildSlidePlan(q, opts = {}) {
     body.push({ text: `${correct.letter}. ${correct.text}`, emphasis: true, positive: true });
     answerSpoken = `The correct answer is option ${correct.letter}. ${said(correct.text)}`;
   }
-  const recall = isFilled(q?.quickRecall) ? asText(q.quickRecall) : (arr(q?.keyPoints)[0] ? asText(arr(q.keyPoints)[0]) : "");
+  const keyPoints = arr(q?.keyPoints).map(asText);
+  const recall = isFilled(q?.quickRecall) ? asText(q.quickRecall) : "";
   if (isFilled(q?.explanation)) {
+    // (On-screen text of the fallback SVG slide only — the normal slide shows
+    // the full explanation.)
     body.push({ label: "Explanation", text: clipSentences(asText(q.explanation), 420) });
-    // Read as much of the explanation as fits the answer time (whole
-    // sentences); the fuller explanation stays on screen.
-    const room = Math.min(260, aBudget - answerSpoken.length - 1);
-    if (room >= 40) {
-      const part = clipSentences(toSpeech(q.explanation), room).replace(/…$/, "");
-      if (part && part.length <= room) answerSpoken += ` ${part}`;
-    }
+    if (read.explanation) answerSpoken += ` Explanation: ${said(q.explanation)}`;
   }
-  if (recall) {
-    body.push({ label: "Quick recall", text: clipSentences(recall, 200) });
-    const r = ` Quick recall: ${said(recall)}`;
-    if (!isFilled(q?.explanation) && answerSpoken.length + r.length <= aBudget) answerSpoken += r;
+  if (keyPoints.length && read.keyPoints) {
+    answerSpoken += ` Key points: ${keyPoints.map((p) => said(p)).join(" ")}`;
   }
+  // The fallback slide shows the quick recall, or the first key point.
+  const recallOnScreen = recall || keyPoints[0] || "";
+  if (recallOnScreen) body.push({ label: "Quick recall", text: clipSentences(recallOnScreen, 200) });
+  if (recall && read.quickRecall) answerSpoken += ` Quick recall: ${said(recall)}`;
   slides.push({
     id: "answer",
     role: "answer",

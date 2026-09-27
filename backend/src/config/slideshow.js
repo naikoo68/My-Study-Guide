@@ -20,7 +20,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { isCloudinaryConfigured, uploadFileToCloudinary } from "./cloudinary.js";
 import { resolveTtsConfig, resolveWorkingTtsConfig, synthesizeSpeech } from "./tts.js";
-import { buildSlidePlan } from "./slidePlan.js";
+import { buildSlidePlan, normalizeReadOptions, readOptionsFromSettings } from "./slidePlan.js";
+import { chunkForGoogle } from "./googleTts.js";
 import { renderSlideImage } from "./slideRender.js";
 import { renderSlideCardShots } from "./cardShot.js";
 import { composeSlideshowMp4, isFfmpegAvailable, probeImageSize } from "./videoCompose.js";
@@ -62,12 +63,32 @@ async function downloadTo(url, dest, { timeoutMs = 60000 } = {}) {
   }
 }
 
+// A full explanation + key points + quick recall can be longer than one TTS
+// request allows (synthesizeSpeech hard-caps at 1200 characters and would CUT
+// the rest). Split long narration at sentence boundaries, synthesize each part
+// and join the MP3s (same encoder settings, so they play back-to-back).
+const TTS_PART_CHARS = 1000;
+async function synthesizeLongSpeech({ text, voice, cfg }) {
+  const parts = chunkForGoogle(text, TTS_PART_CHARS);
+  if (parts.length <= 1) return synthesizeSpeech({ text, voice, cfg });
+  const buffers = [];
+  let usedVoice = voice;
+  for (const part of parts) {
+    const r = await synthesizeSpeech({ text: part, voice, cfg });
+    buffers.push(r.buffer);
+    usedVoice = r.voice || usedVoice;
+  }
+  return { buffer: Buffer.concat(buffers), voice: usedVoice };
+}
+
 // Build the whole slideshow for `question`. Returns:
 //   { videoUrl, slides, duration, voice, provider, slidePlan }
 // `opts`:
 //   voice, autoCaptions, generateImages, brandColor, siteName, siteUrl,
 //   subjectName, questionSec, answerSec (on-screen seconds per slide),
 //   site (raw Settings doc → resolves the TTS provider/key),
+//   read — what the narrator reads ({ question, options, explanation,
+//          keyPoints, quickRecall }; default: the site settings, all ON),
 //   onStatus(status) — a callback fired as the job progresses.
 // `question` may be ONE question or an ARRAY of questions (several questions
 // in one video: Q1 → A1 → Q2 → A2 → …).
@@ -113,9 +134,9 @@ export async function generateSlideshow(question, opts = {}) {
   };
 
   // 1) Plan two slides per question (question → answer; adapts to the type).
-  // Roughly how many characters each voice speaks per second, so the
-  // narration can be fitted to the slide times (see buildSlidePlan).
-  const charsPerSec = { gtranslate: 10, edge: 14, openai: 15 }[ttsCfg.provider] || 12;
+  // What the narrator reads: the caller's choice (the test form's current
+  // toggles), else the saved site settings; everything ON by default.
+  const read = opts.read ? normalizeReadOptions(opts.read) : readOptionsFromSettings(opts.site);
   const plan = [];
   const planQuestions = []; // the question each slide belongs to (same order as plan)
   questions.forEach((q, i) => {
@@ -123,8 +144,7 @@ export async function generateSlideshow(question, opts = {}) {
       ...brandOpts,
       index: i + 1,
       total: questions.length,
-      questionChars: Math.round(questionSec * charsPerSec),
-      answerChars: Math.round(answerSec * charsPerSec),
+      read,
     });
     for (const s of slides) { plan.push(s); planQuestions.push(q); }
   });
@@ -190,7 +210,7 @@ export async function generateSlideshow(question, opts = {}) {
     for (let i = 0; i < plan.length; i++) {
       let result;
       try {
-        result = await synthesizeSpeech({ text: plan[i].narration, voice, cfg: ttsCfg });
+        result = await synthesizeLongSpeech({ text: plan[i].narration, voice, cfg: ttsCfg });
       } catch (e) {
         throw new Error(`Narration failed on slide ${i + 1} (${ttsCfg.provider}): ${e?.message || e}`);
       }

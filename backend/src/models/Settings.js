@@ -281,6 +281,14 @@ const settingsSchema = new mongoose.Schema(
     slideshowAnswerSec: { type: Number, default: 8 },    // slide 2: answer reveal
     slideshowVoice: { type: String, default: "" },       // "" = the engine's default voice
     slideshowAutoCaptions: { type: Boolean, default: true },
+    // What the narrator reads aloud (each part is read IN FULL; the slide stays
+    // up until the narration ends). Slide 1: question text, options. Slide 2:
+    // explanation, key points, quick recall. The correct answer is always read.
+    slideshowReadQuestion: { type: Boolean, default: true },
+    slideshowReadOptions: { type: Boolean, default: true },
+    slideshowReadExplanation: { type: Boolean, default: true },
+    slideshowReadKeyPoints: { type: Boolean, default: true },
+    slideshowReadQuickRecall: { type: Boolean, default: true },
     // Optional background TEMPLATE images (uploaded, public URLs) for the two
     // slide types. When set, the slide is drawn on top of the template (the
     // question/answer in a white card in the middle) instead of the built-in
