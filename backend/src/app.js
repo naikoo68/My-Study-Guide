@@ -66,6 +66,7 @@ import instituteShareRoutes from "./routes/instituteShareRoutes.js";
 import instituteSignupRoutes from "./routes/instituteSignupRoutes.js";
 import cbtRoutes from "./routes/cbtRoutes.js";
 import facebookRoutes from "./routes/facebookRoutes.js";
+import youtubeRoutes from "./routes/youtubeRoutes.js";
 import userManualRoutes from "./routes/userManualRoutes.js";
 import backupRoutes from "./routes/backupRoutes.js";
 import recycleBinRoutes from "./routes/recycleBinRoutes.js";
@@ -294,6 +295,7 @@ app.use("/api/institute-share", instituteShareRoutes); // super-admin: COPY plat
 app.use("/api/institute-signup", instituteSignupRoutes); // public paid institute self-signup → auto-provision (Phase 5)
 app.use("/api/cbt", cbtRoutes); // CBT online exams (public name+email sign-in, emailed results, admin rankings)
 app.use("/api/facebook", facebookRoutes); // scheduled Facebook question auto-posting (admin)
+app.use("/api/youtube", youtubeRoutes); // YouTube Shorts auto-post connection (admin) + OAuth callback
 app.use("/api/manual", userManualRoutes); // editable User Manual (public read, admin write)
 
 // Rich social preview for a shared quiz/test link (WhatsApp/Facebook crawlers).

@@ -12,6 +12,7 @@ import PracticeStream from "../models/PracticeStream.js";
 import PracticeSubject from "../models/PracticeSubject.js";
 import PracticeTopic from "../models/PracticeTopic.js";
 import { isSafePublicUrl } from "../utils/urlGuard.js";
+import { isYoutubeConfigured } from "../config/youtube.js";
 import { isQuestionComplete } from "../utils/questionComplete.js";
 import { composeImageAudioToVideo, isCloudinaryConfigured } from "../config/cloudinary.js";
 import { generateSlideshow, isSlideshowConfigured } from "../config/slideshow.js";
@@ -359,6 +360,8 @@ export function pickScheduleFields(body = {}) {
     stopWhenExhausted: body.stopWhenExhausted !== false, // default true: stop once every question posted
     toFacebook: body.toFacebook !== false,
     toInstagram: !!body.toInstagram,
+    toYoutube: !!body.toYoutube,
+    ytTitle: String(body.ytTitle || "").replace(/[<>]/g, "").trim().slice(0, 90),
     asImage: !!body.asImage,
     // Post question/flashcard runs as a Reel by mixing the card image with music.
     // (A slideshow is its own narrated Reel, so it never uses the music Reel.)
@@ -713,8 +716,9 @@ export async function postScheduleNow(req, res) {
   const sch = await FbSchedule.findById(req.params.id);
   if (!sch) return res.status(404).json({ message: "Schedule not found." });
   const cfg = await getFacebookConfig();
-  if (!cfg.pageId || !cfg.token) {
-    return res.status(400).json({ ok: false, error: "Connect Facebook first (Page ID + token) and enable posting." });
+  const ytReady = !!sch.toYoutube && isYoutubeConfigured(cfg);
+  if ((!cfg.pageId || !cfg.token) && !ytReady) {
+    return res.status(400).json({ ok: false, error: sch.toYoutube ? "Connect Facebook or YouTube first." : "Connect Facebook first (Page ID + token) and enable posting." });
   }
   const result = await runScheduleOnce(sch, cfg);
   // Disappear-on-success: remove a one-time post, or a recurring schedule that

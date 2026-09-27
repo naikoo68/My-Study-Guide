@@ -342,6 +342,15 @@ export const settingsService = {
   deleteSelfieWatermark: () => api.del("/settings/selfie-watermark"),
 };
 
+// ---- YouTube (Shorts) auto-post connection (admin) ----
+export const youtubeService = {
+  status: () => api.get("/youtube/status"),
+  save: (data) => api.put("/youtube/settings", data), // { enabled?, privacy?, clientId?, clientSecret? }
+  connect: () => api.post("/youtube/connect"), // → { url } — navigate there for Google login
+  disconnect: () => api.post("/youtube/disconnect"),
+  test: () => api.post("/youtube/test"),
+};
+
 // ---- Facebook scheduled auto-posting (admin) ----
 export const facebookService = {
   schedules: (params = {}) => {
