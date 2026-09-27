@@ -181,7 +181,7 @@ async function shootSlide(browser, it, { siteUrl = "", readyTimeoutMs = 25000 } 
     page.on("response", (res) => { if (res.url().includes("/card-question/")) apiStatus = res.status(); });
 
     const p = new URLSearchParams();
-    p.set("role", it.role === "answer" ? "answer" : "question");
+    p.set("role", it.role === "answer" || it.role === "reveal" ? it.role : "question");
     if (it.tag) p.set("tag", String(it.tag));
     if (it.caption) p.set("cap", String(it.caption).slice(0, 600));
     if (it.template) p.set("tpl", "1");

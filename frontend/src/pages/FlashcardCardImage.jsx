@@ -39,8 +39,11 @@ const subjectOf = (q) => q.subjectName || q.topic || "";
 // ---- Shared panel content (used by BOTH the built-in card and the template
 //      overlay). No header/footer here — those come from the card frame / the
 //      uploaded template image. -----------------------------------------------
-export function FrontContent({ q }) {
+// `revealCorrect` turns the correct option green (same colours as the quiz when
+// the answer is shown) — used by the slideshow's answer-reveal slide.
+export function FrontContent({ q, revealCorrect = false }) {
   const isMatching = q?.type === "matching";
+  const isCorrect = (idx) => revealCorrect && idx === q?.correct;
   const subj = subjectOf(q);
   return (
     <>
@@ -65,8 +68,10 @@ export function FrontContent({ q }) {
       <div className="mt-3 space-y-2">
         {isMatching && <p className="text-xs font-medium text-slate-500">Choose the correct matching sequence:</p>}
         {displayOptions(q).map((opt, idx) => (
-          <div key={idx} className="flex w-full items-center gap-2.5 rounded-lg border-2 border-slate-200 bg-white px-3 py-2 text-left text-sm">
-            <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md border border-slate-300 text-xs font-bold">{isMatching ? `(${String.fromCharCode(97 + idx)})` : optionLabels[idx]}</span>
+          <div key={idx} data-correct={isCorrect(idx) ? "1" : undefined}
+            className={`flex w-full items-center gap-2.5 rounded-lg border-2 px-3 py-2 text-left text-sm ${isCorrect(idx) ? "border-emerald-500 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white"}`}>
+            {/* Colours only — same size/weight, so the reveal never re-wraps the text. */}
+            <span className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md border text-xs font-bold ${isCorrect(idx) ? "border-emerald-500 bg-emerald-500 text-white" : "border-slate-300"}`}>{isMatching ? `(${String.fromCharCode(97 + idx)})` : optionLabels[idx]}</span>
             <span className="flex-1"><OptionContent>{opt}</OptionContent></span>
           </div>
         ))}

@@ -1129,6 +1129,19 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
   // "both" = question + answer slide per question; "question" = question only.
   const [slidesMode, setSlidesMode] = useState(settings?.slideshowSlides === "question" ? "question" : "both");
   const withAnswer = slidesMode === "both";
+  // Question-only answer reveal: thinking pause, how long the green answer shows, say it.
+  const revealFrom = (s) => ({
+    pauseSec: s?.slideshowRevealPauseSec ?? 3,
+    showSec: s?.slideshowRevealSec ?? 3,
+    say: s?.slideshowRevealSay !== false,
+  });
+  const [reveal, setReveal] = useState(() => revealFrom(settings));
+  const clampNum = (v, def, lo, hi) => { const n = parseInt(v, 10); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : def; };
+  const revealClean = () => ({ pauseSec: clampNum(reveal.pauseSec, 3, 0, 15), showSec: clampNum(reveal.showSec, 3, 1, 15), say: reveal.say !== false });
+  const revealSettings = () => {
+    const r = revealClean();
+    return { slideshowRevealPauseSec: r.pauseSec, slideshowRevealSec: r.showSec, slideshowRevealSay: r.say };
+  };
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
   const [testing, setTesting] = useState(false);
@@ -1179,7 +1192,8 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
     setCaptions(settings?.slideshowAutoCaptions !== false);
     setReadOpts(readOptsFrom(settings));
     setSlidesMode(settings?.slideshowSlides === "question" ? "question" : "both");
-  }, [settings?.slideshowSlides, settings?.ttsProvider, settings?.ttsModel, settings?.ttsElevenLabsModel, settings?.ttsAzureRegion, settings?.ttsCustomUrl, settings?.ttsCustomModel, settings?.slideshowVoice, settings?.slideshowQuestionSec, settings?.slideshowAnswerSec, settings?.slideshowAutoCaptions,
+    setReveal(revealFrom(settings));
+  }, [settings?.slideshowSlides, settings?.slideshowRevealPauseSec, settings?.slideshowRevealSec, settings?.slideshowRevealSay, settings?.ttsProvider, settings?.ttsModel, settings?.ttsElevenLabsModel, settings?.ttsAzureRegion, settings?.ttsCustomUrl, settings?.ttsCustomModel, settings?.slideshowVoice, settings?.slideshowQuestionSec, settings?.slideshowAnswerSec, settings?.slideshowAutoCaptions,
     settings?.slideshowReadQuestion, settings?.slideshowReadOptions, settings?.slideshowReadExplanation, settings?.slideshowReadKeyPoints, settings?.slideshowReadQuickRecall]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const voices = voicesByProvider[provider] || [];
@@ -1209,6 +1223,7 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
         slideshowAutoCaptions: captions,
         ...readOptsToSettings(readOpts),
         slideshowSlides: slidesMode,
+        ...revealSettings(),
       });
       setNewKeys({}); setMsg({ ok: true, text: "Saved." });
     } catch (e) { setMsg({ ok: false, text: e.message || "Failed to save." }); } finally { setSaving(false); }
@@ -1230,7 +1245,7 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
     const startedAt = Date.now();
     setTesting(true); setTestError(""); setResult(null); setStage(""); setProgress(null);
     setTestStartedAt(startedAt); setElapsedSec(0); setTookSec(null);
-    const slides = qCount * (withAnswer ? 2 : 1);
+    const slides = qCount * 2; // question + answer, or question + green reveal
     liveRef.current = { stage: "PENDING", since: startedAt, progress: null, slides, profile: loadSlideshowProfile() };
     const marks = [{ stage: "PENDING", at: startedAt }];
     setEta(estimateSlideshowEta({ stage: "PENDING", slides, profile: liveRef.current.profile }));
@@ -1242,6 +1257,7 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
         autoCaptions: captions,
         read: readOpts, // the toggles on screen (so a test reflects unsaved edits)
         slidesMode,
+        reveal: revealClean(),
         questionSec: secs(questionSec, 10),
         answerSec: secs(answerSec, 8),
         slideshowQuestions: qCount,
@@ -1342,6 +1358,7 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
         slideshowAutoCaptions: captions,
         ...readOptsToSettings(readOpts),
         slideshowSlides: slidesMode,
+        ...revealSettings(),
       });
       setNewKeys({});
       await facebookService.create({
@@ -1399,7 +1416,7 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
           <span className="text-sm text-slate-500 dark:text-slate-400">question{qCount > 1 ? "s" : ""} in each video (1–10)</span>
         </div>
         <p className="mt-1 text-xs text-slate-400">
-          {withAnswer ? "Each question gets its own question slide and answer slide: Q1 → A1 → Q2 → A2 …" : "Each question gets one question slide: Q1 → Q2 → Q3 …"}
+          {withAnswer ? "Each question gets its own question slide and answer slide: Q1 → A1 → Q2 → A2 …" : "Each question: question → pause → correct option turns green → next question."}
           All {qCount} question{qCount > 1 ? "s are" : " is"} marked as posted, so none repeat.
         </p>
       </div>
@@ -1461,7 +1478,7 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
       <div className="grid gap-2 sm:grid-cols-2">
         {[
           ["both", "Question + answer slide", "Slide 1 asks the question; slide 2 reveals the answer, explanation, key points & quick recall."],
-          ["question", "Question slide only", "Only the question is shown — the answer isn't revealed. The post caption asks viewers to comment their answers."],
+          ["question", "Question slide only", "After the question is read, a short pause, then the correct option turns green on the same slide. No explanation slide."],
         ].map(([value, label, hint]) => (
           <label key={value} className={`flex cursor-pointer items-start gap-2 rounded-lg border p-3 text-sm ${slidesMode === value ? "border-brand-500 bg-brand-50/60 dark:bg-brand-900/20" : "border-slate-200 dark:border-slate-700"}`}>
             <input type="radio" name="slidesMode" className="mt-0.5 h-4 w-4 accent-brand-600" checked={slidesMode === value} onChange={() => setSlidesMode(value)} />
@@ -1469,6 +1486,33 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
           </label>
         ))}
       </div>
+
+      {!withAnswer && (
+        <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 dark:border-emerald-900/50 dark:bg-emerald-900/10">
+          <p className="mb-2 flex items-center gap-1.5 text-sm font-medium text-emerald-800 dark:text-emerald-300"><CheckCircle2 className="h-4 w-4" /> Answer reveal</p>
+          <div className="flex flex-wrap items-end gap-4">
+            {[
+              ["pauseSec", "Thinking pause", "silence after the question is read", 0, 15],
+              ["showSec", "Show green answer for", "the correct option in green", 1, 15],
+            ].map(([key, label, hint, lo, hi]) => (
+              <div key={key}>
+                <label className="mb-1 block text-xs font-medium">{label}</label>
+                <div className="flex items-center gap-2">
+                  <input type="number" min={lo} max={hi} step={1} className="input h-9 w-20" value={reveal[key]}
+                    onChange={(e) => setReveal((r) => ({ ...r, [key]: e.target.value }))}
+                    onBlur={(e) => setReveal((r) => ({ ...r, [key]: clampNum(e.target.value, 3, lo, hi) }))} />
+                  <span className="text-xs text-slate-500">sec</span>
+                </div>
+                <p className="mt-0.5 text-[11px] text-slate-400">{hint}</p>
+              </div>
+            ))}
+            <label className="mb-4 flex items-center gap-2 text-sm">
+              <input type="checkbox" className="h-4 w-4 accent-emerald-600" checked={reveal.say} onChange={(e) => setReveal((r) => ({ ...r, say: e.target.checked }))} />
+              Say “The correct answer is option B”
+            </label>
+          </div>
+        </div>
+      )}
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         {[
@@ -1488,10 +1532,12 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
         ))}
       </div>
       {(() => {
-        const perQ = secs(questionSec, 10) + (withAnswer ? secs(answerSec, 8) : 0);
+        const r = revealClean();
+        const second = withAnswer ? secs(answerSec, 8) : r.pauseSec + r.showSec;
+        const perQ = secs(questionSec, 10) + second;
         return (
           <p className="mt-2 text-xs text-slate-400">
-            Video length ≈ {perQ * qCount}s ({qCount} × {secs(questionSec, 10)}s{withAnswer ? ` + ${secs(answerSec, 8)}s` : ""}). If the voice needs
+            Video length ≈ {perQ * qCount}s ({qCount} × {secs(questionSec, 10)}s + {second}s{withAnswer ? "" : " pause & reveal"}). If the voice needs
             longer than the time you set, that slide stays up until the narration finishes.
             {perQ * qCount > 90 && " Over 90s: Instagram still posts it as a Reel; Facebook posts it as a normal video."}
           </p>
