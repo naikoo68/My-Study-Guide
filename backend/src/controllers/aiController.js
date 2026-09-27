@@ -4344,6 +4344,24 @@ function parseBatchItems(content) {
   return Array.isArray(salvaged) ? salvaged.filter((o) => o && typeof o === "object" && "i" in o) : [];
 }
 
+// Parallel lanes for bulk jobs. Previously a job ran exactly ONE worker per API
+// key, so with a single key (e.g. one CodeCraft / OpenRouter key) every chunk
+// ran strictly one after another — a 25-question Extend took ~13 sequential
+// calls. Gateways like CodeCraft happily serve several concurrent requests per
+// key, so we now run up to AI_BULK_CONCURRENCY workers IN TOTAL (default 4),
+// spread round-robin over the keys. With many keys we still run one worker per
+// key (never fewer than before). Each worker backs off on its own 429, so a
+// rate-limited key simply slows down instead of failing the job.
+function bulkWorkerLanes(endpoints, jobChunks) {
+  const eps = Array.isArray(endpoints) ? endpoints.filter(Boolean) : [];
+  if (!eps.length) return [];
+  const raw = parseInt(process.env.AI_BULK_CONCURRENCY || "", 10);
+  const target = Number.isFinite(raw) && raw > 0 ? Math.min(raw, 16) : 4;
+  // No point starting more workers than there are chunks of work.
+  const lanes = Math.max(eps.length, Math.min(target, Math.max(1, jobChunks)));
+  return Array.from({ length: lanes }, (_, i) => eps[i % eps.length]);
+}
+
 // The shared batched worker used by BOTH Extend and Regenerate.
 //   systemPrompt      — the base single-question system prompt (BATCH_REWRITE_SUFFIX is appended)
 //   perQuestionPrompt — (q) => the normal single-question user prompt for q
@@ -4458,8 +4476,9 @@ async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = n
     return { outcome: "soft", filled };
   };
 
-  // ONE worker PER API KEY → every key runs SIMULTANEOUSLY, each pulling chunks
-  // from the shared queue. A 429 parks only that key while the others keep going.
+  // Several workers run SIMULTANEOUSLY (at least one per API key, and up to
+  // AI_BULK_CONCURRENCY in total — see bulkWorkerLanes), each pulling chunks
+  // from the shared queue. A 429 parks only that worker while the others keep going.
   const worker = async (ep) => {
     let quotaWaits = 0;
     const _kl = ep.label || `••••${String(ep.key).slice(-4)}`;
@@ -4493,7 +4512,7 @@ async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = n
   };
 
   try {
-    await Promise.all((endpoints || []).map((ep) => worker(ep)));
+    await Promise.all(bulkWorkerLanes(endpoints, Math.ceil(total / CHUNK)).map((ep) => worker(ep)));
     if (updated === 0) {
       save({
         status: "error",
@@ -4798,8 +4817,8 @@ async function runFlashcardJob(id, { endpoints, model, questions, owner = null }
     return { outcome: "soft", filled };
   };
 
-  // ONE worker PER API KEY → every key runs SIMULTANEOUSLY (same pattern as the
-  // question generator). A key rides out its own per-minute limit (429) while
+  // Several workers run SIMULTANEOUSLY (at least one per API key, up to
+  // AI_BULK_CONCURRENCY in total — see bulkWorkerLanes). A worker rides out its own per-minute limit (429) while
   // the others keep going; there is no whole-job pause.
   const worker = async (ep) => {
     let quotaWaits = 0;
@@ -4832,7 +4851,7 @@ async function runFlashcardJob(id, { endpoints, model, questions, owner = null }
   };
 
   try {
-    await Promise.all((endpoints || []).map((ep) => worker(ep)));
+    await Promise.all(bulkWorkerLanes(endpoints, Math.ceil(questions.length / CHUNK)).map((ep) => worker(ep)));
     if (updated === 0) {
       save({ status: "error", error: lastError
         ? (lastError.status === 429 ? "AI quota/rate limit reached before anything was generated. Wait a minute and try again." : `AI provider error (${lastError.status || 0}).`)
