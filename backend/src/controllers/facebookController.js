@@ -150,6 +150,8 @@ export async function testSlideshow(req, res) {
     voice: req.body?.ttsVoice, // normalised to the effective provider inside
     autoCaptions,
     generateImages,
+    // What to read aloud — the form's current toggles (else the saved settings).
+    read: req.body?.read && typeof req.body.read === "object" ? req.body.read : undefined,
     // The form's current slide times (so a test reflects unsaved edits).
     questionSec: clampSlideSec(req.body?.questionSec, 10),
     answerSec: clampSlideSec(req.body?.answerSec, 8),

@@ -1845,6 +1845,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
       const result = await generateSlideshow(slideQs, {
         voice: site?.slideshowVoice || sch.ttsVoice,
         autoCaptions: (site?.slideshowAutoCaptions ?? sch.autoCaptions) !== false,
+        // What to read aloud comes from the site settings (via `site` below).
         generateImages: !!sch.generateImages,
         questionSec: site?.slideshowQuestionSec ?? sch.questionSec,
         answerSec: site?.slideshowAnswerSec ?? sch.answerSec,

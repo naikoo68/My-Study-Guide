@@ -14,6 +14,17 @@ import { useSettings } from "../../context/SettingsContext";
 import { Loading, ErrorState } from "../../components/ui/AsyncState";
 import { estimateSlideshowEta, smoothRemaining, learnSlideshowProfile, loadSlideshowProfile, saveSlideshowProfile, fmtDuration } from "../../lib/slideshowEta";
 
+// AI Slideshow "what to read aloud" toggles ↔ the saved site settings.
+const READ_TOGGLES = [
+  { key: "question", setting: "slideshowReadQuestion", slide: 1, label: "Question", hint: "incl. assertion / statements / columns" },
+  { key: "options", setting: "slideshowReadOptions", slide: 1, label: "Options", hint: "every option, A–D" },
+  { key: "explanation", setting: "slideshowReadExplanation", slide: 2, label: "Explanation", hint: "the full explanation" },
+  { key: "keyPoints", setting: "slideshowReadKeyPoints", slide: 2, label: "Key points", hint: "every key point" },
+  { key: "quickRecall", setting: "slideshowReadQuickRecall", slide: 2, label: "Quick recall", hint: "the memory hook" },
+];
+const readOptsFrom = (s) => Object.fromEntries(READ_TOGGLES.map((t) => [t.key, s?.[t.setting] !== false]));
+const readOptsToSettings = (r) => Object.fromEntries(READ_TOGGLES.map((t) => [t.setting, r[t.key] !== false]));
+
 const WEEKDAYS = [
   { v: 0, l: "Sun" }, { v: 1, l: "Mon" }, { v: 2, l: "Tue" }, { v: 3, l: "Wed" },
   { v: 4, l: "Thu" }, { v: 5, l: "Fri" }, { v: 6, l: "Sat" },
@@ -1075,6 +1086,8 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
   const [questionSec, setQuestionSec] = useState(settings?.slideshowQuestionSec || 10);
   const [answerSec, setAnswerSec] = useState(settings?.slideshowAnswerSec || 8);
   const [captions, setCaptions] = useState(settings?.slideshowAutoCaptions !== false);
+  // What the narrator reads aloud (each part in full). All ON by default.
+  const [readOpts, setReadOpts] = useState(() => readOptsFrom(settings));
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
   const [testing, setTesting] = useState(false);
@@ -1123,7 +1136,9 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
     setQuestionSec(settings?.slideshowQuestionSec || 10);
     setAnswerSec(settings?.slideshowAnswerSec || 8);
     setCaptions(settings?.slideshowAutoCaptions !== false);
-  }, [settings?.ttsProvider, settings?.ttsModel, settings?.slideshowVoice, settings?.slideshowQuestionSec, settings?.slideshowAnswerSec, settings?.slideshowAutoCaptions]);
+    setReadOpts(readOptsFrom(settings));
+  }, [settings?.ttsProvider, settings?.ttsModel, settings?.slideshowVoice, settings?.slideshowQuestionSec, settings?.slideshowAnswerSec, settings?.slideshowAutoCaptions,
+    settings?.slideshowReadQuestion, settings?.slideshowReadOptions, settings?.slideshowReadExplanation, settings?.slideshowReadKeyPoints, settings?.slideshowReadQuickRecall]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const voices = voicesByProvider[provider] || [];
   const voiceValue = voices.some((v) => v.id === voice) ? voice : (voices[0]?.id || "");
@@ -1140,6 +1155,7 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
         slideshowQuestionSec: secs(questionSec, 10),
         slideshowAnswerSec: secs(answerSec, 8),
         slideshowAutoCaptions: captions,
+        ...readOptsToSettings(readOpts),
         // The API key is only sent when a NEW one is typed (blank keeps the saved one).
         ...(apiKey.trim() ? { ttsApiKey: apiKey.trim() } : {}),
       });
@@ -1162,6 +1178,7 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
       const start = await facebookService.testSlideshow({
         ttsVoice: voiceValue,
         autoCaptions: captions,
+        read: readOpts, // the toggles on screen (so a test reflects unsaved edits)
         questionSec: secs(questionSec, 10),
         answerSec: secs(answerSec, 8),
         slideshowQuestions: qCount,
@@ -1261,6 +1278,7 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
         slideshowQuestionSec: secs(questionSec, 10),
         slideshowAnswerSec: secs(answerSec, 8),
         slideshowAutoCaptions: captions,
+        ...readOptsToSettings(readOpts),
         ...(apiKey.trim() ? { ttsApiKey: apiKey.trim() } : {}),
       });
       setApiKey("");
@@ -1442,6 +1460,34 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
         <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={captions} onChange={(e) => setCaptions(e.target.checked)} />
         Auto captions <span className="text-slate-400">(show the spoken words at the bottom of each slide)</span>
       </label>
+
+      {/* What the narrator reads aloud */}
+      <p className="mb-1 mt-4 flex items-center gap-1.5 text-sm font-medium"><Volume2 className="h-4 w-4 text-slate-400" /> Read aloud</p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {[1, 2].map((slide) => (
+          <div key={slide} className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              {slide === 1 ? "Slide 1 — question" : "Slide 2 — answer"}
+            </p>
+            {slide === 2 && (
+              <label className="mb-1.5 flex items-center gap-2 text-sm text-slate-400">
+                <input type="checkbox" className="h-4 w-4" checked disabled /> Correct answer <span className="text-xs">(always read)</span>
+              </label>
+            )}
+            {READ_TOGGLES.filter((t) => t.slide === slide).map((t) => (
+              <label key={t.key} className="mb-1.5 flex items-center gap-2 text-sm">
+                <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={readOpts[t.key]}
+                  onChange={(e) => setReadOpts((r) => ({ ...r, [t.key]: e.target.checked }))} />
+                {t.label} <span className="text-xs text-slate-400">({t.hint})</span>
+              </label>
+            ))}
+          </div>
+        ))}
+      </div>
+      <p className="mt-1.5 text-xs text-slate-400">
+        Each ticked part is read in full. A slide stays on screen until its narration finishes, so reading
+        more makes the video longer than the slide times above.
+      </p>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <button type="button" onClick={createSchedule} disabled={creating} className="btn-primary">
