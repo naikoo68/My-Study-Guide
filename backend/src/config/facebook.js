@@ -1421,14 +1421,19 @@ export async function pickQuestionsForSlideshow(sch, count, first) {
 }
 
 // Caption for a multi-question slideshow: the trail, then each question's stem
-// numbered, then hashtags. Answers are revealed in the video itself.
-export function formatSlideshowCaption(qs, { breadcrumb = "", hashtags = "", number = null } = {}) {
+// numbered, then hashtags. With `questionOnly` (no answer slides) the caption
+// invites answers in the comments instead of promising them in the video.
+export function formatSlideshowCaption(qs, { breadcrumb = "", hashtags = "", number = null, questionOnly = false } = {}) {
   const lines = [];
   const prefix = Number.isInteger(number) && number > 0 ? `${number}. ` : "";
   lines.push(prefix + (breadcrumb || `${qs.length} questions`));
-  lines.push("", `🧠 ${qs.length} questions — answers revealed in the video.`);
+  lines.push("", questionOnly
+    ? `🧠 ${qs.length} questions — can you answer them all?`
+    : `🧠 ${qs.length} questions — answers revealed in the video.`);
   qs.forEach((q, i) => lines.push("", `Q${i + 1}. ${plain(q.text)}`));
-  lines.push("", "👉 How many did you get right? Comment below!");
+  lines.push("", questionOnly
+    ? "👉 Comment your answers (e.g. 1-A, 2-C)!"
+    : "👉 How many did you get right? Comment below!");
   if (String(hashtags || "").trim()) lines.push("", String(hashtags).trim());
   return lines.join("\n").slice(0, 60000);
 }
@@ -1726,8 +1731,10 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
 
   // Build the caption WITHOUT the number here; each platform gets its own
   // number-prefixed version below so the per-feed sequence is honoured.
+  // Slideshow set to question slides only → the answers aren't in the video.
+  const questionOnly = isSlideshowRun && site?.slideshowSlides === "question";
   const captionBase = slideQs.length > 1
-    ? formatSlideshowCaption(slideQs, { breadcrumb, hashtags: finalTags, number: postNumber })
+    ? formatSlideshowCaption(slideQs, { breadcrumb, hashtags: finalTags, number: postNumber, questionOnly })
     : formatQuestionPost(q, {
         includeOptions: isFlashcard ? false : sch.includeOptions,
         includeAnswer: isFlashcard ? false : sch.includeAnswer,
@@ -1737,7 +1744,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
       });
   const captionFor = (platformNumber) => {
     if (!Number.isInteger(platformNumber) || platformNumber <= 0 || platformNumber === postNumber) return captionBase;
-    if (slideQs.length > 1) return formatSlideshowCaption(slideQs, { breadcrumb, hashtags: finalTags, number: platformNumber });
+    if (slideQs.length > 1) return formatSlideshowCaption(slideQs, { breadcrumb, hashtags: finalTags, number: platformNumber, questionOnly });
     return formatQuestionPost(q, {
       includeOptions: isFlashcard ? false : sch.includeOptions,
       includeAnswer: isFlashcard ? false : sch.includeAnswer,
