@@ -102,12 +102,14 @@ function Tag({ role, text }) {
   return <span className={`mb-3 inline-flex items-center rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${cls}`}>{text}</span>;
 }
 
-function QuestionSlide({ q, tag }) {
+// `reveal`: the same slide with the correct option turned green (question-only
+// mode's answer reveal). The layout is identical, so the video "recolours" in place.
+function QuestionSlide({ q, tag, reveal = false }) {
   return (
     <>
       {tag && <Tag role="question" text={tag} />}
       {q.image && <img src={q.image} alt="" className="mb-3 max-h-56 rounded-xl object-contain" />}
-      <FrontContent q={q} />
+      <FrontContent q={q} revealCorrect={reveal} />
     </>
   );
 }
@@ -126,7 +128,8 @@ function AnswerSlide({ q, tag }) {
 export default function SlideCardImage() {
   const { id } = useParams();
   const [sp] = useSearchParams();
-  const role = sp.get("role") === "answer" ? "answer" : "question";
+  const roleParam = sp.get("role");
+  const role = roleParam === "answer" ? "answer" : roleParam === "reveal" ? "reveal" : "question";
   const tag = (sp.get("tag") || "").trim();
   const caption = (sp.get("cap") || "").trim();
   const templateMode = sp.get("tpl") === "1";
@@ -210,7 +213,7 @@ export default function SlideCardImage() {
         }}
       >
         <ZoomFit width={innerW} height={innerH} onFit={setFitted}>
-          {role === "answer" ? <AnswerSlide q={q} tag={tag} /> : <QuestionSlide q={q} tag={tag} />}
+          {role === "answer" ? <AnswerSlide q={q} tag={tag} /> : <QuestionSlide q={q} tag={tag} reveal={role === "reveal"} />}
         </ZoomFit>
         {caption && (
           <div

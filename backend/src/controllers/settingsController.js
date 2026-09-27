@@ -244,7 +244,7 @@ export async function updateSettings(req, res) {
     "ttsElevenLabsKey", "ttsElevenLabsModel", "ttsGoogleCloudKey", "ttsAzureKey", "ttsAzureRegion",
     "ttsCustomUrl", "ttsCustomKey", "ttsCustomModel",
     "slideshowQuestionSec", "slideshowAnswerSec", "slideshowVoice", "slideshowAutoCaptions",
-    "slideshowSlides",
+    "slideshowSlides", "slideshowRevealPauseSec", "slideshowRevealSec", "slideshowRevealSay",
     "slideshowReadQuestion", "slideshowReadOptions", "slideshowReadExplanation", "slideshowReadKeyPoints", "slideshowReadQuickRecall",
     "slideshowQuestionTemplateUrl", "slideshowAnswerTemplateUrl",
     "googleClientId",
@@ -294,6 +294,10 @@ export async function updateSettings(req, res) {
   if ("slideshowVoice" in update) update.slideshowVoice = String(update.slideshowVoice || "").trim().slice(0, 60);
   if ("slideshowAutoCaptions" in update) update.slideshowAutoCaptions = !!update.slideshowAutoCaptions;
   if ("slideshowSlides" in update) update.slideshowSlides = update.slideshowSlides === "question" ? "question" : "both";
+  const clampSec = (v, def, lo, hi) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : def; };
+  if ("slideshowRevealPauseSec" in update) update.slideshowRevealPauseSec = clampSec(update.slideshowRevealPauseSec, 3, 0, 15);
+  if ("slideshowRevealSec" in update) update.slideshowRevealSec = clampSec(update.slideshowRevealSec, 3, 1, 15);
+  if ("slideshowRevealSay" in update) update.slideshowRevealSay = update.slideshowRevealSay !== false;
   for (const k of ["slideshowReadQuestion", "slideshowReadOptions", "slideshowReadExplanation", "slideshowReadKeyPoints", "slideshowReadQuickRecall"]) {
     if (k in update) update[k] = update[k] !== false;
   }

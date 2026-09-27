@@ -110,12 +110,15 @@ function optionsBlock(x, yTop, availW, options, brand) {
     const lines = wrapLines(o.text, fs, textW, 4);
     const lineH = fs * 1.3;
     const boxH = Math.max(96, lines.length * lineH + 40);
-    parts.push(RR(x, y, availW, boxH, 20, "#ffffff", "#e2e8f0", 2));
-    parts.push(RR(x + 22, y + boxH / 2 - badgeSize / 2, badgeSize, badgeSize, 16, brand));
+    // The revealed correct option (question-only mode) turns green, like the
+    // quiz does when the answer is shown.
+    const ok = !!o.correct;
+    parts.push(RR(x, y, availW, boxH, 20, ok ? "#ecfdf5" : "#ffffff", ok ? "#10b981" : "#e2e8f0", ok ? 4 : 2));
+    parts.push(RR(x + 22, y + boxH / 2 - badgeSize / 2, badgeSize, badgeSize, 16, ok ? "#10b981" : brand));
     parts.push(T(x + 22 + badgeSize / 2, y + boxH / 2 + 14, 34, "#ffffff", esc(o.badge), { weight: "800", anchor: "middle" }));
     let ty = y + (boxH - lines.length * lineH) / 2;
     for (const ln of lines) {
-      parts.push(T(x + 22 + badgeSize + 24, ty + fs, fs, "#1e293b", esc(ln), { weight: "600" }));
+      parts.push(T(x + 22 + badgeSize + 24, ty + fs, fs, ok ? "#065f46" : "#1e293b", esc(ln), { weight: ok ? "700" : "600" }));
       ty += lineH;
     }
     y += boxH + 20;
@@ -289,7 +292,7 @@ function buildSlideSvg(slide, opts = {}) {
 
 // Render + upload one slide → { url, publicId }.
 export async function renderSlideImage(slide, opts = {}) {
-  const captionText = opts.autoCaptions ? slide.narration : "";
+  const captionText = opts.autoCaptions ? (slide.caption || slide.narration) : "";
   const svg = buildSlideSvg(slide, { ...opts, captionText });
   const uploaded = await uploadBufferToCloudinary(Buffer.from(svg), {
     resourceType: "image",

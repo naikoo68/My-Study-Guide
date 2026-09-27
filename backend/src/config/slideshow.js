@@ -87,6 +87,44 @@ export function normalizeSlidesMode(v) {
   return String(v || "").trim().toLowerCase() === "question" ? "question" : "both";
 }
 
+// The reveal slide IS the question slide (just recoloured) → same template.
+const templateRole = (role) => (role === "reveal" ? "question" : role);
+
+// Question-only mode's answer reveal (all in seconds):
+//   pauseSec — silent thinking time after the question is read (0–15, default 3)
+//   showSec  — how long the green correct option stays up (1–15, default 3)
+//   say      — also say "The correct answer is option B." (default on)
+// From the caller (the test form) else the site settings.
+export function revealOptions(input, site) {
+  const src = input && typeof input === "object" ? input : {
+    pauseSec: site?.slideshowRevealPauseSec,
+    showSec: site?.slideshowRevealSec,
+    say: site?.slideshowRevealSay,
+  };
+  const num = (v, def, lo, hi) => { const n = Number(v); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, Math.round(n))) : def; };
+  return { pauseSec: num(src.pauseSec, 3, 0, 15), showSec: num(src.showSec, 3, 1, 15), say: src.say !== false };
+}
+
+// The reveal slide: the question slide again, with the correct option marked
+// (green). Silent unless `say`. Null when the question has no valid answer.
+function revealSlide(qSlide, q, reveal) {
+  const idx = Number.isInteger(q?.correct) ? q.correct : -1;
+  const opt = (qSlide.options || [])[idx];
+  if (!opt) return null;
+  return {
+    ...qSlide,
+    id: "reveal",
+    role: "reveal",
+    options: qSlide.options.map((o, i) => ({ ...o, correct: i === idx })),
+    narration: reveal.say ? `The correct answer is option ${opt.spokenBadge || opt.badge}.` : "",
+    // Always a caption (even when silent): the caption band takes room on the
+    // card, so the question slide and its reveal must BOTH have one — then the
+    // layout is identical and only the colour changes.
+    caption: `Correct answer: ${opt.badge}`,
+    minSec: reveal.showSec,
+  };
+}
+
 // Build the whole slideshow for `question`. Returns:
 //   { videoUrl, slides, duration, voice, provider, slidePlan }
 // `opts`:
@@ -155,16 +193,22 @@ export async function generateSlideshow(question, opts = {}) {
   // Which slides each question gets: "both" (question → answer, default) or
   // "question" (question slide only — the answer isn't revealed in the video).
   const slidesMode = normalizeSlidesMode(opts.slidesMode ?? opts.site?.slideshowSlides);
+  // Question-only mode: after the question is read, pause (thinking time),
+  // then show the SAME slide with the correct option turned green.
+  const reveal = revealOptions(opts.reveal, opts.site);
   const plan = [];
   const planQuestions = []; // the question each slide belongs to (same order as plan)
   questions.forEach((q, i) => {
-    const slides = buildSlidePlan(q, {
+    const [qSlide, aSlide] = buildSlidePlan(q, {
       ...brandOpts,
       index: i + 1,
       total: questions.length,
       read,
-    }).filter((s) => slidesMode === "both" || s.role === "question");
-    for (const s of slides) { plan.push(s); planQuestions.push(q); }
+    });
+    const slides = slidesMode === "both"
+      ? [qSlide, aSlide]
+      : [{ ...qSlide, pauseSec: reveal.pauseSec }, revealSlide(qSlide, q, reveal)];
+    for (const s of slides.filter(Boolean)) { plan.push(s); planQuestions.push(q); }
   });
   if (!plan.length) throw new Error("Could not build any slides for this question.");
 
@@ -195,9 +239,9 @@ export async function generateSlideshow(question, opts = {}) {
         questionId: planQuestions[i]?._id ? String(planQuestions[i]._id) : "",
         role: s.role,
         tag: s.tag,
-        caption: brandOpts.autoCaptions ? s.narration : "",
-        template: !!templatePaths[s.role],
-        templateSize: templateSizes[s.role] || null,
+        caption: brandOpts.autoCaptions ? (s.caption || s.narration) : "",
+        template: !!templatePaths[templateRole(s.role)],
+        templateSize: templateSizes[templateRole(s.role)] || null,
         outPath: shotPaths[i],
       })),
       { siteUrl: brandOpts.siteUrl }
@@ -220,7 +264,7 @@ export async function generateSlideshow(question, opts = {}) {
         imagePaths.push(shotPaths[i]);
       } else {
         // Fallback: the lightweight SVG slide (never blocks the video).
-        const withTemplate = !!templatePaths[plan[i].role];
+        const withTemplate = !!templatePaths[templateRole(plan[i].role)];
         const img = await renderSlideImage(plan[i], { ...brandOpts, transparentBackground: withTemplate });
         const p = path.join(workDir, `slide${String(i).padStart(2, "0")}.${withTemplate ? "png" : "jpg"}`);
         await downloadTo(img.url, p);
@@ -235,6 +279,13 @@ export async function generateSlideshow(question, opts = {}) {
     onProgress(SLIDESHOW_STATUS.GENERATING_AUDIO, 0, plan.length);
     const audioPaths = [];
     for (let i = 0; i < plan.length; i++) {
+      // A silent slide (e.g. the green reveal with "say" off) gets no audio;
+      // the composer fills its time with silence.
+      if (!String(plan[i].narration || "").trim()) {
+        audioPaths.push(null);
+        onProgress(SLIDESHOW_STATUS.GENERATING_AUDIO, i + 1, plan.length);
+        continue;
+      }
       let result;
       try {
         result = await synthesizeLongSpeech({ text: plan[i].narration, voice, cfg: ttsCfg });
@@ -255,11 +306,14 @@ export async function generateSlideshow(question, opts = {}) {
     const { duration } = await composeSlideshowMp4({
       // Slide 1 stays up for the question time, slide 2 for the answer time —
       // or longer when the narration needs it (the voice is never cut off).
+      // The reveal slide shows for its own time; the question slide before it
+      // adds the thinking pause AFTER its narration.
       slides: plan.map((s, i) => ({
         imagePath: imagePaths[i],
         audioPath: audioPaths[i],
-        minSec: s.role === "answer" ? answerSec : questionSec,
-        bgPath: templatePaths[s.role] || null,
+        minSec: s.role === "reveal" ? s.minSec : s.role === "answer" ? answerSec : questionSec,
+        pauseSec: s.pauseSec || 0,
+        bgPath: templatePaths[templateRole(s.role)] || null,
       })),
       outPath,
       workDir,

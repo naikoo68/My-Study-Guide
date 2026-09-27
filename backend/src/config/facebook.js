@@ -1421,19 +1421,17 @@ export async function pickQuestionsForSlideshow(sch, count, first) {
 }
 
 // Caption for a multi-question slideshow: the trail, then each question's stem
-// numbered, then hashtags. With `questionOnly` (no answer slides) the caption
-// invites answers in the comments instead of promising them in the video.
+// numbered, then hashtags. With `questionOnly` (question slides, the answer
+// flashes green after a pause) the caption invites viewers to beat the reveal.
 export function formatSlideshowCaption(qs, { breadcrumb = "", hashtags = "", number = null, questionOnly = false } = {}) {
   const lines = [];
   const prefix = Number.isInteger(number) && number > 0 ? `${number}. ` : "";
   lines.push(prefix + (breadcrumb || `${qs.length} questions`));
   lines.push("", questionOnly
-    ? `🧠 ${qs.length} questions — can you answer them all?`
+    ? `🧠 ${qs.length} questions — answer each one before it turns green!`
     : `🧠 ${qs.length} questions — answers revealed in the video.`);
   qs.forEach((q, i) => lines.push("", `Q${i + 1}. ${plain(q.text)}`));
-  lines.push("", questionOnly
-    ? "👉 Comment your answers (e.g. 1-A, 2-C)!"
-    : "👉 How many did you get right? Comment below!");
+  lines.push("", "👉 How many did you get right? Comment below!");
   if (String(hashtags || "").trim()) lines.push("", String(hashtags).trim());
   return lines.join("\n").slice(0, 60000);
 }

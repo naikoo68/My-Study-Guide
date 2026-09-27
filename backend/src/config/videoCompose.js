@@ -105,7 +105,9 @@ export async function probeDuration(file) {
 }
 
 // Build the slideshow MP4.
-//   slides:  [{ imagePath, audioPath, minSec?, bgPath? }]  (local files, in
+//   slides:  [{ imagePath, audioPath?, minSec?, pauseSec?, bgPath? }]  (local files, in
+//            order; no audioPath = a silent slide; pauseSec = extra silence after
+//            the narration;
 //            order; minSec = how long this slide stays up at least; bgPath =
 //            an optional template image drawn underneath the slide)
 //   outPath: where to write the final MP4
@@ -122,7 +124,8 @@ export async function composeSlideshowMp4({
   maxTotalSec = 88, // Facebook Reels limit is 90 s — keep a small margin
   onProgress = null, // (done, total) after each slide segment — for the UI's ETA
 } = {}) {
-  const list = (Array.isArray(slides) ? slides : []).filter((s) => s?.imagePath && s?.audioPath);
+  // A slide with no audioPath is SILENT (it lasts its minSec).
+  const list = (Array.isArray(slides) ? slides : []).filter((s) => s?.imagePath);
   if (!list.length) throw new Error("No slides to compose.");
   if (!outPath || !workDir) throw new Error("composeSlideshowMp4 needs outPath and workDir.");
 
@@ -137,10 +140,13 @@ export async function composeSlideshowMp4({
   //      finished video never needs a second full re-encode.
   // (Measured on 1 core, one 12 s slide: 15.5 s before → 3.0 s now, same image.)
   const slideMins = list.map((s) => Math.max(1, Number(s.minSec) || minSec));
+  // Extra silent seconds AFTER a slide's narration (e.g. thinking time before
+  // an answer reveal), on top of the normal short tail.
+  const pauses = list.map((s) => Math.max(0, Math.min(30, Number(s.pauseSec) || 0)));
   const audioSecs = [];
-  for (const s of list) audioSecs.push(await probeDuration(s.audioPath));
-  // Each slide lasts its narration (+ tail), but at least its on-screen time.
-  const plannedTotal = audioSecs.reduce((sum, a, i) => sum + Math.max(a + tailSec, slideMins[i]), 0);
+  for (const s of list) audioSecs.push(s.audioPath ? await probeDuration(s.audioPath) : 0);
+  // Each slide lasts its narration (+ tail + pause), but at least its on-screen time.
+  const plannedTotal = audioSecs.reduce((sum, a, i) => sum + Math.max(a + tailSec + pauses[i], slideMins[i]), 0);
   // Facebook Reels (via the API) must be ≤ 90 s. If the video is only a little
   // over, gently SPEED IT UP to fit (at most 1.15×, so speech stays natural;
   // the slides are stills, so only the audio tempo changes and it stays in
@@ -183,11 +189,14 @@ export async function composeSlideshowMp4({
     //        on-screen time; the segment ends with the audio (-shortest), so
     //        the slide stays up for exactly its narration (+tail).
     const tempo = factor > 1 ? `,atempo=${factor.toFixed(4)}` : "";
-    const af = `[1:a]aresample=44100,apad=pad_dur=${tailSec},apad=whole_dur=${slideMins[i]}${tempo}[a]`;
+    // Silent slide → a short silence source, padded to the slide time below.
+    const silent = !list[i].audioPath;
+    const tail = silent ? 0 : tailSec + pauses[i];
+    const af = `[1:a]aresample=44100,apad=pad_dur=${tail},apad=whole_dur=${slideMins[i]}${tempo}[a]`;
     await runFfmpeg([
       "-hide_banner", "-loglevel", "error", "-y",
       "-loop", "1", "-framerate", "1", "-i", frame,
-      "-i", list[i].audioPath,
+      ...(silent ? ["-f", "lavfi", "-t", "0.1", "-i", "anullsrc=r=44100:cl=stereo"] : ["-i", list[i].audioPath]),
       "-filter_complex", `[0:v]format=yuv420p,fps=${fps}[v];${af}`,
       "-map", "[v]", "-map", "[a]",
       "-c:v", "libx264", "-preset", "veryfast", "-tune", "stillimage", "-r", String(fps),

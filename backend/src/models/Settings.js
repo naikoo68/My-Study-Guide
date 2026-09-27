@@ -298,6 +298,11 @@ const settingsSchema = new mongoose.Schema(
     // Which slides each question gets: "both" = question + answer/explanation
     // slide (default); "question" = question slide only (answer not revealed).
     slideshowSlides: { type: String, enum: ["both", "question"], default: "both" },
+    // Question-only mode: after the question is read, pause this long, then
+    // show the correct option in green for slideshowRevealSec (optionally saying it).
+    slideshowRevealPauseSec: { type: Number, default: 3 },
+    slideshowRevealSec: { type: Number, default: 3 },
+    slideshowRevealSay: { type: Boolean, default: true },
     slideshowReadQuestion: { type: Boolean, default: true },
     slideshowReadOptions: { type: Boolean, default: true },
     slideshowReadExplanation: { type: Boolean, default: true },
