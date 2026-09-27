@@ -14,6 +14,42 @@ import { useSettings } from "../../context/SettingsContext";
 import { Loading, ErrorState } from "../../components/ui/AsyncState";
 import { estimateSlideshowEta, smoothRemaining, learnSlideshowProfile, loadSlideshowProfile, saveSlideshowProfile, fmtDuration } from "../../lib/slideshowEta";
 
+// Paid narration engines: where each one's API key is saved (never shown back —
+// the server only says `<keyField>Set`), its extra settings, and a short hint.
+const PAID_ENGINES = {
+  openai: {
+    label: "OpenAI", keyField: "ttsApiKey", keyUrl: "https://platform.openai.com/api-keys",
+    fields: [{ name: "ttsModel", placeholder: "Model (default gpt-4o-mini-tts)" }],
+    hint: "Natural voices, male & female. Uses your OpenAI credits.",
+  },
+  elevenlabs: {
+    label: "ElevenLabs", keyField: "ttsElevenLabsKey", keyUrl: "https://elevenlabs.io/app/settings/api-keys",
+    fields: [{ name: "ttsElevenLabsModel", placeholder: "Model (default eleven_multilingual_v2)" }],
+    hint: "Very natural voices. Pick a premade voice or type any voice ID from your ElevenLabs Voice Library.",
+  },
+  googlecloud: {
+    label: "Google Cloud TTS", keyField: "ttsGoogleCloudKey", keyUrl: "https://console.cloud.google.com/apis/credentials",
+    fields: [],
+    hint: "Enable “Cloud Text-to-Speech API” in your Google Cloud project, then create an API key. Any voice name works (e.g. en-IN-Wavenet-A).",
+  },
+  azure: {
+    label: "Microsoft Azure Speech", keyField: "ttsAzureKey", keyUrl: "https://portal.azure.com/#create/Microsoft.CognitiveServicesSpeechServices",
+    fields: [{ name: "ttsAzureRegion", placeholder: "Region, e.g. centralindia" }],
+    hint: "Needs the key AND the region of your Speech resource. Same neural voices as Edge, without the IP blocks.",
+  },
+  custom: {
+    label: "Other (OpenAI-compatible API)", keyField: "ttsCustomKey", keyOptional: true,
+    fields: [
+      { name: "ttsCustomUrl", placeholder: "API URL, e.g. https://api.example.com/v1", wide: true },
+      { name: "ttsCustomModel", placeholder: "Model, e.g. tts-1" },
+    ],
+    hint: "Any paid or self-hosted service with an OpenAI-style /audio/speech endpoint. Type the voice name it uses.",
+  },
+};
+const ENGINE_FIELDS = Object.values(PAID_ENGINES).flatMap((e) => e.fields.map((f) => f.name));
+const FREE_FORM_VOICE = new Set(["elevenlabs", "googlecloud", "azure", "custom"]);
+const engineFieldsFrom = (s) => Object.fromEntries(ENGINE_FIELDS.map((n) => [n, s?.[n] || ""]));
+
 // AI Slideshow "what to read aloud" toggles ↔ the saved site settings.
 const READ_TOGGLES = [
   { key: "question", setting: "slideshowReadQuestion", slide: 1, label: "Question", hint: "incl. assertion / statements / columns" },
@@ -1078,10 +1114,12 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
     edge: [{ id: "en-IN-NeerjaNeural", label: "Neerja (India, female)" }],
     openai: [{ id: "coral", label: "Coral" }],
   });
-  const [providers, setProviders] = useState(["gtranslate", "edge", "openai"]);
+  const [providers, setProviders] = useState(["gtranslate", "edge", "openai", "elevenlabs", "googlecloud", "azure", "custom"]);
   const [provider, setProvider] = useState(settings?.ttsProvider || "gtranslate");
-  const [model, setModel] = useState(settings?.ttsModel || "");
-  const [apiKey, setApiKey] = useState(""); // a NEW key to save (never shown back)
+  // Paid engines' non-secret settings (model, region, URL) and any NEW keys
+  // typed on screen ({ ttsApiKey: "sk-…" }) — keys are never shown back.
+  const [engineFields, setEngineFields] = useState(() => engineFieldsFrom(settings));
+  const [newKeys, setNewKeys] = useState({});
   const [voice, setVoice] = useState(settings?.slideshowVoice || "");
   const [questionSec, setQuestionSec] = useState(settings?.slideshowQuestionSec || 10);
   const [answerSec, setAnswerSec] = useState(settings?.slideshowAnswerSec || 8);
@@ -1131,36 +1169,53 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
   // Re-sync when the saved settings arrive/change.
   useEffect(() => {
     setProvider(settings?.ttsProvider || "gtranslate");
-    setModel(settings?.ttsModel || "");
+    setEngineFields(engineFieldsFrom(settings));
     setVoice(settings?.slideshowVoice || "");
     setQuestionSec(settings?.slideshowQuestionSec || 10);
     setAnswerSec(settings?.slideshowAnswerSec || 8);
     setCaptions(settings?.slideshowAutoCaptions !== false);
     setReadOpts(readOptsFrom(settings));
-  }, [settings?.ttsProvider, settings?.ttsModel, settings?.slideshowVoice, settings?.slideshowQuestionSec, settings?.slideshowAnswerSec, settings?.slideshowAutoCaptions,
+  }, [settings?.ttsProvider, settings?.ttsModel, settings?.ttsElevenLabsModel, settings?.ttsAzureRegion, settings?.ttsCustomUrl, settings?.ttsCustomModel, settings?.slideshowVoice, settings?.slideshowQuestionSec, settings?.slideshowAnswerSec, settings?.slideshowAutoCaptions,
     settings?.slideshowReadQuestion, settings?.slideshowReadOptions, settings?.slideshowReadExplanation, settings?.slideshowReadKeyPoints, settings?.slideshowReadQuickRecall]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const voices = voicesByProvider[provider] || [];
-  const voiceValue = voices.some((v) => v.id === voice) ? voice : (voices[0]?.id || "");
+  // Engines that accept any voice ID keep a typed-in voice; others must match the list.
+  const voiceValue = voices.some((v) => v.id === voice) || (FREE_FORM_VOICE.has(provider) && voice.trim())
+    ? voice.trim() : (voices[0]?.id || "");
   const secs = (v, def) => { const n = parseInt(v, 10); return n >= 3 ? Math.min(40, n) : def; };
   const qCount = Math.max(1, Math.min(10, parseInt(questionCount, 10) || 1));
+  const engine = PAID_ENGINES[provider] || null;
+
+  // The engine settings to save / test with: provider, every engine's model /
+  // region / URL, and only the keys NEWLY typed (blank keeps the saved key).
+  const engineSettings = () => ({
+    ttsProvider: provider,
+    ...Object.fromEntries(ENGINE_FIELDS.map((n) => [n, String(engineFields[n] || "").trim()])),
+    ...Object.fromEntries(Object.entries(newKeys).map(([k, v]) => [k, String(v || "").trim()]).filter(([, v]) => v)),
+  });
 
   const save = async () => {
     setSaving(true); setMsg(null);
     try {
       await saveSettings({
-        ttsProvider: provider,
-        ttsModel: model.trim(),
+        ...engineSettings(),
         slideshowVoice: voiceValue,
         slideshowQuestionSec: secs(questionSec, 10),
         slideshowAnswerSec: secs(answerSec, 8),
         slideshowAutoCaptions: captions,
         ...readOptsToSettings(readOpts),
-        // The API key is only sent when a NEW one is typed (blank keeps the saved one).
-        ...(apiKey.trim() ? { ttsApiKey: apiKey.trim() } : {}),
       });
-      setApiKey(""); setMsg({ ok: true, text: "Saved." });
+      setNewKeys({}); setMsg({ ok: true, text: "Saved." });
     } catch (e) { setMsg({ ok: false, text: e.message || "Failed to save." }); } finally { setSaving(false); }
+  };
+
+  const removeKey = async (keyField) => {
+    setMsg(null);
+    try {
+      await saveSettings({ [keyField]: "__CLEAR__" });
+      setNewKeys((k) => ({ ...k, [keyField]: "" }));
+      setMsg({ ok: true, text: "Key removed." });
+    } catch (e) { setMsg({ ok: false, text: e.message || "Failed to remove the key." }); }
   };
 
   // Build a preview video with a random published question — never publishes.
@@ -1177,6 +1232,8 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
     try {
       const start = await facebookService.testSlideshow({
         ttsVoice: voiceValue,
+        // The engine on screen (+ any newly typed key) — used for this test only, not saved.
+        engine: engineSettings(),
         autoCaptions: captions,
         read: readOpts, // the toggles on screen (so a test reflects unsaved edits)
         questionSec: secs(questionSec, 10),
@@ -1272,16 +1329,14 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
     setCreating(true);
     try {
       await saveSettings({
-        ttsProvider: provider,
-        ttsModel: model.trim(),
+        ...engineSettings(),
         slideshowVoice: voiceValue,
         slideshowQuestionSec: secs(questionSec, 10),
         slideshowAnswerSec: secs(answerSec, 8),
         slideshowAutoCaptions: captions,
         ...readOptsToSettings(readOpts),
-        ...(apiKey.trim() ? { ttsApiKey: apiKey.trim() } : {}),
       });
-      setApiKey("");
+      setNewKeys({});
       await facebookService.create({
         kind: "slideshow",
         asSlideshow: true,
@@ -1311,7 +1366,10 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
     } finally { setCreating(false); }
   };
 
-  const providerLabel = (p) => (p === "gtranslate" ? "Free — Google (no key, recommended)" : p === "edge" ? "Free — Microsoft Edge (no key)" : p === "openai" ? "OpenAI (needs API key)" : p);
+  const providerLabel = (p) => (p === "gtranslate" ? "Free — Google (no key, recommended)"
+    : p === "edge" ? "Free — Microsoft Edge (no key)"
+    : PAID_ENGINES[p] ? `Paid — ${PAID_ENGINES[p].label}${settings?.[`${PAID_ENGINES[p].keyField}Set`] ? " ✓ key saved" : ""}`
+    : p);
 
   return (
     <CollapsibleCard title="AI Slideshow" icon={Sparkles}>
@@ -1436,25 +1494,47 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
       <p className="mt-1.5 text-xs text-slate-400">
         {provider === "gtranslate" && "Free — no API key or account. Works from most servers. One voice per accent (India / US / UK / Australia)."}
         {provider === "edge" && "Free neural voices (male & female), no key. If Microsoft blocks your server, Google is used with the same accent — the test result says so."}
-        {provider === "openai" && "Best quality. Paid — uses your OpenAI credits. The key is stored on the server and never shown again."}
+        {engine && `${engine.hint} The key is stored on the server and never shown again.`}
       </p>
-      {provider === "openai" && (
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <KeyRound className="h-4 w-4 text-slate-400" />
-          <input type="password" autoComplete="off" className="input h-9 w-72"
-            placeholder={settings?.ttsApiKeySet ? "•••••••• (saved — leave blank to keep)" : "Paste API key"}
-            value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
-          <input type="text" className="input h-9 w-52" placeholder="Model (default gpt-4o-mini-tts)"
-            value={model} onChange={(e) => setModel(e.target.value)} />
-        </div>
-      )}
+      {engine && (() => {
+        const keySaved = !!settings?.[`${engine.keyField}Set`];
+        return (
+          <div className="mt-2 space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+            <div className="flex flex-wrap items-center gap-2">
+              <KeyRound className="h-4 w-4 text-slate-400" />
+              <input type="password" autoComplete="off" className="input h-9 w-72"
+                placeholder={keySaved ? "•••••••• (saved — leave blank to keep)" : `Paste ${engine.label} API key${engine.keyOptional ? " (if it needs one)" : ""}`}
+                value={newKeys[engine.keyField] || ""} onChange={(e) => setNewKeys((k) => ({ ...k, [engine.keyField]: e.target.value }))} />
+              {keySaved && (
+                <button type="button" onClick={() => removeKey(engine.keyField)} className="text-xs text-rose-600 hover:underline">Remove saved key</button>
+              )}
+              {engine.keyUrl && (
+                <a href={engine.keyUrl} target="_blank" rel="noreferrer" className="text-xs text-brand-600 hover:underline">Get a key ↗</a>
+              )}
+            </div>
+            {engine.fields.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                {engine.fields.map((f) => (
+                  <input key={f.name} type="text" className={`input h-9 ${f.wide ? "w-80" : "w-60"}`} placeholder={f.placeholder}
+                    value={engineFields[f.name] || ""} onChange={(e) => setEngineFields((v) => ({ ...v, [f.name]: e.target.value }))} />
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Voice + captions */}
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <span className="inline-flex items-center gap-1.5 text-sm font-medium"><Volume2 className="h-4 w-4 text-slate-400" /> Voice</span>
-        <select className="input h-9 w-64" value={voiceValue} onChange={(e) => setVoice(e.target.value)}>
+        <select className="input h-9 w-64" value={voices.some((v) => v.id === voiceValue) ? voiceValue : ""} onChange={(e) => setVoice(e.target.value)}>
+          {FREE_FORM_VOICE.has(provider) && !voices.some((v) => v.id === voiceValue) && <option value="">Custom voice (typed →)</option>}
           {voices.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
         </select>
+        {FREE_FORM_VOICE.has(provider) && (
+          <input type="text" className="input h-9 w-60" placeholder={provider === "elevenlabs" ? "…or paste a voice ID" : "…or type a voice name"}
+            value={voices.some((v) => v.id === voiceValue) ? "" : voiceValue} onChange={(e) => setVoice(e.target.value)} />
+        )}
       </div>
       <label className="mt-3 flex items-center gap-2 text-sm">
         <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={captions} onChange={(e) => setCaptions(e.target.checked)} />

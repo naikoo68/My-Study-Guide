@@ -15,7 +15,7 @@ import { isSafePublicUrl } from "../utils/urlGuard.js";
 import { isQuestionComplete } from "../utils/questionComplete.js";
 import { composeImageAudioToVideo, isCloudinaryConfigured } from "../config/cloudinary.js";
 import { generateSlideshow, isSlideshowConfigured } from "../config/slideshow.js";
-import { TTS_PROVIDERS, PROVIDER_VOICES, DEFAULT_TTS_PROVIDER } from "../utils/ttsVoices.js";
+import { TTS_PROVIDERS, PROVIDER_VOICES, DEFAULT_TTS_PROVIDER, TTS_KEY_FIELDS } from "../utils/ttsVoices.js";
 
 // POST /api/facebook/compose-reel  (admin) — build a vertical MP4 (a Reel) from
 // a still image + an audio track, both given as PUBLIC http(s) URLs (uploaded
@@ -128,8 +128,12 @@ export async function testSlideshow(req, res) {
   // The SAME settings doc the scheduler uses (raw — carries the unmasked
   // ttsApiKey) so the test resolves the same TTS provider as a real run.
   const cfg = await getFacebookConfig().catch(() => ({}));
-  const site = (await getFacebookSiteForConfig(cfg).catch(() => null))
+  const savedSite = (await getFacebookSiteForConfig(cfg).catch(() => null))
     || (await Settings.findOne({ key: "site" }).lean().catch(() => null));
+  // The narration engine currently on screen (+ a newly typed key) applies to
+  // THIS test only — nothing is saved. Blank keys keep the saved ones. (A custom
+  // API URL is checked against the SSRF guard when it's actually called.)
+  const site = withEngineOverride(savedSite, req.body?.engine);
   const autoCaptions = req.body?.autoCaptions !== false;
   const generateImages = !!req.body?.generateImages;
 
@@ -190,6 +194,23 @@ export async function testSlideshow(req, res) {
     });
 
   return res.status(202).json({ success: true, jobId, status: "running", stage: job.stage });
+}
+
+// Copy of the settings doc with the test form's engine fields applied.
+const ENGINE_TEXT_FIELDS = ["ttsModel", "ttsElevenLabsModel", "ttsAzureRegion", "ttsCustomUrl", "ttsCustomModel"];
+function withEngineOverride(site, engine) {
+  const base = site ? { ...(site.toObject ? site.toObject() : site) } : {};
+  if (!engine || typeof engine !== "object") return site;
+  const p = String(engine.ttsProvider || "").trim().toLowerCase();
+  if (TTS_PROVIDERS.includes(p)) base.ttsProvider = p;
+  for (const f of ENGINE_TEXT_FIELDS) {
+    if (typeof engine[f] === "string") base[f] = engine[f].trim().slice(0, 300);
+  }
+  for (const f of Object.values(TTS_KEY_FIELDS)) {
+    const k = typeof engine[f] === "string" ? engine[f].trim() : "";
+    if (k) base[f] = k.slice(0, 500);
+  }
+  return base;
 }
 
 // In-memory registry of test-slideshow jobs (admin previews only — nothing is

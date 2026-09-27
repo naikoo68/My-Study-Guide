@@ -274,6 +274,17 @@ const settingsSchema = new mongoose.Schema(
     ttsApiKey: { type: String, default: "" },
     // Optional model override for the paid provider (default gpt-4o-mini-tts).
     ttsModel: { type: String, default: "" },
+    // Other paid narration engines (see utils/ttsVoices.js). The *Key fields are
+    // SENSITIVE — never sent to the browser (masked as <field>Set).
+    ttsElevenLabsKey: { type: String, default: "" },
+    ttsElevenLabsModel: { type: String, default: "" }, // default eleven_multilingual_v2
+    ttsGoogleCloudKey: { type: String, default: "" },
+    ttsAzureKey: { type: String, default: "" },
+    ttsAzureRegion: { type: String, default: "" },     // e.g. "centralindia"
+    // Any OpenAI-compatible speech API: base URL (…/v1), key (optional), model.
+    ttsCustomUrl: { type: String, default: "" },
+    ttsCustomKey: { type: String, default: "" },
+    ttsCustomModel: { type: String, default: "" },
     // Site-wide AI Slideshow settings (Admin → Facebook → "AI Slideshow"),
     // applied to every AI Slideshow schedule. Seconds each of the two slides
     // stays on screen (it stays longer if the narration needs it).
