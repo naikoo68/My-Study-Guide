@@ -20,15 +20,16 @@ const BASE = {
   PENDING: { fixed: 5, perSlide: 0 }, // picking the voice / provider
   GENERATING_SLIDES: { fixed: 2, perSlide: 3 }, // SVG → image upload → download
   GENERATING_AUDIO: { fixed: 1, perSlide: 3 }, // one TTS call per slide
-  RENDERING_VIDEO: { fixed: 12, perSlide: 12 }, // ffmpeg per slide + concat + upload
+  RENDERING_VIDEO: { fixed: 10, perSlide: 6 }, // ffmpeg per slide (pre-composed still) + concat + upload
 };
 
 // Share of a step covered by its per-slide counter. The video step still has to
 // join the clips and upload the MP4 after the last slide is encoded.
 const COUNTED_SHARE = { GENERATING_SLIDES: 1, GENERATING_AUDIO: 1, RENDERING_VIDEO: 0.8 };
 
-// v2: the base timings changed, so ratios learned against v1 no longer apply.
-const STORAGE_KEY = "slideshowEtaProfileV2";
+// Bumped whenever the base timings change, so ratios learned against old
+// timings aren't reused (v3: faster video step).
+const STORAGE_KEY = "slideshowEtaProfileV3";
 const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
 
 const expectedSec = (stage, slides, profile) => {

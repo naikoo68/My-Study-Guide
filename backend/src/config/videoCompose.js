@@ -51,7 +51,9 @@ function runFfmpeg(args, { timeoutMs = 180000 } = {}) {
       clearTimeout(timer);
       if (code === 0) return resolve(stderr);
       const tail = stderr.trim().split("\n").slice(-3).join(" | ");
-      reject(new Error(`ffmpeg failed (exit ${code})${tail ? `: ${tail.slice(0, 300)}` : ""}`));
+      const err = new Error(`ffmpeg failed (exit ${code})${tail ? `: ${tail.slice(0, 300)}` : ""}`);
+      err.stderr = stderr; // full log (the probes below read the input info from it)
+      reject(err);
     });
   });
 }
@@ -80,19 +82,25 @@ function parseDuration(text) {
 // the "Stream … Video: …, 1200x1600" line ffmpeg prints for an input.
 export async function probeImageSize(file) {
   let text = "";
-  try { text = await runFfmpeg(["-hide_banner", "-i", file], { timeoutMs: 30000 }); } catch (e) { text = e?.message || ""; }
+  try { text = await runFfmpeg(["-hide_banner", "-i", file], { timeoutMs: 30000 }); } catch (e) { text = e?.stderr || e?.message || ""; }
   const m = /Video:.*?(\d{2,5})x(\d{2,5})/.exec(String(text));
   return m ? { width: Number(m[1]), height: Number(m[2]) } : { width: 0, height: 0 };
 }
 
-// Duration (s) of a media file, via ffmpeg's input probe (ffmpeg exits non-zero
-// with no output specified, so read its stderr either way).
+// Duration (s) of a media file from its header. ffmpeg with only an input (no
+// output) prints the input info — incl. "Duration:" — and exits non-zero, so
+// read its stderr either way. (Never decode the whole file just to measure it:
+// on a small VM that alone took seconds for a 90 s video.)
 export async function probeDuration(file) {
+  let text = "";
+  try { text = await runFfmpeg(["-hide_banner", "-i", file], { timeoutMs: 30000 }); } catch (e) { text = e?.stderr || e?.message || ""; }
+  const d = parseDuration(text);
+  if (d > 0) return d;
+  // Header had no usable duration (rare, e.g. some raw streams): decode to measure.
   try {
-    const out = await runFfmpeg(["-hide_banner", "-i", file, "-f", "null", "-"], { timeoutMs: 60000 });
-    return parseDuration(out);
+    return parseDuration(await runFfmpeg(["-hide_banner", "-i", file, "-f", "null", "-"], { timeoutMs: 60000 }));
   } catch (e) {
-    return parseDuration(e?.message || "");
+    return parseDuration(e?.stderr || e?.message || "");
   }
 }
 
@@ -118,41 +126,69 @@ export async function composeSlideshowMp4({
   if (!list.length) throw new Error("No slides to compose.");
   if (!outPath || !workDir) throw new Error("composeSlideshowMp4 needs outPath and workDir.");
 
+  // Speed matters here: this runs on a small VM, and a 5-question video has 10
+  // slides. Each slide is a STILL picture, so:
+  //   1) the picture is composed ONCE into a single 1080×1920 PNG (template
+  //      fit/blur + slide overlay) — never re-filtered for every video frame;
+  //   2) that PNG is fed at 1 fps and repeated up to `fps` by the encoder —
+  //      repeated frames are near-free for x264;
+  //   3) the ≤90 s Reel speed-up is worked out BEFORE encoding (from the
+  //      narration lengths) and applied to the audio in the same pass, so the
+  //      finished video never needs a second full re-encode.
+  // (Measured on 1 core, one 12 s slide: 15.5 s before → 3.0 s now, same image.)
+  const slideMins = list.map((s) => Math.max(1, Number(s.minSec) || minSec));
+  const audioSecs = [];
+  for (const s of list) audioSecs.push(await probeDuration(s.audioPath));
+  // Each slide lasts its narration (+ tail), but at least its on-screen time.
+  const plannedTotal = audioSecs.reduce((sum, a, i) => sum + Math.max(a + tailSec, slideMins[i]), 0);
+  // Facebook Reels (via the API) must be ≤ 90 s. If the video is only a little
+  // over, gently SPEED IT UP to fit (at most 1.15×, so speech stays natural;
+  // the slides are stills, so only the audio tempo changes and it stays in
+  // sync). A longer video is kept whole — it is NEVER cut off: Instagram Reels
+  // accept up to 15 minutes, and Facebook falls back to a normal video post.
+  const factor = plannedTotal > maxTotalSec && plannedTotal / maxTotalSec <= 1.15 ? plannedTotal / maxTotalSec : 1;
+
   const segPaths = [];
   for (let i = 0; i < list.length; i++) {
-    const seg = path.join(workDir, `seg${String(i).padStart(2, "0")}.mp4`);
-    // Video: loop the still, fit it into the 9:16 canvas (white pad), yuv420p
-    //        for player/Meta compatibility.
-    // Audio: resample, add a short tail, and pad to at least `minSec`; the
-    //        segment ends with the audio (-shortest), so the slide stays up for
-    //        exactly its narration (+tail), never a fixed length.
-    // With a TEMPLATE, the WHOLE template is shown — scaled to FIT (contain),
-    // never cropped, so its logo / buttons at the edges stay visible. If it
-    // isn't exactly 9:16, the leftover space is filled with a blurred, dimmed
-    // copy of the template (like Reels do) instead of black bars. The slide (a
-    // PNG with a transparent surround) is laid on top.
+    const n = String(i).padStart(2, "0");
+    const frame = path.join(workDir, `frame${n}.png`);
+    const seg = path.join(workDir, `seg${n}.mp4`);
+    // 1) The picture, composed once. With a TEMPLATE, the WHOLE template is
+    //    shown — scaled to FIT (contain), never cropped, so its logo / buttons
+    //    at the edges stay visible; leftover space (a template that isn't
+    //    exactly 9:16) is filled with a blurred, dimmed copy of it, like Reels
+    //    do. The slide (a PNG with a transparent surround) is laid on top.
+    //    Without a template, the slide is fitted onto a white 9:16 canvas.
     const bg = list[i].bgPath;
-    const vf = bg
+    const frameFilter = bg
       ? `[0:v]setsar=1,split[tf][tb];` +
         `[tb]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},boxblur=40:2,eq=brightness=-0.06,setsar=1[blur];` +
         `[tf]scale=${width}:${height}:force_original_aspect_ratio=decrease,setsar=1[fit];` +
         `[blur][fit]overlay=(W-w)/2:(H-h)/2[bg];` +
         `[1:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,format=rgba[fg];` +
-        `[bg][fg]overlay=(W-w)/2:(H-h)/2,format=yuv420p[v]`
+        `[bg][fg]overlay=(W-w)/2:(H-h)/2`
       : `[0:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
-        `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:white,format=yuv420p[v]`;
-    const audioIdx = bg ? 2 : 1;
-    // Each slide may carry its own on-screen time (question / answer time).
-    const slideMin = Math.max(1, Number(list[i].minSec) || minSec);
-    const af = `[${audioIdx}:a]aresample=44100,apad=pad_dur=${tailSec},apad=whole_dur=${slideMin}[a]`;
-    const imageInputs = bg
-      ? ["-loop", "1", "-framerate", String(fps), "-i", bg, "-loop", "1", "-framerate", String(fps), "-i", list[i].imagePath]
-      : ["-loop", "1", "-framerate", String(fps), "-i", list[i].imagePath];
+        `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:white,setsar=1`;
     await runFfmpeg([
       "-hide_banner", "-loglevel", "error", "-y",
-      ...imageInputs,
+      ...(bg ? ["-i", bg] : []),
+      "-i", list[i].imagePath,
+      "-filter_complex", frameFilter,
+      "-frames:v", "1",
+      frame,
+    ], { timeoutMs: 60000 });
+
+    // 2) Encode the still + its narration.
+    // Audio: resample, add a short tail, and pad to at least the slide's
+    //        on-screen time; the segment ends with the audio (-shortest), so
+    //        the slide stays up for exactly its narration (+tail).
+    const tempo = factor > 1 ? `,atempo=${factor.toFixed(4)}` : "";
+    const af = `[1:a]aresample=44100,apad=pad_dur=${tailSec},apad=whole_dur=${slideMins[i]}${tempo}[a]`;
+    await runFfmpeg([
+      "-hide_banner", "-loglevel", "error", "-y",
+      "-loop", "1", "-framerate", "1", "-i", frame,
       "-i", list[i].audioPath,
-      "-filter_complex", `${vf};${af}`,
+      "-filter_complex", `[0:v]format=yuv420p,fps=${fps}[v];${af}`,
       "-map", "[v]", "-map", "[a]",
       "-c:v", "libx264", "-preset", "veryfast", "-tune", "stillimage", "-r", String(fps),
       "-pix_fmt", "yuv420p", "-threads", "2",
@@ -175,28 +211,7 @@ export async function composeSlideshowMp4({
     outPath,
   ]);
 
-  let duration = await probeDuration(outPath);
-
-  // Facebook Reels (via the API) must be ≤ 90 s. If the video is only a little
-  // over, gently SPEED IT UP to fit (at most 1.15×, so speech stays natural;
-  // picture and sound change together, so they stay in sync). A longer video
-  // is kept whole — it is NEVER cut off: Instagram Reels accept up to 15
-  // minutes, and Facebook falls back to a normal video post.
-  if (duration > maxTotalSec && duration / maxTotalSec <= 1.15) {
-    const factor = duration / maxTotalSec;
-    const fitted = path.join(workDir, "slideshow-fit.mp4");
-    await runFfmpeg([
-      "-hide_banner", "-loglevel", "error", "-y",
-      "-i", outPath,
-      "-filter:v", `setpts=PTS/${factor.toFixed(4)}`,
-      "-filter:a", `atempo=${factor.toFixed(4)}`,
-      "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-r", String(fps), "-threads", "2",
-      "-c:a", "aac", "-b:a", "128k", "-ac", "2", "-ar", "44100",
-      "-movflags", "+faststart",
-      fitted,
-    ]);
-    await fs.rename(fitted, outPath);
-    duration = await probeDuration(outPath);
-  }
+  // (The ≤90 s speed-up was already applied per slide above — no re-encode.)
+  const duration = await probeDuration(outPath);
   return { duration };
 }
