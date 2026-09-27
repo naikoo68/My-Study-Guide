@@ -157,6 +157,74 @@ export async function renderQuestionCardShot(question, { includeAnswer = false, 
 }
 
 
+// Screenshot ONE slide in a fresh tab. → { ok: true } | { error, permanent? }
+// On failure the error says WHY (what the page showed, script errors, the
+// question API's HTTP status), so the admin / server log can see the cause.
+async function shootSlide(browser, it, { siteUrl = "", readyTimeoutMs = 25000 } = {}) {
+  let page;
+  const pageErrors = [];
+  let apiStatus = 0;
+  try {
+    page = await browser.newPage();
+    await page.setViewport({ width: 1080, height: 1920, deviceScaleFactor: 1 });
+    // The site is a PWA: its service worker would serve later navigations/API
+    // calls from a stale cache (stuck "Loading…"). Every slide loads fresh.
+    await page.setBypassServiceWorker(true).catch(() => {});
+    // The site loads Google AdSense on every page. Ads keep the network busy
+    // and must never show up in a slide — block ad / tracking hosts.
+    await page.setRequestInterception(true);
+    page.on("request", (req) => {
+      if (BLOCKED_HOSTS.test(req.url())) req.abort().catch(() => {});
+      else req.continue().catch(() => {});
+    });
+    page.on("pageerror", (e) => pageErrors.push(String(e?.message || e).slice(0, 200)));
+    page.on("response", (res) => { if (res.url().includes("/card-question/")) apiStatus = res.status(); });
+
+    const p = new URLSearchParams();
+    p.set("role", it.role === "answer" ? "answer" : "question");
+    if (it.tag) p.set("tag", String(it.tag));
+    if (it.caption) p.set("cap", String(it.caption).slice(0, 600));
+    if (it.template) p.set("tpl", "1");
+    if (it.template && it.templateSize?.width > 0 && it.templateSize?.height > 0) {
+      p.set("tw", String(it.templateSize.width));
+      p.set("th", String(it.templateSize.height));
+    }
+    if (siteUrl) p.set("site", siteUrl);
+    // Don't wait for "network idle" — the page itself says when it's ready
+    // (question loaded + web fonts + content fitted: data-card-ready="1"), or
+    // that it can't show the question (data-card-error).
+    await page.goto(`${siteOrigin()}/slide-card/${it.questionId}?${p}`, { waitUntil: "domcontentloaded", timeout: 30000 });
+    const outcome = await page
+      .waitForSelector('[data-card-ready="1"], [data-card-error]', { timeout: readyTimeoutMs })
+      .then((h) => h.evaluate((n) => (n.hasAttribute("data-card-error") ? `error:${n.textContent || ""}` : "ready")))
+      .catch(() => "timeout");
+    if (outcome !== "ready") {
+      const shown = await page.evaluate(() => document.body?.innerText?.replace(/\s+/g, " ").slice(0, 120) || "").catch(() => "");
+      const why = outcome.startsWith("error:")
+        ? `the page could not load the question (${outcome.slice(6).trim() || "error"}${apiStatus ? `, HTTP ${apiStatus}` : ""})`
+        : `the slide did not finish loading in ${Math.round(readyTimeoutMs / 1000)}s (page shows: "${shown}")`;
+      return {
+        error: `${why}${pageErrors.length ? `; script error: ${pageErrors[0]}` : ""}`,
+        // The site answered "can't show this question" (e.g. 404: not public)
+        // → retrying won't help.
+        permanent: outcome.startsWith("error:"),
+      };
+    }
+    // Question / explanation figures must be loaded before the capture.
+    await page.waitForFunction(() => Array.from(document.images).every((im) => im.complete), { timeout: 8000 }).catch(() => {});
+    const el = await page.$("[data-card-el]");
+    if (!el) return { error: "slide element not found" };
+    // PNG with a transparent page in template mode, so the template
+    // (composited underneath by ffmpeg) shows around the card.
+    await el.screenshot({ path: it.outPath, type: "png", omitBackground: !!it.template });
+    return { ok: true };
+  } catch (err) {
+    return { error: String(err?.message || err).slice(0, 300) };
+  } finally {
+    if (page) await page.close().catch(() => {});
+  }
+}
+
 // Ad / analytics hosts the slide screenshotter never needs (see below).
 const BLOCKED_HOSTS = /^https?:\/\/([^/]+\.)?(googlesyndication\.com|doubleclick\.net|googleadservices\.com|google-analytics\.com|googletagmanager\.com|googletagservices\.com|adtrafficquality\.google|adservice\.google\.[a-z.]+|fundingchoicesmessages\.google\.com)(\/|:|$)/i;
 
@@ -175,50 +243,25 @@ export async function renderSlideCardShots(items = [], { siteUrl = "" } = {}) {
   let browser;
   try {
     browser = await launchBrowser();
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1080, height: 1920, deviceScaleFactor: 1 });
-    // The site is a PWA: after the first slide its service worker would serve
-    // later navigations/API calls (stale cache, stuck "Loading…"). Every slide
-    // must load fresh, so bypass it.
-    await page.setBypassServiceWorker(true).catch(() => {});
-    // The site loads Google AdSense on every page. Ads keep the network busy
-    // (so "network idle" can take many seconds per slide) and must never show
-    // up in a slide — block ad / tracking hosts in this browser.
-    await page.setRequestInterception(true);
-    page.on("request", (req) => {
-      if (BLOCKED_HOSTS.test(req.url())) req.abort().catch(() => {});
-      else req.continue().catch(() => {});
-    });
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
-      try {
-        if (!it?.questionId) throw new Error("No question id.");
-        const p = new URLSearchParams();
-        p.set("role", it.role === "answer" ? "answer" : "question");
-        if (it.tag) p.set("tag", String(it.tag));
-        if (it.caption) p.set("cap", String(it.caption).slice(0, 600));
-        if (it.template) p.set("tpl", "1");
-        if (it.template && it.templateSize?.width > 0 && it.templateSize?.height > 0) {
-          p.set("tw", String(it.templateSize.width));
-          p.set("th", String(it.templateSize.height));
-        }
-        if (siteUrl) p.set("site", siteUrl);
-        // Don't wait for "network idle" — the page itself says when it's ready
-        // (question loaded + web fonts + content fitted: data-card-ready="1").
-        await page.goto(`${siteOrigin()}/slide-card/${it.questionId}?${p}`, { waitUntil: "domcontentloaded", timeout: 25000 });
-        await page.waitForSelector('[data-card-ready="1"]', { timeout: 20000 });
-        // Question / explanation figures must be loaded before the capture.
-        await page.waitForFunction(() => Array.from(document.images).every((im) => im.complete), { timeout: 8000 }).catch(() => {});
-        const el = await page.$("[data-card-el]");
-        if (!el) throw new Error("Slide element not found.");
-        // PNG with a transparent page in template mode, so the template
-        // (composited underneath by ffmpeg) shows around the card.
-        await el.screenshot({ path: it.outPath, type: "png", omitBackground: !!it.template });
-        results[i] = { ok: true };
-      } catch (err) {
-        results[i] = { error: `Slide screenshot failed: ${err?.message || err}` };
-        if (i === 0) break;
+      if (!it?.questionId) { results[i] = { error: "No question id." }; continue; }
+      // Up to 2 attempts, each in a FRESH tab (a long run on a small VM can
+      // leave a tab slow / out of memory; a retry in a clean tab usually works).
+      let last = null;
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        last = await shootSlide(browser, it, { siteUrl, readyTimeoutMs: attempt === 1 ? 25000 : 45000 });
+        if (last.ok) break;
+        // Final answers from the site (question not public / page crashed on
+        // it) won't change on a retry.
+        if (last.permanent) break;
       }
+      results[i] = last;
+      if (!last.ok) console.warn(`[slideshow] slide ${i + 1} (${it.role}, question ${it.questionId}) screenshot failed: ${last.error}`);
+      // The first slide failing for a non-question reason (e.g. the frontend
+      // with /slide-card isn't deployed, or Chromium is broken) → the rest
+      // would fail the same way; skip them instead of waiting on each.
+      if (i === 0 && !last.ok && !last.permanent) break;
     }
   } catch (err) {
     const msg = `Slide screenshot failed: ${err?.message || err}`;

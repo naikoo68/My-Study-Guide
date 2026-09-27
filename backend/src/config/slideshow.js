@@ -184,8 +184,17 @@ export async function generateSlideshow(question, opts = {}) {
       })),
       { siteUrl: brandOpts.siteUrl }
     ).catch((e) => plan.map(() => ({ error: e?.message || String(e) })));
-    const failedShot = shots.find((r) => !r?.ok);
-    if (failedShot) console.warn("[slideshow] using the SVG slide design for some slides:", failedShot.error);
+    // Slides that couldn't be screenshotted fall back to the basic SVG design —
+    // report WHICH and WHY (returned to the admin with the video).
+    const fallbackSlides = [];
+    shots.forEach((r, i) => {
+      if (r?.ok) return;
+      fallbackSlides.push({ slide: i + 1, role: plan[i].role, tag: plan[i].tag, error: r?.error || "unknown error" });
+    });
+    if (fallbackSlides.length) {
+      console.warn(`[slideshow] ${fallbackSlides.length}/${plan.length} slides use the basic design: ` +
+        fallbackSlides.map((f) => `#${f.slide} ${f.error}`).join(" | "));
+    }
 
     const imagePaths = [];
     for (let i = 0; i < plan.length; i++) {
@@ -255,6 +264,8 @@ export async function generateSlideshow(question, opts = {}) {
       voice,
       provider: ttsCfg.provider,
       slidePlan: plan.map((s) => ({ id: s.id, tag: s.tag })),
+      // Slides drawn with the basic design instead of the student view: [{ slide, role, tag, error }].
+      fallbackSlides,
     };
   } finally {
     // Always clean up the temp files (images, audio, segments, final MP4).

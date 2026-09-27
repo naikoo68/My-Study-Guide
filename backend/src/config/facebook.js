@@ -1228,13 +1228,40 @@ export function formatQuestionPost(q, opts = {}) {
 }
 
 // Build the Mongo filter for a schedule's chosen content scope. Deepest wins.
+// Only questions students can actually see on the public site: published and
+// NOT in the Recycle Bin. (A soft-deleted question keeps status "published",
+// so without the deleted check it could still be posted — and the public card
+// page then 404s, so its slides fell back to the basic SVG design.)
 function scopeFilter(source = {}) {
-  const base = { status: "published" };
+  const base = { status: "published", deleted: { $ne: true } };
   if (source.quiz) return { ...base, quiz: source.quiz };
   if (source.session) return { ...base, session: source.session };
   if (source.testSeries) return { ...base, testSeries: source.testSeries };
   if (source.subject) return { ...base, subject: source.subject };
   return null;
+}
+
+// Soft-deleting a quiz / session / topic flags only that node; its questions
+// stay "published" but are hidden from students with it. Exclude them too, so
+// a schedule never posts a question the public site doesn't show.
+async function liveScopeFilter(source = {}) {
+  const filter = scopeFilter(source);
+  if (!filter || source.quiz || source.testSeries) return filter; // a single quiz / test: nothing above it to hide
+  const within = source.session ? { session: source.session } : { subject: source.subject };
+  const [deadQuizzes, deadSessions, deadTopics] = await Promise.all([
+    Quiz.find({ ...within, deleted: true }).distinct("_id").catch(() => []),
+    source.session ? [] : Session.find({ subject: source.subject, deleted: true }).distinct("_id").catch(() => []),
+    source.session ? [] : Topic.find({ subject: source.subject, deleted: true }).distinct("_id").catch(() => []),
+  ]);
+  // Sessions under a deleted topic are hidden with it.
+  const hiddenSessions = [...deadSessions];
+  if (deadTopics.length) {
+    hiddenSessions.push(...(await Session.find({ topic: { $in: deadTopics } }).distinct("_id").catch(() => [])));
+  }
+  const and = [];
+  if (deadQuizzes.length) and.push({ quiz: { $nin: deadQuizzes } });
+  if (hiddenSessions.length) and.push({ session: { $nin: hiddenSessions } });
+  return and.length ? { ...filter, $and: and } : filter;
 }
 
 // Pick the next question for a schedule (random or sequential), skipping ones
@@ -1252,7 +1279,7 @@ export async function pickQuestionForSchedule(sch) {
     if (!isQuestionComplete(q).ok) return { exhausted: true, poolSize: 1, skipped: 1 };
     return { q, recycled: false };
   }
-  const filter = scopeFilter(sch.source);
+  const filter = await liveScopeFilter(sch.source);
   if (!filter) return null;
 
   const poolSize = await Question.countDocuments(filter); // total questions in this source
