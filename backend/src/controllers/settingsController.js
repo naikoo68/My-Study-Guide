@@ -7,6 +7,7 @@ import { uploadToCloudinary } from "../config/cloudinary.js";
 import { toInstagramSafeUrl } from "../utils/instagramImage.js";
 import { publicLogoUrl, apiOriginFromRequest } from "../utils/logoUrl.js";
 import { isSafePublicUrl } from "../utils/urlGuard.js";
+import { TTS_PROVIDERS, DEFAULT_TTS_PROVIDER } from "../utils/ttsVoices.js";
 
 // A freshly-provisioned institute must start as a CLEAN SLATE — it should carry
 // only its own name, never the platform's demo branding, marketing copy, fake
@@ -271,8 +272,11 @@ export async function updateSettings(req, res) {
   // only overwrite it when a NEW non-empty value is provided (the UI submits it
   // blank to keep the saved one, same as the Facebook token).
   if ("ttsProvider" in update) {
+    // Validate against the shared provider list (gtranslate / edge / openai).
+    // (It used to allow only edge/openai, so choosing the Google engine and
+    // saving silently stored "edge" instead.)
     const p = String(update.ttsProvider || "").trim().toLowerCase();
-    update.ttsProvider = ["edge", "openai"].includes(p) ? p : "edge";
+    update.ttsProvider = TTS_PROVIDERS.includes(p) ? p : DEFAULT_TTS_PROVIDER;
   }
   if ("ttsModel" in update) update.ttsModel = String(update.ttsModel || "").trim().slice(0, 120);
   // AI Slideshow: slide times 3–40 s; voice is a short id (normalised against
