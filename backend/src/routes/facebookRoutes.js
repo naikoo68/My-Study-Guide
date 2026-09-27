@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { listSchedules, createSchedule, updateSchedule, deleteSchedule, postScheduleNow, postQuestionNow, scheduleQuestion, previewQuestionImage, suggestTags, backfillScheduleLabels, facebookStats, reconcileFacebook, composeReel, testSlideshow, testSlideshowStatus, ttsVoices } from "../controllers/facebookController.js";
+import { listSchedules, createSchedule, updateSchedule, deleteSchedule, bulkSchedules, postScheduleNow, postQuestionNow, scheduleQuestion, previewQuestionImage, suggestTags, backfillScheduleLabels, facebookStats, reconcileFacebook, composeReel, testSlideshow, testSlideshowStatus, ttsVoices } from "../controllers/facebookController.js";
 import { protect, authorize } from "../middleware/auth.js";
 
 const router = Router();
@@ -18,6 +18,8 @@ router.post("/schedules", ...admin, createSchedule);
 // One-off: re-derive the Stream › Subject › Topic breadcrumb for old My Quiz
 // schedules. Declared before "/schedules/:id" routes so it isn't shadowed.
 router.post("/schedules/backfill-labels", ...admin, backfillScheduleLabels);
+// Bulk pause / resume / delete — the ticked schedules, or ALL matching ones.
+router.post("/schedules/bulk", ...admin, bulkSchedules);
 router.put("/schedules/:id", ...admin, updateSchedule);
 router.delete("/schedules/:id", ...admin, deleteSchedule);
 router.post("/schedules/:id/post-now", ...admin, postScheduleNow);

@@ -2091,6 +2091,61 @@ export default function AdminFacebook() {
     catch (e) { setRowMsg((m) => ({ ...m, [s._id]: e.message || "Failed." })); } finally { setBusyId(null); }
   };
 
+  // ---- Bulk selection (pause / resume / delete many at once) ----
+  // `selected` = ids ticked by hand (kept across pages). `allMatching` = the
+  // admin chose "Select all N" → the action applies to EVERY schedule matching
+  // the current search / time filter, on every page.
+  const [selected, setSelected] = useState(() => new Set());
+  const [allMatching, setAllMatching] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(""); // "" | "pause" | "resume" | "delete"
+  const [bulkMsg, setBulkMsg] = useState("");
+  const clearSelection = () => { setSelected(new Set()); setAllMatching(false); };
+  // A new search / filter changes what "all" means — start the selection fresh.
+  useEffect(() => { clearSelection(); }, [search, fromTime, toTime]);
+
+  const pageIds = schedules.map((s) => String(s._id));
+  const pageAllTicked = pageIds.length > 0 && pageIds.every((id) => allMatching || selected.has(id));
+  const selectedCount = allMatching ? total : selected.size;
+  const isTicked = (id) => allMatching || selected.has(String(id));
+  const toggleOne = (id) => {
+    const k = String(id);
+    if (allMatching) {
+      // Leaving "all" mode: keep everything on this page ticked except this one.
+      setAllMatching(false);
+      setSelected(new Set(pageIds.filter((x) => x !== k)));
+      return;
+    }
+    setSelected((cur) => { const n = new Set(cur); n.has(k) ? n.delete(k) : n.add(k); return n; });
+  };
+  const togglePage = () => {
+    if (pageAllTicked) {
+      if (allMatching) { clearSelection(); return; }
+      setSelected((cur) => { const n = new Set(cur); pageIds.forEach((id) => n.delete(id)); return n; });
+    } else {
+      setSelected((cur) => { const n = new Set(cur); pageIds.forEach((id) => n.add(id)); return n; });
+    }
+  };
+
+  const runBulk = async (action) => {
+    if (!selectedCount) return;
+    const noun = `${selectedCount} schedule${selectedCount === 1 ? "" : "s"}`;
+    if (action === "delete" && !window.confirm(`Delete ${noun}? This cannot be undone.`)) return;
+    if (action === "pause" && !window.confirm(`Stop (pause) ${noun}? They won't post until resumed.`)) return;
+    setBulkBusy(action); setBulkMsg(""); setError("");
+    try {
+      const body = allMatching
+        ? { action, all: true, q: search, ...(fromTime && toTime ? { from: fromTime, to: toTime } : {}) }
+        : { action, ids: [...selected] };
+      const r = await facebookService.bulk(body);
+      const n = r?.matched ?? selectedCount;
+      const verb = action === "delete" ? "Deleted" : action === "pause" ? "Paused" : "Resumed";
+      setBulkMsg(`${verb} ${n} schedule${n === 1 ? "" : "s"}.`);
+      clearSelection();
+      load();
+    } catch (e) { setError(e.message || "Bulk action failed."); }
+    finally { setBulkBusy(""); }
+  };
+
   const daysLabel = (days) => (!days?.length ? "Every day" : WEEKDAYS.filter((w) => days.includes(w.v)).map((w) => w.l).join(", "));
 
   return (
@@ -2542,6 +2597,7 @@ export default function AdminFacebook() {
         )}
 
         {/* List */}
+        {bulkMsg && !form && <p className="mt-4 text-sm text-emerald-600 dark:text-emerald-400">{bulkMsg}</p>}
         {loading ? <div className="mt-6"><Loading label="Loading schedules..." /></div>
           : error && !form ? <div className="mt-6"><ErrorState message={error} onRetry={load} /></div>
           : schedules.length === 0 && !form ? (
@@ -2552,9 +2608,48 @@ export default function AdminFacebook() {
             </div>
           ) : (
             <div className="mt-4 space-y-3">
+              {/* Bulk actions — tick schedules (or select all), then Stop / Resume / Delete */}
+              {!form && schedules.length > 0 && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/40">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                    <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
+                      <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={pageAllTicked} onChange={togglePage} />
+                      Select all on this page
+                    </label>
+                    {total > schedules.length && (
+                      allMatching ? (
+                        <span className="text-xs text-slate-500 dark:text-slate-400">All <b>{total}</b> schedules selected{search || rangeActive ? " (matching the filter)" : ""}</span>
+                      ) : (
+                        <button type="button" onClick={() => setAllMatching(true)} className="text-xs font-semibold text-brand-600 hover:underline">
+                          Select all {total} schedules{search || rangeActive ? " matching the filter" : ""}
+                        </button>
+                      )
+                    )}
+                    <span className="text-xs text-slate-500 dark:text-slate-400">{selectedCount ? `${selectedCount} selected` : "None selected"}</span>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button type="button" onClick={() => runBulk("pause")} disabled={!selectedCount || !!bulkBusy} className="btn-outline !py-1.5 !text-xs text-amber-600 disabled:opacity-40" title="Stop the selected schedules (they won't post until resumed)">
+                      {bulkBusy === "pause" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Power className="h-3.5 w-3.5" />} Stop selected
+                    </button>
+                    <button type="button" onClick={() => runBulk("resume")} disabled={!selectedCount || !!bulkBusy} className="btn-outline !py-1.5 !text-xs text-emerald-600 disabled:opacity-40" title="Resume (enable) the selected schedules">
+                      {bulkBusy === "resume" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <PlayCircle className="h-3.5 w-3.5" />} Resume selected
+                    </button>
+                    <button type="button" onClick={() => runBulk("delete")} disabled={!selectedCount || !!bulkBusy} className="btn-outline !py-1.5 !text-xs text-rose-600 disabled:opacity-40" title="Delete the selected schedules">
+                      {bulkBusy === "delete" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Delete selected
+                    </button>
+                    {selectedCount > 0 && (
+                      <button type="button" onClick={clearSelection} disabled={!!bulkBusy} className="btn-outline !py-1.5 !text-xs disabled:opacity-40">
+                        <X className="h-3.5 w-3.5" /> Clear
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
               {schedules.map((s) => (
-                <div key={s._id} className="rounded-xl border border-slate-200 p-4 dark:border-slate-700">
+                <div key={s._id} className={`rounded-xl border p-4 ${isTicked(s._id) ? "border-brand-400 bg-brand-50/40 dark:border-brand-600 dark:bg-brand-900/10" : "border-slate-200 dark:border-slate-700"}`}>
                   <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="flex min-w-0 flex-1 items-start gap-3">
+                    <input type="checkbox" aria-label="Select this schedule" className="mt-1 h-4 w-4 flex-shrink-0 accent-brand-600" checked={isTicked(s._id)} onChange={() => toggleOne(s._id)} />
                     <div className="min-w-0">
                       <p className="flex flex-wrap items-center gap-2 font-semibold">
                         <span className={`inline-block h-2 w-2 rounded-full ${s.completedAt ? "bg-emerald-500" : s.enabled ? "bg-emerald-500" : "bg-slate-300"}`} />
@@ -2600,6 +2695,7 @@ export default function AdminFacebook() {
                         {s.mode !== "once" && <span className="text-slate-400">{s.timezone}</span>}
                       </div>
                       {(rowMsg[s._id] || s.lastResult) && <p className="mt-1 text-xs text-slate-400">{compactScheduleResult(rowMsg[s._id] || s.lastResult)}</p>}
+                    </div>
                     </div>
                     <div className="flex flex-shrink-0 items-center gap-1">
                       <button onClick={() => postNow(s)} disabled={busyId === s._id} title="Post one now" className="rounded-lg p-2 text-[#1877F2] hover:bg-blue-50 disabled:opacity-50 dark:hover:bg-blue-900/30">{busyId === s._id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</button>

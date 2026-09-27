@@ -358,6 +358,9 @@ export const facebookService = {
   create: (data) => api.post("/facebook/schedules", data),
   update: (id, data) => api.put(`/facebook/schedules/${id}`, data),
   remove: (id) => api.del(`/facebook/schedules/${id}`),
+  // Bulk pause / resume / delete → { matched, affected }. Pass { action, ids } for
+  // the ticked schedules, or { action, all: true, q, from, to } for every match.
+  bulk: (data) => api.post("/facebook/schedules/bulk", data),
   stats: () => api.get("/facebook/stats"), // lifetime FB publication count + recents → { lifetime, recent }
   reconcile: () => api.get("/facebook/reconcile"), // diagnostic: our ledger vs Meta API → { applicationCount, remoteApiCount, drift, status, lastReconciledAt, ... (back-compat: ours, facebook) }
   backfillLabels: () => api.post("/facebook/schedules/backfill-labels"), // re-derive My Quiz breadcrumbs → { updated, scanned }
