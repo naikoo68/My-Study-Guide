@@ -606,6 +606,67 @@ export async function deleteSchedule(req, res) {
   res.json({ ok: true });
 }
 
+// Ids of every schedule matching the SAME search + time-of-day filter the list
+// uses (listSchedules), across all pages. Backs "Select all N schedules".
+async function matchingScheduleIds({ q, from, to } = {}) {
+  const filter = {};
+  const term = String(q || "").trim();
+  if (term) {
+    const rx = new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+    filter.$or = [{ title: rx }, { "source.label": rx }];
+  }
+  const fromMin = hhmmToMin(from);
+  const toMin = hhmmToMin(to);
+  if (fromMin == null || toMin == null) {
+    return (await FbSchedule.find(filter).select("_id").lean()).map((s) => String(s._id));
+  }
+  const inRange = (m) => (fromMin <= toMin ? m >= fromMin && m <= toMin : m >= fromMin || m <= toMin);
+  const all = await FbSchedule.find(filter).lean();
+  return all.filter((s) => scheduleFireMinutes(s).some(inRange)).map((s) => String(s._id));
+}
+
+// POST /api/facebook/schedules/bulk — pause / resume / delete MANY schedules at
+// once (admin). Body:
+//   { action: "pause" | "resume" | "delete",
+//     ids?: [scheduleId, …],          — the ticked schedules, OR
+//     all?: true, q?, from?, to? }    — every schedule matching the list's current
+//                                       search / time filter (all pages).
+// Returns { ok, action, matched, affected }.
+const BULK_SCHEDULE_ACTIONS = ["pause", "resume", "delete"];
+const MAX_BULK_SCHEDULE_IDS = 5000;
+export async function bulkSchedules(req, res) {
+  const action = String(req.body?.action || "");
+  if (!BULK_SCHEDULE_ACTIONS.includes(action)) {
+    return res.status(400).json({ message: "Unknown action. Use pause, resume or delete." });
+  }
+  let ids;
+  if (req.body?.all === true) {
+    ids = await matchingScheduleIds(req.body);
+  } else {
+    const raw = Array.isArray(req.body?.ids) ? req.body.ids : [];
+    ids = [...new Set(raw.map((x) => String(x || "").trim()).filter(Boolean))];
+    if (!ids.length) return res.status(400).json({ message: "Select at least one schedule." });
+    if (ids.length > MAX_BULK_SCHEDULE_IDS) return res.status(400).json({ message: `Too many schedules at once (max ${MAX_BULK_SCHEDULE_IDS}).` });
+  }
+  if (!ids.length) return res.json({ ok: true, action, matched: 0, affected: 0 });
+
+  const filter = { _id: { $in: ids } };
+  let affected = 0;
+  try {
+    if (action === "delete") {
+      const r = await FbSchedule.deleteMany(filter);
+      affected = r?.deletedCount ?? 0;
+    } else {
+      const r = await FbSchedule.updateMany(filter, { $set: { enabled: action === "resume" } });
+      affected = r?.modifiedCount ?? r?.matchedCount ?? 0;
+    }
+  } catch (e) {
+    if (e?.name === "CastError") return res.status(400).json({ message: "One or more schedule ids are invalid." });
+    throw e;
+  }
+  res.json({ ok: true, action, matched: ids.length, affected });
+}
+
 // Rebuild the "My Quiz › Stream › Subject › Topic › Item" breadcrumb for a
 // practice (My Quiz) source from the live hierarchy. Older schedules stored a
 // label built before the TOPIC level was included, so it was missing; this
