@@ -7,7 +7,6 @@
 
 const LETTERS = ["A", "B", "C", "D", "E", "F"];
 const ROMAN = ["I", "II", "III", "IV", "V", "VI"];
-const COLUMN_TYPES = new Set(["matching", "pair", "pairselect"]);
 
 const asText = (v) => String(v ?? "").trim();
 const isFilled = (v) => asText(v) !== "";
@@ -17,6 +16,12 @@ const arr = (a) => (Array.isArray(a) ? a.filter((x) => isFilled(x)) : []);
 // than "$", backslashes and braces. Keeps the words; drops the notation.
 export function toSpeech(input) {
   let s = String(input || "");
+  // "statement(s) … is/are correct" → "statements … are correct" (a voice
+  // would otherwise say "statement s" / "is slash are").
+  s = s.replace(/(\w)\(s\)/g, "$1s").replace(/\bis\s*\/\s*are\b/gi, "are").replace(/\bhas\s*\/\s*have\b/gi, "have");
+  // Accounting shorthand: "Cash A/c Dr." → "Cash account debit", "₹50,000" → "rupees 50,000".
+  s = s.replace(/\bA\/c\b/gi, "account").replace(/\bDr\.(?=\s|$|,)/g, "debit").replace(/\bCr\.(?=\s|$|,)/g, "credit");
+  s = s.replace(/₹\s*/g, "rupees ");
   s = s.replace(/\$/g, " ");
   s = s.replace(/\\frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, "$1 over $2");
   s = s.replace(/\\sqrt\s*\{([^{}]*)\}/g, "square root of $1");
@@ -54,14 +59,190 @@ const said = (t) => {
   return x ? (/[!?]$/.test(x) ? x : `${x}.`) : "";
 };
 
-// Options as { badge, text } — badge is A/B/C/D (or a number if there are more).
-function optionItems(q) {
-  return arr(q.options).map((t, i) => ({ badge: LETTERS[i] || String(i + 1), text: asText(t) }));
+// ---- Mirrors of the frontend display helpers (frontend/src/lib/questions.js
+// and StatementPairView) so the narration matches the slide exactly. ---------
+
+// Split a column saved as one "1. a 2. b" blob; strip leading "1." / "I." markers.
+// (?!\d): "6.5%" is a number, not a "6." list marker.
+const LEADING_MARKER = /^\s*(?:[IVXLC]{1,5}|\d{1,2})\s*[.)](?!\d)\s*/i;
+export function normalizeColumn(list) {
+  const items = (Array.isArray(list) ? list : []).map((x) => asText(x)).filter(Boolean);
+  if (items.length >= 2) return items.map((x) => x.replace(LEADING_MARKER, "").trim());
+  if (items.length === 1) {
+    const split = items[0].replace(/\s+/g, " ").split(/\s+(?=(?:[IVXLC]{1,5}|\d{1,2})[.)]\s)/g)
+      .map((p) => p.replace(LEADING_MARKER, "").trim()).filter(Boolean);
+    if (split.length >= 2) return split;
+  }
+  return items;
+}
+
+const ASSERTION_REASON_OPTIONS = [
+  "Both A and R are true and R is the correct explanation of A",
+  "Both A and R are true but R is NOT the correct explanation of A",
+  "A is true but R is false",
+  "A is false but R is true",
+];
+const NUMBER_WORDS = ["one", "two", "three", "four", "five", "six", "seven", "eight"];
+function pairCountOptions(n) {
+  if (n >= 4) return ["Only one pair", "Only two pairs", "Only three pairs", `All ${NUMBER_WORDS[n - 1] || n} pairs`];
+  const out = [];
+  for (let k = 1; k < n; k++) out.push(`Only ${NUMBER_WORDS[k - 1]} pair${k === 1 ? "" : "s"}`);
+  out.push(`All ${NUMBER_WORDS[n - 1] || n} pairs`, "None of the pairs");
+  return out;
+}
+// The options the slide DISPLAYS (rebuilds the fixed assertion / pair-count
+// choices when a question was saved with blank option text).
+export function displayOptions(q) {
+  const opts = Array.isArray(q?.options) ? q.options : [];
+  if (q?.type === "assertion" && !(opts.length === 4 && opts.every(isFilled))) return ASSERTION_REASON_OPTIONS.slice();
+  if (q?.type === "pair" && (opts.length === 0 || opts.every((o) => !isFilled(o)))) {
+    const a = normalizeColumn(q.columnA), b = normalizeColumn(q.columnB);
+    if (a.length === b.length && [3, 4].includes(a.length)) return pairCountOptions(a.length);
+  }
+  return opts;
+}
+
+// The stem shown for an assertion question drops an embedded "Assertion (A): …"
+// copy when A and R have their own fields (they're read separately).
+function stemText(q) {
+  const text = asText(q?.text);
+  if (q?.type !== "assertion" || !(q?.assertion && q?.reason)) return text;
+  const idx = text.search(/\bAssertion\b\s*(?:\([Aa]\))?\s*[:-]/);
+  if (idx === -1) return text;
+  return text.slice(0, idx).trim() || "Consider the following Assertion (A) and Reason (R):";
+}
+
+// The prompt shown under the statements / pairs list.
+export function closingPrompt(type) {
+  if (type === "statement") return "Which of the statement(s) given above is/are correct?";
+  if (type === "pair") return "How many of the above pairs are correctly matched?";
+  if (type === "pairselect") return "Which of the pairs given above is/are correctly matched?";
+  if (type === "rearrange") return "Choose the correct order of the sentences:";
+  return "";
+}
+// Rearrange sentences are labelled with the scheme the options use (letters or Roman).
+function rearrangeLabels(q) {
+  const opts = arr(q?.options).join(" ");
+  const hasRoman = /\b(?:I{1,3}|IV|VI{0,3}|IX|X)\b/.test(opts);
+  const hasLetters = /\b[A-H]\b/.test(opts);
+  return hasLetters && !hasRoman ? LETTERS.concat(["G", "H"]) : ROMAN.concat(["VII", "VIII"]);
+}
+
+// Speak a "(s)" / "is/are" prompt naturally: "statement(s)" → "statements",
+// "is/are" → "are".
+const speakPrompt = (t) => said(t); // toSpeech turns "(s)" / "is/are" into natural words
+
+// An accounting option stored as a pipe table ("Date | Particulars | … |")
+// → "Particulars: Cash A/c, Debit: 5000. …" instead of reading the pipes.
+function speakPipeTable(s) {
+  const rows = String(s || "").split(/\r?\n/).map((l) => l.trim()).filter((l) => l.includes("|"))
+    .map((l) => {
+      let p = l.split("|");
+      if (l.startsWith("|") && l.endsWith("|")) p = p.slice(1, -1);
+      return p.map((c) => c.trim());
+    })
+    .filter((cells) => !cells.every((c) => c === "" || /^:?-{2,}:?$/.test(c)));
+  if (rows.length < 2) return "";
+  const looksHeader = /account|particular|debit|credit|amount|dr\.?|cr\.?|date|\blf\b/i.test(rows[0].join(" "));
+  const header = looksHeader ? rows[0] : ["Account", "Debit", "Credit"];
+  const body = looksHeader ? rows.slice(1) : rows;
+  // Column names spoken as words; "LF"/"J.F." (folio) columns are skipped.
+  const spokenHeader = header.map((h) => {
+    const x = String(h || "").trim();
+    if (/^(?:l\.?\s*f\.?|j\.?\s*f\.?)$/i.test(x)) return null;
+    if (/\b(?:dr\.?|debit)\b/i.test(x)) return "Debit";
+    if (/\b(?:cr\.?|credit)\b/i.test(x)) return "Credit";
+    if (/particular|account/i.test(x)) return "";
+    return x;
+  });
+  return body.map((r) => r.map((c, i) => {
+    if (!c || spokenHeader[i] === null) return "";
+    return spokenHeader[i] ? `${spokenHeader[i]} ${c}` : c;
+  }).filter(Boolean).join(", "))
+    .filter(Boolean).map(said).join(" ");
+}
+const speakOption = (t) => speakPipeTable(t) || said(t);
+
+// Everything the QUESTION slide shows for `q`, for every question type, in the
+// on-screen order (stem → columns / statements / pairs / table / figure /
+// assertion-reason → closing prompt → options). Returns:
+//   { speech, lead, columns, options: [{ badge, text, spokenBadge, spoken }] }
+// (`lead` / `columns` feed the fallback SVG slide.)
+export function questionSpeechParts(q) {
+  const type = asText(q?.type) || "mcq";
+  const stem = stemText(q) || "Question";
+  const lead = [{ text: stem, emphasis: true }];
+  const speech = [said(stem)];
+  let columns = null;
+  const colA = normalizeColumn(q?.columnA);
+  const colB = normalizeColumn(q?.columnB);
+
+  if (type === "matching" && (colA.length || colB.length)) {
+    columns = {
+      a: colA.map((t, i) => ({ badge: String(i + 1), text: t })),
+      b: colB.map((t, i) => ({ badge: ROMAN[i] || String(i + 1), text: t })),
+    };
+    if (colA.length) speech.push("Column A: " + colA.map((t, i) => `${i + 1}, ${said(t)}`).join(" "));
+    if (colB.length) speech.push("Column B: " + colB.map((t, i) => `${ROMAN[i] || i + 1}, ${said(t)}`).join(" "));
+  }
+
+  if ((type === "statement" || type === "rearrange") && colA.length) {
+    const labels = type === "rearrange" ? rearrangeLabels(q) : null;
+    colA.forEach((t, i) => {
+      const label = labels ? labels[i] || String(i + 1) : String(i + 1);
+      lead.push({ text: `${label}. ${t}` });
+      speech.push(`${type === "rearrange" ? "Sentence" : "Statement"} ${label}: ${said(t)}`);
+    });
+  } else if ((type === "pair" || type === "pairselect") && (colA.length || colB.length)) {
+    const n = Math.max(colA.length, colB.length);
+    for (let i = 0; i < n; i++) {
+      const a = colA[i] || "", b = colB[i] || "";
+      if (!a && !b) continue;
+      lead.push({ text: `${i + 1}. ${a} — ${b}` });
+      speech.push(`Pair ${i + 1}: ${toSpeech(a)}, ${said(b)}`);
+    }
+  }
+  const prompt = closingPrompt(type);
+  const hasList = (type === "statement" || type === "rearrange") ? colA.length : (colA.length || colB.length);
+  if (prompt && hasList) { lead.push({ text: prompt, muted: true }); speech.push(speakPrompt(prompt)); }
+
+  if (type === "table") {
+    const rows = (Array.isArray(q?.tableRows) ? q.tableRows : []).filter((r) => Array.isArray(r));
+    if (rows.length) {
+      const [header, ...body] = rows.map((r) => r.map((c) => asText(c)));
+      const spokenRows = (body.length ? body : [header]).map((r, i) =>
+        `Row ${i + 1}: ` + r.map((c, j) => (body.length && header[j] ? `${toSpeech(header[j])}, ${toSpeech(c)}` : toSpeech(c))).filter(Boolean).join("; "));
+      speech.push(`In the table, ${spokenRows.map(said).join(" ")}`);
+    }
+  }
+
+  // Figures can't be read aloud — point the viewer at them.
+  const vizTitle = asText(q?.viz?.title || q?.graph?.title);
+  if (q?.image || q?.graph || q?.viz) speech.push(vizTitle ? `Look at the figure: ${said(vizTitle)}` : "Look at the figure shown.");
+
+  if (type === "assertion" && (isFilled(q.assertion) || isFilled(q.reason))) {
+    if (isFilled(q.assertion)) { lead.push({ label: "Assertion (A)", text: asText(q.assertion) }); speech.push(`Assertion: ${said(q.assertion)}`); }
+    if (isFilled(q.reason)) { lead.push({ label: "Reason (R)", text: asText(q.reason) }); speech.push(`Reason: ${said(q.reason)}`); }
+  }
+
+  if (type === "matching") speech.push("Choose the correct matching sequence.");
+
+  // Options exactly as displayed: matching uses (a), (b)…; others A, B….
+  const options = displayOptions(q).map((t, i) => {
+    const text = asText(t);
+    const badge = type === "matching" ? `(${String.fromCharCode(97 + i)})` : LETTERS[i] || String(i + 1);
+    const spokenBadge = type === "matching" ? String.fromCharCode(97 + i) : badge;
+    return { badge, text, spokenBadge, spoken: speakOption(text) };
+  }).filter((o) => o.text);
+
+  return { speech: speech.filter(Boolean).join(" "), lead, columns, options };
 }
 
 // The index / letter of the correct option, if valid.
+// Uses the DISPLAYED options, unfiltered, so `correct` still points at the right
+// one (filtering blanks would shift the index).
 function correctInfo(q) {
-  const opts = arr(q.options);
+  const opts = displayOptions(q);
   const idx = Number.isInteger(q.correct) ? q.correct : -1;
   if (idx < 0 || idx >= opts.length) return null;
   return { index: idx, letter: LETTERS[idx] || String(idx + 1), text: asText(opts[idx]) };
@@ -126,35 +307,19 @@ export function buildSlidePlan(q, opts = {}) {
   // ---- Slide 1: the question ------------------------------------------------
   const topic = topicLabel(q || {}, opts);
   const meta = [topic, asText(q?.difficulty) || "Medium"].filter(Boolean).join("  ·  ");
-  const lead = [{ text: meta, muted: true }, { text: stem, emphasis: true }];
-  // The question text plus its parts (assertion/reason, statements, columns).
-  let questionSpeech = said(stem);
-  let columns = null;
-
-  if (type === "assertion" && (isFilled(q.assertion) || isFilled(q.reason))) {
-    if (isFilled(q.assertion)) lead.push({ label: "Assertion (A)", text: asText(q.assertion) });
-    if (isFilled(q.reason)) lead.push({ label: "Reason (R)", text: asText(q.reason) });
-    questionSpeech +=
-      (isFilled(q.assertion) ? ` Assertion: ${said(q.assertion)}` : "") +
-      (isFilled(q.reason) ? ` Reason: ${said(q.reason)}` : "");
-  } else if (type === "statement" && arr(q.columnA).length) {
-    arr(q.columnA).forEach((t, i) => lead.push({ text: `${i + 1}. ${asText(t)}` }));
-    questionSpeech += " " + arr(q.columnA).map((t, i) => `Statement ${i + 1}: ${said(t)}`).join(" ");
-  } else if (COLUMN_TYPES.has(type) && (arr(q.columnA).length || arr(q.columnB).length)) {
-    columns = {
-      a: arr(q.columnA).map((t, i) => ({ badge: String(i + 1), text: asText(t) })),
-      b: arr(q.columnB).map((t, i) => ({ badge: ROMAN[i] || String(i + 1), text: asText(t) })),
-    };
-    questionSpeech +=
-      " Column A: " + arr(q.columnA).map((t, i) => `${i + 1}, ${said(t)}`).join(" ") +
-      " Column B: " + arr(q.columnB).map((t, i) => `${ROMAN[i] || i + 1}, ${said(t)}`).join(" ");
-  }
-
-  const options = optionItems(q || {});
+  const lead = [{ text: meta, muted: true }]; // + the stem etc. from questionSpeechParts
+  // Everything the question slide SHOWS, in the same order (see
+  // questionSpeechParts) — so the narrator reads every line students see,
+  // incl. the closing prompt ("Which of the statement(s) given above is/are
+  // correct?") and "Choose the correct matching sequence".
+  const parts = questionSpeechParts(q || {});
+  lead.push(...parts.lead);
+  const columns = parts.columns;
+  const options = parts.options;
   let spoken = total > 1 ? `Question ${index}.` : "";
-  if (read.question) spoken += ` ${questionSpeech}`;
+  if (read.question) spoken += ` ${parts.speech}`;
   if (read.options && options.length) {
-    spoken += " " + options.map((o) => `Option ${o.badge}: ${said(o.text)}`).join(" ");
+    spoken += " " + options.map((o) => `Option ${o.spokenBadge}: ${o.spoken}`).join(" ");
   }
   // Something must be spoken (the TTS needs text, and it times the slide).
   if (!spoken.trim()) spoken = "Here is the question.";
@@ -182,7 +347,7 @@ export function buildSlidePlan(q, opts = {}) {
   let answerSpoken = "";
   if (correct) {
     body.push({ text: `${correct.letter}. ${correct.text}`, emphasis: true, positive: true });
-    answerSpoken = `The correct answer is option ${correct.letter}. ${said(correct.text)}`;
+    answerSpoken = `The correct answer is option ${correct.letter}. ${speakOption(correct.text)}`;
   }
   const keyPoints = arr(q?.keyPoints).map(asText);
   const recall = isFilled(q?.quickRecall) ? asText(q.quickRecall) : "";
