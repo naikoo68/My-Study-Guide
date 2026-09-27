@@ -7,7 +7,9 @@
 // such a blob back into separate items (and strips any leading "1."/"I." marker
 // from properly-separated items). Safe: a correctly-split column is returned
 // as-is (just marker-stripped).
-const LEADING_MARKER = /^\s*(?:[IVXLC]{1,5}|\d{1,2})\s*[.)]\s*/i;
+// (?!\d): a value like "6.5%" is a number, not a "6." list marker — without
+// this, a pair "HbA1c — 6.5%" displayed as "5%".
+const LEADING_MARKER = /^\s*(?:[IVXLC]{1,5}|\d{1,2})\s*[.)](?!\d)\s*/i;
 function splitNumberedBlob(s) {
   const str = String(s || "").replace(/\s+/g, " ").trim();
   if (!str) return [];
