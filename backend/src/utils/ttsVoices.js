@@ -16,11 +16,35 @@
 //   • "edge"       — FREE Microsoft Edge neural TTS. No key. Better quality, but
 //                    Microsoft blocks many datacenter IPs (may 403 on a VPS).
 //   • "openai"     — OpenAI TTS. Needs an API key. Paid.
-export const TTS_PROVIDERS = ["gtranslate", "edge", "openai"];
+// Paid providers (each needs its own API key, entered in Admin → AI Slideshow):
+//   • "openai"      — OpenAI TTS.
+//   • "elevenlabs"  — ElevenLabs (premade voices, or any voice ID from your account).
+//   • "googlecloud" — Google Cloud Text-to-Speech (Neural2 / WaveNet voices).
+//   • "azure"       — Microsoft Azure Speech (needs the key AND its region).
+//   • "custom"      — ANY OpenAI-compatible speech API (your base URL + key +
+//                     model + voice), e.g. a self-hosted or third-party service.
+export const TTS_PROVIDERS = ["gtranslate", "edge", "openai", "elevenlabs", "googlecloud", "azure", "custom"];
 export const DEFAULT_TTS_PROVIDER = "gtranslate";
 // The FREE providers (no API key). Used for automatic fallback: if the chosen
 // free provider is blocked on the host, the other free one is tried.
 export const FREE_TTS_PROVIDERS = ["gtranslate", "edge"];
+export const PAID_TTS_PROVIDERS = TTS_PROVIDERS.filter((p) => !FREE_TTS_PROVIDERS.includes(p));
+
+// Settings field holding each paid provider's API key. SECRET — never sent to
+// the browser (settingsController masks each as `<field>Set`).
+export const TTS_KEY_FIELDS = {
+  openai: "ttsApiKey", // original field name, kept for saved settings
+  elevenlabs: "ttsElevenLabsKey",
+  googlecloud: "ttsGoogleCloudKey",
+  azure: "ttsAzureKey",
+  custom: "ttsCustomKey",
+};
+
+// Providers whose voice is free text as well as the listed suggestions
+// (ElevenLabs voice IDs from your own account, any Azure / Google Cloud voice
+// name, whatever voice a custom API offers).
+export const FREE_FORM_VOICE_PROVIDERS = new Set(["elevenlabs", "googlecloud", "azure", "custom"]);
+const SAFE_VOICE_ID = /^[A-Za-z0-9._:-]{1,80}$/;
 
 // OpenAI standard TTS voices.
 const OPENAI_VOICES = [
@@ -60,10 +84,40 @@ const GTRANSLATE_VOICES = [
   { id: "en-AU", label: "English (Australia)" },
 ];
 
+// ElevenLabs premade voices (IDs are the same for every account). Any other
+// voice ID from your ElevenLabs Voice Library can be typed in instead.
+const ELEVENLABS_VOICES = [
+  { id: "21m00Tcm4TlvDq8ikWAM", label: "Rachel (female)" },
+  { id: "EXAVITQu4vr4xnSDxMaL", label: "Bella (female)" },
+  { id: "MF3mGyEYCl7XYWbV9V6O", label: "Elli (female)" },
+  { id: "pNInz6obpgDQGcFmaJgB", label: "Adam (male)" },
+  { id: "ErXwobaYiN019PkySvjV", label: "Antoni (male)" },
+  { id: "TxGEqnHWrfWFTfGW9XjX", label: "Josh (male)" },
+];
+
+// Google Cloud TTS voices (name = "<language>-<type>-<letter>").
+const GOOGLECLOUD_VOICES = [
+  { id: "en-IN-Neural2-A", label: "India, female (Neural2-A)" },
+  { id: "en-IN-Neural2-B", label: "India, male (Neural2-B)" },
+  { id: "en-IN-Neural2-C", label: "India, male (Neural2-C)" },
+  { id: "en-IN-Neural2-D", label: "India, female (Neural2-D)" },
+  { id: "en-US-Neural2-F", label: "US, female (Neural2-F)" },
+  { id: "en-US-Neural2-D", label: "US, male (Neural2-D)" },
+  { id: "en-GB-Neural2-A", label: "UK, female (Neural2-A)" },
+  { id: "en-GB-Neural2-B", label: "UK, male (Neural2-B)" },
+];
+
+// Azure Speech uses the same neural voice names as Edge (plus hundreds more).
+const AZURE_VOICES = EDGE_VOICES;
+
 export const PROVIDER_VOICES = {
   gtranslate: GTRANSLATE_VOICES,
   openai: OPENAI_VOICES,
   edge: EDGE_VOICES,
+  elevenlabs: ELEVENLABS_VOICES,
+  googlecloud: GOOGLECLOUD_VOICES,
+  azure: AZURE_VOICES,
+  custom: OPENAI_VOICES, // suggestions — most OpenAI-compatible APIs accept these
 };
 
 // The default voice per provider.
@@ -71,6 +125,10 @@ export const DEFAULT_VOICE = {
   gtranslate: "en",
   openai: "coral",
   edge: "en-IN-NeerjaNeural",
+  elevenlabs: "21m00Tcm4TlvDq8ikWAM",
+  googlecloud: "en-IN-Neural2-A",
+  azure: "en-IN-NeerjaNeural",
+  custom: "alloy",
 };
 
 // Back-compat: a flat list of OpenAI voice ids (the feature originally shipped
@@ -103,7 +161,10 @@ export function normalizeVoiceForProvider(provider, v) {
   const p = normalizeProvider(provider);
   const id = String(v || "").trim();
   const match = voicesForProvider(p).find((x) => x.id.toLowerCase() === id.toLowerCase());
-  return match ? match.id : defaultVoiceForProvider(p);
+  if (match) return match.id;
+  // A typed-in voice (e.g. your own ElevenLabs voice ID) for providers that allow it.
+  if (FREE_FORM_VOICE_PROVIDERS.has(p) && SAFE_VOICE_ID.test(id)) return id;
+  return defaultVoiceForProvider(p);
 }
 
 // The English accent of a voice id: "en-IN-NeerjaNeural" / "en-IN" → "IN";

@@ -21,10 +21,13 @@ import {
   defaultVoiceForProvider,
   DEFAULT_TTS_PROVIDER,
   FREE_TTS_PROVIDERS,
+  PAID_TTS_PROVIDERS,
 } from "../utils/ttsVoices.js";
+import { isSafeProviderUrl } from "../utils/urlGuard.js";
 
 const OPENAI_DEFAULT_BASE = "https://api.openai.com/v1";
 const OPENAI_DEFAULT_MODEL = "gpt-4o-mini-tts";
+const ELEVENLABS_DEFAULT_MODEL = "eleven_multilingual_v2";
 
 // Never send an enormous block of text in one request (cost + API limits).
 // Narration is split per slide upstream; this is a hard safety net.
@@ -41,12 +44,49 @@ function envOpenAiKey() {
 // feature keeps working.
 export function resolveTtsConfig(site = null) {
   const envKey = envOpenAiKey();
-  let provider = normalizeProvider(site?.ttsProvider || (envKey ? "openai" : DEFAULT_TTS_PROVIDER));
-  const apiKey = String(site?.ttsApiKey || "").trim() || envKey;
-  if (provider === "openai" && !apiKey) provider = "edge"; // graceful free fallback
-  const model = String(site?.ttsModel || "").trim() || String(process.env.OPENAI_TTS_MODEL || "").trim() || OPENAI_DEFAULT_MODEL;
-  const baseUrl = String(process.env.OPENAI_TTS_BASE_URL || "").trim().replace(/\/+$/, "") || OPENAI_DEFAULT_BASE;
-  return { provider, apiKey, model, baseUrl };
+  const requested = normalizeProvider(site?.ttsProvider || (envKey ? "openai" : DEFAULT_TTS_PROVIDER));
+  const s = (v) => String(v ?? "").trim();
+  // Each paid provider has its own key (+ extras). Env vars are a fallback.
+  const keys = {
+    openai: s(site?.ttsApiKey) || envKey,
+    elevenlabs: s(site?.ttsElevenLabsKey) || s(process.env.ELEVENLABS_API_KEY),
+    googlecloud: s(site?.ttsGoogleCloudKey) || s(process.env.GOOGLE_CLOUD_TTS_API_KEY),
+    azure: s(site?.ttsAzureKey) || s(process.env.AZURE_SPEECH_KEY),
+    custom: s(site?.ttsCustomKey),
+  };
+  const azureRegion = s(site?.ttsAzureRegion) || s(process.env.AZURE_SPEECH_REGION);
+  const customUrl = s(site?.ttsCustomUrl).replace(/\/+$/, "");
+  const ready = {
+    openai: !!keys.openai,
+    elevenlabs: !!keys.elevenlabs,
+    googlecloud: !!keys.googlecloud,
+    azure: !!keys.azure && !!azureRegion,
+    custom: !!customUrl, // some self-hosted APIs need no key
+  };
+  let provider = requested;
+  let missing = "";
+  if (PAID_TTS_PROVIDERS.includes(provider) && !ready[provider]) {
+    // Graceful free fallback — and say why (shown to the admin).
+    missing = provider === "azure" ? "the Azure key and region are not both saved"
+      : provider === "custom" ? "no API URL is saved" : "no API key is saved";
+    provider = DEFAULT_TTS_PROVIDER;
+  }
+  const model = provider === "custom"
+    ? s(site?.ttsCustomModel) || "tts-1"
+    : provider === "elevenlabs"
+      ? s(site?.ttsElevenLabsModel) || ELEVENLABS_DEFAULT_MODEL
+      : s(site?.ttsModel) || s(process.env.OPENAI_TTS_MODEL) || OPENAI_DEFAULT_MODEL;
+  const baseUrl = provider === "custom"
+    ? customUrl
+    : s(process.env.OPENAI_TTS_BASE_URL).replace(/\/+$/, "") || OPENAI_DEFAULT_BASE;
+  return {
+    provider,
+    apiKey: keys[provider] || "",
+    model,
+    baseUrl,
+    azureRegion,
+    ...(missing ? { requestedProvider: requested, fallbackReason: missing } : {}),
+  };
 }
 
 // TTS is ALWAYS available because the free Edge provider needs no key. Kept as a
@@ -55,33 +95,59 @@ export function isTtsConfigured() {
   return true;
 }
 
-// OpenAI TTS → MP3 buffer.
-async function synthesizeOpenAi({ text, voice, apiKey, model, baseUrl, timeoutMs = 60000 }) {
-  if (!apiKey) throw new Error("OpenAI TTS API key is missing.");
+const escapeXml = (s) =>
+  String(s || "").replace(/[<>&'"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" }[c]));
+
+// POST to a TTS API with a timeout. Throws "<label> failed (<status>): <the
+// service's own error message>" so the admin sees WHY (bad key, no credits,
+// unknown voice…). Returns the Response when it's OK.
+async function postTts(label, url, { headers, body }, timeoutMs = 60000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(`${baseUrl || OPENAI_DEFAULT_BASE}/audio/speech`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: model || OPENAI_DEFAULT_MODEL, voice, input: text, response_format: "mp3" }),
-      signal: controller.signal,
-    });
+    const res = await fetch(url, { method: "POST", headers, body, signal: controller.signal });
     if (!res.ok) {
       let detail = "";
-      try { const j = await res.json(); detail = j?.error?.message || JSON.stringify(j); }
-      catch { try { detail = await res.text(); } catch { /* ignore */ } }
-      throw new Error(`OpenAI TTS failed (${res.status})${detail ? `: ${String(detail).slice(0, 200)}` : ""}`);
+      try {
+        const t = await res.text();
+        try {
+          const j = JSON.parse(t);
+          detail = j?.error?.message || j?.detail?.message || (typeof j?.detail === "string" ? j.detail : "") || j?.message || t;
+        } catch { detail = t; }
+      } catch { /* ignore */ }
+      if (!String(detail).trim() && (res.status === 401 || res.status === 403)) detail = "the API key (or region) was rejected — check it in Admin → AI Slideshow";
+      throw new Error(`${label} failed (${res.status})${detail ? `: ${String(detail).replace(/\s+/g, " ").slice(0, 200)}` : ""}`);
     }
-    const buffer = Buffer.from(await res.arrayBuffer());
-    if (!buffer.length) throw new Error("OpenAI TTS returned empty audio.");
-    return { buffer, voice };
+    return res;
   } catch (err) {
-    if (err?.name === "AbortError") throw new Error("OpenAI TTS request timed out.");
+    if (err?.name === "AbortError") throw new Error(`${label} request timed out.`);
     throw err;
   } finally {
     clearTimeout(timer);
   }
+}
+
+// A TTS API that answers with the MP3 bytes directly.
+async function fetchAudio(label, url, req, voice) {
+  const res = await postTts(label, url, req);
+  const buffer = Buffer.from(await res.arrayBuffer());
+  if (!buffer.length) throw new Error(`${label} returned empty audio.`);
+  return { buffer, voice };
+}
+
+// A TTS API that answers with JSON (e.g. base64 audio).
+async function fetchJson(label, url, req) {
+  const res = await postTts(label, url, req);
+  return res.json();
+}
+
+// OpenAI (or any OpenAI-compatible) TTS → MP3 buffer.
+async function synthesizeOpenAi({ text, voice, apiKey, model, baseUrl, label = "OpenAI TTS", keyOptional = false }) {
+  if (!apiKey && !keyOptional) throw new Error(`${label} API key is missing.`);
+  return fetchAudio(label, `${baseUrl || OPENAI_DEFAULT_BASE}/audio/speech`, {
+    headers: { ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}), "Content-Type": "application/json" },
+    body: JSON.stringify({ model: model || OPENAI_DEFAULT_MODEL, voice, input: text, response_format: "mp3" }),
+  }, voice);
 }
 
 // Synthesize narration to MP3 bytes using the resolved provider. `cfg` is the
@@ -94,6 +160,46 @@ export async function synthesizeSpeech({ text, voice, cfg } = {}) {
   const safeVoice = normalizeVoiceForProvider(provider, voice);
   if (provider === "openai") {
     return synthesizeOpenAi({ text: input, voice: safeVoice, apiKey: conf.apiKey, model: conf.model, baseUrl: conf.baseUrl });
+  }
+  if (provider === "custom") {
+    // Any OpenAI-compatible speech API. The URL is admin-supplied and fetched
+    // by the SERVER, so it must be https and never an internal address.
+    if (!conf.baseUrl || !isSafeProviderUrl(conf.baseUrl)) {
+      throw new Error("Custom TTS API URL must be a public https:// address.");
+    }
+    return synthesizeOpenAi({ text: input, voice: safeVoice, apiKey: conf.apiKey, model: conf.model, baseUrl: conf.baseUrl, label: "Custom TTS", keyOptional: true });
+  }
+  if (provider === "elevenlabs") {
+    return fetchAudio("ElevenLabs", `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(safeVoice)}?output_format=mp3_44100_128`, {
+      headers: { "xi-api-key": conf.apiKey, "Content-Type": "application/json", Accept: "audio/mpeg" },
+      body: JSON.stringify({ text: input, model_id: conf.model || ELEVENLABS_DEFAULT_MODEL }),
+    }, safeVoice);
+  }
+  if (provider === "googlecloud") {
+    // Voice names look like "en-IN-Neural2-A"; the language is the first two parts.
+    const languageCode = safeVoice.split("-").slice(0, 2).join("-") || "en-IN";
+    const res = await fetchJson("Google Cloud TTS", `https://texttospeech.googleapis.com/v1/text:synthesize?key=${encodeURIComponent(conf.apiKey)}`, {
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ input: { text: input }, voice: { languageCode, name: safeVoice }, audioConfig: { audioEncoding: "MP3" } }),
+    });
+    const buffer = Buffer.from(String(res?.audioContent || ""), "base64");
+    if (!buffer.length) throw new Error("Google Cloud TTS returned no audio.");
+    return { buffer, voice: safeVoice };
+  }
+  if (provider === "azure") {
+    const region = String(conf.azureRegion || "").trim().toLowerCase();
+    if (!/^[a-z0-9]+$/.test(region)) throw new Error("Azure Speech region is invalid (e.g. centralindia, eastus).");
+    const lang = safeVoice.split("-").slice(0, 2).join("-") || "en-US";
+    const ssml = `<speak version='1.0' xml:lang='${lang}'><voice name='${safeVoice}'>${escapeXml(input)}</voice></speak>`;
+    return fetchAudio("Azure Speech", `https://${region}.tts.speech.microsoft.com/cognitiveservices/v1`, {
+      headers: {
+        "Ocp-Apim-Subscription-Key": conf.apiKey,
+        "Content-Type": "application/ssml+xml",
+        "X-Microsoft-OutputFormat": "audio-24khz-48kbitrate-mono-mp3",
+        "User-Agent": "MyStudyGuide",
+      },
+      body: ssml,
+    }, safeVoice);
   }
   if (provider === "gtranslate") {
     return synthesizeGoogleSpeech({ text: input, lang: safeVoice });
@@ -109,7 +215,9 @@ export async function synthesizeSpeech({ text, voice, cfg } = {}) {
 // saved provider is unreachable. Returns a (possibly updated) config.
 export async function resolveWorkingTtsConfig(cfg) {
   const conf = cfg || resolveTtsConfig();
-  if (conf.provider === "openai") return conf; // explicit paid choice — surface its errors
+  // An explicit paid choice (key saved) — use it and surface its errors
+  // (wrong key, no credits…) instead of hiding them behind a free voice.
+  if (PAID_TTS_PROVIDERS.includes(conf.provider)) return conf;
   const order = [conf.provider, ...FREE_TTS_PROVIDERS.filter((p) => p !== conf.provider)];
   let firstError = "";
   for (const p of order) {

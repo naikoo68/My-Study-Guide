@@ -7,7 +7,8 @@ import { uploadToCloudinary } from "../config/cloudinary.js";
 import { toInstagramSafeUrl } from "../utils/instagramImage.js";
 import { publicLogoUrl, apiOriginFromRequest } from "../utils/logoUrl.js";
 import { isSafePublicUrl } from "../utils/urlGuard.js";
-import { TTS_PROVIDERS, DEFAULT_TTS_PROVIDER } from "../utils/ttsVoices.js";
+import { TTS_PROVIDERS, DEFAULT_TTS_PROVIDER, TTS_KEY_FIELDS } from "../utils/ttsVoices.js";
+import { isSafeProviderUrl } from "../utils/urlGuard.js";
 
 // A freshly-provisioned institute must start as a CLEAN SLATE — it should carry
 // only its own name, never the platform's demo branding, marketing copy, fake
@@ -104,8 +105,11 @@ function safeSettings(s) {
   delete obj.fbPageAccessToken;
   // TTS narration API key (AI Slideshow) — never send the raw key to the
   // browser; expose a boolean so the UI can show "key saved".
-  obj.ttsApiKeySet = !!obj.ttsApiKey;
-  delete obj.ttsApiKey;
+  // Same for every paid engine's key (ttsApiKey → ttsApiKeySet, …).
+  for (const f of Object.values(TTS_KEY_FIELDS)) {
+    obj[`${f}Set`] = !!obj[f];
+    delete obj[f];
+  }
   // Extra cross-post pages: never send their tokens to the browser.
   if (Array.isArray(obj.fbExtraTargets)) {
     obj.fbExtraTargets = obj.fbExtraTargets.map((t) => ({ label: t.label || "", pageId: t.pageId || "", tokenSet: !!t.token }));
@@ -237,6 +241,8 @@ export async function updateSettings(req, res) {
     "fbAutoComments", "fbAutoCommentMode", "fbAutoCommentToFacebook", "fbAutoCommentToInstagram",
     "igEnabled", "igUserId",
     "ttsProvider", "ttsApiKey", "ttsModel",
+    "ttsElevenLabsKey", "ttsElevenLabsModel", "ttsGoogleCloudKey", "ttsAzureKey", "ttsAzureRegion",
+    "ttsCustomUrl", "ttsCustomKey", "ttsCustomModel",
     "slideshowQuestionSec", "slideshowAnswerSec", "slideshowVoice", "slideshowAutoCaptions",
     "slideshowReadQuestion", "slideshowReadOptions", "slideshowReadExplanation", "slideshowReadKeyPoints", "slideshowReadQuickRecall",
     "slideshowQuestionTemplateUrl", "slideshowAnswerTemplateUrl",
@@ -296,9 +302,27 @@ export async function updateSettings(req, res) {
       update[k] = u && /^https?:\/\//i.test(u) && isSafePublicUrl(u) ? u : "";
     }
   }
-  if ("ttsApiKey" in update) {
-    const k = String(update.ttsApiKey || "").trim();
-    if (k) update.ttsApiKey = k; else delete update.ttsApiKey;
+  // Paid TTS keys: blank = keep the saved key; "__CLEAR__" = remove it.
+  for (const f of Object.values(TTS_KEY_FIELDS)) {
+    if (!(f in update)) continue;
+    const k = String(update[f] || "").trim();
+    if (k === "__CLEAR__") update[f] = "";
+    else if (k) update[f] = k.slice(0, 500);
+    else delete update[f];
+  }
+  for (const f of ["ttsElevenLabsModel", "ttsCustomModel"]) {
+    if (f in update) update[f] = String(update[f] || "").trim().slice(0, 120);
+  }
+  if ("ttsAzureRegion" in update) {
+    update.ttsAzureRegion = String(update.ttsAzureRegion || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 40);
+  }
+  if ("ttsCustomUrl" in update) {
+    // Fetched by the server → public https only (no internal / metadata hosts).
+    const u = String(update.ttsCustomUrl || "").trim().replace(/\/+$/, "");
+    if (u && !isSafeProviderUrl(u)) {
+      return res.status(400).json({ message: "Custom TTS API URL must be a public https:// address (e.g. https://api.example.com/v1)." });
+    }
+    update.ttsCustomUrl = u;
   }
   // Extra cross-post Pages: keep each page's saved token when the UI submits a
   // blank one (tokens are never sent to the browser, so blank = "unchanged").
