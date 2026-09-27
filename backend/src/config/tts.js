@@ -111,12 +111,20 @@ export async function resolveWorkingTtsConfig(cfg) {
   const conf = cfg || resolveTtsConfig();
   if (conf.provider === "openai") return conf; // explicit paid choice — surface its errors
   const order = [conf.provider, ...FREE_TTS_PROVIDERS.filter((p) => p !== conf.provider)];
+  let firstError = "";
   for (const p of order) {
     try {
       await synthesizeSpeech({ text: "test", voice: defaultVoiceForProvider(p), cfg: { ...conf, provider: p } });
+      // Say so when a DIFFERENT provider than the chosen one is used, and why —
+      // otherwise every voice the admin picks silently sounds the same.
+      if (p !== conf.provider) {
+        console.warn(`[tts] ${conf.provider} is unavailable on this server (${firstError}); using ${p} instead.`);
+        return { ...conf, provider: p, requestedProvider: conf.provider, fallbackReason: firstError };
+      }
       return { ...conf, provider: p };
-    } catch {
+    } catch (e) {
       /* provider blocked/unavailable here — try the next free one */
+      if (!firstError) firstError = String(e?.message || e).slice(0, 200);
     }
   }
   return conf; // none worked; caller will surface the failure

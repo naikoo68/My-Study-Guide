@@ -25,7 +25,7 @@ import { chunkForGoogle } from "./googleTts.js";
 import { renderSlideImage } from "./slideRender.js";
 import { renderSlideCardShots } from "./cardShot.js";
 import { composeSlideshowMp4, isFfmpegAvailable, probeImageSize } from "./videoCompose.js";
-import { normalizeVoiceForProvider } from "../utils/ttsVoices.js";
+import { normalizeVoiceForProvider, voiceForFallback } from "../utils/ttsVoices.js";
 
 // Job-status states (mirrored onto the schedule's slideshowStatus for the UI).
 export const SLIDESHOW_STATUS = {
@@ -113,7 +113,14 @@ export async function generateSlideshow(question, opts = {}) {
   // then pick one that actually works on this host (a blocked free provider,
   // e.g. Edge on a datacenter IP, auto-falls back to the other free provider).
   const ttsCfg = await resolveWorkingTtsConfig(resolveTtsConfig(opts.site || null));
-  const voice = normalizeVoiceForProvider(ttsCfg.provider, opts.voice);
+  // The chosen voice — or, if the chosen provider is blocked here and the other
+  // free one is used, that provider's voice with the SAME accent.
+  const voice = ttsCfg.requestedProvider
+    ? voiceForFallback(ttsCfg.provider, opts.voice)
+    : normalizeVoiceForProvider(ttsCfg.provider, opts.voice);
+  const ttsNote = ttsCfg.requestedProvider
+    ? `${ttsCfg.requestedProvider} voices are unavailable on this server (${ttsCfg.fallbackReason || "blocked"}) — used ${ttsCfg.provider} "${voice}" instead.`
+    : "";
   const brandOpts = {
     brandColor: opts.brandColor || "#2563eb",
     siteName: opts.siteName || "My Study Guide",
@@ -263,6 +270,7 @@ export async function generateSlideshow(question, opts = {}) {
       duration: Math.round(Number(uploaded.duration) || duration || 0),
       voice,
       provider: ttsCfg.provider,
+      ttsNote, // set when the chosen voice's provider was blocked and another was used
       slidePlan: plan.map((s) => ({ id: s.id, tag: s.tag })),
       // Slides drawn with the basic design instead of the student view: [{ slide, role, tag, error }].
       fallbackSlides,

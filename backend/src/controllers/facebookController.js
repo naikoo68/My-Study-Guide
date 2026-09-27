@@ -180,6 +180,7 @@ export async function testSlideshow(req, res) {
           voice: result.voice,
           provider: result.provider,
           fallbackSlides: result.fallbackSlides || [],
+          ttsNote: result.ttsNote || "",
         },
       });
     })
