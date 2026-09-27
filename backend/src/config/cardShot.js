@@ -157,6 +157,9 @@ export async function renderQuestionCardShot(question, { includeAnswer = false, 
 }
 
 
+// Ad / analytics hosts the slide screenshotter never needs (see below).
+const BLOCKED_HOSTS = /^https?:\/\/([^/]+\.)?(googlesyndication\.com|doubleclick\.net|googleadservices\.com|google-analytics\.com|googletagmanager\.com|googletagservices\.com|adtrafficquality\.google|adservice\.google\.[a-z.]+|fundingchoicesmessages\.google\.com)(\/|:|$)/i;
+
 // Screenshot the 9:16 AI Slideshow slides from /slide-card/:id (the SAME quiz
 // components + Inter font students see) straight to local PNG files for ffmpeg.
 //   items: [{ questionId, role, tag, caption, template, templateSize?: { width, height }, outPath }]
@@ -178,6 +181,14 @@ export async function renderSlideCardShots(items = [], { siteUrl = "" } = {}) {
     // later navigations/API calls (stale cache, stuck "Loading…"). Every slide
     // must load fresh, so bypass it.
     await page.setBypassServiceWorker(true).catch(() => {});
+    // The site loads Google AdSense on every page. Ads keep the network busy
+    // (so "network idle" can take many seconds per slide) and must never show
+    // up in a slide — block ad / tracking hosts in this browser.
+    await page.setRequestInterception(true);
+    page.on("request", (req) => {
+      if (BLOCKED_HOSTS.test(req.url())) req.abort().catch(() => {});
+      else req.continue().catch(() => {});
+    });
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
       try {
@@ -192,8 +203,10 @@ export async function renderSlideCardShots(items = [], { siteUrl = "" } = {}) {
           p.set("th", String(it.templateSize.height));
         }
         if (siteUrl) p.set("site", siteUrl);
-        await page.goto(`${siteOrigin()}/slide-card/${it.questionId}?${p}`, { waitUntil: "networkidle0", timeout: 25000 });
-        await page.waitForSelector('[data-card-ready="1"]', { timeout: 15000 });
+        // Don't wait for "network idle" — the page itself says when it's ready
+        // (question loaded + web fonts + content fitted: data-card-ready="1").
+        await page.goto(`${siteOrigin()}/slide-card/${it.questionId}?${p}`, { waitUntil: "domcontentloaded", timeout: 25000 });
+        await page.waitForSelector('[data-card-ready="1"]', { timeout: 20000 });
         // Question / explanation figures must be loaded before the capture.
         await page.waitForFunction(() => Array.from(document.images).every((im) => im.complete), { timeout: 8000 }).catch(() => {});
         const el = await page.$("[data-card-el]");

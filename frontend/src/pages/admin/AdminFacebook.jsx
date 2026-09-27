@@ -1169,11 +1169,28 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
         ...(hasSource ? { source, order } : {}),
       });
       if (!start?.jobId) throw new Error(start?.message || "Could not start the test slideshow.");
-      const deadline = Date.now() + 10 * 60 * 1000;
+      // No fixed time limit — a 10-question video on a small server can take a
+      // while. Give up only when the server has made NO progress (same step and
+      // slide count) for STALL_MS, or after an absolute cap. A brief network
+      // error while polling is retried instead of ending the test.
+      const STALL_MS = 5 * 60 * 1000;
+      const hardDeadline = Date.now() + 45 * 60 * 1000;
+      let lastKey = "", lastChange = Date.now(), pollErrors = 0;
       for (;;) {
         // Poll every 2s so step changes (and the time-left estimate) stay fresh.
         await new Promise((r) => setTimeout(r, 2000));
-        const st = await facebookService.testSlideshowStatus(start.jobId);
+        let st;
+        try {
+          st = await facebookService.testSlideshowStatus(start.jobId);
+          pollErrors = 0;
+        } catch (e) {
+          // A 4xx (e.g. 404 = the job is gone after a server restart) is final;
+          // network blips / 5xx are retried a few times.
+          if ((e?.status >= 400 && e?.status < 500) || ++pollErrors >= 8) throw e;
+          continue;
+        }
+        const key = `${st?.stage || ""}|${st?.progress?.done ?? ""}`;
+        if (key !== lastKey) { lastKey = key; lastChange = Date.now(); }
         if (st?.status === "done" && st?.videoUrl) {
           // Teach the estimator how long each step really took on this server.
           const live = liveRef.current;
@@ -1191,7 +1208,8 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
           live.progress = nextProgress;
           setStage(st.stage); setProgress(live.progress);
         }
-        if (Date.now() > deadline) { setTestError("The test slideshow is taking too long — please try again."); break; }
+        if (Date.now() - lastChange > STALL_MS) { setTestError("The server stopped making progress on the test slideshow — please try again."); break; }
+        if (Date.now() > hardDeadline) { setTestError("The test slideshow is taking too long — try fewer questions per video."); break; }
       }
     } catch (e) {
       setTestError(e?.message || "Could not build the test slideshow.");

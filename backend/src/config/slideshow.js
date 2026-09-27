@@ -72,7 +72,11 @@ async function downloadTo(url, dest, { timeoutMs = 60000 } = {}) {
 // `question` may be ONE question or an ARRAY of questions (several questions
 // in one video: Q1 → A1 → Q2 → A2 → …).
 export async function generateSlideshow(question, opts = {}) {
-  const onStatus = typeof opts.onStatus === "function" ? opts.onStatus : () => {};
+  const userOnStatus = typeof opts.onStatus === "function" ? opts.onStatus : () => {};
+  // Remember when each step started, so the server log shows where the time
+  // goes (e.g. "slides 42s, audio 18s, video 35s, upload 6s").
+  const stepMarks = [];
+  const onStatus = (st) => { stepMarks.push([st, Date.now()]); userOnStatus(st); };
   // Fine-grained progress (stage, done, total) — kept separate from onStatus so
   // callers that persist the status (the scheduled poster) aren't hit per slide.
   const onProgress = typeof opts.onProgress === "function" ? opts.onProgress : () => {};
@@ -221,6 +225,8 @@ export async function generateSlideshow(question, opts = {}) {
     if (!uploaded?.secure_url) throw new Error("Cloudinary did not return a URL for the slideshow video.");
 
     onStatus(SLIDESHOW_STATUS.READY);
+    const steps = stepMarks.slice(0, -1).map(([st, at], i) => `${st} ${Math.round((stepMarks[i + 1][1] - at) / 1000)}s`);
+    console.log(`[slideshow] ${plan.length} slides in ${Math.round((Date.now() - stepMarks[0][1]) / 1000)}s — ${steps.join(", ")}`);
     return {
       videoUrl: uploaded.secure_url,
       slides: plan.length,
