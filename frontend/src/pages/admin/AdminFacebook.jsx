@@ -1037,7 +1037,7 @@ function SlideTemplateUploader({ label, hint, settingKey, settings, saveSettings
     <div className="flex items-start gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
       {url ? (
         <div className="relative flex-shrink-0">
-          <img src={url} alt={label} className="h-32 w-[72px] rounded-md border border-slate-200 object-cover dark:border-slate-700" />
+          <img src={url} alt={label} className="h-32 w-[72px] rounded-md border border-slate-200 bg-slate-100 object-contain dark:border-slate-700 dark:bg-slate-800" />
           <button type="button" onClick={remove} title="Remove" className="absolute -right-2 -top-2 rounded-full bg-rose-100 p-1 text-rose-600 shadow hover:bg-rose-200 dark:bg-rose-900/40"><Trash2 className="h-3.5 w-3.5" /></button>
         </div>
       ) : (
