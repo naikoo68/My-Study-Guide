@@ -295,6 +295,9 @@ const settingsSchema = new mongoose.Schema(
     // What the narrator reads aloud (each part is read IN FULL; the slide stays
     // up until the narration ends). Slide 1: question text, options. Slide 2:
     // explanation, key points, quick recall. The correct answer is always read.
+    // Which slides each question gets: "both" = question + answer/explanation
+    // slide (default); "question" = question slide only (answer not revealed).
+    slideshowSlides: { type: String, enum: ["both", "question"], default: "both" },
     slideshowReadQuestion: { type: Boolean, default: true },
     slideshowReadOptions: { type: Boolean, default: true },
     slideshowReadExplanation: { type: Boolean, default: true },

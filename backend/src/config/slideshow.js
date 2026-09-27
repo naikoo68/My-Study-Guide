@@ -81,12 +81,20 @@ async function synthesizeLongSpeech({ text, voice, cfg }) {
   return { buffer: Buffer.concat(buffers), voice: usedVoice };
 }
 
+// "both" = question + answer slide per question (default); "question" = only
+// the question slide. Anything else → "both".
+export function normalizeSlidesMode(v) {
+  return String(v || "").trim().toLowerCase() === "question" ? "question" : "both";
+}
+
 // Build the whole slideshow for `question`. Returns:
 //   { videoUrl, slides, duration, voice, provider, slidePlan }
 // `opts`:
 //   voice, autoCaptions, generateImages, brandColor, siteName, siteUrl,
 //   subjectName, questionSec, answerSec (on-screen seconds per slide),
 //   site (raw Settings doc → resolves the TTS provider/key),
+//   slidesMode — "both" (question + answer slides) or "question" (question
+//          slides only); default: the site setting slideshowSlides, else "both",
 //   read — what the narrator reads ({ question, options, explanation,
 //          keyPoints, quickRecall }; default: the site settings, all ON),
 //   onStatus(status) — a callback fired as the job progresses.
@@ -144,6 +152,9 @@ export async function generateSlideshow(question, opts = {}) {
   // What the narrator reads: the caller's choice (the test form's current
   // toggles), else the saved site settings; everything ON by default.
   const read = opts.read ? normalizeReadOptions(opts.read) : readOptionsFromSettings(opts.site);
+  // Which slides each question gets: "both" (question → answer, default) or
+  // "question" (question slide only — the answer isn't revealed in the video).
+  const slidesMode = normalizeSlidesMode(opts.slidesMode ?? opts.site?.slideshowSlides);
   const plan = [];
   const planQuestions = []; // the question each slide belongs to (same order as plan)
   questions.forEach((q, i) => {
@@ -152,7 +163,7 @@ export async function generateSlideshow(question, opts = {}) {
       index: i + 1,
       total: questions.length,
       read,
-    });
+    }).filter((s) => slidesMode === "both" || s.role === "question");
     for (const s of slides) { plan.push(s); planQuestions.push(q); }
   });
   if (!plan.length) throw new Error("Could not build any slides for this question.");
@@ -272,6 +283,7 @@ export async function generateSlideshow(question, opts = {}) {
       provider: ttsCfg.provider,
       ttsNote, // set when the chosen voice's provider was blocked and another was used
       slidePlan: plan.map((s) => ({ id: s.id, tag: s.tag })),
+      slidesMode,
       // Slides drawn with the basic design instead of the student view: [{ slide, role, tag, error }].
       fallbackSlides,
     };

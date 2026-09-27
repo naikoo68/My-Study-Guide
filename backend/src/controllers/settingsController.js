@@ -244,6 +244,7 @@ export async function updateSettings(req, res) {
     "ttsElevenLabsKey", "ttsElevenLabsModel", "ttsGoogleCloudKey", "ttsAzureKey", "ttsAzureRegion",
     "ttsCustomUrl", "ttsCustomKey", "ttsCustomModel",
     "slideshowQuestionSec", "slideshowAnswerSec", "slideshowVoice", "slideshowAutoCaptions",
+    "slideshowSlides",
     "slideshowReadQuestion", "slideshowReadOptions", "slideshowReadExplanation", "slideshowReadKeyPoints", "slideshowReadQuickRecall",
     "slideshowQuestionTemplateUrl", "slideshowAnswerTemplateUrl",
     "googleClientId",
@@ -292,6 +293,7 @@ export async function updateSettings(req, res) {
   if ("slideshowAnswerSec" in update) update.slideshowAnswerSec = slideSec(update.slideshowAnswerSec, 8);
   if ("slideshowVoice" in update) update.slideshowVoice = String(update.slideshowVoice || "").trim().slice(0, 60);
   if ("slideshowAutoCaptions" in update) update.slideshowAutoCaptions = !!update.slideshowAutoCaptions;
+  if ("slideshowSlides" in update) update.slideshowSlides = update.slideshowSlides === "question" ? "question" : "both";
   for (const k of ["slideshowReadQuestion", "slideshowReadOptions", "slideshowReadExplanation", "slideshowReadKeyPoints", "slideshowReadQuickRecall"]) {
     if (k in update) update[k] = update[k] !== false;
   }
