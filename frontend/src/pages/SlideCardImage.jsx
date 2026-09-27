@@ -137,7 +137,18 @@ export default function SlideCardImage() {
   const [error, setError] = useState("");
   const [fontsReady, setFontsReady] = useState(false);
   const [fitted, setFitted] = useState(false);
-  const ready = fontsReady && fitted;
+  // Safety net: if the fit never reports "settled" (e.g. content keeps
+  // re-sizing while late images / math load on a slow server), still signal
+  // ready a few seconds after the fonts are in — ZoomFit always keeps the
+  // content inside the card, so the slide is correct, just not re-centred.
+  // Without this the backend waits, times out and falls back to the basic design.
+  const [forced, setForced] = useState(false);
+  useEffect(() => {
+    if (!fontsReady || fitted) return undefined;
+    const t = setTimeout(() => setForced(true), 5000);
+    return () => clearTimeout(t);
+  }, [fontsReady, fitted]);
+  const ready = fontsReady && (fitted || forced);
 
   // Light theme, no animations (the screenshot must never catch a fade-in), and
   // a transparent page in template mode so the template shows around the card.

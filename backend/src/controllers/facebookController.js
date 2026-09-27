@@ -179,6 +179,7 @@ export async function testSlideshow(req, res) {
           duration: result.duration,
           voice: result.voice,
           provider: result.provider,
+          fallbackSlides: result.fallbackSlides || [],
         },
       });
     })
