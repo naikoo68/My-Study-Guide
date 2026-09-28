@@ -31,7 +31,7 @@ const CHROME_PATHS = [
   "/usr/lib/chromium/chromium",
 ].filter(Boolean);
 
-async function launchBrowser() {
+export async function launchBrowser() {
   const puppeteer = await getPuppeteer();
   let lastErr;
   for (const executablePath of CHROME_PATHS) {

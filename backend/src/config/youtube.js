@@ -23,7 +23,25 @@ const UPLOAD_URL = "https://www.googleapis.com/upload/youtube/v3/videos?uploadTy
 export const YT_SCOPES = [
   "https://www.googleapis.com/auth/youtube.upload",
   "https://www.googleapis.com/auth/youtube.readonly",
+  // Playlists ("folders"): create a playlist and add each upload to it.
+  "https://www.googleapis.com/auth/youtube.force-ssl",
 ];
+// Scopes that allow creating playlists / adding videos to them.
+const PLAYLIST_SCOPES = [
+  "https://www.googleapis.com/auth/youtube.force-ssl",
+  "https://www.googleapis.com/auth/youtube",
+];
+// Does a granted-scope string (space separated, from Google) allow playlists?
+export function scopesAllowPlaylists(scopes) {
+  const got = String(scopes || "").split(/\s+/);
+  return PLAYLIST_SCOPES.some((s) => got.includes(s));
+}
+export const YT_THUMB_POSITIONS = ["left", "center", "right", "bottom"];
+// A YouTube playlist id ("PL…", "UU…", etc.) or "" — never anything else.
+export const cleanYtPlaylistId = (v) => {
+  const s = String(v || "").trim();
+  return /^[A-Za-z0-9_-]{10,64}$/.test(s) ? s : "";
+};
 export const YT_PRIVACY = ["public", "unlisted", "private"];
 const MAX_VIDEO_BYTES = 256 * 1024 * 1024; // Reels/Shorts are small; guard memory
 const EDUCATION_CATEGORY = "27";
@@ -73,8 +91,29 @@ export function youtubeConfigFromSite(site) {
     ytChannelTitle: String(site?.ytChannelTitle || ""),
     ytPrivacy: YT_PRIVACY.includes(site?.ytPrivacy) ? site.ytPrivacy : "public",
     ytSettingsId: site?._id ? String(site._id) : "",
+    // Default playlists ("folders") for Shorts and for long videos.
+    ytShortsPlaylistId: String(site?.ytShortsPlaylistId || ""),
+    ytShortsPlaylistTitle: String(site?.ytShortsPlaylistTitle || ""),
+    ytLongPlaylistId: String(site?.ytLongPlaylistId || ""),
+    ytLongPlaylistTitle: String(site?.ytLongPlaylistTitle || ""),
+    // Thumbnail template for long videos.
+    ytThumb: thumbConfigFromSite(site),
   };
 }
+
+// The thumbnail template settings (long videos) as a plain object.
+export function thumbConfigFromSite(site) {
+  return {
+    templateUrl: String(site?.ytThumbTemplateUrl || "").trim(),
+    enabled: site?.ytThumbEnabled !== false,
+    showText: site?.ytThumbShowText !== false,
+    position: YT_THUMB_POSITIONS.includes(site?.ytThumbTextPosition) ? site.ytThumbTextPosition : "left",
+    textColor: /^#[0-9a-f]{6}$/i.test(site?.ytThumbTextColor || "") ? site.ytThumbTextColor : "#ffffff",
+    accentColor: /^#[0-9a-f]{6}$/i.test(site?.ytThumbAccentColor || "") ? site.ytThumbAccentColor : "#facc15",
+  };
+}
+// Is a thumbnail template set and switched on?
+export const thumbTemplateActive = (t) => !!(t?.enabled && t?.templateUrl);
 
 // ---- Signed OAuth `state` (stateless, so it works across server instances) ----
 function stateKey() {
@@ -132,7 +171,7 @@ export async function exchangeYtCode({ code, clientId, clientSecret, redirectUri
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.access_token) throw new Error(googleError(data, res.status, "Google token exchange failed"));
-  return { refreshToken: data.refresh_token || "", accessToken: data.access_token };
+  return { refreshToken: data.refresh_token || "", accessToken: data.access_token, scope: String(data.scope || "") };
 }
 
 // Short-lived access tokens, cached per refresh token (in memory).
@@ -153,8 +192,14 @@ export async function getYtAccessToken(cfg) {
     if (data?.error === "invalid_grant") throw new Error("YouTube access was revoked or expired — click Connect YouTube again.");
     throw new Error(googleError(data, res.status, "Could not refresh the YouTube token"));
   }
-  accessCache.set(key, { token: data.access_token, exp: Date.now() + (Number(data.expires_in) || 3600) * 1000 });
+  accessCache.set(key, { token: data.access_token, scope: String(data.scope || ""), exp: Date.now() + (Number(data.expires_in) || 3600) * 1000 });
   return data.access_token;
+}
+
+// The scopes Google granted this connection ("" when not known yet).
+export async function getYtGrantedScopes(cfg) {
+  await getYtAccessToken(cfg);
+  return accessCache.get(fp(cfg.ytRefreshToken))?.scope || "";
 }
 
 // The authorised user's channel { id, title } (or null).
@@ -440,4 +485,139 @@ export async function uploadVideoFileToYoutube({ filePath, title, description, t
   } finally {
     await fh?.close().catch(() => {});
   }
+}
+
+
+// ---- Playlists ("folders") ----
+
+const playlistScopeError = (m) => /insufficient|ACCESS_TOKEN_SCOPE|forbidden|403/i.test(String(m || ""));
+const PLAYLIST_RECONNECT = "Playlists need one more YouTube permission — click Reconnect YouTube (YouTube Shorts card) and allow access again.";
+
+// The channel's playlists [{ id, title, privacy, count }] (newest first, ≤ 200).
+export async function listYtPlaylists(cfg) {
+  const token = await getYtAccessToken(cfg);
+  const out = [];
+  let pageToken = "";
+  for (let i = 0; i < 4; i++) {
+    const qs = new URLSearchParams({ part: "snippet,status,contentDetails", mine: "true", maxResults: "50" });
+    if (pageToken) qs.set("pageToken", pageToken);
+    const res = await ytFetch(`${API}/playlists?${qs}`, { headers: { Authorization: `Bearer ${token}` } });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(googleError(data, res.status, "Could not load your YouTube playlists"));
+    for (const p of data.items || []) {
+      out.push({ id: p.id, title: p.snippet?.title || "(untitled)", privacy: p.status?.privacyStatus || "", count: Number(p.contentDetails?.itemCount) || 0 });
+    }
+    pageToken = data.nextPageToken || "";
+    if (!pageToken) break;
+  }
+  return out;
+}
+
+// Create a playlist → { id, title, privacy }.
+export async function createYtPlaylist({ title, description = "", privacy = "public" }, cfg) {
+  const name = clean(title).replace(/\s+/g, " ").trim().slice(0, 150);
+  if (!name) throw new Error("Give the playlist a name.");
+  const token = await getYtAccessToken(cfg);
+  const res = await ytFetch(`${API}/playlists?part=snippet,status`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" },
+    body: JSON.stringify({
+      snippet: { title: name, description: clean(description).slice(0, 5000) },
+      status: { privacyStatus: YT_PRIVACY.includes(privacy) ? privacy : "public" },
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data?.id) {
+    const m = googleError(data, res.status, "Could not create the playlist");
+    throw new Error(res.status === 403 && playlistScopeError(m) ? PLAYLIST_RECONNECT : m);
+  }
+  return { id: data.id, title: data.snippet?.title || name, privacy: data.status?.privacyStatus || privacy, count: 0 };
+}
+
+// Add a video to a playlist. Returns { ok, error? } — never throws.
+export async function addVideoToYtPlaylist({ videoId, playlistId }, cfg) {
+  if (!videoId || !playlistId) return { ok: false, error: "No playlist chosen." };
+  try {
+    const token = await getYtAccessToken(cfg);
+    const res = await ytFetch(`${API}/playlistItems?part=snippet`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" },
+      body: JSON.stringify({ snippet: { playlistId, resourceId: { kind: "youtube#video", videoId } } }),
+    });
+    if (res.ok) return { ok: true };
+    const data = await res.json().catch(() => ({}));
+    const m = googleError(data, res.status, "Could not add the video to the playlist");
+    if (res.status === 404 || /playlistNotFound/i.test(m)) return { ok: false, error: "The chosen playlist no longer exists — pick another one." };
+    return { ok: false, error: res.status === 403 && playlistScopeError(m) ? PLAYLIST_RECONNECT : m };
+  } catch (e) {
+    return { ok: false, error: e?.message || "Could not reach YouTube." };
+  }
+}
+
+// ---- Thumbnails ----
+
+// Set a video's custom thumbnail from image bytes (JPEG/PNG ≤ 2 MB).
+// Returns { ok, error? } — never throws.
+export async function setYtThumbnail({ videoId, image, mime = "image/jpeg" }, cfg) {
+  if (!videoId || !image?.length) return { ok: false, error: "No thumbnail image." };
+  if (image.length > 2 * 1024 * 1024) return { ok: false, error: "Thumbnail is larger than YouTube's 2 MB limit." };
+  try {
+    const token = await getYtAccessToken(cfg);
+    const res = await ytFetch(`https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${encodeURIComponent(videoId)}&uploadType=media`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": mime, "Content-Length": String(image.length) },
+      body: image,
+    }, 60000);
+    if (res.ok) return { ok: true };
+    const data = await res.json().catch(() => ({}));
+    const m = googleError(data, res.status, "Could not set the thumbnail");
+    if (res.status === 403) return { ok: false, error: "Custom thumbnails need a verified channel (youtube.com/verify) — the thumbnail was not set." };
+    return { ok: false, error: m };
+  } catch (e) {
+    return { ok: false, error: e?.message || "Could not reach YouTube." };
+  }
+}
+
+// The text lines written on a long-video thumbnail from its parts. The big
+// headline is the topic (or subject), with the subject above it and a short
+// highlighted line below ("25 Questions"). Pure — tested.
+export function thumbnailLines({ subject = "", topic = "", count = 0, title = "" } = {}) {
+  const tidy = (s) => clean(s).replace(/\s+/g, " ").trim();
+  const s = tidy(subject), t = tidy(topic);
+  if (s || t) {
+    return {
+      kicker: t && s ? s.slice(0, 60) : "",
+      headline: (t || s).slice(0, 80),
+      badge: Number(count) > 0 ? `${Number(count)} Questions` : "Full Quiz",
+    };
+  }
+  // Only a title (e.g. your own upload): split "A | B | C" into kicker/headline/badge.
+  const parts = tidy(title).split(/\s*[|•·–—]\s*/).filter(Boolean);
+  if (parts.length >= 3) return { kicker: parts[0].slice(0, 60), headline: parts[1].slice(0, 80), badge: parts.slice(2).join(" · ").slice(0, 40) };
+  if (parts.length === 2) return { kicker: parts[0].slice(0, 60), headline: parts[1].slice(0, 80), badge: "" };
+  return { kicker: "", headline: (parts[0] || "").slice(0, 80), badge: "" };
+}
+
+
+// After an upload: set the template thumbnail (optional) and add the video to
+// a playlist (optional). Returns human-readable notes, e.g.
+// ["Thumbnail ✓", "Playlist ✓ (Polity)"]. Never throws.
+//   thumb     — { lines, ...thumbConfig } or null (skip)
+//   playlist  — { id, title } or null (skip)
+export async function applyYtExtras({ videoId, thumb = null, playlist = null, brandColor } = {}, cfg) {
+  const notes = [];
+  if (!videoId) return notes;
+  if (thumb && thumbTemplateActive(thumb)) {
+    const { renderYoutubeThumbnail } = await import("./ytThumbnail.js");
+    const r = await renderYoutubeThumbnail({ ...thumb, brandColor });
+    if (r.image) {
+      const s = await setYtThumbnail({ videoId, image: r.image, mime: r.mime }, cfg);
+      notes.push(s.ok ? "Thumbnail ✓" : `Thumbnail ✗ (${s.error})`);
+    } else notes.push(`Thumbnail ✗ (${r.error})`);
+  }
+  if (playlist?.id) {
+    const p = await addVideoToYtPlaylist({ videoId, playlistId: playlist.id }, cfg);
+    notes.push(p.ok ? `Playlist ✓${playlist.title ? ` (${clean(playlist.title)})` : ""}` : `Playlist ✗ (${p.error})`);
+  }
+  return notes;
 }

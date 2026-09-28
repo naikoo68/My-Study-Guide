@@ -1171,6 +1171,7 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
   const [toYoutube, setToYoutube] = useState(false);
   const [ytTitle, setYtTitle] = useState("");
   const [ytFullVideo, setYtFullVideo] = useState(false);
+  const [ytPlaylist, setYtPlaylist] = useState({ id: "", title: "" });
   const [hashtags, setHashtags] = useState("");
   const [questionCount, setQuestionCount] = useState(1); // questions per video (1–10)
   const [creating, setCreating] = useState(false);
@@ -1382,6 +1383,8 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
         toYoutube,
         ytTitle: ytTitle.trim(),
         ytFullVideo: toYoutube && ytFullVideo,
+        ytPlaylistId: toYoutube ? ytPlaylist.id : "",
+        ytPlaylistTitle: toYoutube ? ytPlaylist.title : "",
         hashtags: hashtags.trim(),
         slideshowQuestions: qCount,
         includeOptions: true,
@@ -1485,6 +1488,8 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
             <input type="checkbox" className="mt-0.5 h-4 w-4 accent-[#FF0000]" checked={ytFullVideo} onChange={(e) => setYtFullVideo(e.target.checked)} />
             <span>Also make <b>one full video</b> of the whole topic after the last Short <span className="text-slate-400">(landscape, all questions + answers).</span></span>
           </label>
+          <label className="mb-1 mt-2 block text-sm font-medium">Playlist (folder)</label>
+          <YtPlaylistPicker value={ytPlaylist.id} emptyLabel="Default Shorts playlist (YouTube settings)" onChange={(id, t) => setYtPlaylist({ id, title: t })} />
         </div>
       )}
       <label className="mb-1 mt-3 block text-sm font-medium">Hashtags (optional)</label>
@@ -1903,6 +1908,230 @@ function scheduleHasVideo(f) {
   return !!f.asReel;
 }
 
+// The channel's playlists, loaded once and shared by every picker on the page.
+let ytPlaylistCache = null; // Promise<{ playlists, canCreate }>
+const loadYtPlaylists = (force = false) => {
+  if (force || !ytPlaylistCache) {
+    ytPlaylistCache = youtubeService.playlists().catch((e) => { ytPlaylistCache = null; throw e; });
+  }
+  return ytPlaylistCache;
+};
+
+// Pick a YouTube playlist ("folder"), or create a new one inline.
+//   value     — the chosen playlist id; "" and "__none__" are special choices
+//   onChange  — (id, title) => void
+//   emptyLabel — what "" means here (e.g. "No playlist" or "Default (GK Shorts)")
+//   noneOption — also offer "__none__" = "No playlist" (when "" means the default)
+function YtPlaylistPicker({ value = "", onChange, emptyLabel = "No playlist", noneOption = false, disabled = false }) {
+  const [list, setList] = useState(null);
+  const [canCreate, setCanCreate] = useState(true);
+  const [err, setErr] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = (force) => loadYtPlaylists(force)
+    .then((r) => { setList(r?.playlists || []); setCanCreate(r?.canCreate !== false); setErr(""); })
+    .catch((e) => { setList([]); setErr(e.message || "Could not load playlists."); });
+  useEffect(() => { load(false); }, []);
+
+  const create = async () => {
+    if (!name.trim()) return;
+    setBusy(true); setErr("");
+    try {
+      const { playlist } = await youtubeService.createPlaylist({ title: name.trim() });
+      await load(true);
+      onChange(playlist.id, playlist.title);
+      setAdding(false); setName("");
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+  // A saved playlist that isn't in the list (deleted on YouTube, or not loaded yet) stays selectable.
+  const known = !value || value === "__none__" || (list || []).some((p) => p.id === value);
+
+  return (
+    <div>
+      <div className="flex flex-wrap gap-2">
+        <select className="input min-w-0 flex-1" value={value} disabled={disabled || list === null}
+          onChange={(e) => {
+            if (e.target.value === "__new__") { setAdding(true); return; }
+            const p = (list || []).find((x) => x.id === e.target.value);
+            onChange(e.target.value, p?.title || "");
+          }}>
+          <option value="">{list === null ? "Loading playlists…" : emptyLabel}</option>
+          {noneOption && <option value="__none__">No playlist</option>}
+          {!known && <option value={value}>Saved playlist (not found on the channel)</option>}
+          {(list || []).map((p) => <option key={p.id} value={p.id}>{p.title} ({p.count} video{p.count === 1 ? "" : "s"}{p.privacy && p.privacy !== "public" ? ` · ${p.privacy}` : ""})</option>)}
+          <option value="__new__">+ New playlist…</option>
+        </select>
+        <button type="button" onClick={() => load(true)} disabled={disabled} title="Reload playlists" className="btn-outline !px-2.5"><RefreshCw className="h-4 w-4" /></button>
+      </div>
+      {adding && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          <input className="input min-w-0 flex-1" maxLength={150} value={name} autoFocus onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); create(); } }} placeholder="New playlist name, e.g. Indian Polity Quiz" />
+          <button type="button" onClick={create} disabled={busy || !name.trim()} className="btn-primary !bg-[#FF0000] hover:!bg-[#d90000]">
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Create
+          </button>
+          <button type="button" onClick={() => { setAdding(false); setName(""); }} className="btn-outline"><X className="h-4 w-4" /></button>
+        </div>
+      )}
+      {!canCreate && <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">To add videos to playlists, click <b>Reconnect YouTube</b> in the YouTube Shorts card once and allow the new permission.</p>}
+      {err && <p className="mt-1 text-xs text-rose-600">{err}</p>}
+    </div>
+  );
+}
+
+// Thumbnail TEMPLATE for long videos: upload a 1280×720 background; the
+// subject / topic / "25 Questions" are written on it and it becomes each long
+// video's thumbnail. Preview renders the real thing on the server.
+function YtThumbnailTemplateEditor({ st, onSaved }) {
+  const t = st?.thumb || {};
+  const fileRef = useRef(null);
+  const [draft, setDraft] = useState(() => ({
+    thumbTemplateUrl: t.templateUrl || "", thumbEnabled: t.enabled !== false, thumbShowText: t.showText !== false,
+    thumbPosition: t.position || "left", thumbTextColor: t.textColor || "#ffffff", thumbAccentColor: t.accentColor || "#facc15",
+  }));
+  const [uploading, setUploading] = useState(false);
+  const [busy, setBusy] = useState(""); // "" | "save" | "preview"
+  const [preview, setPreview] = useState("");
+  const [msg, setMsg] = useState(null);
+  const set = (k, v) => { setDraft((d) => ({ ...d, [k]: v })); setPreview(""); };
+  const dirty = draft.thumbTemplateUrl !== (t.templateUrl || "") || draft.thumbEnabled !== (t.enabled !== false)
+    || draft.thumbShowText !== (t.showText !== false) || draft.thumbPosition !== (t.position || "left")
+    || draft.thumbTextColor !== (t.textColor || "#ffffff") || draft.thumbAccentColor !== (t.accentColor || "#facc15");
+
+  const upload = async (e) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type)) { setMsg({ ok: false, text: "Choose a JPG, PNG or WebP image." }); return; }
+    setUploading(true); setMsg(null);
+    try {
+      const r = await uploadService.imageDirect(file);
+      if (!r?.url) throw new Error("Upload failed.");
+      set("thumbTemplateUrl", r.url);
+      setMsg({ ok: true, text: "Uploaded — click Save to use it." });
+    } catch (err) { setMsg({ ok: false, text: err.message || "Upload failed." }); }
+    finally { setUploading(false); if (fileRef.current) fileRef.current.value = ""; }
+  };
+  const save = async () => {
+    setBusy("save"); setMsg(null);
+    try { onSaved(await youtubeService.save(draft)); setMsg({ ok: true, text: "Thumbnail template saved." }); }
+    catch (e) { setMsg({ ok: false, text: e.message }); } finally { setBusy(""); }
+  };
+  const showPreview = async () => {
+    setBusy("preview"); setMsg(null);
+    try { const r = await youtubeService.thumbnailPreview(draft); setPreview(r?.image || ""); }
+    catch (e) { setMsg({ ok: false, text: e.message }); } finally { setBusy(""); }
+  };
+  const remove = () => { set("thumbTemplateUrl", ""); setMsg({ ok: true, text: "Removed — click Save." }); };
+
+  return (
+    <div className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-semibold">Thumbnail template</p>
+        {draft.thumbTemplateUrl && (
+          <label className="flex items-center gap-2 text-sm font-medium">
+            Use for long videos
+            <button type="button" onClick={() => set("thumbEnabled", !draft.thumbEnabled)}
+              className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${draft.thumbEnabled ? "bg-[#FF0000]" : "bg-slate-300 dark:bg-slate-600"}`}>
+              <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${draft.thumbEnabled ? "left-6" : "left-1"}`} />
+            </button>
+          </label>
+        )}
+      </div>
+      <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+        Upload your branded <b>1280×720</b> background (logo, colours, photo) with an <b>empty area</b> for text. Each long video gets it as its thumbnail with the <b>subject</b>, <b>topic</b> and <b>“25 Questions”</b> written on it. Needs a verified channel (youtube.com/verify).
+      </p>
+      <div className="mt-3 flex flex-wrap items-start gap-4">
+        <div className="flex flex-col items-center gap-2">
+          {draft.thumbTemplateUrl ? (
+            <div className="relative">
+              <img src={preview || draft.thumbTemplateUrl} alt="Thumbnail template" className="aspect-video w-64 rounded-lg border border-slate-200 object-cover dark:border-slate-700" />
+              <button type="button" onClick={remove} title="Remove" className="absolute -right-2 -top-2 rounded-full bg-rose-100 p-1.5 text-rose-600 shadow hover:bg-rose-200 dark:bg-rose-900/40"><Trash2 className="h-4 w-4" /></button>
+            </div>
+          ) : (
+            <div className="flex aspect-video w-64 items-center justify-center rounded-lg border-2 border-dashed border-slate-300 text-slate-300 dark:border-slate-600"><ImagePlus className="h-8 w-8" /></div>
+          )}
+          <label className={`btn-outline cursor-pointer text-sm ${uploading ? "pointer-events-none opacity-60" : ""}`}>
+            {uploading ? <><Loader2 className="h-4 w-4 animate-spin" /> Uploading…</> : <><Upload className="h-4 w-4" /> {draft.thumbTemplateUrl ? "Replace template" : "Upload template"}</>}
+            <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={upload} disabled={uploading} />
+          </label>
+          {preview && <p className="text-[11px] text-slate-400">Showing the preview</p>}
+        </div>
+        <div className="min-w-[220px] flex-1 space-y-3">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={draft.thumbShowText} onChange={(e) => set("thumbShowText", e.target.checked)} />
+            Write the subject, topic &amp; question count on it
+          </label>
+          {draft.thumbShowText && (
+            <>
+              <div>
+                <label className="mb-1 block text-sm font-medium">Text position</label>
+                <select className="input" value={draft.thumbPosition} onChange={(e) => set("thumbPosition", e.target.value)}>
+                  <option value="left">Left side</option>
+                  <option value="right">Right side</option>
+                  <option value="center">Centre</option>
+                  <option value="bottom">Bottom</option>
+                </select>
+              </div>
+              <div className="flex flex-wrap gap-4">
+                <label className="flex items-center gap-2 text-sm">Text colour
+                  <input type="color" value={draft.thumbTextColor} onChange={(e) => set("thumbTextColor", e.target.value)} className="h-8 w-10 cursor-pointer rounded border border-slate-200 dark:border-slate-700" />
+                </label>
+                <label className="flex items-center gap-2 text-sm">Badge colour
+                  <input type="color" value={draft.thumbAccentColor} onChange={(e) => set("thumbAccentColor", e.target.value)} className="h-8 w-10 cursor-pointer rounded border border-slate-200 dark:border-slate-700" />
+                </label>
+              </div>
+            </>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={showPreview} disabled={!!busy || !draft.thumbTemplateUrl} className="btn-outline">
+              {busy === "preview" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />} Preview
+            </button>
+            <button type="button" onClick={save} disabled={!!busy || !dirty} className="btn-primary !bg-[#FF0000] hover:!bg-[#d90000]">
+              {busy === "save" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save
+            </button>
+          </div>
+          {msg && <p className={`text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.text}</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Default playlists ("folders") for Shorts and long videos — saved immediately.
+function YtDefaultPlaylists({ st, onSaved }) {
+  const [msg, setMsg] = useState(null);
+  const save = async (key, id, title) => {
+    setMsg(null);
+    try {
+      onSaved(await youtubeService.save({ [key]: id && id !== "__none__" ? { id, title } : null }));
+      setMsg({ ok: true, text: "Saved." });
+    } catch (e) { setMsg({ ok: false, text: e.message }); }
+  };
+  return (
+    <div className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+      <p className="text-sm font-semibold">Playlists (folders)</p>
+      <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Every upload is added to the playlist chosen here. A schedule or a single long video can pick a different one.</p>
+      {!st.canPlaylists && (
+        <p className="mt-2 rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
+          Playlists need one more permission: click <b>Reconnect YouTube</b> below and allow access again (one time).
+        </p>
+      )}
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-sm font-medium">Shorts go to</label>
+          <YtPlaylistPicker value={st.shortsPlaylist?.id || ""} onChange={(id, title) => save("shortsPlaylist", id, title)} emptyLabel="No playlist" />
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium">Long videos go to</label>
+          <YtPlaylistPicker value={st.longPlaylist?.id || ""} onChange={(id, title) => save("longPlaylist", id, title)} emptyLabel="No playlist" />
+        </div>
+      </div>
+      {msg && <p className={`mt-2 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.text}</p>}
+    </div>
+  );
+}
+
 // YouTube (Shorts) connection card: Google OAuth app credentials, the
 // Connect/Disconnect flow, default privacy and a connection test. Uploading
 // itself happens from each schedule's "YouTube" checkbox.
@@ -2023,6 +2252,8 @@ function YoutubeSection() {
             </p>
           </div>
 
+          {st.connected && <YtDefaultPlaylists st={st} onSaved={apply} />}
+
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <button type="button" onClick={saveCreds} disabled={!!busy} className="btn-outline">{busy === "save" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save</button>
             <button type="button" onClick={connect} disabled={!!busy || (!st.credentialsReady && !(clientId.trim() && (clientSecret.trim() || st.clientSecretSet)))} className="btn-primary !bg-[#FF0000] hover:!bg-[#d90000]">
@@ -2045,7 +2276,7 @@ function YoutubeSection() {
             <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-sm text-slate-600 dark:text-slate-300">
               <li>Open <b>console.cloud.google.com</b> and create a project (e.g. “My Study Guide YouTube”).</li>
               <li>Go to <b>APIs &amp; Services → Library</b>, search <b>YouTube Data API v3</b> and click <b>Enable</b>.</li>
-              <li><b>OAuth consent screen</b>: choose <b>External</b>, fill in the app name + your email, add the scopes <code>youtube.upload</code> and <code>youtube.readonly</code>, add your own Google account under <b>Test users</b>, then <b>Publish app</b> (so the login doesn't expire every 7 days).</li>
+              <li><b>OAuth consent screen</b>: choose <b>External</b>, fill in the app name + your email, add the scopes <code>youtube.upload</code>, <code>youtube.readonly</code> and <code>youtube.force-ssl</code> (for playlists), add your own Google account under <b>Test users</b>, then <b>Publish app</b> (so the login doesn't expire every 7 days).</li>
               <li><b>Credentials → Create credentials → OAuth client ID</b> → type <b>Web application</b>. Under <b>Authorised redirect URIs</b> paste the redirect URI shown above.</li>
               <li>Copy the <b>Client ID</b> and <b>Client secret</b> into the boxes above and click <b>Connect YouTube</b>. Sign in with the Google account that owns your channel and allow access.</li>
               <li>Optional (to make uploads public automatically): apply for the free <b>YouTube API Services audit</b> from the YouTube Data API page in Google Cloud.</li>
@@ -2067,6 +2298,8 @@ const localToIso = (v) => (v ? new Date(v).toISOString() : "");
 //     straight to YouTube (any size), now or scheduled.
 function YoutubeLongVideoSection() {
   const [tab, setTab] = useState("quiz");
+  const [st, setSt] = useState(null); // YouTube status: thumbnail template + default playlist
+  useEffect(() => { youtubeService.status().then(setSt).catch(() => {}); }, []);
   return (
     <CollapsibleCard title="YouTube long videos" icon={Clapperboard} iconClass="h-5 w-5 text-[#FF0000]">
       <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
@@ -2078,13 +2311,21 @@ function YoutubeLongVideoSection() {
             className={`rounded-md px-3 py-1.5 text-sm font-medium ${tab === k ? "bg-[#FF0000] text-white" : "text-slate-600 dark:text-slate-300"}`}>{l}</button>
         ))}
       </div>
-      {tab === "quiz" ? <FullQuizVideoForm /> : <OwnVideoUploadForm />}
+      {st?.connected && <YtThumbnailTemplateEditor key={st.thumb?.templateUrl || "none"} st={st} onSaved={setSt} />}
+      {tab === "quiz" ? <FullQuizVideoForm st={st} /> : <OwnVideoUploadForm st={st} />}
     </CollapsibleCard>
   );
 }
 
-function FullQuizVideoForm() {
+// "" = the default long-video playlist, "__none__" = none, else a playlist id.
+const playlistChoice = (id, title) => (id === "__none__" ? { id: "" } : id ? { id, title } : undefined);
+const thumbReady = (st) => !!(st?.thumb?.templateUrl && st?.thumb?.enabled !== false);
+const defaultPlaylistLabel = (st) => (st?.longPlaylist?.id ? `Default: ${st.longPlaylist.title || "saved playlist"}` : "No playlist (default)");
+
+function FullQuizVideoForm({ st }) {
   const [pickerKey, setPickerKey] = useState(0);
+  const [playlist, setPlaylist] = useState({ id: "", title: "" });
+  const [useThumb, setUseThumb] = useState(true);
   const [source, setSource] = useState({ subject: null, session: null, quiz: null, testSeries: null, label: "" });
   const [title, setTitle] = useState("");
   const [privacy, setPrivacy] = useState("public");
@@ -2110,7 +2351,11 @@ function FullQuizVideoForm() {
     if (!hasSource) { setMsg({ ok: false, text: "Pick the topic / quiz first." }); return; }
     setBusy(true); setMsg(null);
     try {
-      await youtubeService.longVideo({ source, title: title.trim(), privacy, publishAt: localToIso(publishAt), hashtags: hashtags.trim() });
+      const pl = playlistChoice(playlist.id, playlist.title);
+      await youtubeService.longVideo({
+        source, title: title.trim(), privacy, publishAt: localToIso(publishAt), hashtags: hashtags.trim(),
+        ...(pl ? { playlist: pl } : {}), useThumbnail: useThumb,
+      });
       setMsg({ ok: true, text: "Started — the video is being made below. It can take 5–20 minutes; you can leave this page (you'll get an email)." });
       setSource({ subject: null, session: null, quiz: null, testSeries: null, label: "" }); setPickerKey((k) => k + 1);
       load();
@@ -2144,6 +2389,21 @@ function FullQuizVideoForm() {
           <label className="mb-1 block text-sm font-medium">Extra hashtags <span className="font-normal text-slate-400">(optional)</span></label>
           <input className="input" value={hashtags} onChange={(e) => setHashtags(e.target.value)} placeholder="#GK #JKSSB" />
         </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium">Playlist (folder)</label>
+          {st?.connected
+            ? <YtPlaylistPicker value={playlist.id} onChange={(id, t) => setPlaylist({ id, title: t })} emptyLabel={defaultPlaylistLabel(st)} noneOption={!!st?.longPlaylist?.id} />
+            : <p className="text-xs text-slate-400">Connect YouTube first.</p>}
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium">Thumbnail</label>
+          {thumbReady(st) ? (
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={useThumb} onChange={(e) => setUseThumb(e.target.checked)} />
+              Use my thumbnail template <span className="text-slate-400">(with this topic's name)</span>
+            </label>
+          ) : <p className="text-xs text-slate-400">YouTube picks a frame. Upload a <b>Thumbnail template</b> above to brand every long video.</p>}
+        </div>
       </div>
       <p className="mt-2 text-xs text-slate-400">Your default + subject/topic hashtags are added automatically and become YouTube tags. Tip: tick <b>“Also make one full video”</b> on a Shorts schedule to have this made automatically after its last Short.</p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -2170,6 +2430,7 @@ function FullQuizVideoForm() {
                 {j.publishAt ? ` · publishes ${new Date(j.publishAt).toLocaleString()}` : ""}
               </p>
               {j.url && <a href={j.url} target="_blank" rel="noreferrer" className="mt-1 inline-block text-xs font-semibold text-[#FF0000] hover:underline">Open on YouTube{j.privacy && j.privacy !== "public" ? ` (${j.privacy})` : ""}</a>}
+              {j.notes?.length > 0 && <p className="mt-1 text-xs text-slate-500">{j.notes.join(" · ")}</p>}
               {j.error && <p className="mt-1 text-xs text-rose-600">{j.error}</p>}
             </div>
           ))}
@@ -2179,9 +2440,11 @@ function FullQuizVideoForm() {
   );
 }
 
-function OwnVideoUploadForm() {
+function OwnVideoUploadForm({ st }) {
   const [file, setFile] = useState(null);
   const [thumb, setThumb] = useState(null);
+  const [useTemplate, setUseTemplate] = useState(true);
+  const [playlist, setPlaylist] = useState({ id: "", title: "" });
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState("");
@@ -2210,8 +2473,17 @@ function OwnVideoUploadForm() {
         description: description.replace(/[<>]/g, "").slice(0, 4900),
         tags: tagList, privacy, publishAt: localToIso(publishAt),
       }, { thumbnail: thumb, onProgress: (p) => setPct(Math.round(p * 100)) });
+      // Template thumbnail (when no own image was chosen) + playlist — done on the server.
+      const pl = playlistChoice(playlist.id, playlist.title) ?? (st?.longPlaylist?.id ? st.longPlaylist : null);
+      const wantTemplate = !thumb && useTemplate && thumbReady(st);
+      let notes = [];
+      if (wantTemplate || pl?.id) {
+        try {
+          notes = (await youtubeService.finishUpload(r.id, { title: title.trim(), useThumbnail: wantTemplate, playlist: pl?.id ? pl : null }))?.notes || [];
+        } catch (e) { notes = [`Thumbnail/playlist not set: ${e.message}`]; }
+      }
       setDone(r);
-      setMsg({ ok: true, text: `Uploaded${r.privacy && r.privacy !== privacy ? ` (YouTube set it to ${r.privacy})` : ""}.${r.thumbError ? ` ${r.thumbError}` : ""}` });
+      setMsg({ ok: true, text: `Uploaded${r.privacy && r.privacy !== privacy ? ` (YouTube set it to ${r.privacy})` : ""}.${r.thumbError ? ` ${r.thumbError}` : ""}${notes.length ? ` ${notes.join(" · ")}` : ""}` });
       setFile(null); setThumb(null); setTitle(""); setDescription(""); setTags(""); setPublishAt("");
     } catch (e) { setMsg({ ok: false, text: e.message }); } finally { setPct(null); window.removeEventListener("beforeunload", warn); }
   };
@@ -2254,6 +2526,18 @@ function OwnVideoUploadForm() {
         <div>
           <label className="mb-1 block text-sm font-medium">Thumbnail <span className="font-normal text-slate-400">(optional, JPG/PNG ≤ 2 MB)</span></label>
           <input type="file" accept="image/jpeg,image/png" disabled={busy} onChange={(e) => setThumb(e.target.files?.[0] || null)} className="block w-full text-sm" />
+          {thumbReady(st) && !thumb && (
+            <label className="mt-2 flex items-center gap-2 text-sm">
+              <input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={useTemplate} disabled={busy} onChange={(e) => setUseTemplate(e.target.checked)} />
+              Or use my thumbnail template <span className="text-slate-400">(with the title)</span>
+            </label>
+          )}
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium">Playlist (folder)</label>
+          {st?.connected
+            ? <YtPlaylistPicker value={playlist.id} disabled={busy} onChange={(id, t) => setPlaylist({ id, title: t })} emptyLabel={defaultPlaylistLabel(st)} noneOption={!!st?.longPlaylist?.id} />
+            : <p className="text-xs text-slate-400">Connect YouTube first.</p>}
         </div>
       </div>
       {busy && (
@@ -2282,7 +2566,7 @@ const emptyForm = {
   times: ["09:00"], days: [], timezone: "Asia/Kolkata",
   includeOptions: true, includeAnswer: false, includeLink: false, hashtags: "", order: "random",
   stopWhenExhausted: true,
-  toFacebook: true, toInstagram: false, toYoutube: false, ytTitle: "", ytFullVideo: false, asImage: false,
+  toFacebook: true, toInstagram: false, toYoutube: false, ytTitle: "", ytFullVideo: false, ytPlaylistId: "", ytPlaylistTitle: "", asImage: false,
   asReel: false, customAudios: [], reelDuration: 30, // Reel mode for question/flashcard: rotate through these music tracks, trimmed to reelDuration seconds
   asStory: false, // also share the image as a 24h Story (Facebook + Instagram)
   // AI Educational Slideshow + Voice — builds narrated 9:16 slides and posts a Reel.
@@ -2408,7 +2692,7 @@ export default function AdminFacebook() {
     includeOptions: s.includeOptions !== false, includeAnswer: !!s.includeAnswer, includeLink: !!s.includeLink,
     hashtags: s.hashtags || "", order: s.order || "random",
     stopWhenExhausted: s.stopWhenExhausted !== false,
-    toFacebook: s.toFacebook !== false, toInstagram: !!s.toInstagram, toYoutube: !!s.toYoutube, ytTitle: s.ytTitle || "", ytFullVideo: !!s.ytFullVideo, asImage: !!s.asImage,
+    toFacebook: s.toFacebook !== false, toInstagram: !!s.toInstagram, toYoutube: !!s.toYoutube, ytTitle: s.ytTitle || "", ytFullVideo: !!s.ytFullVideo, ytPlaylistId: s.ytPlaylistId || "", ytPlaylistTitle: s.ytPlaylistTitle || "", asImage: !!s.asImage,
     asReel: !!s.asReel,
     reelDuration: s.reelDuration || 30,
     asStory: !!s.asStory,
@@ -2917,6 +3201,9 @@ export default function AdminFacebook() {
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                   Leave blank for the automatic title <b>Subject | Topic | Quiz 1</b>, then Quiz 2, Quiz 3… — each video is the next set of questions from this source (e.g. 25 questions at 5 per video → Quiz 1 to Quiz 5). Or type your own: <code>{"{subject}"}</code> <code>{"{topic}"}</code> <code>{"{n}"}</code> <code>{"{total}"}</code> (a plain title like “Daily GK Quiz” becomes “Daily GK Quiz #1”). Use <b>Sequential</b> order so Quiz 1 is the first questions. The caption + hashtags become the description.
                 </p>
+                <label className="mb-1 mt-3 block text-sm font-medium">Playlist (folder) for these Shorts</label>
+                <YtPlaylistPicker value={form.ytPlaylistId || ""} emptyLabel="Default Shorts playlist (YouTube settings)"
+                  onChange={(id, t) => setForm((f) => ({ ...f, ytPlaylistId: id, ytPlaylistTitle: t }))} />
                 {form.kind !== "custom" && (
                   <label className="mt-2 flex items-start gap-2 text-sm">
                     <input type="checkbox" className="mt-0.5 h-4 w-4 accent-[#FF0000]" checked={!!form.ytFullVideo} onChange={(e) => setForm((f) => ({ ...f, ytFullVideo: e.target.checked }))} />

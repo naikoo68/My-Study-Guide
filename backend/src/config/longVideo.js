@@ -12,7 +12,7 @@ import { tenantStore, getCurrentTenantId } from "../utils/tenantContext.js";
 import { generateSlideshow } from "./slideshow.js";
 import {
   uploadVideoFileToYoutube, buildYtTitle, buildYtLongDescription, buildYtTags,
-  isYoutubeConfigured, DEFAULT_YT_LONG_TITLE,
+  isYoutubeConfigured, DEFAULT_YT_LONG_TITLE, applyYtExtras, thumbnailLines, thumbTemplateActive,
 } from "./youtube.js";
 import {
   pickAllQuestionsForSource, titlePartsForQuestion, breadcrumbForQuestion,
@@ -20,6 +20,7 @@ import {
 } from "./facebook.js";
 
 export const MAX_LONG_VIDEO_QUESTIONS = 50;
+const escHtml = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const JOB_TTL_MS = 24 * 60 * 60 * 1000;
 const jobs = new Map(); // id → job
 let chain = Promise.resolve(); // one render at a time
@@ -33,6 +34,7 @@ const STAGE_LABEL = {
   rendering_video: "Rendering video",
   ready: "Video ready",
   uploading: "Uploading to YouTube",
+  finishing: "Setting thumbnail & playlist",
   done: "Done",
   failed: "Failed",
 };
@@ -60,6 +62,8 @@ export function publicJob(j) {
     privacy: j.privacy,
     publishAt: j.publishAt,
     error: j.error,
+    notes: j.notes || [],
+    playlistTitle: j.playlist?.title || "",
     auto: j.auto,
     createdAt: j.createdAt,
     finishedAt: j.finishedAt,
@@ -85,7 +89,10 @@ export const tenantKeyNow = () => String(getCurrentTenantId() || "");
 //   cfg, site   — the tenant's getFacebookConfig() + its Settings doc
 //   titleTemplate, privacy, publishAt, hashtags — optional overrides
 //   auto        — true when triggered after a Shorts schedule finished
-export function queueFullQuizVideo({ source, cfg, site, titleTemplate = "", privacy, publishAt = null, hashtags = "", auto = false, scheduleTitle = "" }) {
+//   playlist    — { id, title } to add the video to; undefined = the default
+//                 long-video playlist from the YouTube settings; null = none
+//   useThumbnail — false skips the thumbnail template (default: use it when set)
+export function queueFullQuizVideo({ source, cfg, site, titleTemplate = "", privacy, publishAt = null, hashtags = "", auto = false, scheduleTitle = "", playlist, useThumbnail = true }) {
   cleanup();
   if (!isYoutubeConfigured(cfg)) throw new Error("Connect YouTube first (Admin → Facebook → YouTube Shorts).");
   const job = {
@@ -103,6 +110,11 @@ export function queueFullQuizVideo({ source, cfg, site, titleTemplate = "", priv
     privacy: privacy || cfg.ytPrivacy || "public",
     publishAt: publishAt || null,
     error: "",
+    notes: [],
+    playlist: playlist === undefined
+      ? (cfg.ytLongPlaylistId ? { id: cfg.ytLongPlaylistId, title: cfg.ytLongPlaylistTitle || "" } : null)
+      : (playlist?.id ? playlist : null),
+    useThumbnail: useThumbnail !== false && thumbTemplateActive(cfg.ytThumb),
     auto,
     createdAt: Date.now(),
     finishedAt: null,
@@ -178,6 +190,17 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags }) {
     job.url = up.url;
     job.videoId = up.id;
     job.privacy = up.privacy || job.privacy;
+    // Template thumbnail + playlist ("folder"). Best-effort: the video is
+    // already uploaded, so a failure here is only reported as a note.
+    job.stage = "finishing";
+    job.notes = await applyYtExtras({
+      videoId: up.id,
+      thumb: job.useThumbnail
+        ? { ...cfg.ytThumb, lines: thumbnailLines({ subject: names.subject || names.quiz || source?.label || "", topic: names.topic, count: questions.length }) }
+        : null,
+      playlist: job.playlist,
+      brandColor: site?.brandColor || site?.primaryColor,
+    }, cfg);
     job.status = "done";
     job.stage = "done";
     job.finishedAt = Date.now();
@@ -185,8 +208,8 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags }) {
       await fbNotify({
         site,
         subject: `🎬 YouTube video uploaded — ${job.title}`,
-        text: `Uploaded "${job.title}" (${job.questions} questions, ${Math.round(job.duration / 60)} min): ${job.url}`,
-        html: `<p>🎬 Uploaded <b>${job.title}</b> (${job.questions} questions, about ${Math.round(job.duration / 60)} min).</p><p><a href="${job.url}">${job.url}</a></p>`,
+        text: `Uploaded "${job.title}" (${job.questions} questions, ${Math.round(job.duration / 60)} min): ${job.url}${job.notes.length ? `\n${job.notes.join(" · ")}` : ""}`,
+        html: `<p>🎬 Uploaded <b>${escHtml(job.title)}</b> (${job.questions} questions, about ${Math.round(job.duration / 60)} min).</p><p><a href="${escHtml(job.url)}">${escHtml(job.url)}</a></p>${job.notes.length ? `<p>${escHtml(job.notes.join(" · "))}</p>` : ""}`,
       }).catch(() => {});
     }
   } catch (e) {
@@ -199,7 +222,7 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags }) {
         site,
         subject: `⚠️ YouTube long video failed — ${job.label || job.title || "full quiz"}`,
         text: `Could not make/upload the full quiz video. ${job.error}`,
-        html: `<p>⚠️ Could not make/upload the full quiz video for <b>${job.label || job.title}</b>.</p><p>${job.error}</p>`,
+        html: `<p>⚠️ Could not make/upload the full quiz video for <b>${escHtml(job.label || job.title)}</b>.</p><p>${escHtml(job.error)}</p>`,
       }).catch(() => {});
     }
   } finally {

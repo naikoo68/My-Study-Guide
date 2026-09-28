@@ -344,6 +344,22 @@ const settingsSchema = new mongoose.Schema(
     ytChannelTitle: { type: String, default: "" },
     ytConnectedAt: { type: Date, default: null },
     ytPrivacy: { type: String, enum: ["public", "unlisted", "private"], default: "public" },
+    // Scopes Google granted (space separated) — playlists need youtube.force-ssl.
+    ytScopes: { type: String, default: "" },
+    // Default playlists ("folders"): every Short / long video is added to these
+    // (blank = no playlist). The title is kept only for display.
+    ytShortsPlaylistId: { type: String, default: "" },
+    ytShortsPlaylistTitle: { type: String, default: "" },
+    ytLongPlaylistId: { type: String, default: "" },
+    ytLongPlaylistTitle: { type: String, default: "" },
+    // Thumbnail template for LONG videos (1280×720): the subject / topic /
+    // "25 Questions" are written on it and it's set as the video's thumbnail.
+    ytThumbTemplateUrl: { type: String, default: "" },
+    ytThumbEnabled: { type: Boolean, default: true },
+    ytThumbShowText: { type: Boolean, default: true },
+    ytThumbTextPosition: { type: String, enum: ["left", "center", "right", "bottom"], default: "left" },
+    ytThumbTextColor: { type: String, default: "#ffffff" },
+    ytThumbAccentColor: { type: String, default: "#facc15" },
     // ---- Auto-comments ("first comment") ----
     // A GLOBAL list of comments the admin writes once; after EVERY scheduled
     // auto-post/reel publishes, the app adds a saved comment as the first

@@ -9,7 +9,10 @@ import {
   ytClientCreds, ytRedirectUri, youtubeConfigFromSite, signYtState, verifyYtState,
   buildYtAuthUrl, exchangeYtCode, getYtAccessToken, getYtChannel, revokeYtToken,
   encryptYtSecret, YT_PRIVACY, isYoutubeConfigured,
+  scopesAllowPlaylists, getYtGrantedScopes, listYtPlaylists, createYtPlaylist, cleanYtPlaylistId,
+  thumbConfigFromSite, thumbnailLines, applyYtExtras, YT_THUMB_POSITIONS,
 } from "../config/youtube.js";
+import { isSafePublicUrl } from "../utils/urlGuard.js";
 import { getFacebookConfig, getFacebookSiteForConfig } from "../config/facebook.js";
 import {
   queueFullQuizVideo, listLongVideoJobs, getLongVideoJob, publicJob, tenantKeyNow, MAX_LONG_VIDEO_QUESTIONS,
@@ -29,7 +32,33 @@ function statusOf(site, req) {
     usingEnvCredentials: !site?.ytClientId && !!process.env.YOUTUBE_CLIENT_ID,
     credentialsReady: !!(clientId && clientSecret),
     redirectUri: ytRedirectUri(req),
+    // Playlists ("folders") need the youtube.force-ssl permission (older
+    // connections must reconnect once). Unknown scopes → assume not granted.
+    canPlaylists: scopesAllowPlaylists(site?.ytScopes),
+    shortsPlaylist: site?.ytShortsPlaylistId ? { id: site.ytShortsPlaylistId, title: site.ytShortsPlaylistTitle || "" } : null,
+    longPlaylist: site?.ytLongPlaylistId ? { id: site.ytLongPlaylistId, title: site.ytLongPlaylistTitle || "" } : null,
+    thumb: thumbConfigFromSite(site),
   };
+}
+
+const hexColor = (v, d) => (/^#[0-9a-f]{6}$/i.test(String(v || "").trim()) ? String(v).trim().toLowerCase() : d);
+// { id, title } | null → the playlist fields to store.
+function playlistFields(v) {
+  const id = cleanYtPlaylistId(v?.id);
+  return { id, title: id ? String(v?.title || "").replace(/[<>]/g, "").trim().slice(0, 150) : "" };
+}
+// Apply thumbnail-template fields from a request body onto an object (the
+// Settings doc when saving, or a plain copy for a live preview).
+function applyThumbFields(target, b) {
+  if ("thumbTemplateUrl" in b) {
+    const u = String(b.thumbTemplateUrl || "").trim();
+    target.ytThumbTemplateUrl = u && /^https?:\/\//i.test(u) && isSafePublicUrl(u) ? u.slice(0, 1000) : "";
+  }
+  if ("thumbEnabled" in b) target.ytThumbEnabled = !!b.thumbEnabled;
+  if ("thumbShowText" in b) target.ytThumbShowText = !!b.thumbShowText;
+  if ("thumbPosition" in b) target.ytThumbTextPosition = YT_THUMB_POSITIONS.includes(b.thumbPosition) ? b.thumbPosition : "left";
+  if ("thumbTextColor" in b) target.ytThumbTextColor = hexColor(b.thumbTextColor, "#ffffff");
+  if ("thumbAccentColor" in b) target.ytThumbAccentColor = hexColor(b.thumbAccentColor, "#facc15");
 }
 
 // GET /api/youtube/status
@@ -38,7 +67,9 @@ export async function youtubeStatus(req, res) {
   res.json(statusOf(site, req));
 }
 
-// PUT /api/youtube/settings — { enabled?, privacy?, clientId?, clientSecret? }
+// PUT /api/youtube/settings — { enabled?, privacy?, clientId?, clientSecret?,
+//   shortsPlaylist?:{id,title}|null, longPlaylist?:{id,title}|null,
+//   thumbTemplateUrl?, thumbEnabled?, thumbShowText?, thumbPosition?, thumbTextColor?, thumbAccentColor? }
 // A blank clientSecret keeps the saved one (same pattern as the FB token).
 export async function saveYoutubeSettings(req, res) {
   const site = await getOrCreateOwn();
@@ -57,6 +88,9 @@ export async function saveYoutubeSettings(req, res) {
     const sec = String(b.clientSecret || "").trim();
     if (sec) site.ytClientSecret = encryptYtSecret(sec.slice(0, 200));
   }
+  if ("shortsPlaylist" in b) { const p = playlistFields(b.shortsPlaylist); site.ytShortsPlaylistId = p.id; site.ytShortsPlaylistTitle = p.title; }
+  if ("longPlaylist" in b) { const p = playlistFields(b.longPlaylist); site.ytLongPlaylistId = p.id; site.ytLongPlaylistTitle = p.title; }
+  applyThumbFields(site, b);
   await site.save();
   res.json(statusOf(site, req));
 }
@@ -100,7 +134,7 @@ export async function youtubeCallback(req, res) {
     const site = await runUnscoped(() => Settings.findById(data.sid));
     if (!site) return back({ youtube: "error", reason: "Settings not found." });
     const { clientId, clientSecret } = ytClientCreds(site);
-    const { refreshToken, accessToken } = await exchangeYtCode({ code, clientId, clientSecret, redirectUri: data.ru });
+    const { refreshToken, accessToken, scope } = await exchangeYtCode({ code, clientId, clientSecret, redirectUri: data.ru });
     if (!refreshToken) return back({ youtube: "error", reason: "Google did not return a refresh token. Remove the app's access at myaccount.google.com/permissions and connect again." });
     let channel = null;
     try { channel = await getYtChannel(accessToken); } catch { /* channel name is cosmetic */ }
@@ -112,6 +146,11 @@ export async function youtubeCallback(req, res) {
         ytChannelTitle: channel.title,
         ytConnectedAt: new Date(),
         ytEnabled: true,
+        ytScopes: scope,
+        // A different channel → its playlists don't apply any more.
+        ...(site.ytChannelId && site.ytChannelId !== channel.id
+          ? { ytShortsPlaylistId: "", ytShortsPlaylistTitle: "", ytLongPlaylistId: "", ytLongPlaylistTitle: "" }
+          : {}),
       },
     }));
     return back({ youtube: "connected" });
@@ -126,6 +165,7 @@ export async function youtubeDisconnect(req, res) {
   const cfg = youtubeConfigFromSite(site);
   await revokeYtToken(cfg.ytRefreshToken);
   site.ytRefreshToken = ""; site.ytChannelId = ""; site.ytChannelTitle = ""; site.ytConnectedAt = null; site.ytEnabled = false;
+  site.ytScopes = "";
   await site.save();
   res.json(statusOf(site, req));
 }
@@ -161,6 +201,9 @@ export async function startLongVideo(req, res) {
       privacy: YT_PRIVACY.includes(b.privacy) ? b.privacy : cfg.ytPrivacy,
       publishAt: cleanPublishAt(b.publishAt),
       hashtags: String(b.hashtags || "").trim().slice(0, 1000),
+      // Playlist: absent → the default long-video playlist; {id:""} → none.
+      ...("playlist" in b ? { playlist: playlistFields(b.playlist).id ? playlistFields(b.playlist) : null } : {}),
+      useThumbnail: b.useThumbnail !== false,
     });
     res.status(202).json({ job });
   } catch (e) {
@@ -206,11 +249,93 @@ export async function youtubeTest(req, res) {
     const token = await getYtAccessToken(cfg);
     const ch = await getYtChannel(token);
     if (!ch) return res.status(400).json({ message: "Connected Google account has no YouTube channel." });
-    if (ch.title !== site.ytChannelTitle || ch.id !== site.ytChannelId) {
-      site.ytChannelTitle = ch.title; site.ytChannelId = ch.id; await site.save();
+    const scopes = await getYtGrantedScopes(cfg).catch(() => "");
+    if (ch.title !== site.ytChannelTitle || ch.id !== site.ytChannelId || (scopes && scopes !== site.ytScopes)) {
+      site.ytChannelTitle = ch.title; site.ytChannelId = ch.id;
+      if (scopes) site.ytScopes = scopes;
+      await site.save();
     }
     res.json({ ok: true, channelTitle: ch.title, channelId: ch.id });
   } catch (e) {
     res.status(400).json({ message: e.message || "YouTube connection test failed." });
   }
+}
+
+// ---- Playlists ("folders") ----
+
+// GET /api/youtube/playlists → { playlists:[{id,title,privacy,count}], canCreate }
+export async function youtubePlaylists(req, res) {
+  const site = await getOrCreateOwn();
+  const cfg = youtubeConfigFromSite(site);
+  if (!cfg.ytRefreshToken) return res.status(400).json({ message: "Connect YouTube first." });
+  try {
+    res.json({ playlists: await listYtPlaylists(cfg), canCreate: scopesAllowPlaylists(site.ytScopes) });
+  } catch (e) {
+    res.status(400).json({ message: e.message || "Could not load your playlists." });
+  }
+}
+
+// POST /api/youtube/playlists { title, privacy? } → { playlist }
+export async function youtubeCreatePlaylist(req, res) {
+  const site = await getOrCreateOwn();
+  const cfg = youtubeConfigFromSite(site);
+  if (!cfg.ytRefreshToken) return res.status(400).json({ message: "Connect YouTube first." });
+  try {
+    const b = req.body || {};
+    const playlist = await createYtPlaylist({ title: b.title, privacy: YT_PRIVACY.includes(b.privacy) ? b.privacy : "public" }, cfg);
+    // It worked, so this connection has the playlist permission.
+    if (!scopesAllowPlaylists(site.ytScopes)) {
+      site.ytScopes = `${site.ytScopes || ""} https://www.googleapis.com/auth/youtube.force-ssl`.trim();
+      await site.save();
+    }
+    res.status(201).json({ playlist });
+  } catch (e) {
+    res.status(400).json({ message: e.message || "Could not create the playlist." });
+  }
+}
+
+// ---- Thumbnail template ----
+
+// POST /api/youtube/thumbnail-preview { title?|subject?,topic?,count?, …unsaved thumb fields }
+// → { image: "data:image/jpeg;base64,…" }. Uses the saved template, overridden by any fields in the body
+// so the admin sees changes before saving.
+export async function youtubeThumbnailPreview(req, res) {
+  const site = await getOrCreateOwn();
+  const b = req.body || {};
+  const draft = { ytThumbTemplateUrl: site.ytThumbTemplateUrl, ytThumbEnabled: true, ytThumbShowText: site.ytThumbShowText,
+    ytThumbTextPosition: site.ytThumbTextPosition, ytThumbTextColor: site.ytThumbTextColor, ytThumbAccentColor: site.ytThumbAccentColor };
+  applyThumbFields(draft, { ...b, thumbEnabled: true });
+  const thumb = thumbConfigFromSite(draft);
+  if (!thumb.templateUrl) return res.status(400).json({ message: "Upload a thumbnail template first." });
+  const lines = thumbnailLines({
+    subject: String(b.subject ?? "Indian Polity").slice(0, 100),
+    topic: String(b.topic ?? "Fundamental Rights").slice(0, 100),
+    count: Number(b.count ?? 25) || 0,
+    title: String(b.title || "").slice(0, 100),
+  });
+  const { renderYoutubeThumbnail } = await import("../config/ytThumbnail.js");
+  const r = await renderYoutubeThumbnail({ ...thumb, lines, brandColor: site.brandColor || site.primaryColor });
+  if (!r.image) return res.status(400).json({ message: r.error || "Could not draw the thumbnail." });
+  res.set("Cache-Control", "no-store");
+  res.json({ image: `data:${r.mime};base64,${r.image.toString("base64")}`, bytes: r.image.length });
+}
+
+// POST /api/youtube/videos/:videoId/finish { title?, useThumbnail?, playlist?:{id,title} }
+// After a browser upload (your own video): set the template thumbnail and/or
+// add it to a playlist. → { notes:[…] }
+export async function youtubeFinishUpload(req, res) {
+  const videoId = String(req.params.videoId || "");
+  if (!/^[A-Za-z0-9_-]{6,20}$/.test(videoId)) return res.status(400).json({ message: "Invalid video id." });
+  const site = await getOrCreateOwn();
+  const cfg = youtubeConfigFromSite(site);
+  if (!isYoutubeConfigured(cfg)) return res.status(400).json({ message: "Connect YouTube first." });
+  const b = req.body || {};
+  const playlist = playlistFields(b.playlist);
+  const notes = await applyYtExtras({
+    videoId,
+    thumb: b.useThumbnail ? { ...cfg.ytThumb, lines: thumbnailLines({ title: String(b.title || "").slice(0, 100) }) } : null,
+    playlist: playlist.id ? playlist : null,
+    brandColor: site.brandColor || site.primaryColor,
+  }, cfg);
+  res.json({ notes });
 }
