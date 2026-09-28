@@ -2999,7 +2999,7 @@ function FullQuizVideoForm({ st, onStatus }) {
       {toYoutube && shortAllowed && (
         <label className="mt-2 flex items-start gap-2 text-sm">
           <input type="checkbox" className="mt-0.5 h-4 w-4 accent-[#FF0000]" checked={asShort} onChange={(e) => setAsShort(e.target.checked)} />
-          <span>Also upload it as a <b>YouTube Short</b> <span className="text-slate-400">(adds #Shorts — this video is about {Math.max(1, Math.round(estSec / 60))} min, within the 3-minute limit)</span></span>
+          <span>Also post it as a <b>YouTube Short</b> <span className="text-slate-400">(a vertical 9:16 version is made so YouTube shows it under Shorts — about {Math.max(1, Math.round(estSec / 60))} min, within the 3-minute limit. Facebook still gets the normal landscape video.)</span></span>
         </label>
       )}
       {toYoutube && !shortAllowed && estSec > 0 && (
