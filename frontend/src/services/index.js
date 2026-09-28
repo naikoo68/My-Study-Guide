@@ -349,7 +349,83 @@ export const youtubeService = {
   connect: () => api.post("/youtube/connect"), // → { url } — navigate there for Google login
   disconnect: () => api.post("/youtube/disconnect"),
   test: () => api.post("/youtube/test"),
+  // Long videos — full-topic quiz video made on the server (background job).
+  longVideo: (data) => api.post("/youtube/long-video", data), // → { job }
+  longVideos: () => api.get("/youtube/long-video"), // → { jobs, maxQuestions }
+  longVideoStatus: (id) => api.get(`/youtube/long-video/${id}`), // → { job }
+  // Short-lived token so the browser can upload a video file straight to YouTube.
+  uploadToken: () => api.post("/youtube/upload-token"),
 };
+
+// Upload a video FILE from the browser straight to YouTube (resumable, in
+// 8 MB chunks — works for multi-GB files; nothing goes through our server).
+// meta: { title, description, tags[], privacy, publishAt?(ISO) }; thumbnail?: File
+// → { id, url, privacy }. onProgress(0..1).
+export async function uploadVideoFileToYoutube(file, meta, { thumbnail = null, onProgress } = {}) {
+  const { accessToken } = await youtubeService.uploadToken();
+  const auth = { Authorization: `Bearer ${accessToken}` };
+  const scheduled = meta.publishAt && new Date(meta.publishAt).getTime() > Date.now() + 60000;
+  const body = {
+    snippet: { title: meta.title, description: meta.description || "", tags: meta.tags || [], categoryId: "27" },
+    status: {
+      privacyStatus: scheduled ? "private" : (meta.privacy || "public"),
+      ...(scheduled ? { publishAt: new Date(meta.publishAt).toISOString() } : {}),
+      selfDeclaredMadeForKids: false,
+    },
+  };
+  const init = await fetch("https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status", {
+    method: "POST",
+    headers: { ...auth, "Content-Type": "application/json; charset=UTF-8", "X-Upload-Content-Type": file.type || "video/mp4", "X-Upload-Content-Length": String(file.size) },
+    body: JSON.stringify(body),
+  });
+  if (!init.ok) {
+    const d = await init.json().catch(() => ({}));
+    throw new Error(d?.error?.message || `YouTube refused the upload (${init.status}).`);
+  }
+  const uploadId = init.headers.get("x-guploader-uploadid");
+  const session = init.headers.get("location")
+    || (uploadId ? `https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status&upload_id=${encodeURIComponent(uploadId)}` : "");
+  if (!session) throw new Error("YouTube did not return an upload session.");
+
+  const CHUNK = 8 * 1024 * 1024; // multiple of 256 KiB
+  let offset = 0, retries = 0, result = null;
+  while (offset < file.size) {
+    const end = Math.min(offset + CHUNK, file.size);
+    let res;
+    try {
+      res = await fetch(session, { method: "PUT", headers: { "Content-Range": `bytes ${offset}-${end - 1}/${file.size}` }, body: file.slice(offset, end) });
+    } catch (e) {
+      if (++retries > 5) throw new Error("Network error while uploading — check your connection and try again.", { cause: e });
+      await new Promise((r) => setTimeout(r, 2000 * retries));
+      continue;
+    }
+    if (res.status === 308) {
+      const range = res.headers.get("range");
+      offset = range ? Number(range.split("-")[1]) + 1 : end;
+      retries = 0;
+      onProgress?.(offset / file.size);
+      continue;
+    }
+    if (res.status >= 500 && ++retries <= 5) { await new Promise((r) => setTimeout(r, 2000 * retries)); continue; }
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok || !d?.id) throw new Error(d?.error?.message || `Upload failed (${res.status}).`);
+    result = d;
+    break;
+  }
+  if (!result) throw new Error("Upload ended unexpectedly.");
+  onProgress?.(1);
+  let thumbError = "";
+  if (thumbnail) {
+    const t = await fetch(`https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${result.id}&uploadType=media`, {
+      method: "POST", headers: { ...auth, "Content-Type": thumbnail.type || "image/jpeg" }, body: thumbnail,
+    }).catch(() => null);
+    if (!t?.ok) {
+      const d = await t?.json?.().catch(() => ({}));
+      thumbError = d?.error?.message || "Thumbnail not set (custom thumbnails need a verified channel).";
+    }
+  }
+  return { id: result.id, url: `https://www.youtube.com/watch?v=${result.id}`, privacy: result?.status?.privacyStatus, thumbError };
+}
 
 // ---- Facebook scheduled auto-posting (admin) ----
 export const facebookService = {
