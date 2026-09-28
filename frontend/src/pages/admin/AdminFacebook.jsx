@@ -2154,7 +2154,7 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
                   className="absolute rounded border-2 border-dashed border-white/90 shadow-[0_0_0_1px_rgba(0,0,0,.4)]"
                   style={{ left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.w * 100}%`, height: `${box.h * 100}%`, transform: `rotate(${rot}deg)`, transformOrigin: "center center" }}>
                   {/* Move: drag anywhere in the box */}
-                  <div onPointerDown={onPointerDown("move")} className="flex h-full w-full cursor-move flex-col gap-0.5 overflow-hidden p-1 text-[7px] font-black leading-tight" style={sampleStyle}>
+                  <div onPointerDown={onPointerDown("move")} className="flex h-full w-full touch-none cursor-move flex-col gap-0.5 overflow-hidden p-1 text-[7px] font-black leading-tight" style={sampleStyle}>
                     <div style={panelBg}>
                       <div style={{ color: draft.thumbKickerColor || draft.thumbTextColor, fontSize: `${(draft.thumbKickerSize / 44) * 6}px` }}>Subject Name</div>
                       <div style={{ fontSize: `${(draft.thumbHeadlineSize / 104) * 13}px`, lineHeight: draft.thumbLineHeight }}>Topic Name</div>
@@ -2162,11 +2162,11 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
                     </div>
                   </div>
                   {/* Move handle (centre) */}
-                  <span onPointerDown={onPointerDown("move")} title="Drag to move" className="absolute left-1/2 top-1/2 flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 cursor-move items-center justify-center rounded-full border-2 border-white bg-black/45 text-white"><Move className="h-3.5 w-3.5" /></span>
+                  <span onPointerDown={onPointerDown("move")} title="Drag to move" className="absolute left-1/2 top-1/2 flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 touch-none cursor-move items-center justify-center rounded-full border-2 border-white bg-black/45 text-white"><Move className="h-3.5 w-3.5" /></span>
                   {/* Resize handle (bottom-right) */}
-                  <span onPointerDown={onPointerDown("resize")} title="Drag to resize" className="absolute -bottom-1.5 -right-1.5 h-4 w-4 cursor-se-resize rounded-full border-2 border-white bg-[#FF0000]" />
+                  <span onPointerDown={onPointerDown("resize")} title="Drag to resize" className="absolute -bottom-1.5 -right-1.5 h-4 w-4 touch-none cursor-se-resize rounded-full border-2 border-white bg-[#FF0000]" />
                   {/* Rotate handle (top-centre) */}
-                  <span onPointerDown={onPointerDown("rotate")} title="Drag to rotate (hold Shift to snap)" className="absolute -top-6 left-1/2 flex h-5 w-5 -translate-x-1/2 cursor-grab items-center justify-center rounded-full border-2 border-white bg-brand-600 text-white"><RotateCw className="h-3 w-3" /></span>
+                  <span onPointerDown={onPointerDown("rotate")} title="Drag to rotate (hold Shift to snap)" className="absolute -top-6 left-1/2 flex h-5 w-5 -translate-x-1/2 touch-none cursor-grab items-center justify-center rounded-full border-2 border-white bg-brand-600 text-white"><RotateCw className="h-3 w-3" /></span>
                   <span className="absolute -top-1.5 left-1/2 h-4 w-0.5 -translate-x-1/2 bg-white/80" />
                 </div>
               )}
