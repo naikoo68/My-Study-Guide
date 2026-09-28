@@ -2276,34 +2276,42 @@ export default function AdminFacebook() {
   // the current search / time filter, on every page.
   const [selected, setSelected] = useState(() => new Set());
   const [allMatching, setAllMatching] = useState(false);
+  // In "all pages" mode: ids the admin unticked afterwards (everything else stays selected).
+  const [excluded, setExcluded] = useState(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(""); // "" | "pause" | "resume" | "delete"
   const [bulkMsg, setBulkMsg] = useState("");
-  const clearSelection = () => { setSelected(new Set()); setAllMatching(false); };
+  const clearSelection = () => { setSelected(new Set()); setExcluded(new Set()); setAllMatching(false); };
   // A new search / filter changes what "all" means — start the selection fresh.
   useEffect(() => { clearSelection(); }, [search, fromTime, toTime]);
 
   const pageIds = schedules.map((s) => String(s._id));
-  const pageAllTicked = pageIds.length > 0 && pageIds.every((id) => allMatching || selected.has(id));
-  const selectedCount = allMatching ? total : selected.size;
-  const isTicked = (id) => allMatching || selected.has(String(id));
+  const isTicked = (id) => (allMatching ? !excluded.has(String(id)) : selected.has(String(id)));
+  const pageAllTicked = pageIds.length > 0 && pageIds.every(isTicked);
+  const selectedCount = allMatching ? Math.max(0, total - excluded.size) : selected.size;
+  const allPagesTicked = allMatching && excluded.size === 0 && total > 0;
   const toggleOne = (id) => {
     const k = String(id);
     if (allMatching) {
-      // Leaving "all" mode: keep everything on this page ticked except this one.
-      setAllMatching(false);
-      setSelected(new Set(pageIds.filter((x) => x !== k)));
+      // Stay in "all pages" mode — just untick / re-tick this one.
+      setExcluded((cur) => { const n = new Set(cur); n.has(k) ? n.delete(k) : n.add(k); return n; });
       return;
     }
     setSelected((cur) => { const n = new Set(cur); n.has(k) ? n.delete(k) : n.add(k); return n; });
   };
   const togglePage = () => {
-    if (pageAllTicked) {
-      if (allMatching) { clearSelection(); return; }
-      setSelected((cur) => { const n = new Set(cur); pageIds.forEach((id) => n.delete(id)); return n; });
-    } else {
-      setSelected((cur) => { const n = new Set(cur); pageIds.forEach((id) => n.add(id)); return n; });
+    if (allMatching) {
+      setExcluded((cur) => { const n = new Set(cur); pageIds.forEach((id) => (pageAllTicked ? n.add(id) : n.delete(id))); return n; });
+      return;
     }
+    setSelected((cur) => { const n = new Set(cur); pageIds.forEach((id) => (pageAllTicked ? n.delete(id) : n.add(id))); return n; });
   };
+  // Select / unselect EVERY schedule on EVERY page (matching the current filter).
+  const toggleAllPages = () => {
+    if (allPagesTicked) { clearSelection(); return; }
+    setSelected(new Set()); setExcluded(new Set()); setAllMatching(true);
+  };
+  // Unticking everything while in "all pages" mode → back to an empty selection.
+  useEffect(() => { if (allMatching && total > 0 && excluded.size >= total) clearSelection(); }, [allMatching, excluded, total]);
 
   const runBulk = async (action) => {
     if (!selectedCount) return;
@@ -2313,7 +2321,7 @@ export default function AdminFacebook() {
     setBulkBusy(action); setBulkMsg(""); setError("");
     try {
       const body = allMatching
-        ? { action, all: true, q: search, ...(fromTime && toTime ? { from: fromTime, to: toTime } : {}) }
+        ? { action, all: true, q: search, exclude: [...excluded], ...(fromTime && toTime ? { from: fromTime, to: toTime } : {}) }
         : { action, ids: [...selected] };
       const r = await facebookService.bulk(body);
       const n = r?.matched ?? selectedCount;
@@ -2816,13 +2824,10 @@ export default function AdminFacebook() {
                       Select all on this page
                     </label>
                     {total > schedules.length && (
-                      allMatching ? (
-                        <span className="text-xs text-slate-500 dark:text-slate-400">All <b>{total}</b> schedules selected{search || rangeActive ? " (matching the filter)" : ""}</span>
-                      ) : (
-                        <button type="button" onClick={() => setAllMatching(true)} className="text-xs font-semibold text-brand-600 hover:underline">
-                          Select all {total} schedules{search || rangeActive ? " matching the filter" : ""}
-                        </button>
-                      )
+                      <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
+                        <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={allPagesTicked} onChange={toggleAllPages} />
+                        Select all pages ({total}{search || rangeActive ? " matching the filter" : ""})
+                      </label>
                     )}
                     <span className="text-xs text-slate-500 dark:text-slate-400">{selectedCount ? `${selectedCount} selected` : "None selected"}</span>
                   </div>
