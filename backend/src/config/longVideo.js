@@ -153,7 +153,7 @@ export function normalizeLongVideoOptions(o = {}, site = {}) {
 //                 long-video playlist from the YouTube settings; null = none
 //   useThumbnail — false skips the thumbnail template (default: use it when set)
 //   options     — see normalizeLongVideoOptions (questions, narration, destinations)
-export function queueFullQuizVideo({ source, cfg, site, titleTemplate = "", privacy, publishAt = null, hashtags = "", auto = false, scheduleTitle = "", playlist, useThumbnail = true, options = {} }) {
+export function queueFullQuizVideo({ source, cfg, site, titleTemplate = "", privacy, publishAt = null, hashtags = "", auto = false, scheduleTitle = "", playlist, useThumbnail = true, options = {}, scheduleId = "" }) {
   cleanup();
   const opts = normalizeLongVideoOptions(options, site);
   if (!opts.toYoutube && !opts.toFacebook) throw new Error("Choose where to post the video (YouTube and/or Facebook).");
@@ -184,6 +184,11 @@ export function queueFullQuizVideo({ source, cfg, site, titleTemplate = "", priv
       : (playlist?.id ? playlist : null),
     useThumbnail: useThumbnail !== false && thumbTemplateActive(cfg.ytThumb),
     auto,
+    // A repeating long-video schedule this job belongs to (so we can report the
+    // real result back to the schedule row when the video finishes).
+    scheduleId: scheduleId ? String(scheduleId) : "",
+    part: Number(opts.part) || 0,
+    startUsed: opts.order === "random" ? 0 : Number(opts.start) || 1,
     createdAt: Date.now(),
     finishedAt: null,
   };
@@ -194,6 +199,33 @@ export function queueFullQuizVideo({ source, cfg, site, titleTemplate = "", priv
   const run = () => (store ? tenantStore.run(store, () => runJob(job, args)) : runJob(job, args));
   chain = chain.then(run, run).catch(() => {});
   return publicJob(job);
+}
+
+// When a scheduled long video finishes, write the real outcome back to its
+// schedule row so the list shows "posted ✓" (not a forever "being made") and
+// counts videos posted. On failure, roll the position back so the next run
+// retries this same part. Never throws.
+async function reportToSchedule(job, ok) {
+  if (!job.scheduleId) return;
+  const FbSchedule = (await import("../models/FbSchedule.js")).default;
+  const sch = await FbSchedule.findById(job.scheduleId).catch(() => null);
+  if (!sch) return;
+  const label = job.part ? `Part ${job.part}` : "Video";
+  const lv = sch.longVideo || {};
+  if (ok) {
+    const links = [job.url, job.fbUrl].filter(Boolean).join(" · ");
+    const extra = (job.notes || []).filter((n) => !/^(YouTube|Facebook) ✓/.test(n));
+    sch.lastResult = `${label} posted ✓${links ? ` — ${links}` : ""}${extra.length ? ` · ${extra.join(" · ")}` : ""}`;
+    sch.longVideo = { ...lv, postedCount: (Number(lv.postedCount) || 0) + 1 };
+  } else {
+    sch.lastResult = `${label} failed: ${job.error}`;
+    // Retry this part next run (only for in-order schedules).
+    if (Number.isInteger(job.startUsed) && job.startUsed > 0) {
+      sch.longVideo = { ...lv, nextStart: job.startUsed, part: Math.max(0, (job.part || 1) - 1) };
+    }
+  }
+  sch.markModified?.("longVideo");
+  await sch.save().catch(() => {});
 }
 
 async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts }) {
@@ -354,6 +386,7 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
     job.status = "done";
     job.stage = "done";
     job.finishedAt = Date.now();
+    await reportToSchedule(job, true).catch(() => {});
     if (site?.fbNotifyOnPost === true || job.auto) {
       const links = [job.url, job.fbUrl].filter(Boolean);
       await fbNotify({
@@ -368,6 +401,7 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
     job.stage = "failed";
     job.error = String(e?.message || e).slice(0, 500);
     job.finishedAt = Date.now();
+    await reportToSchedule(job, false).catch(() => {});
     if (site?.fbNotifyOnError !== false) {
       await fbNotify({
         site,
@@ -460,6 +494,7 @@ export async function runLongVideoSchedule(sch, cfg, site) {
       playlist,
       useThumbnail: lv.useThumbnail !== false,
       options: { ...o, toYoutube: ytOk, toFacebook: fbOk, start: next.start, count: next.count, part: o.order === "random" ? 0 : next.part },
+      scheduleId: sch._id,
     });
   } catch (e) {
     sch.lastResult = `Error: ${e?.message || e}`;

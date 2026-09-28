@@ -4109,7 +4109,7 @@ export default function AdminFacebook() {
                         {s.kind === "flashcard" && <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">Flashcard</span>}
                         {s.kind === "longvideo" && (
                           <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-700 dark:bg-red-900/40 dark:text-red-300">
-                            Long video{s.longVideo?.part ? ` · ${s.longVideo.part} made` : ""}
+                            Long video{s.longVideo?.postedCount ? ` · ${s.longVideo.postedCount} posted` : s.longVideo?.part ? ` · ${s.longVideo.part} started` : ""}
                           </span>
                         )}
                         {(s.kind === "slideshow" || s.asSlideshow) && (
@@ -4152,7 +4152,9 @@ export default function AdminFacebook() {
                             <span className="inline-flex items-center gap-1"><CalendarClock className="h-3 w-3" /> {daysLabel(s.days)}</span>
                           </>
                         )}
-                        <span className="inline-flex items-center gap-1"><ListChecks className="h-3 w-3" /> {s.postCount || 0}{s.poolSize ? ` / ${s.poolSize}` : ""} posted</span>
+                        {s.kind === "longvideo"
+                          ? <span className="inline-flex items-center gap-1"><ListChecks className="h-3 w-3" /> {s.longVideo?.postedCount || 0} video{(s.longVideo?.postedCount || 0) === 1 ? "" : "s"} posted</span>
+                          : <span className="inline-flex items-center gap-1"><ListChecks className="h-3 w-3" /> {s.postCount || 0}{s.poolSize ? ` / ${s.poolSize}` : ""} posted</span>}
                         {s.mode !== "once" && <span className="text-slate-400">{s.timezone}</span>}
                       </div>
                       {(rowMsg[s._id] || s.lastResult) && <p className="mt-1 text-xs text-slate-400">{compactScheduleResult(rowMsg[s._id] || s.lastResult)}</p>}
