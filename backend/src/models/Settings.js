@@ -387,6 +387,7 @@ const settingsSchema = new mongoose.Schema(
     ytThumbKickerSize: { type: Number, default: 44 }, // subject line
     ytThumbBadgeSize: { type: Number, default: 46 }, // quiz badge
     ytThumbLineHeight: { type: Number, default: 1.05 }, // line spacing (0.8–2)
+    ytThumbRotate: { type: Number, default: 0 }, // text box rotation, degrees (-180–180)
     // ---- Auto-comments ("first comment") ----
     // A GLOBAL list of comments the admin writes once; after EVERY scheduled
     // auto-post/reel publishes, the app adds a saved comment as the first

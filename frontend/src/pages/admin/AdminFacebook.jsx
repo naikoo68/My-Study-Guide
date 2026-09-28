@@ -6,7 +6,7 @@ import {
   Send, Loader2, CheckCircle2, AlertTriangle, KeyRound, Plus, Trash2, Pencil, X,
   Clock, CalendarClock, ListChecks, Power, Save, Upload, UserCircle, Type, Search, Mail,
   ImagePlus, FileText, Wand2, RefreshCw, Film, Music, Camera, ChevronDown, MessageCircle,
-  Sparkles, Volume2, PlayCircle, Link2, Unplug, Clapperboard,
+  Sparkles, Volume2, PlayCircle, Link2, Unplug, Clapperboard, Move, RotateCw,
 } from "lucide-react";
 import { Facebook, Instagram, Youtube } from "../../components/ui/SocialIcons";
 import { settingsService, facebookService, youtubeService, uploadVideoFileToYoutube, contentService, practiceService, uploadService } from "../../services";
@@ -2069,6 +2069,16 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
   };
   const onPointerMove = (e) => {
     const d = dragRef.current; if (!d) return;
+    if (d.mode === "rotate") {
+      // Angle from the box centre to the pointer (0° = handle straight up).
+      const cx = d.rect.left + (d.box.x + d.box.w / 2) * d.rect.width;
+      const cy = d.rect.top + (d.box.y + d.box.h / 2) * d.rect.height;
+      let deg = Math.round((Math.atan2(e.clientY - cy, e.clientX - cx) * 180) / Math.PI + 90);
+      if (deg > 180) deg -= 360; if (deg < -180) deg += 360;
+      if (e.shiftKey) deg = Math.round(deg / 15) * 15; // hold Shift to snap to 15°
+      setDraft((dd) => ({ ...dd, thumbRotate: deg })); setPreview("");
+      return;
+    }
     const dx = (e.clientX - d.startX) / d.rect.width;
     const dy = (e.clientY - d.startY) / d.rect.height;
     let { x, y, w, h } = d.box;
@@ -2077,11 +2087,13 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
     setDraft((dd) => ({ ...dd, thumbBox: { x, y, w, h } })); setPreview("");
   };
   const onPointerUp = () => {
-    if (!dragRef.current) return;
+    const d = dragRef.current; if (!d) return;
     dragRef.current = null;
     clearTimeout(timer.current);
-    timer.current = setTimeout(() => persist({ thumbBox: draft.thumbBox || DEF_BOX }), 200);
+    const patch = d.mode === "rotate" ? { thumbRotate: draft.thumbRotate || 0 } : { thumbBox: draft.thumbBox || DEF_BOX };
+    timer.current = setTimeout(() => persist(patch), 200);
   };
+  const rot = draft.thumbRotate || 0;
 
   const colorInput = (label, key, fallback) => (
     <label className="flex items-center justify-between gap-2 text-sm">
@@ -2138,17 +2150,24 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
               onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerLeave={onPointerUp}>
               <img src={preview || draft.thumbTemplateUrl} alt="Thumbnail template" className="pointer-events-none absolute inset-0 h-full w-full object-cover" draggable={false} />
               {!preview && draft.thumbShowText && (
-                <div onPointerDown={onPointerDown("move")}
-                  className="absolute cursor-move rounded border-2 border-dashed border-white/90 shadow-[0_0_0_1px_rgba(0,0,0,.4)]"
-                  style={{ left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.w * 100}%`, height: `${box.h * 100}%` }}>
-                  <div className="flex h-full w-full flex-col gap-0.5 overflow-hidden p-1 text-[7px] font-black leading-tight" style={sampleStyle}>
+                <div
+                  className="absolute rounded border-2 border-dashed border-white/90 shadow-[0_0_0_1px_rgba(0,0,0,.4)]"
+                  style={{ left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.w * 100}%`, height: `${box.h * 100}%`, transform: `rotate(${rot}deg)`, transformOrigin: "center center" }}>
+                  {/* Move: drag anywhere in the box */}
+                  <div onPointerDown={onPointerDown("move")} className="flex h-full w-full cursor-move flex-col gap-0.5 overflow-hidden p-1 text-[7px] font-black leading-tight" style={sampleStyle}>
                     <div style={panelBg}>
                       <div style={{ color: draft.thumbKickerColor || draft.thumbTextColor, fontSize: `${(draft.thumbKickerSize / 44) * 6}px` }}>ACADEMIC LIBRARIANSHIP</div>
                       <div style={{ fontSize: `${(draft.thumbHeadlineSize / 104) * 13}px`, lineHeight: draft.thumbLineHeight }}>Library Management</div>
                       <div style={{ display: "inline-block", background: draft.thumbAccentColor, color: draft.thumbBadgeTextColor, borderRadius: 3, padding: "0 4px", fontSize: `${(draft.thumbBadgeSize / 46) * 8}px`, marginTop: 2 }}>Quiz 2</div>
                     </div>
                   </div>
-                  <span onPointerDown={onPointerDown("resize")} className="absolute -bottom-1.5 -right-1.5 h-3.5 w-3.5 cursor-se-resize rounded-full border-2 border-white bg-[#FF0000]" />
+                  {/* Move handle (centre) */}
+                  <span onPointerDown={onPointerDown("move")} title="Drag to move" className="absolute left-1/2 top-1/2 flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 cursor-move items-center justify-center rounded-full border-2 border-white bg-black/45 text-white"><Move className="h-3.5 w-3.5" /></span>
+                  {/* Resize handle (bottom-right) */}
+                  <span onPointerDown={onPointerDown("resize")} title="Drag to resize" className="absolute -bottom-1.5 -right-1.5 h-4 w-4 cursor-se-resize rounded-full border-2 border-white bg-[#FF0000]" />
+                  {/* Rotate handle (top-centre) */}
+                  <span onPointerDown={onPointerDown("rotate")} title="Drag to rotate (hold Shift to snap)" className="absolute -top-6 left-1/2 flex h-5 w-5 -translate-x-1/2 cursor-grab items-center justify-center rounded-full border-2 border-white bg-brand-600 text-white"><RotateCw className="h-3 w-3" /></span>
+                  <span className="absolute -top-1.5 left-1/2 h-4 w-0.5 -translate-x-1/2 bg-white/80" />
                 </div>
               )}
               <button type="button" onClick={remove} title="Remove" className="absolute -right-2 -top-2 z-10 rounded-full bg-rose-100 p-1.5 text-rose-600 shadow hover:bg-rose-200 dark:bg-rose-900/40"><Trash2 className="h-4 w-4" /></button>
@@ -2233,7 +2252,15 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
                       <span className="w-8 text-right text-xs text-slate-400">{Number(draft.thumbLineHeight).toFixed(2)}</span>
                     </span>
                   </label>
-                  <p className="text-[11px] text-slate-400">The topic shrinks automatically only if it doesn't fit the box.</p>
+                  <label className="flex items-center justify-between gap-2 text-sm">
+                    <span className="flex items-center gap-1"><RotateCw className="h-3.5 w-3.5 text-slate-400" /> Rotate</span>
+                    <span className="flex items-center gap-2">
+                      <input type="range" min={-180} max={180} value={rot} onChange={(e) => set("thumbRotate", Number(e.target.value), { later: true })} className="w-28 accent-[#FF0000]" />
+                      <span className="w-9 text-right text-xs text-slate-400">{rot}°</span>
+                      {rot !== 0 && <button type="button" onClick={() => set("thumbRotate", 0)} className="text-xs text-brand-600 hover:underline">reset</button>}
+                    </span>
+                  </label>
+                  <p className="text-[11px] text-slate-400">Drag the box to move, the red corner to resize (zoom), the blue knob on top to rotate. The topic shrinks automatically only if it doesn't fit the box.</p>
                 </div>
                 <button type="button" onClick={() => setShowStyle((v) => !v)} className="flex items-center gap-1 text-xs font-semibold text-brand-600">
                   <ChevronDown className={`h-4 w-4 transition ${showStyle ? "rotate-180" : ""}`} /> Outline, shadow &amp; shade
