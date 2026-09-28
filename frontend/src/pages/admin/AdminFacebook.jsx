@@ -2385,6 +2385,7 @@ const thumbReady = (st) => !!(st?.thumb?.templateUrl && st?.thumb?.enabled !== f
 const defaultPlaylistLabel = (st) => (st?.longPlaylist?.id ? `Default: ${st.longPlaylist.title || "saved playlist"}` : "No playlist (default)");
 
 function FullQuizVideoForm({ st }) {
+  const { settings } = useSettings();
   const [pickerKey, setPickerKey] = useState(0);
   const [playlist, setPlaylist] = useState({ id: "", title: "" });
   const [useThumb, setUseThumb] = useState(true);
@@ -2397,10 +2398,44 @@ function FullQuizVideoForm({ st }) {
   const [msg, setMsg] = useState(null);
   const [jobs, setJobs] = useState([]);
   const [maxQ, setMaxQ] = useState(50);
+  const [ready, setReady] = useState({ youtube: true, facebook: true });
   const hasSource = !!(source.subject || source.session || source.quiz || source.testSeries);
 
-  const load = () => youtubeService.longVideos().then((r) => { setJobs(r?.jobs || []); if (r?.maxQuestions) setMaxQ(r.maxQuestions); }).catch(() => {});
+  // 2) Questions
+  const [total, setTotal] = useState(null); // complete questions in the picked content
+  const [qMode, setQMode] = useState("all"); // "all" | "custom"
+  const [count, setCount] = useState(25);
+  const [startAt, setStartAt] = useState(1);
+  const [order, setOrder] = useState("sequential");
+  // 3) Narration & slides — start from the saved AI Slideshow settings.
+  const [voices, setVoices] = useState([]);
+  const provider = settings?.ttsProvider || "gtranslate";
+  const [voice, setVoice] = useState(settings?.slideshowVoice || "");
+  const [slidesMode, setSlidesMode] = useState(settings?.slideshowSlides === "question" ? "question" : "both");
+  const [questionSec, setQuestionSec] = useState(settings?.slideshowQuestionSec || 10);
+  const [answerSec, setAnswerSec] = useState(settings?.slideshowAnswerSec || 8);
+  const [reveal, setReveal] = useState({ pauseSec: settings?.slideshowRevealPauseSec ?? 3, showSec: settings?.slideshowRevealSec ?? 3, say: settings?.slideshowRevealSay !== false });
+  const [captions, setCaptions] = useState(settings?.slideshowAutoCaptions !== false);
+  // 4) Post to
+  const [toYoutube, setToYoutube] = useState(true);
+  const [toFacebook, setToFacebook] = useState(false);
+
+  const load = () => youtubeService.longVideos().then((r) => {
+    setJobs(r?.jobs || []);
+    if (r?.maxQuestions) setMaxQ(r.maxQuestions);
+    if (r && "facebookReady" in r) setReady({ youtube: !!r.youtubeReady, facebook: !!r.facebookReady });
+  }).catch(() => {});
   useEffect(() => { load(); }, []);
+  useEffect(() => {
+    facebookService.ttsVoices().then((r) => setVoices(r?.voicesByProvider?.[provider] || [])).catch(() => {});
+  }, [provider]);
+  // How many questions the picked content has.
+  useEffect(() => {
+    if (!hasSource) return undefined;
+    let live = true;
+    youtubeService.longVideoCount({ source }).then((r) => { if (live) setTotal(Number(r?.total) || 0); }).catch(() => { if (live) setTotal(null); });
+    return () => { live = false; };
+  }, [source.subject, source.session, source.quiz, source.testSeries]); // eslint-disable-line react-hooks/exhaustive-deps
   // Poll while any job is still working.
   const active = jobs.some((j) => j.status === "queued" || j.status === "running");
   useEffect(() => {
@@ -2409,8 +2444,27 @@ function FullQuizVideoForm({ st }) {
     return () => clearInterval(t);
   }, [active]);
 
+  const clamp = (v, def, lo, hi) => { const n = parseInt(v, 10); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : def; };
+  const known = hasSource && Number.isInteger(total);
+  const nCount = clamp(count, 25, 1, maxQ);
+  const nStart = order === "random" ? 1 : clamp(startAt, 1, 1, 100000);
+  // What will actually be in the video.
+  const planned = (() => {
+    if (!known) return null;
+    if (qMode === "all" && order === "sequential" && nStart === 1) return { n: Math.min(total, maxQ), from: 1, to: Math.min(total, maxQ) };
+    const want = qMode === "all" ? maxQ : nCount;
+    if (order === "random") return { n: Math.min(total, want), random: true };
+    const n = Math.max(0, Math.min(want, total - nStart + 1));
+    return { n, from: nStart, to: nStart + n - 1 };
+  })();
+  const withAnswer = slidesMode === "both";
+  const perQ = clamp(questionSec, 10, 3, 40) + (withAnswer ? clamp(answerSec, 8, 3, 40) : clamp(reveal.pauseSec, 3, 0, 15) + clamp(reveal.showSec, 3, 1, 15));
+  const voiceValue = voices.some((v) => v.id === voice) || (FREE_FORM_VOICE.has(provider) && voice.trim()) ? voice.trim() : (voices[0]?.id || voice);
+
   const start = async () => {
     if (!hasSource) { setMsg({ ok: false, text: "Pick the topic / quiz first." }); return; }
+    if (planned && planned.n === 0) { setMsg({ ok: false, text: `This content has only ${total} questions — lower "Start from".` }); return; }
+    if (!toYoutube && !toFacebook) { setMsg({ ok: false, text: "Choose YouTube and/or Facebook." }); return; }
     if (publishAtError(publishAt)) { setMsg({ ok: false, text: publishAtError(publishAt) }); return; }
     setBusy(true); setMsg(null);
     try {
@@ -2418,61 +2472,169 @@ function FullQuizVideoForm({ st }) {
       await youtubeService.longVideo({
         source, title: title.trim(), privacy, publishAt: localToIso(publishAt), hashtags: hashtags.trim(),
         ...(pl ? { playlist: pl } : {}), useThumbnail: useThumb,
+        options: {
+          count: qMode === "all" ? 0 : nCount, start: nStart, order,
+          voice: voiceValue, slidesMode, reveal: { pauseSec: clamp(reveal.pauseSec, 3, 0, 15), showSec: clamp(reveal.showSec, 3, 1, 15), say: reveal.say },
+          questionSec: clamp(questionSec, 10, 3, 40), answerSec: clamp(answerSec, 8, 3, 40), autoCaptions: captions,
+          toYoutube, toFacebook,
+        },
       });
       setMsg({ ok: true, text: `Started — the video is being made below. It can take 5–20 minutes; you can leave this page (you'll get an email).${publishAt ? ` It goes live on ${new Date(publishAt).toLocaleString()}.` : ""}` });
       setPublishAt("");
-      setSource({ subject: null, session: null, quiz: null, testSeries: null, label: "" }); setPickerKey((k) => k + 1);
+      // Next part: continue from where this video ends.
+      if (qMode === "custom" && order === "sequential" && planned?.to) setStartAt(planned.to + 1);
+      else { setSource({ subject: null, session: null, quiz: null, testSeries: null, label: "" }); setPickerKey((k) => k + 1); setTotal(null); }
       load();
     } catch (e) { setMsg({ ok: false, text: e.message }); } finally { setBusy(false); }
   };
 
+  const step = (n, text) => <p className="mb-1 mt-5 text-sm font-semibold">{n}. {text}</p>;
+  const secInput = (value, set, lo, hi, def) => (
+    <input type="number" min={lo} max={hi} className="input h-9 w-20" value={value}
+      onChange={(e) => set(e.target.value)} onBlur={(e) => set(clamp(e.target.value, def, lo, hi))} />
+  );
+
   return (
     <div className="mt-4">
       <p className="text-sm text-slate-500 dark:text-slate-400">
-        Makes <b>one landscape video</b> of every question in the topic (up to {maxQ}), each followed by its answer, narrated with your AI Slideshow voice — with a clickable chapter for every question. Title: <b>Subject | Topic | Full Quiz (25 Questions)</b>.
+        Makes <b>one landscape video</b> from a topic, narrated, with a clickable chapter for every question — then posts it to <b>YouTube</b> and/or your <b>Facebook Page</b>, now or at a scheduled time.
       </p>
-      <p className="mb-1 mt-3 text-sm font-semibold">1. Content</p>
-      <SourcePicker key={pickerKey} onPick={setSource} />
-      {source.label && <p className="mt-1 text-xs text-slate-500">Selected: <b>{source.label}</b></p>}
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+
+      {step(1, "Content")}
+      <SourcePicker key={pickerKey} onPick={(s) => { setSource(s); setTotal(null); setStartAt(1); }} />
+      {source.label && <p className="mt-1 text-xs text-slate-500">Selected: <b>{source.label}</b>{known ? <> · <b>{total}</b> complete question{total === 1 ? "" : "s"}</> : hasSource ? " · counting…" : ""}</p>}
+
+      {step(2, "Questions")}
+      <div className="grid gap-2 sm:grid-cols-2">
+        {[["all", `All questions (up to ${maxQ})`], ["custom", "Choose how many"]].map(([k, l]) => (
+          <label key={k} className={`flex cursor-pointer items-center gap-2 rounded-lg border p-2.5 text-sm ${qMode === k ? "border-[#FF0000] bg-red-50/50 dark:bg-red-900/10" : "border-slate-200 dark:border-slate-700"}`}>
+            <input type="radio" name="lvQMode" className="h-4 w-4 accent-[#FF0000]" checked={qMode === k} onChange={() => setQMode(k)} /> {l}
+          </label>
+        ))}
+      </div>
+      <div className="mt-3 flex flex-wrap items-end gap-4">
+        {qMode === "custom" && (
+          <div>
+            <label className="mb-1 block text-sm font-medium">Questions in the video</label>
+            <input type="number" min={1} max={maxQ} className="input h-9 w-24" value={count} onChange={(e) => setCount(e.target.value)} onBlur={() => setCount(nCount)} />
+          </div>
+        )}
+        {order === "sequential" && (
+          <div>
+            <label className="mb-1 block text-sm font-medium">Start from question</label>
+            <input type="number" min={1} className="input h-9 w-24" value={startAt} onChange={(e) => setStartAt(e.target.value)} onBlur={() => setStartAt(nStart)} />
+          </div>
+        )}
         <div>
-          <label className="mb-1 block text-sm font-medium">Title <span className="font-normal text-slate-400">(optional)</span></label>
-          <input className="input" maxLength={100} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Automatic: Subject | Topic | Full Quiz (25 Questions)" />
-        </div>
-        <div>
-          <label className="mb-1 block text-sm font-medium">Visibility</label>
-          <select className="input" value={privacy} onChange={(e) => setPrivacy(e.target.value)}>
-            <option value="public">Public</option><option value="unlisted">Unlisted</option><option value="private">Private</option>
+          <label className="mb-1 block text-sm font-medium">Order</label>
+          <select className="input h-9" value={order} onChange={(e) => setOrder(e.target.value)}>
+            <option value="sequential">Sequential (oldest first)</option>
+            <option value="random">Random</option>
           </select>
         </div>
+      </div>
+      {planned && (
+        <p className={`mt-2 text-xs ${planned.n ? "text-emerald-700 dark:text-emerald-400" : "text-rose-600"}`}>
+          {planned.n === 0 ? `Nothing to make — this content has only ${total} questions.`
+            : planned.random ? <>The video will have <b>{planned.n}</b> random questions.</>
+            : <>The video will have questions <b>{planned.from}–{planned.to}</b> ({planned.n}){total > planned.to ? <> — {total - planned.to} more left for a next part (start from {planned.to + 1}).</> : "."}</>}
+          {planned.n > 0 && <> About <b>{Math.max(1, Math.round((planned.n * perQ) / 60))} min</b> long.</>}
+        </p>
+      )}
+
+      {step(3, "Narration & slides")}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <label className="mb-1 flex items-center gap-1.5 text-sm font-medium"><Volume2 className="h-4 w-4 text-slate-400" /> Narrator voice</label>
+          {FREE_FORM_VOICE.has(provider) && !voices.length
+            ? <input className="input" value={voice} onChange={(e) => setVoice(e.target.value)} placeholder="Voice ID" />
+            : (
+              <select className="input" value={voiceValue} onChange={(e) => setVoice(e.target.value)}>
+                {voices.map((v) => <option key={v.id} value={v.id}>{v.label || v.id}</option>)}
+              </select>
+            )}
+          <p className="mt-1 text-xs text-slate-400">Engine and API keys are set in the <b>AI Slideshow</b> card.</p>
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium">Slides per question</label>
+          <select className="input" value={slidesMode} onChange={(e) => setSlidesMode(e.target.value)}>
+            <option value="both">Question slide + answer slide (with explanation)</option>
+            <option value="question">Question slide only (answer turns green)</option>
+          </select>
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap items-end gap-4">
+        <div><label className="mb-1 block text-xs font-medium">Question time</label><div className="flex items-center gap-2">{secInput(questionSec, setQuestionSec, 3, 40, 10)}<span className="text-xs text-slate-500">sec</span></div></div>
+        {withAnswer ? (
+          <div><label className="mb-1 block text-xs font-medium">Answer time</label><div className="flex items-center gap-2">{secInput(answerSec, setAnswerSec, 3, 40, 8)}<span className="text-xs text-slate-500">sec</span></div></div>
+        ) : (
+          <>
+            <div><label className="mb-1 block text-xs font-medium">Thinking pause</label><div className="flex items-center gap-2">{secInput(reveal.pauseSec, (v) => setReveal((r) => ({ ...r, pauseSec: v })), 0, 15, 3)}<span className="text-xs text-slate-500">sec</span></div></div>
+            <div><label className="mb-1 block text-xs font-medium">Show green answer</label><div className="flex items-center gap-2">{secInput(reveal.showSec, (v) => setReveal((r) => ({ ...r, showSec: v })), 1, 15, 3)}<span className="text-xs text-slate-500">sec</span></div></div>
+            <label className="mb-2 flex items-center gap-2 text-sm"><input type="checkbox" className="h-4 w-4 accent-emerald-600" checked={reveal.say} onChange={(e) => setReveal((r) => ({ ...r, say: e.target.checked }))} /> Say the answer</label>
+          </>
+        )}
+        <label className="mb-2 flex items-center gap-2 text-sm"><input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={captions} onChange={(e) => setCaptions(e.target.checked)} /> Captions</label>
+      </div>
+      <p className="mt-1 text-xs text-slate-400">A slide stays up longer when the voice needs it. What the narrator reads (question, options, explanation…) follows the AI Slideshow settings.</p>
+
+      {step(4, "Post to")}
+      <div className="flex flex-wrap gap-4">
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={toYoutube} onChange={(e) => setToYoutube(e.target.checked)} /> <Youtube className="h-4 w-4 text-[#FF0000]" /> YouTube <span className="text-slate-400">(normal video)</span>
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" className="h-4 w-4 accent-[#1877F2]" checked={toFacebook} onChange={(e) => setToFacebook(e.target.checked)} /> <Facebook className="h-4 w-4 text-[#1877F2]" /> Facebook Page <span className="text-slate-400">(normal video)</span>
+        </label>
+      </div>
+      {toYoutube && !ready.youtube && <p className="mt-1 text-xs text-amber-600">YouTube isn't connected — connect it in the YouTube Shorts card.</p>}
+      {toFacebook && !ready.facebook && <p className="mt-1 text-xs text-amber-600">Facebook isn't connected — add your Page ID and token in the Facebook settings.</p>}
+      <p className="mt-1 text-xs text-slate-400">Instagram isn't offered — it only takes Reels (vertical, short).</p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
         <div className="sm:col-span-2">
-          <label className="mb-1 block text-sm font-medium">Scheduled time</label>
-          <YtPublishTimeField key={pickerKey} value={publishAt} onChange={setPublishAt} note="The video is made and uploaded right away; YouTube publishes it at this time." />
+          <label className="mb-1 block text-sm font-medium">Title <span className="font-normal text-slate-400">(optional — used on YouTube and Facebook)</span></label>
+          <input className="input" maxLength={100} value={title} onChange={(e) => setTitle(e.target.value)}
+            placeholder={planned && !planned.random && (planned.from > 1 || planned.to < total) ? `Automatic: Subject | Topic | Questions ${planned.from}–${planned.to}` : "Automatic: Subject | Topic | Full Quiz (25 Questions)"} />
         </div>
-        <div>
-          <label className="mb-1 block text-sm font-medium">Extra hashtags <span className="font-normal text-slate-400">(optional)</span></label>
-          <input className="input" value={hashtags} onChange={(e) => setHashtags(e.target.value)} placeholder="#GK #JKSSB" />
-        </div>
-        <div>
-          <label className="mb-1 block text-sm font-medium">Playlist (folder)</label>
-          {st?.connected
-            ? <YtPlaylistPicker value={playlist.id} onChange={(id, t) => setPlaylist({ id, title: t })} emptyLabel={defaultPlaylistLabel(st)} noneOption={!!st?.longPlaylist?.id} />
-            : <p className="text-xs text-slate-400">Connect YouTube first.</p>}
-        </div>
+        {toYoutube && (
+          <>
+            <div>
+              <label className="mb-1 block text-sm font-medium">YouTube visibility</label>
+              <select className="input" value={privacy} onChange={(e) => setPrivacy(e.target.value)}>
+                <option value="public">Public</option><option value="unlisted">Unlisted</option><option value="private">Private</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">YouTube playlist (folder)</label>
+              {st?.connected
+                ? <YtPlaylistPicker value={playlist.id} onChange={(id, t) => setPlaylist({ id, title: t })} emptyLabel={defaultPlaylistLabel(st)} noneOption={!!st?.longPlaylist?.id} />
+                : <p className="text-xs text-slate-400">Connect YouTube first.</p>}
+            </div>
+          </>
+        )}
         <div>
           <label className="mb-1 block text-sm font-medium">Thumbnail</label>
           {thumbReady(st) ? (
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={useThumb} onChange={(e) => setUseThumb(e.target.checked)} />
-              Use my thumbnail template <span className="text-slate-400">(with this topic's name)</span>
+              Use my thumbnail template <span className="text-slate-400">(YouTube + Facebook)</span>
             </label>
-          ) : <p className="text-xs text-slate-400">{st?.thumb?.templateUrl ? <>Your thumbnail template is switched off — turn on <b>Use for long videos</b> above and click <b>Save</b>.</> : <>YouTube picks a frame. Upload a <b>Thumbnail template</b> above and click <b>Save</b> to brand every long video.</>}</p>}
+          ) : <p className="text-xs text-slate-400">{st?.thumb?.templateUrl ? <>Your thumbnail template is switched off — turn on <b>Use for long videos</b> above and click <b>Save</b>.</> : <>A frame is picked automatically. Upload a <b>Thumbnail template</b> above and click <b>Save</b> to brand every long video.</>}</p>}
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium">Extra hashtags <span className="font-normal text-slate-400">(optional)</span></label>
+          <input className="input" value={hashtags} onChange={(e) => setHashtags(e.target.value)} placeholder="#GK #JKSSB" />
         </div>
       </div>
-      <p className="mt-2 text-xs text-slate-400">Your default + subject/topic hashtags are added automatically and become YouTube tags. Tip: tick <b>“Also make one full video”</b> on a Shorts schedule to have this made automatically after its last Short.</p>
+
+      {step(5, "Scheduled time")}
+      <YtPublishTimeField key={pickerKey} value={publishAt} onChange={setPublishAt}
+        note={`The video is made and uploaded right away; ${[toYoutube && "YouTube", toFacebook && "Facebook"].filter(Boolean).join(" and ") || "it"} publish${toYoutube && toFacebook ? "" : "es"} it at this time.`} />
+
+      <p className="mt-3 text-xs text-slate-400">Your default + subject/topic hashtags are added automatically (YouTube tags too). Tip: tick <b>“Also make one full video”</b> on a Shorts schedule to have this made automatically after its last Short.</p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <button type="button" onClick={start} disabled={busy || !hasSource} className="btn-primary !bg-[#FF0000] hover:!bg-[#d90000]">
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Clapperboard className="h-4 w-4" />} Make &amp; upload video
+        <button type="button" onClick={start} disabled={busy || !hasSource || (!toYoutube && !toFacebook)} className="btn-primary !bg-[#FF0000] hover:!bg-[#d90000]">
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Clapperboard className="h-4 w-4" />} {publishAt ? "Make & schedule video" : "Make & post video"}
         </button>
         {msg && <span className={`text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.text}</span>}
       </div>
@@ -2485,15 +2647,19 @@ function FullQuizVideoForm({ st }) {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="font-medium">{j.title || j.label || "Full quiz video"}{j.auto && <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-500 dark:bg-slate-800">auto</span>}</span>
                 <span className={`text-xs font-semibold ${j.status === "done" ? "text-emerald-600" : j.status === "failed" ? "text-rose-600" : "text-amber-600"}`}>
-                  {j.status === "done" ? "Uploaded" : j.status === "failed" ? "Failed" : j.stageLabel}
+                  {j.status === "done" ? "Posted" : j.status === "failed" ? "Failed" : j.stageLabel}
                   {j.progress && (j.status === "running") ? ` · ${j.stage === "uploading" ? `${j.progress.done}%` : `${j.progress.done}/${j.progress.total}`}` : ""}
                 </span>
               </div>
               <p className="mt-0.5 text-xs text-slate-500">
-                {j.questions ? `${j.questions} questions` : ""}{j.duration ? ` · ${Math.floor(j.duration / 60)}:${String(j.duration % 60).padStart(2, "0")} min` : ""}
+                {[j.toYoutube && "YouTube", j.toFacebook && "Facebook"].filter(Boolean).join(" + ")}
+                {j.questions ? ` · ${j.questions} questions${j.range ? ` (Q${j.range})` : ""}` : ""}{j.duration ? ` · ${Math.floor(j.duration / 60)}:${String(j.duration % 60).padStart(2, "0")} min` : ""}
                 {j.publishAt ? ` · publishes ${new Date(j.publishAt).toLocaleString()}` : ""}
               </p>
-              {j.url && <a href={j.url} target="_blank" rel="noreferrer" className="mt-1 inline-block text-xs font-semibold text-[#FF0000] hover:underline">Open on YouTube{j.privacy && j.privacy !== "public" ? ` (${j.privacy})` : ""}</a>}
+              <div className="mt-1 flex flex-wrap gap-3">
+                {j.url && <a href={j.url} target="_blank" rel="noreferrer" className="text-xs font-semibold text-[#FF0000] hover:underline">Open on YouTube{j.privacy && j.privacy !== "public" ? ` (${j.privacy})` : ""}</a>}
+                {j.fbUrl && <a href={j.fbUrl} target="_blank" rel="noreferrer" className="text-xs font-semibold text-[#1877F2] hover:underline">Open on Facebook</a>}
+              </div>
               {j.notes?.length > 0 && <p className="mt-1 text-xs text-slate-500">{j.notes.join(" · ")}</p>}
               {j.error && <p className="mt-1 text-xs text-rose-600">{j.error}</p>}
             </div>

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { youtubeStatus, saveYoutubeSettings, youtubeConnect, youtubeCallback, youtubeDisconnect, youtubeTest, startLongVideo, listLongVideos, longVideoStatus, youtubeUploadToken, youtubePlaylists, youtubeCreatePlaylist, youtubeThumbnailPreview, youtubeFinishUpload } from "../controllers/youtubeController.js";
+import { youtubeStatus, saveYoutubeSettings, youtubeConnect, youtubeCallback, youtubeDisconnect, youtubeTest, startLongVideo, listLongVideos, longVideoStatus, youtubeUploadToken, youtubePlaylists, youtubeCreatePlaylist, youtubeThumbnailPreview, youtubeFinishUpload, longVideoQuestionCount } from "../controllers/youtubeController.js";
 import { protect, authorize } from "../middleware/auth.js";
 
 // YouTube auto-post connection (admin). Posting itself happens through the
@@ -13,6 +13,7 @@ router.post("/connect", ...admin, youtubeConnect);
 router.post("/disconnect", ...admin, youtubeDisconnect);
 router.post("/test", ...admin, youtubeTest);
 // Long videos: auto-made full-topic quiz video (background job) …
+router.post("/long-video/count", ...admin, longVideoQuestionCount);
 router.post("/long-video", ...admin, startLongVideo);
 router.get("/long-video", ...admin, listLongVideos);
 router.get("/long-video/:id", ...admin, longVideoStatus);

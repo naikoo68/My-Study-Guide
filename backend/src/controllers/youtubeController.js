@@ -13,7 +13,7 @@ import {
   thumbConfigFromSite, thumbnailLines, applyYtExtras, YT_THUMB_POSITIONS,
 } from "../config/youtube.js";
 import { isSafePublicUrl } from "../utils/urlGuard.js";
-import { getFacebookConfig, getFacebookSiteForConfig } from "../config/facebook.js";
+import { getFacebookConfig, getFacebookSiteForConfig, completeQuestionsForSource, isFacebookConfigured } from "../config/facebook.js";
 import {
   queueFullQuizVideo, listLongVideoJobs, getLongVideoJob, publicJob, tenantKeyNow, MAX_LONG_VIDEO_QUESTIONS,
 } from "../config/longVideo.js";
@@ -197,7 +197,6 @@ export async function startLongVideo(req, res) {
     return res.status(400).json({ message: "The scheduled time must be a valid date at least 5 minutes from now." });
   }
   const cfg = await getFacebookConfig();
-  if (!isYoutubeConfigured(cfg)) return res.status(400).json({ message: "Connect YouTube first (YouTube Shorts card)." });
   const site = await getFacebookSiteForConfig(cfg);
   try {
     const job = queueFullQuizVideo({
@@ -209,6 +208,8 @@ export async function startLongVideo(req, res) {
       // Playlist: absent → the default long-video playlist; {id:""} → none.
       ...("playlist" in b ? { playlist: playlistFields(b.playlist).id ? playlistFields(b.playlist) : null } : {}),
       useThumbnail: b.useThumbnail !== false,
+      // How many questions, narration / slides and where to post (blank = saved defaults).
+      options: b.options && typeof b.options === "object" ? b.options : {},
     });
     res.status(202).json({ job });
   } catch (e) {
@@ -216,9 +217,22 @@ export async function startLongVideo(req, res) {
   }
 }
 
+// POST /api/youtube/long-video/count { source } → { total, max, facebookReady, youtubeReady }
+// How many complete questions the picked content has (for "how many questions").
+export async function longVideoQuestionCount(req, res) {
+  const src = req.body?.source || {};
+  const source = { subject: oid(src.subject), session: oid(src.session), quiz: oid(src.quiz), testSeries: oid(src.testSeries) };
+  const cfg = await getFacebookConfig();
+  const ready = { max: MAX_LONG_VIDEO_QUESTIONS, youtubeReady: isYoutubeConfigured(cfg), facebookReady: isFacebookConfigured(cfg) };
+  if (!source.subject && !source.session && !source.quiz && !source.testSeries) return res.json({ total: 0, ...ready });
+  const all = await completeQuestionsForSource(source).catch(() => []);
+  res.json({ total: all.length, ...ready });
+}
+
 // GET /api/youtube/long-video — recent long-video jobs (this institute).
 export async function listLongVideos(req, res) {
-  res.json({ jobs: listLongVideoJobs(tenantKeyNow()), maxQuestions: MAX_LONG_VIDEO_QUESTIONS });
+  const cfg = await getFacebookConfig();
+  res.json({ jobs: listLongVideoJobs(tenantKeyNow()), maxQuestions: MAX_LONG_VIDEO_QUESTIONS, youtubeReady: isYoutubeConfigured(cfg), facebookReady: isFacebookConfigured(cfg) });
 }
 
 // GET /api/youtube/long-video/:id
