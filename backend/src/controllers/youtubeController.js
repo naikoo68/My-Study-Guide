@@ -191,6 +191,11 @@ export async function startLongVideo(req, res) {
   if (!source.subject && !source.session && !source.quiz && !source.testSeries) {
     return res.status(400).json({ message: "Pick the content (a subject, topic session, quiz or My Quiz) first." });
   }
+  // A publish time that was sent but can't be used is an error — never
+  // silently publish right away instead of at the chosen time.
+  if (b.publishAt && !cleanPublishAt(b.publishAt)) {
+    return res.status(400).json({ message: "The scheduled time must be a valid date at least 5 minutes from now." });
+  }
   const cfg = await getFacebookConfig();
   if (!isYoutubeConfigured(cfg)) return res.status(400).json({ message: "Connect YouTube first (YouTube Shorts card)." });
   const site = await getFacebookSiteForConfig(cfg);

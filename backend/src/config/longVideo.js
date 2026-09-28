@@ -201,6 +201,12 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags }) {
       playlist: job.playlist,
       brandColor: site?.brandColor || site?.primaryColor,
     }, cfg);
+    // The render took longer than the gap to the scheduled time → YouTube got
+    // it without a schedule (published right away). Say so instead of hiding it.
+    if (job.publishAt && !up.publishAt) {
+      job.notes.unshift("Scheduled time had already passed when the video was ready — published right away");
+      job.publishAt = null;
+    }
     job.status = "done";
     job.stage = "done";
     job.finishedAt = Date.now();
