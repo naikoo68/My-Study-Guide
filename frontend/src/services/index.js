@@ -355,6 +355,13 @@ export const youtubeService = {
   longVideoStatus: (id) => api.get(`/youtube/long-video/${id}`), // → { job }
   // Short-lived token so the browser can upload a video file straight to YouTube.
   uploadToken: () => api.post("/youtube/upload-token"),
+  // Playlists ("folders") on the connected channel.
+  playlists: () => api.get("/youtube/playlists"), // → { playlists:[{id,title,privacy,count}], canCreate }
+  createPlaylist: (data) => api.post("/youtube/playlists", data), // { title, privacy } → { playlist }
+  // Long-video thumbnail template: live preview (unsaved fields allowed) → { image: dataUrl }
+  thumbnailPreview: (data) => api.post("/youtube/thumbnail-preview", data, { timeout: 60000 }),
+  // After a browser upload: template thumbnail and/or playlist → { notes }
+  finishUpload: (videoId, data) => api.post(`/youtube/videos/${encodeURIComponent(videoId)}/finish`, data, { timeout: 90000 }),
 };
 
 // Upload a video FILE from the browser straight to YouTube (resumable, in

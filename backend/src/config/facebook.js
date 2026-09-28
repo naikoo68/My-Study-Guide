@@ -6,7 +6,7 @@ import User from "../models/User.js";
 import { sendMail } from "./mailer.js";
 import { toInstagramSafeUrl, toInstagramStoryUrl } from "../utils/instagramImage.js";
 import { toFacebookSafeUrl } from "../utils/facebookImage.js";
-import { youtubeConfigFromSite, isYoutubeConfigured, uploadVideoToYoutube, buildYtTitle, buildYtDescription, buildYtTags } from "./youtube.js";
+import { youtubeConfigFromSite, isYoutubeConfigured, uploadVideoToYoutube, buildYtTitle, buildYtDescription, buildYtTags, applyYtExtras } from "./youtube.js";
 
 // Facebook Page auto-posting via the Graph API. The Page ID + long-lived Page
 // access token are stored in the singleton Settings document (entered by the
@@ -59,6 +59,11 @@ async function publishScheduleToYoutube({ sch, cfg, videoUrl, caption, notes, ti
   if (r.ok) {
     sch.ytPostCount = n;
     notes.push(`YouTube ✓ (${title} · youtu.be/${r.id}${r.privacy && r.privacy !== "public" ? ` · ${r.privacy}` : ""})`);
+    // Playlist ("folder"): this schedule's own, else the default Shorts playlist.
+    const playlist = sch.ytPlaylistId
+      ? { id: sch.ytPlaylistId, title: sch.ytPlaylistTitle }
+      : (cfg.ytShortsPlaylistId ? { id: cfg.ytShortsPlaylistId, title: cfg.ytShortsPlaylistTitle } : null);
+    if (playlist) notes.push(...(await applyYtExtras({ videoId: r.id, playlist }, cfg)));
     return true;
   }
   notes.push(`YouTube ✗ (${r.error})`);

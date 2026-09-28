@@ -122,6 +122,10 @@ const fbScheduleSchema = new mongoose.Schema(
     // When the LAST question of the source has been posted, also upload the
     // whole source as ONE long 16:9 YouTube video ("… | Full Quiz (25 Questions)").
     ytFullVideo: { type: Boolean, default: false },
+    // Playlist ("folder") for this schedule's Shorts. Blank = the default
+    // Shorts playlist from the YouTube settings (if any).
+    ytPlaylistId: { type: String, default: "" },
+    ytPlaylistTitle: { type: String, default: "" },
     asImage: { type: Boolean, default: false }, // render the question as an image card (Facebook)
     imageUrl: { type: String, default: "" }, // pre-captured screenshot (client-rendered) to post as-is
 

@@ -12,7 +12,7 @@ import PracticeStream from "../models/PracticeStream.js";
 import PracticeSubject from "../models/PracticeSubject.js";
 import PracticeTopic from "../models/PracticeTopic.js";
 import { isSafePublicUrl } from "../utils/urlGuard.js";
-import { isYoutubeConfigured } from "../config/youtube.js";
+import { isYoutubeConfigured, cleanYtPlaylistId } from "../config/youtube.js";
 import { isQuestionComplete } from "../utils/questionComplete.js";
 import { composeImageAudioToVideo, isCloudinaryConfigured } from "../config/cloudinary.js";
 import { generateSlideshow, isSlideshowConfigured } from "../config/slideshow.js";
@@ -363,6 +363,8 @@ export function pickScheduleFields(body = {}) {
     toYoutube: !!body.toYoutube,
     ytTitle: String(body.ytTitle || "").replace(/[<>]/g, "").trim().slice(0, 90),
     ytFullVideo: !!body.toYoutube && !!body.ytFullVideo,
+    ytPlaylistId: body.toYoutube ? cleanYtPlaylistId(body.ytPlaylistId) : "",
+    ytPlaylistTitle: body.toYoutube && cleanYtPlaylistId(body.ytPlaylistId) ? String(body.ytPlaylistTitle || "").replace(/[<>]/g, "").trim().slice(0, 150) : "",
     asImage: !!body.asImage,
     // Post question/flashcard runs as a Reel by mixing the card image with music.
     // (A slideshow is its own narrated Reel, so it never uses the music Reel.)
