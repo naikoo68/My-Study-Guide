@@ -37,6 +37,18 @@ export function scopesAllowPlaylists(scopes) {
   return PLAYLIST_SCOPES.some((s) => got.includes(s));
 }
 export const YT_THUMB_POSITIONS = ["left", "center", "right", "bottom"];
+export const YT_THUMB_FONTS = ["sans", "serif", "mono"];
+export const DEFAULT_THUMB_BOX = { x: 0.05, y: 0.12, w: 0.56, h: 0.76 };
+// Clean a thumbnail text box → { x, y, w, h } fractions kept on-frame (pure).
+export function cleanThumbBox(b) {
+  const f = (v, d) => { const n = Number(v); return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : d; };
+  if (!b || typeof b !== "object") return { ...DEFAULT_THUMB_BOX };
+  const x = f(b.x, DEFAULT_THUMB_BOX.x);
+  const y = f(b.y, DEFAULT_THUMB_BOX.y);
+  const w = Math.max(0.1, Math.min(1 - x, f(b.w, DEFAULT_THUMB_BOX.w)));
+  const h = Math.max(0.1, Math.min(1 - y, f(b.h, DEFAULT_THUMB_BOX.h)));
+  return { x, y, w, h };
+}
 // A YouTube playlist id ("PL…", "UU…", etc.) or "" — never anything else.
 export const cleanYtPlaylistId = (v) => {
   const s = String(v || "").trim();
@@ -103,13 +115,29 @@ export function youtubeConfigFromSite(site) {
 
 // The thumbnail template settings (long videos) as a plain object.
 export function thumbConfigFromSite(site) {
+  const col = (v, d) => (/^#[0-9a-f]{6}$/i.test(String(v || "")) ? v : d);
+  const int = (v, d, lo, hi) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
   return {
     templateUrl: String(site?.ytThumbTemplateUrl || "").trim(),
     enabled: site?.ytThumbEnabled !== false,
     showText: site?.ytThumbShowText !== false,
     position: YT_THUMB_POSITIONS.includes(site?.ytThumbTextPosition) ? site.ytThumbTextPosition : "left",
-    textColor: /^#[0-9a-f]{6}$/i.test(site?.ytThumbTextColor || "") ? site.ytThumbTextColor : "#ffffff",
-    accentColor: /^#[0-9a-f]{6}$/i.test(site?.ytThumbAccentColor || "") ? site.ytThumbAccentColor : "#facc15",
+    // Where the text sits (the template's empty area) + full styling.
+    box: cleanThumbBox(site?.ytThumbBox),
+    align: ["left", "center", "right"].includes(site?.ytThumbAlign) ? site.ytThumbAlign : "left",
+    vAlign: ["top", "center", "bottom"].includes(site?.ytThumbVAlign) ? site.ytThumbVAlign : "center",
+    font: ["sans", "serif", "mono"].includes(site?.ytThumbFont) ? site.ytThumbFont : "sans",
+    uppercase: !!site?.ytThumbUppercase,
+    textColor: col(site?.ytThumbTextColor, "#ffffff"),
+    kickerColor: col(site?.ytThumbKickerColor, ""),
+    accentColor: col(site?.ytThumbAccentColor, "#facc15"),
+    badgeTextColor: col(site?.ytThumbBadgeTextColor, "#111111"),
+    strokeColor: col(site?.ytThumbStrokeColor, "#000000"),
+    strokeWidth: int(site?.ytThumbStrokeWidth, 3, 0, 16),
+    shadow: site?.ytThumbShadow !== false,
+    panelColor: col(site?.ytThumbPanelColor, ""),
+    panelOpacity: int(site?.ytThumbPanelOpacity, 0, 0, 100),
+    panelRadius: int(site?.ytThumbPanelRadius, 24, 0, 80),
   };
 }
 // Is a thumbnail template set and switched on?

@@ -10,7 +10,7 @@ import {
   buildYtAuthUrl, exchangeYtCode, getYtAccessToken, getYtChannel, revokeYtToken,
   encryptYtSecret, YT_PRIVACY, isYoutubeConfigured,
   scopesAllowPlaylists, getYtGrantedScopes, listYtPlaylists, createYtPlaylist, cleanYtPlaylistId,
-  thumbConfigFromSite, thumbnailLines, applyYtExtras, YT_THUMB_POSITIONS,
+  thumbConfigFromSite, thumbnailLines, applyYtExtras, YT_THUMB_POSITIONS, YT_THUMB_FONTS, cleanThumbBox,
 } from "../config/youtube.js";
 import { isSafePublicUrl } from "../utils/urlGuard.js";
 import { getFacebookConfig, getFacebookSiteForConfig, completeQuestionsForSource, isFacebookConfigured } from "../config/facebook.js";
@@ -61,7 +61,22 @@ function applyThumbFields(target, b) {
   if ("thumbPosition" in b) target.ytThumbTextPosition = YT_THUMB_POSITIONS.includes(b.thumbPosition) ? b.thumbPosition : "left";
   if ("thumbTextColor" in b) target.ytThumbTextColor = hexColor(b.thumbTextColor, "#ffffff");
   if ("thumbAccentColor" in b) target.ytThumbAccentColor = hexColor(b.thumbAccentColor, "#facc15");
+  // Text box (where the subject/topic/quiz fill the template's empty area).
+  if ("thumbBox" in b) target.ytThumbBox = cleanThumbBox(b.thumbBox);
+  if ("thumbAlign" in b) target.ytThumbAlign = ["left", "center", "right"].includes(b.thumbAlign) ? b.thumbAlign : "left";
+  if ("thumbVAlign" in b) target.ytThumbVAlign = ["top", "center", "bottom"].includes(b.thumbVAlign) ? b.thumbVAlign : "center";
+  if ("thumbFont" in b) target.ytThumbFont = YT_THUMB_FONTS.includes(b.thumbFont) ? b.thumbFont : "sans";
+  if ("thumbUppercase" in b) target.ytThumbUppercase = !!b.thumbUppercase;
+  if ("thumbKickerColor" in b) target.ytThumbKickerColor = b.thumbKickerColor ? hexColor(b.thumbKickerColor, "") : "";
+  if ("thumbBadgeTextColor" in b) target.ytThumbBadgeTextColor = hexColor(b.thumbBadgeTextColor, "#111111");
+  if ("thumbStrokeColor" in b) target.ytThumbStrokeColor = hexColor(b.thumbStrokeColor, "#000000");
+  if ("thumbStrokeWidth" in b) target.ytThumbStrokeWidth = clampInt(b.thumbStrokeWidth, 3, 0, 16);
+  if ("thumbShadow" in b) target.ytThumbShadow = !!b.thumbShadow;
+  if ("thumbPanelColor" in b) target.ytThumbPanelColor = b.thumbPanelColor ? hexColor(b.thumbPanelColor, "") : "";
+  if ("thumbPanelOpacity" in b) target.ytThumbPanelOpacity = clampInt(b.thumbPanelOpacity, 0, 0, 100);
+  if ("thumbPanelRadius" in b) target.ytThumbPanelRadius = clampInt(b.thumbPanelRadius, 24, 0, 80);
 }
+const clampInt = (v, d, lo, hi) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
 
 // GET /api/youtube/status
 export async function youtubeStatus(req, res) {
@@ -335,8 +350,14 @@ export async function youtubeCreatePlaylist(req, res) {
 export async function youtubeThumbnailPreview(req, res) {
   const site = await getOrCreateOwn();
   const b = req.body || {};
-  const draft = { ytThumbTemplateUrl: site.ytThumbTemplateUrl, ytThumbEnabled: true, ytThumbShowText: site.ytThumbShowText,
-    ytThumbTextPosition: site.ytThumbTextPosition, ytThumbTextColor: site.ytThumbTextColor, ytThumbAccentColor: site.ytThumbAccentColor };
+  // Seed from ALL saved thumbnail fields, then apply the unsaved edits in `b`,
+  // so the preview matches what a real video would draw.
+  const THUMB_KEYS = ["ytThumbTemplateUrl", "ytThumbEnabled", "ytThumbShowText", "ytThumbTextPosition",
+    "ytThumbTextColor", "ytThumbAccentColor", "ytThumbBox", "ytThumbAlign", "ytThumbVAlign", "ytThumbFont",
+    "ytThumbUppercase", "ytThumbKickerColor", "ytThumbBadgeTextColor", "ytThumbStrokeColor", "ytThumbStrokeWidth",
+    "ytThumbShadow", "ytThumbPanelColor", "ytThumbPanelOpacity", "ytThumbPanelRadius"];
+  const draft = Object.fromEntries(THUMB_KEYS.map((k) => [k, site[k]]));
+  draft.ytThumbEnabled = true;
   applyThumbFields(draft, { ...b, thumbEnabled: true });
   const thumb = thumbConfigFromSite(draft);
   if (!thumb.templateUrl) return res.status(400).json({ message: "Upload a thumbnail template first." });

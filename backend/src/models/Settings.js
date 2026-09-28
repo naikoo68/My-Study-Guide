@@ -367,7 +367,21 @@ const settingsSchema = new mongoose.Schema(
     ytThumbShowText: { type: Boolean, default: true },
     ytThumbTextPosition: { type: String, enum: ["left", "center", "right", "bottom"], default: "left" },
     ytThumbTextColor: { type: String, default: "#ffffff" },
-    ytThumbAccentColor: { type: String, default: "#facc15" },
+    ytThumbAccentColor: { type: String, default: "#facc15" }, // quiz badge fill
+    // The empty area the text fills (fractions of the 1280×720 frame) + full styling.
+    ytThumbBox: { type: mongoose.Schema.Types.Mixed, default: null }, // { x, y, w, h }
+    ytThumbAlign: { type: String, enum: ["left", "center", "right"], default: "left" },
+    ytThumbVAlign: { type: String, enum: ["top", "center", "bottom"], default: "center" },
+    ytThumbFont: { type: String, enum: ["sans", "serif", "mono"], default: "sans" },
+    ytThumbUppercase: { type: Boolean, default: false },
+    ytThumbKickerColor: { type: String, default: "" }, // blank = same as text colour
+    ytThumbBadgeTextColor: { type: String, default: "#111111" },
+    ytThumbStrokeColor: { type: String, default: "#000000" },
+    ytThumbStrokeWidth: { type: Number, default: 3 }, // outline px (0 = none)
+    ytThumbShadow: { type: Boolean, default: true },
+    ytThumbPanelColor: { type: String, default: "" }, // shade box behind the text (blank = none)
+    ytThumbPanelOpacity: { type: Number, default: 0 }, // 0–100
+    ytThumbPanelRadius: { type: Number, default: 24 },
     // ---- Auto-comments ("first comment") ----
     // A GLOBAL list of comments the admin writes once; after EVERY scheduled
     // auto-post/reel publishes, the app adds a saved comment as the first

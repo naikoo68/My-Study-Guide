@@ -61,6 +61,12 @@ const READ_TOGGLES = [
 const readOptsFrom = (s) => Object.fromEntries(READ_TOGGLES.map((t) => [t.key, s?.[t.setting] !== false]));
 const readOptsToSettings = (r) => Object.fromEntries(READ_TOGGLES.map((t) => [t.setting, r[t.key] !== false]));
 
+// "#rrggbb" + alpha (0–1) → "rgba(...)" for the thumbnail shade preview.
+function hexToRgba(hex, a = 1) {
+  const h = /^#[0-9a-f]{6}$/i.test(String(hex || "")) ? hex : "#000000";
+  return `rgba(${parseInt(h.slice(1, 3), 16)},${parseInt(h.slice(3, 5), 16)},${parseInt(h.slice(5, 7), 16)},${a})`;
+}
+
 const WEEKDAYS = [
   { v: 0, l: "Sun" }, { v: 1, l: "Mon" }, { v: 2, l: "Tue" }, { v: 3, l: "Wed" },
   { v: 4, l: "Thu" }, { v: 5, l: "Fri" }, { v: 6, l: "Sat" },
@@ -1988,29 +1994,37 @@ function YtPlaylistPicker({ value = "", onChange, emptyLabel = "No playlist", no
 // video's thumbnail. Preview renders the real thing on the server.
 function YtThumbnailTemplateEditor({ st, onSaved }) {
   const t = st?.thumb || {};
+  const DEF_BOX = { x: 0.05, y: 0.12, w: 0.56, h: 0.76 };
   const fileRef = useRef(null);
+  const frameRef = useRef(null);
   const [draft, setDraft] = useState(() => ({
     thumbTemplateUrl: t.templateUrl || "", thumbEnabled: t.enabled !== false, thumbShowText: t.showText !== false,
-    thumbPosition: t.position || "left", thumbTextColor: t.textColor || "#ffffff", thumbAccentColor: t.accentColor || "#facc15",
+    thumbBox: t.box || DEF_BOX, thumbAlign: t.align || "left", thumbVAlign: t.vAlign || "center",
+    thumbFont: t.font || "sans", thumbUppercase: !!t.uppercase,
+    thumbTextColor: t.textColor || "#ffffff", thumbKickerColor: t.kickerColor || "",
+    thumbAccentColor: t.accentColor || "#facc15", thumbBadgeTextColor: t.badgeTextColor || "#111111",
+    thumbStrokeColor: t.strokeColor || "#000000", thumbStrokeWidth: t.strokeWidth ?? 3, thumbShadow: t.shadow !== false,
+    thumbPanelColor: t.panelColor || "", thumbPanelOpacity: t.panelOpacity ?? 0, thumbPanelRadius: t.panelRadius ?? 24,
   }));
   const [uploading, setUploading] = useState(false);
-  const [busy, setBusy] = useState(""); // "" | "preview"
+  const [busy, setBusy] = useState("");
   const [preview, setPreview] = useState("");
   const [msg, setMsg] = useState(null);
-  // Every change is SAVED straight away — upload the template once and it's used
-  // for every long video; only the subject / topic / quiz text changes per video.
-  const colourTimer = useRef(null);
+  const [showStyle, setShowStyle] = useState(false);
+  const timer = useRef(null);
+
   const persist = async (patch, okText = "Saved.") => {
     try { onSaved(await youtubeService.save(patch)); setMsg({ ok: true, text: okText }); }
     catch (e) { setMsg({ ok: false, text: e.message || "Could not save." }); }
   };
+  // Change a field; save right away (or debounced for colours / the drag box).
   const set = (k, v, { later = false } = {}) => {
     setDraft((d) => ({ ...d, [k]: v })); setPreview("");
-    clearTimeout(colourTimer.current);
-    if (later) colourTimer.current = setTimeout(() => persist({ [k]: v }), 700); // colour pickers fire while dragging
+    clearTimeout(timer.current);
+    if (later) timer.current = setTimeout(() => persist({ [k]: v }), 600);
     else persist({ [k]: v });
   };
-  useEffect(() => () => clearTimeout(colourTimer.current), []);
+  useEffect(() => () => clearTimeout(timer.current), []);
 
   const upload = async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
@@ -2034,6 +2048,62 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
     set("thumbTemplateUrl", "");
   };
 
+  // Drag to move / resize the text box over the template. Pointer coords →
+  // fractions of the frame; saved (debounced) when the drag settles.
+  const box = draft.thumbBox || DEF_BOX;
+  const dragRef = useRef(null);
+  const onPointerDown = (mode) => (e) => {
+    e.preventDefault();
+    const frame = frameRef.current; if (!frame) return; // eslint-disable-line react-hooks/refs
+    const rect = frame.getBoundingClientRect();
+    dragRef.current = { mode, rect, startX: e.clientX, startY: e.clientY, box: { ...box } }; // eslint-disable-line react-hooks/refs
+    e.target.setPointerCapture?.(e.pointerId);
+  };
+  const onPointerMove = (e) => {
+    const d = dragRef.current; if (!d) return;
+    const dx = (e.clientX - d.startX) / d.rect.width;
+    const dy = (e.clientY - d.startY) / d.rect.height;
+    let { x, y, w, h } = d.box;
+    if (d.mode === "move") { x = Math.max(0, Math.min(1 - w, x + dx)); y = Math.max(0, Math.min(1 - h, y + dy)); }
+    else { w = Math.max(0.12, Math.min(1 - x, w + dx)); h = Math.max(0.12, Math.min(1 - y, h + dy)); }
+    setDraft((dd) => ({ ...dd, thumbBox: { x, y, w, h } })); setPreview("");
+  };
+  const onPointerUp = () => {
+    if (!dragRef.current) return;
+    dragRef.current = null;
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => persist({ thumbBox: draft.thumbBox || DEF_BOX }), 200);
+  };
+
+  const colorInput = (label, key, fallback) => (
+    <label className="flex items-center justify-between gap-2 text-sm">
+      <span>{label}</span>
+      <span className="flex items-center gap-1">
+        {key === "thumbKickerColor" || key === "thumbPanelColor" ? (
+          <button type="button" onClick={() => set(key, "")} title="Clear" className="text-xs text-slate-400 hover:text-rose-600">clear</button>
+        ) : null}
+        <input type="color" value={draft[key] || fallback} onChange={(e) => set(key, e.target.value, { later: true })}
+          className="h-8 w-10 cursor-pointer rounded border border-slate-200 dark:border-slate-700" />
+      </span>
+    </label>
+  );
+
+  // Sample text drawn in the box, styled to APPROXIMATE the server output, so
+  // dragging/styling gives instant feedback (the Preview button is exact).
+  const sampleStyle = {
+    color: draft.thumbTextColor,
+    WebkitTextStroke: draft.thumbStrokeWidth > 0 ? `${Math.max(1, draft.thumbStrokeWidth / 3)}px ${draft.thumbStrokeColor}` : undefined,
+    textShadow: draft.thumbShadow ? "0 2px 6px rgba(0,0,0,.8)" : undefined,
+    textTransform: draft.thumbUppercase ? "uppercase" : undefined,
+    fontFamily: draft.thumbFont === "serif" ? "Georgia,serif" : draft.thumbFont === "mono" ? "monospace" : "inherit",
+    textAlign: draft.thumbAlign,
+    alignItems: draft.thumbAlign === "center" ? "center" : draft.thumbAlign === "right" ? "flex-end" : "flex-start",
+    justifyContent: draft.thumbVAlign === "top" ? "flex-start" : draft.thumbVAlign === "bottom" ? "flex-end" : "center",
+  };
+  const panelBg = draft.thumbPanelColor && draft.thumbPanelOpacity > 0
+    ? { background: hexToRgba(draft.thumbPanelColor, draft.thumbPanelOpacity / 100), borderRadius: draft.thumbPanelRadius / 3, padding: "4px 8px" }
+    : {};
+
   return (
     <div className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2049,58 +2119,125 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
         )}
       </div>
       <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-        <b>Upload once</b> — your branded <b>1280×720</b> background (logo, colours, photo) with an <b>empty area</b> for text. It's saved and used for <b>every</b> long video; only the text changes by itself: the video's <b>subject</b>, <b>topic</b> and <b>quiz</b> (e.g. “Quiz 2”, or “25 Questions” for a whole topic). Needs a verified YouTube channel (youtube.com/verify).
+        <b>Upload once</b> — your branded <b>1280×720</b> background with an <b>empty area</b> for text. Then <b>drag the box</b> onto that area: every long video fills it with its own <b>subject</b>, <b>topic</b> and <b>quiz</b>. Needs a verified YouTube channel (youtube.com/verify).
       </p>
+
       <div className="mt-3 flex flex-wrap items-start gap-4">
+        {/* Template with the draggable text box */}
         <div className="flex flex-col items-center gap-2">
           {draft.thumbTemplateUrl ? (
-            <div className="relative">
-              <img src={preview || draft.thumbTemplateUrl} alt="Thumbnail template" className="aspect-video w-64 rounded-lg border border-slate-200 object-cover dark:border-slate-700" />
-              <button type="button" onClick={remove} title="Remove" className="absolute -right-2 -top-2 rounded-full bg-rose-100 p-1.5 text-rose-600 shadow hover:bg-rose-200 dark:bg-rose-900/40"><Trash2 className="h-4 w-4" /></button>
+            <div ref={frameRef} className="relative aspect-video w-80 select-none overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700"
+              onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerLeave={onPointerUp}>
+              <img src={preview || draft.thumbTemplateUrl} alt="Thumbnail template" className="pointer-events-none absolute inset-0 h-full w-full object-cover" draggable={false} />
+              {!preview && draft.thumbShowText && (
+                <div onPointerDown={onPointerDown("move")}
+                  className="absolute cursor-move rounded border-2 border-dashed border-white/90 shadow-[0_0_0_1px_rgba(0,0,0,.4)]"
+                  style={{ left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.w * 100}%`, height: `${box.h * 100}%` }}>
+                  <div className="flex h-full w-full flex-col gap-0.5 overflow-hidden p-1 text-[7px] font-black leading-tight" style={sampleStyle}>
+                    <div style={panelBg}>
+                      <div style={{ color: draft.thumbKickerColor || draft.thumbTextColor, fontSize: "6px" }}>ACADEMIC LIBRARIANSHIP</div>
+                      <div style={{ fontSize: "13px", lineHeight: 1 }}>Library Management</div>
+                      <div style={{ display: "inline-block", background: draft.thumbAccentColor, color: draft.thumbBadgeTextColor, borderRadius: 3, padding: "0 4px", fontSize: "8px", marginTop: 2 }}>Quiz 2</div>
+                    </div>
+                  </div>
+                  <span onPointerDown={onPointerDown("resize")} className="absolute -bottom-1.5 -right-1.5 h-3.5 w-3.5 cursor-se-resize rounded-full border-2 border-white bg-[#FF0000]" />
+                </div>
+              )}
+              <button type="button" onClick={remove} title="Remove" className="absolute -right-2 -top-2 z-10 rounded-full bg-rose-100 p-1.5 text-rose-600 shadow hover:bg-rose-200 dark:bg-rose-900/40"><Trash2 className="h-4 w-4" /></button>
             </div>
           ) : (
-            <div className="flex aspect-video w-64 items-center justify-center rounded-lg border-2 border-dashed border-slate-300 text-slate-300 dark:border-slate-600"><ImagePlus className="h-8 w-8" /></div>
+            <div className="flex aspect-video w-80 items-center justify-center rounded-lg border-2 border-dashed border-slate-300 text-slate-300 dark:border-slate-600"><ImagePlus className="h-8 w-8" /></div>
           )}
-          <label className={`btn-outline cursor-pointer text-sm ${uploading ? "pointer-events-none opacity-60" : ""}`}>
-            {uploading ? <><Loader2 className="h-4 w-4 animate-spin" /> Uploading…</> : <><Upload className="h-4 w-4" /> {draft.thumbTemplateUrl ? "Replace template" : "Upload template"}</>}
-            <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={upload} disabled={uploading} />
-          </label>
-          {preview && <p className="text-[11px] text-slate-400">Preview with sample text</p>}
-        </div>
-        <div className="min-w-[220px] flex-1 space-y-3">
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={draft.thumbShowText} onChange={(e) => set("thumbShowText", e.target.checked)} />
-            Write the subject, topic &amp; quiz on it <span className="text-slate-400">(changes for each video)</span>
-          </label>
-          {draft.thumbShowText && (
-            <>
-              <div>
-                <label className="mb-1 block text-sm font-medium">Text position</label>
-                <select className="input" value={draft.thumbPosition} onChange={(e) => set("thumbPosition", e.target.value)}>
-                  <option value="left">Left side</option>
-                  <option value="right">Right side</option>
-                  <option value="center">Centre</option>
-                  <option value="bottom">Bottom</option>
-                </select>
-              </div>
-              <div className="flex flex-wrap gap-4">
-                <label className="flex items-center gap-2 text-sm">Text colour
-                  <input type="color" value={draft.thumbTextColor} onChange={(e) => set("thumbTextColor", e.target.value, { later: true })} className="h-8 w-10 cursor-pointer rounded border border-slate-200 dark:border-slate-700" />
-                </label>
-                <label className="flex items-center gap-2 text-sm">Badge colour
-                  <input type="color" value={draft.thumbAccentColor} onChange={(e) => set("thumbAccentColor", e.target.value, { later: true })} className="h-8 w-10 cursor-pointer rounded border border-slate-200 dark:border-slate-700" />
-                </label>
-              </div>
-            </>
-          )}
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={showPreview} disabled={!!busy || !draft.thumbTemplateUrl} className="btn-outline">
-              {busy === "preview" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />} Preview
-            </button>
-            <span className="self-center text-xs text-slate-400">Changes save automatically.</span>
+          <div className="flex items-center gap-2">
+            <label className={`btn-outline cursor-pointer text-sm ${uploading ? "pointer-events-none opacity-60" : ""}`}>
+              {uploading ? <><Loader2 className="h-4 w-4 animate-spin" /> Uploading…</> : <><Upload className="h-4 w-4" /> {draft.thumbTemplateUrl ? "Replace" : "Upload template"}</>}
+              <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={upload} disabled={uploading} />
+            </label>
+            {draft.thumbTemplateUrl && (
+              <button type="button" onClick={showPreview} disabled={!!busy} className="btn-outline text-sm">
+                {busy === "preview" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />} Exact preview
+              </button>
+            )}
           </div>
-          {msg && <p className={`text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.text}</p>}
+          {preview
+            ? <button type="button" onClick={() => setPreview("")} className="text-[11px] text-brand-600 hover:underline">← back to editing the box</button>
+            : <p className="text-[11px] text-slate-400">Drag the box; drag the red corner to resize.</p>}
         </div>
+
+        {/* Controls */}
+        {draft.thumbTemplateUrl && (
+          <div className="min-w-[240px] flex-1 space-y-3">
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={draft.thumbShowText} onChange={(e) => set("thumbShowText", e.target.checked)} />
+              Write the subject, topic &amp; quiz on it
+            </label>
+            {draft.thumbShowText && (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium">Align</label>
+                    <div className="flex gap-1">
+                      {[["left", "L"], ["center", "C"], ["right", "R"]].map(([v, l]) => (
+                        <button key={v} type="button" onClick={() => set("thumbAlign", v)}
+                          className={`h-8 flex-1 rounded border text-xs font-bold ${draft.thumbAlign === v ? "border-[#FF0000] bg-red-50 text-[#FF0000] dark:bg-red-900/20" : "border-slate-200 dark:border-slate-700"}`}>{l}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium">Font</label>
+                    <select className="input h-8 py-0 text-sm" value={draft.thumbFont} onChange={(e) => set("thumbFont", e.target.value)}>
+                      <option value="sans">Sans (bold)</option>
+                      <option value="serif">Serif</option>
+                      <option value="mono">Mono</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                  {colorInput("Text colour", "thumbTextColor", "#ffffff")}
+                  {colorInput("Subject colour", "thumbKickerColor", "#ffffff")}
+                  {colorInput("Quiz badge", "thumbAccentColor", "#facc15")}
+                  {colorInput("Badge text", "thumbBadgeTextColor", "#111111")}
+                </div>
+                <button type="button" onClick={() => setShowStyle((v) => !v)} className="flex items-center gap-1 text-xs font-semibold text-brand-600">
+                  <ChevronDown className={`h-4 w-4 transition ${showStyle ? "rotate-180" : ""}`} /> Outline, shadow &amp; shade
+                </button>
+                {showStyle && (
+                  <div className="space-y-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                      {colorInput("Outline colour", "thumbStrokeColor", "#000000")}
+                      <label className="flex items-center justify-between gap-2 text-sm">
+                        <span>Outline</span>
+                        <input type="range" min={0} max={12} value={draft.thumbStrokeWidth} onChange={(e) => set("thumbStrokeWidth", Number(e.target.value), { later: true })} className="w-24 accent-[#FF0000]" />
+                      </label>
+                    </div>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={draft.thumbShadow} onChange={(e) => set("thumbShadow", e.target.checked)} /> Drop shadow
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={draft.thumbUppercase} onChange={(e) => set("thumbUppercase", e.target.checked)} /> UPPERCASE
+                    </label>
+                    <div className="border-t border-slate-100 pt-2 dark:border-slate-800">
+                      <p className="mb-1 text-xs font-semibold text-slate-500">Shade behind text <span className="font-normal text-slate-400">(for busy backgrounds)</span></p>
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                        {colorInput("Shade colour", "thumbPanelColor", "#000000")}
+                        <label className="flex items-center justify-between gap-2 text-sm">
+                          <span>Opacity</span>
+                          <input type="range" min={0} max={100} value={draft.thumbPanelOpacity} onChange={(e) => set("thumbPanelOpacity", Number(e.target.value), { later: true })} className="w-24 accent-[#FF0000]" />
+                        </label>
+                        <label className="flex items-center justify-between gap-2 text-sm">
+                          <span>Corners</span>
+                          <input type="range" min={0} max={60} value={draft.thumbPanelRadius} onChange={(e) => set("thumbPanelRadius", Number(e.target.value), { later: true })} className="w-24 accent-[#FF0000]" />
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+            <span className="block text-xs text-slate-400">Changes save automatically.</span>
+            {msg && <p className={`text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.text}</p>}
+          </div>
+        )}
       </div>
     </div>
   );
