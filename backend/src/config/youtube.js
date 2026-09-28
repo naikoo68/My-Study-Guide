@@ -177,17 +177,58 @@ export const encryptYtSecret = (v) => (v ? encryptSecret(v) : "");
 // YouTube rejects "<" and ">" in titles/descriptions.
 const clean = (s) => String(s || "").replace(/[<>]/g, "").replace(/\r/g, "");
 
-// Fixed, numbered title: "Daily GK Quiz #12". The template may contain {n} to
-// place the number; otherwise " #n" is appended. Max 100 chars.
-export function buildYtTitle(template, n, fallback = "Daily Quiz") {
-  const base = clean(template).replace(/\s+/g, " ").trim() || clean(fallback).trim() || "Daily Quiz";
-  const num = Number.isInteger(n) && n > 0 ? n : null;
-  let title = base.includes("{n}") ? base.replace(/\{n\}/g, num ?? "").replace(/\s*#\s*$/, "").trim() : (num ? `${base} #${num}` : base);
-  if (title.length > 100) {
-    const suffix = !base.includes("{n}") && num ? ` #${num}` : "";
-    title = `${title.slice(0, 100 - suffix.length).trimEnd()}${suffix}`.slice(0, 100);
+// Default YouTube title: "Subject | Topic | Quiz N" — e.g. a 25-question topic
+// posted 5 questions per video becomes Quiz 1 … Quiz 5.
+export const DEFAULT_YT_TITLE = "{subject} | {topic} | Quiz {n}";
+const TITLE_VARS = /\{(subject|topic|quiz|n|total)\}/i;
+
+// Build the video title from a template. Placeholders: {subject} {topic}
+// {quiz} (quiz/test name) {n} (quiz number) {total} (quizzes in the topic).
+// Blank template → DEFAULT_YT_TITLE. A plain title with no placeholders gets
+// " #n" appended ("Daily GK Quiz #12"). Empty parts are dropped cleanly and the
+// result is capped at YouTube's 100 chars while keeping the quiz number.
+export function buildYtTitle(template, vars = {}, fallback = "Daily Quiz") {
+  const v = typeof vars === "number" ? { n: vars } : (vars || {});
+  const num = Number.isInteger(v.n) && v.n > 0 ? v.n : null;
+  const tidy = (s) => clean(s).replace(/\s+/g, " ").trim();
+  const tpl = tidy(template) || DEFAULT_YT_TITLE;
+
+  if (!TITLE_VARS.test(tpl)) {
+    const base = tpl || tidy(fallback) || "Daily Quiz";
+    const suffix = num ? ` #${num}` : "";
+    return `${base.slice(0, 100 - suffix.length).trimEnd()}${suffix}`;
   }
-  return title;
+
+  const values = {
+    subject: tidy(v.subject),
+    topic: tidy(v.topic),
+    quiz: tidy(v.quiz),
+    n: num ? String(num) : "",
+    total: Number.isInteger(v.total) && v.total > 0 ? String(v.total) : "",
+  };
+  // Split into parts on " | " (or • · – —) so an empty part (e.g. no topic)
+  // is dropped instead of leaving "Polity |  | Quiz 1".
+  const VAR_G = /\{(subject|topic|quiz|n|total)\}/gi;
+  const segs = tpl.split(/\s*[|•·–—]\s*/).filter((s) => s.trim());
+  const parts = [];
+  for (const seg of segs) {
+    const keys = [...seg.matchAll(VAR_G)].map((m) => m[1].toLowerCase());
+    if (keys.length && keys.every((k) => !values[k])) continue; // all its placeholders are empty
+    const text = seg.replace(VAR_G, (_, k) => values[k.toLowerCase()])
+      .replace(/\s*(?:of|\/)\s*$/i, "") // "Quiz 3 of " when {total} is unknown
+      .replace(/\s+/g, " ").trim();
+    if (text) parts.push({ text, numbered: keys.includes("n") });
+  }
+  if (!parts.length) return num ? `${tidy(fallback) || "Daily Quiz"} #${num}` : (tidy(fallback) || "Daily Quiz");
+
+  const title = parts.map((p) => p.text).join(" | ");
+  if (title.length <= 100) return title;
+  // Too long: keep the numbered part ("Quiz 3") whole and shorten the rest.
+  const tail = parts.find((p) => p.numbered);
+  if (!tail) return title.slice(0, 100).trimEnd();
+  const head = parts.filter((p) => p !== tail).map((p) => p.text).join(" | ");
+  const room = 100 - tail.text.length - 3;
+  return `${head.slice(0, Math.max(0, room)).trimEnd()} | ${tail.text}`.slice(0, 100);
 }
 
 // Description = the post caption + #Shorts. YouTube caps descriptions at 5000 bytes.
