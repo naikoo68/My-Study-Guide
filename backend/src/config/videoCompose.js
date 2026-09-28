@@ -123,7 +123,14 @@ export async function composeSlideshowMp4({
   tailSec = 0.6,
   maxTotalSec = 88, // Facebook Reels limit is 90 s — keep a small margin
   onProgress = null, // (done, total) after each slide segment — for the UI's ETA
+  // A SAFE MARGIN (fraction per side) around a background TEMPLATE so its logo
+  // / buttons at the very edges are never flush against the frame (long videos
+  // set ~0.03). The freed border is filled by the blurred copy behind it.
+  templateInset = 0,
 } = {}) {
+  const inset = Math.max(0, Math.min(0.2, Number(templateInset) || 0));
+  const fitW = Math.max(1, Math.round(width * (1 - 2 * inset)));
+  const fitH = Math.max(1, Math.round(height * (1 - 2 * inset)));
   // A slide with no audioPath is SILENT (it lasts its minSec).
   const list = (Array.isArray(slides) ? slides : []).filter((s) => s?.imagePath);
   if (!list.length) throw new Error("No slides to compose.");
@@ -169,7 +176,7 @@ export async function composeSlideshowMp4({
     const frameFilter = bg
       ? `[0:v]setsar=1,split[tf][tb];` +
         `[tb]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},boxblur=40:2,eq=brightness=-0.06,setsar=1[blur];` +
-        `[tf]scale=${width}:${height}:force_original_aspect_ratio=decrease,setsar=1[fit];` +
+        `[tf]scale=${fitW}:${fitH}:force_original_aspect_ratio=decrease,setsar=1[fit];` +
         `[blur][fit]overlay=(W-w)/2:(H-h)/2[bg];` +
         `[1:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,format=rgba[fg];` +
         `[bg][fg]overlay=(W-w)/2:(H-h)/2`

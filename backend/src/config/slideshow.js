@@ -157,6 +157,8 @@ export async function generateSlideshow(question, opts = {}) {
   // instead of being hosted on Cloudinary (long videos are big).
   const landscape = opts.orientation === "landscape";
   const keepFile = !!opts.keepFile;
+  // Long-video templates get a small safe margin so edge logos aren't clipped.
+  const templateInset = landscape ? 0.03 : 0;
   if (!questions.length) throw new Error("A question is required for the slideshow.");
   if (!isCloudinaryConfigured()) throw new Error("Cloudinary is not configured (media processing unavailable).");
   if (!(await isFfmpegAvailable())) {
@@ -253,6 +255,7 @@ export async function generateSlideshow(question, opts = {}) {
         caption: brandOpts.autoCaptions ? (s.caption || s.narration) : "",
         template: !!templatePaths[templateRole(s.role)],
         templateSize: templateSizes[templateRole(s.role)] || null,
+        templateInset,
         outPath: shotPaths[i],
       })),
       { siteUrl: brandOpts.siteUrl, landscape }
@@ -329,6 +332,7 @@ export async function generateSlideshow(question, opts = {}) {
       })),
       outPath,
       workDir,
+      templateInset,
       onProgress: (done, total) => onProgress(SLIDESHOW_STATUS.RENDERING_VIDEO, done, total),
     });
     // Start time of each question in the video (YouTube chapters).

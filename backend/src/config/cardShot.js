@@ -192,6 +192,7 @@ async function shootSlide(browser, it, { siteUrl = "", readyTimeoutMs = 25000, l
     }
     if (siteUrl) p.set("site", siteUrl);
     if (landscape) p.set("o", "l");
+    if (it.template && it.templateInset > 0) p.set("m", String(Math.round(it.templateInset * 1000) / 1000));
     // Don't wait for "network idle" — the page itself says when it's ready
     // (question loaded + web fonts + content fitted: data-card-ready="1"), or
     // that it can't show the question (data-card-error).
