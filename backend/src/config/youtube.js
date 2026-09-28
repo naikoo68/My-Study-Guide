@@ -578,17 +578,23 @@ export async function setYtThumbnail({ videoId, image, mime = "image/jpeg" }, cf
   }
 }
 
-// The text lines written on a long-video thumbnail from its parts. The big
-// headline is the topic (or subject), with the subject above it and a short
-// highlighted line below ("25 Questions"). Pure — tested.
-export function thumbnailLines({ subject = "", topic = "", count = 0, title = "" } = {}) {
+// The ONLY text that changes on the (one-time uploaded) thumbnail template:
+//   kicker   = subject          e.g. "Academic Librarianship"
+//   headline = topic            e.g. "Library Management and Administration"
+//   badge    = quiz             e.g. "Quiz 2"
+// With no quiz (a whole topic) the badge says how many questions ("25
+// Questions", or "Questions 26–50" for a part). A missing topic moves the quiz
+// (or subject) up to the headline so nothing is left blank. Pure — tested.
+export function thumbnailLines({ subject = "", topic = "", quiz = "", count = 0, range = "", title = "" } = {}) {
   const tidy = (s) => clean(s).replace(/\s+/g, " ").trim();
-  const s = tidy(subject), t = tidy(topic);
-  if (s || t) {
+  const s = tidy(subject), t = tidy(topic), qz = tidy(quiz);
+  if (s || t || qz) {
+    const countBadge = range ? `Questions ${tidy(range)}` : Number(count) > 0 ? `${Number(count)} Questions` : "Full Quiz";
+    const headline = t || qz || s;
     return {
-      kicker: t && s ? s.slice(0, 60) : "",
-      headline: (t || s).slice(0, 80),
-      badge: Number(count) > 0 ? `${Number(count)} Questions` : "Full Quiz",
+      kicker: (headline === s ? "" : s).slice(0, 60),
+      headline: headline.slice(0, 80),
+      badge: (qz && headline !== qz ? qz : countBadge).slice(0, 40),
     };
   }
   // Only a title (e.g. your own upload): split "A | B | C" into kicker/headline/badge.
