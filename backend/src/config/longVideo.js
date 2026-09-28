@@ -12,7 +12,7 @@ import { tenantStore, getCurrentTenantId } from "../utils/tenantContext.js";
 import { generateSlideshow } from "./slideshow.js";
 import {
   uploadVideoFileToYoutube, buildYtTitle, buildYtLongDescription, buildYtTags,
-  isYoutubeConfigured, DEFAULT_YT_LONG_TITLE, applyYtExtras, thumbnailLines, thumbTemplateActive, setYtThumbnail,
+  isYoutubeConfigured, DEFAULT_YT_LONG_TITLE, applyYtExtras, thumbnailLines, thumbTemplateActive, setYtThumbnail, YT_SHORT_MAX_SEC,
 } from "./youtube.js";
 import { postLongVideoToFacebookPage } from "./fbLongVideo.js";
 import { TTS_PROVIDERS } from "../utils/ttsVoices.js";
@@ -138,6 +138,9 @@ export function normalizeLongVideoOptions(o = {}, site = {}) {
     part: clampInt(o.part, 0, 0, 100000),
     toYoutube: o.toYoutube !== false,
     toFacebook: !!o.toFacebook,
+    // Also mark the YouTube upload as a Short (#Shorts) — only honoured when the
+    // finished video is <= 3 minutes; skipped with a note otherwise.
+    asShort: !!o.asShort,
   };
 }
 
@@ -260,11 +263,19 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
 
     const tags = await hashtagsForQuestion(questions[0], site, hashtags);
     const offset = opts.order === "random" ? 0 : first - 1;
+    // Short only when the admin asked AND the finished video is <= 3 minutes.
+    const asShort = opts.asShort && job.duration > 0 && job.duration <= YT_SHORT_MAX_SEC;
+    if (opts.asShort && opts.toYoutube) {
+      job.notes.push(asShort
+        ? "YouTube: marked as a Short (#Shorts)"
+        : `Not a Short — the video is ${Math.round((job.duration / 60) * 10) / 10} min (max 3 min)`);
+    }
     const description = buildYtLongDescription({
       intro: `${questions.length} questions with answers${job.range ? ` (questions ${job.range})` : ""}${breadcrumb ? ` — ${breadcrumb}` : ""}.`,
       chapters: (result.chapters || []).map((c) => ({ ...c, label: `Question ${offset + c.question}` })),
       hashtags: tags,
       siteUrl,
+      shorts: asShort,
     });
 
     // Template thumbnail — drawn ONCE, used by YouTube and Facebook.

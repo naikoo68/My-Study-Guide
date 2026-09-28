@@ -414,7 +414,9 @@ export function ytTimestamp(sec) {
 // Description for a long quiz video: intro, clickable chapters (one per
 // question — YouTube needs ≥3 chapters, the first at 0:00, each ≥10 s), then
 // the hashtags. No #Shorts. Max 5000 bytes.
-export function buildYtLongDescription({ intro = "", chapters = [], hashtags = "", siteUrl = "" } = {}) {
+// A YouTube Short must be 3 minutes or less.
+export const YT_SHORT_MAX_SEC = 180;
+export function buildYtLongDescription({ intro = "", chapters = [], hashtags = "", siteUrl = "", shorts = false } = {}) {
   const lines = [];
   if (intro) lines.push(clean(intro).trim());
   const ch = (Array.isArray(chapters) ? chapters : []).filter((c) => Number.isFinite(Number(c?.startSec)));
@@ -425,7 +427,9 @@ export function buildYtLongDescription({ intro = "", chapters = [], hashtags = "
     ch.forEach((c, i) => lines.push(`${ytTimestamp(i === 0 ? 0 : c.startSec)} ${clean(c.label || `Question ${c.question || i + 1}`)}`));
   }
   if (siteUrl) { lines.push(""); lines.push(`Practice more quizzes: ${siteUrl}`); }
-  if (hashtags) { lines.push(""); lines.push(clean(hashtags).trim()); }
+  // #Shorts hint (only when the video qualifies — see YT_SHORT_MAX_SEC).
+  const tagLine = [shorts ? "#Shorts" : "", clean(hashtags).trim()].filter(Boolean).join(" ");
+  if (tagLine) { lines.push(""); lines.push(tagLine); }
   let d = lines.join("\n").trim();
   while (Buffer.byteLength(d, "utf8") > 5000) d = d.slice(0, -50);
   return d;

@@ -2643,6 +2643,7 @@ function FullQuizVideoForm({ st, onStatus }) {
   // 4) Post to
   const [toYoutube, setToYoutube] = useState(d.toYoutube !== false);
   const [toFacebook, setToFacebook] = useState(!!d.toFacebook);
+  const [asShort, setAsShort] = useState(!!d.asShort);
 
   const load = () => youtubeService.longVideos().then((r) => {
     setJobs(r?.jobs || []);
@@ -2686,6 +2687,10 @@ function FullQuizVideoForm({ st, onStatus }) {
   })();
   const withAnswer = slidesMode === "both";
   const perQ = clamp(questionSec, 10, 3, 40) + (withAnswer ? clamp(answerSec, 8, 3, 40) : clamp(reveal.pauseSec, 3, 0, 15) + clamp(reveal.showSec, 3, 1, 15));
+  // Rough length (real narration may run longer — the server re-checks). A Short
+  // is only offered when the video is about 3 minutes or less.
+  const estSec = planned?.n ? planned.n * perQ : 0;
+  const shortAllowed = estSec > 0 && estSec <= 180;
   const voiceValue = voices.some((v) => v.id === voice) || (FREE_FORM_VOICE.has(provider) && voice.trim()) ? voice.trim() : (voices[0]?.id || voice);
 
   // Every setting on screen, as sent to the server.
@@ -2694,7 +2699,7 @@ function FullQuizVideoForm({ st, onStatus }) {
     engine: provider, voice: voiceValue, slidesMode,
     reveal: { pauseSec: clamp(reveal.pauseSec, 3, 0, 15), showSec: clamp(reveal.showSec, 3, 1, 15), say: reveal.say },
     questionSec: clamp(questionSec, 10, 3, 40), answerSec: clamp(answerSec, 8, 3, 40), autoCaptions: captions,
-    read: readOpts, useTemplates, toYoutube, toFacebook,
+    read: readOpts, useTemplates, toYoutube, toFacebook, asShort: asShort && shortAllowed,
   });
   // "Save settings only": the form opens with these next time.
   const saveDefaults = async () => {
@@ -2990,6 +2995,16 @@ function FullQuizVideoForm({ st, onStatus }) {
       </div>
       {toYoutube && !ready.youtube && <p className="mt-1 text-xs text-amber-600">YouTube isn't connected — connect it in the YouTube Shorts card.</p>}
       {toFacebook && !ready.facebook && <p className="mt-1 text-xs text-amber-600">Facebook isn't connected — add your Page ID and token in the Facebook settings.</p>}
+      {/* Short option — YouTube only, and only for videos of about 3 minutes or less. */}
+      {toYoutube && shortAllowed && (
+        <label className="mt-2 flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-0.5 h-4 w-4 accent-[#FF0000]" checked={asShort} onChange={(e) => setAsShort(e.target.checked)} />
+          <span>Also upload it as a <b>YouTube Short</b> <span className="text-slate-400">(adds #Shorts — this video is about {Math.max(1, Math.round(estSec / 60))} min, within the 3-minute limit)</span></span>
+        </label>
+      )}
+      {toYoutube && !shortAllowed && estSec > 0 && (
+        <p className="mt-2 text-xs text-slate-400">Short not available — this video is about {Math.round((estSec / 60) * 10) / 10} min (a Short must be 3 minutes or less). Use fewer questions or shorter slide times.</p>
+      )}
       <p className="mt-1 text-xs text-slate-400">Instagram isn't offered — it only takes Reels (vertical, short).</p>
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         <div className="sm:col-span-2">
