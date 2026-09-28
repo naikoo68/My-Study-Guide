@@ -50,6 +50,25 @@ function cleanup() {
 }
 
 // Public view of a job (no internals).
+// Overall progress (0–100) across a job's stages, so the UI can show a % and a
+// time-left estimate (like the AI Slideshow test). Each stage owns a slice of
+// the bar; within a stage we use its done/total. Pure.
+const STAGE_PCT = {
+  queued: [0, 2], picking: [2, 3], pending: [2, 3],
+  generating_slides: [5, 35], generating_audio: [40, 15],
+  rendering_video: [55, 28], ready: [83, 2], finishing: [85, 3],
+  uploading: [88, 8], uploading_facebook: [96, 2], short: [98, 2],
+  done: [100, 0], failed: [0, 0],
+};
+export function jobPercent(j) {
+  if (!j) return 0;
+  if (j.status === "done") return 100;
+  const [base, span] = STAGE_PCT[j.stage] || [0, 0];
+  let frac = 0;
+  if (j.progress && j.progress.total > 0) frac = Math.max(0, Math.min(1, j.progress.done / j.progress.total));
+  return Math.max(0, Math.min(99, Math.round(base + span * frac)));
+}
+
 export function publicJob(j) {
   if (!j) return null;
   return {
@@ -58,6 +77,7 @@ export function publicJob(j) {
     stage: j.stage,
     stageLabel: STAGE_LABEL[j.stage] || j.stage,
     progress: j.progress,
+    percent: jobPercent(j),
     label: j.label,
     title: j.title,
     questions: j.questions,

@@ -2691,6 +2691,14 @@ function FullQuizVideoForm({ st, onStatus }) {
   }, [source.subject, source.session, source.quiz, source.testSeries]); // eslint-disable-line react-hooks/exhaustive-deps
   // Poll while any job is still working.
   const active = jobs.some((j) => j.status === "queued" || j.status === "running");
+  // A 1-second clock (only while a job is working) so the % and time-left tick
+  // smoothly between the 5-second status polls — like the AI Slideshow test.
+  const [clock, setClock] = useState(Date.now());
+  useEffect(() => {
+    if (!active) return undefined;
+    const t = setInterval(() => setClock(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [active]);
   useEffect(() => {
     if (!active) return undefined;
     const t = setInterval(load, 5000);
@@ -3163,9 +3171,24 @@ function FullQuizVideoForm({ st, onStatus }) {
                 <span className="font-medium">{j.title || j.label || "Full quiz video"}{j.auto && <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-500 dark:bg-slate-800">auto</span>}</span>
                 <span className={`text-xs font-semibold ${j.status === "done" ? "text-emerald-600" : j.status === "failed" ? "text-rose-600" : "text-amber-600"}`}>
                   {j.status === "done" ? "Posted" : j.status === "failed" ? "Failed" : j.stageLabel}
-                  {j.progress && (j.status === "running") ? ` · ${j.stage === "uploading" ? `${j.progress.done}%` : `${j.progress.done}/${j.progress.total}`}` : ""}
+                  {(j.status === "running" || j.status === "queued") && Number.isFinite(j.percent) ? ` · ${j.percent}%` : ""}
                 </span>
               </div>
+              {(j.status === "running" || j.status === "queued") && Number.isFinite(j.percent) && (() => {
+                const elapsed = Math.max(0, Math.floor((clock - (j.createdAt || clock)) / 1000));
+                const remain = j.percent > 3 ? Math.round((elapsed * (100 - j.percent)) / j.percent) : null;
+                const mmss = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+                return (
+                  <div className="mt-1.5">
+                    <div className="h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                      <div className="h-full rounded-full bg-[#FF0000] transition-all" style={{ width: `${Math.max(2, j.percent)}%` }} />
+                    </div>
+                    <p className="mt-0.5 text-[11px] text-slate-400">
+                      {j.percent}% · {mmss(elapsed)} elapsed{remain != null ? ` · about ${mmss(remain)} left` : ""}
+                    </p>
+                  </div>
+                );
+              })()}
               <p className="mt-0.5 text-xs text-slate-500">
                 {[j.toYoutube && "YouTube", j.toFacebook && "Facebook"].filter(Boolean).join(" + ")}
                 {j.questions ? ` · ${j.questions} questions${j.range ? ` (Q${j.range})` : ""}` : ""}{j.duration ? ` · ${Math.floor(j.duration / 60)}:${String(j.duration % 60).padStart(2, "0")} min` : ""}
