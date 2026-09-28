@@ -632,8 +632,9 @@ async function matchingScheduleIds({ q, from, to } = {}) {
 // once (admin). Body:
 //   { action: "pause" | "resume" | "delete",
 //     ids?: [scheduleId, …],          — the ticked schedules, OR
-//     all?: true, q?, from?, to? }    — every schedule matching the list's current
-//                                       search / time filter (all pages).
+//     all?: true, q?, from?, to?,     — every schedule matching the list's current
+//     exclude?: [scheduleId, …] }       search / time filter (all pages), minus
+//                                       any the admin unticked afterwards.
 // Returns { ok, action, matched, affected }.
 const BULK_SCHEDULE_ACTIONS = ["pause", "resume", "delete"];
 const MAX_BULK_SCHEDULE_IDS = 5000;
@@ -645,6 +646,11 @@ export async function bulkSchedules(req, res) {
   let ids;
   if (req.body?.all === true) {
     ids = await matchingScheduleIds(req.body);
+    // "Select all pages" then untick a few → those are sent as `exclude`.
+    const exclude = new Set(
+      (Array.isArray(req.body?.exclude) ? req.body.exclude : []).map((x) => String(x || "").trim()).filter(Boolean)
+    );
+    if (exclude.size) ids = ids.filter((id) => !exclude.has(id));
   } else {
     const raw = Array.isArray(req.body?.ids) ? req.body.ids : [];
     ids = [...new Set(raw.map((x) => String(x || "").trim()).filter(Boolean))];
