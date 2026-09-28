@@ -15,7 +15,12 @@ const fbScheduleSchema = new mongoose.Schema(
     //                           flashcard image (question panel + answer panel).
     //   "slideshow"           — draw a question from `source` and post it as a narrated
     //                           2-slide Reel (slide 1 = question, slide 2 = answer).
-    kind: { type: String, enum: ["question", "custom", "flashcard", "slideshow"], default: "question" },
+    kind: { type: String, enum: ["question", "custom", "flashcard", "slideshow", "longvideo"], default: "question" },
+    // kind "longvideo": a REPEATING long (16:9) video schedule — each due time
+    // makes the next part of the topic as one video (YouTube and/or Facebook).
+    // { options, title, privacy, playlist, useThumbnail, nextStart, part } —
+    // see config/longVideo.js (pickLongVideoScheduleFields).
+    longVideo: { type: mongoose.Schema.Types.Mixed, default: null },
     // Custom-post content (used only when kind === "custom").
     customText: { type: String, default: "" }, // the post text / caption
     customMedia: { type: [String], default: [] }, // hosted image URLs; the first image is attached

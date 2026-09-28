@@ -15,6 +15,8 @@ import {
   isYoutubeConfigured, DEFAULT_YT_LONG_TITLE, applyYtExtras, thumbnailLines, thumbTemplateActive, setYtThumbnail,
 } from "./youtube.js";
 import { postLongVideoToFacebookPage } from "./fbLongVideo.js";
+import { TTS_PROVIDERS } from "../utils/ttsVoices.js";
+import { normalizeReadOptions, readOptionsFromSettings } from "./slidePlan.js";
 import {
   pickAllQuestionsForSource, completeQuestionsForSource, titlePartsForQuestion, breadcrumbForQuestion,
   hashtagsForQuestion, fbNotify, isFacebookConfigured,
@@ -92,6 +94,8 @@ export const tenantKeyNow = () => String(getCurrentTenantId() || "");
 
 // Default title when only PART of a topic is in the video ("Questions 26–50").
 export const DEFAULT_YT_PART_TITLE = "{subject} | {topic} | Questions {range}";
+// Default title for each video of a repeating long-video schedule.
+export const DEFAULT_YT_SERIES_TITLE = "{subject} | {topic} | Part {part} (Questions {range})";
 
 const clampInt = (v, def, lo, hi) => {
   const n = Math.round(Number(v));
@@ -105,6 +109,7 @@ const clampInt = (v, def, lo, hi) => {
 //   order        — "sequential" | "random"
 //   voice, slidesMode, reveal, questionSec, answerSec, autoCaptions — narration & slides
 //   useTemplates — false = built-in slide design even when 16:9 templates are saved
+//   engine, read — narration engine and what's read aloud (like the AI Slideshow)
 //   toYoutube, toFacebook — where to post
 export function normalizeLongVideoOptions(o = {}, site = {}) {
   const order = o.order === "random" ? "random" : "sequential";
@@ -125,6 +130,12 @@ export function normalizeLongVideoOptions(o = {}, site = {}) {
     answerSec: clampInt(o.answerSec ?? site?.slideshowAnswerSec, 8, 3, 40),
     autoCaptions: (o.autoCaptions ?? site?.slideshowAutoCaptions) !== false,
     useTemplates: o.useTemplates !== false, // use the saved 16:9 slide templates (if any)
+    // Narration engine for this video (keys/models stay the saved ones). "" = the saved engine.
+    engine: TTS_PROVIDERS.includes(o.engine) ? o.engine : "",
+    // What the narrator reads aloud (question, options, explanation, key points, quick recall).
+    read: o.read && typeof o.read === "object" ? normalizeReadOptions(o.read) : readOptionsFromSettings(site),
+    // Part number of a repeating long-video schedule (for the title), 0 = none.
+    part: clampInt(o.part, 0, 0, 100000),
     toYoutube: o.toYoutube !== false,
     toFacebook: !!o.toFacebook,
   };
@@ -209,7 +220,9 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
 
     const names = await titlePartsForQuestion(questions[0]);
     const breadcrumb = await breadcrumbForQuestion(questions[0]);
-    const tpl = (titleTemplate || (partial ? DEFAULT_YT_PART_TITLE : DEFAULT_YT_LONG_TITLE)).replace(/\{range\}/gi, job.range || `1–${questions.length}`);
+    const tpl = (titleTemplate || (opts.part ? DEFAULT_YT_SERIES_TITLE : partial ? DEFAULT_YT_PART_TITLE : DEFAULT_YT_LONG_TITLE))
+      .replace(/\{range\}/gi, job.range || `1–${questions.length}`)
+      .replace(/\{part\}/gi, String(opts.part || 1));
     job.title = buildYtTitle(tpl, {
       subject: names.subject || names.quiz || source?.label || "",
       topic: names.topic,
@@ -227,10 +240,12 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
       answerSec: opts.answerSec,
       slidesMode: opts.slidesMode,
       reveal: opts.reveal,
+      read: opts.read,
       // 16:9 slide backgrounds (Long videos → Slide templates). Blank = built-in.
       questionTemplateUrl: opts.useTemplates ? site?.longVideoQuestionTemplateUrl || "" : "",
       answerTemplateUrl: opts.useTemplates ? site?.longVideoAnswerTemplateUrl || "" : "",
-      site,
+      // The chosen engine for THIS video (saved keys/models are kept).
+      site: opts.engine ? { ...site, ttsProvider: opts.engine } : site,
       brandColor: site?.brandColor || site?.primaryColor || "#2563eb",
       siteName: site?.siteName || "My Study Guide",
       siteUrl: siteUrl.replace(/^https?:\/\//, ""),
@@ -353,4 +368,95 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
   } finally {
     if (filePath) await fs.rm(filePath, { force: true }).catch(() => {});
   }
+}
+
+
+// ---- Repeating long-video schedules (FbSchedule kind "longvideo") ----
+//
+// Each due time makes the NEXT part of the topic as one long video: with 25
+// questions per video, run 1 = questions 1–25 (Part 1), run 2 = 26–50 (Part 2)
+// … Random order makes a fresh random video each time. The schedule stores
+// its settings in `sch.longVideo` and the position in `nextStart` / `part`.
+
+// The settings kept on a schedule, cleaned (pure, tested). Keeps the
+// schedule's position (nextStart / part) when an existing row is re-saved.
+export function pickLongVideoScheduleFields(body = {}, prev = null) {
+  const lv = body && typeof body === "object" ? body : {};
+  const o = normalizeLongVideoOptions(lv.options || {}, {});
+  const pl = lv.playlist && typeof lv.playlist === "object" ? lv.playlist : null;
+  const plId = /^[A-Za-z0-9_-]{10,64}$/.test(String(pl?.id || "")) ? String(pl.id) : "";
+  return {
+    options: { ...o, part: 0, start: 1 },
+    title: String(lv.title || "").replace(/[<>]/g, "").trim().slice(0, 100),
+    privacy: ["public", "unlisted", "private"].includes(lv.privacy) ? lv.privacy : "public",
+    // "" = the default long-video playlist, "__none__" = none, else a playlist id.
+    playlist: lv.playlist === "__none__" || pl?.id === "__none__" ? "__none__" : plId ? { id: plId, title: String(pl.title || "").slice(0, 150) } : "",
+    useThumbnail: lv.useThumbnail !== false,
+    nextStart: clampInt(lv.nextStart ?? prev?.nextStart, 1, 1, 1000000),
+    part: clampInt(lv.part ?? prev?.part, 0, 0, 100000),
+  };
+}
+
+// Which questions the NEXT run of a schedule covers (pure, tested).
+// → { start, count, part, last, wrapped } or { done: true } when every part is made.
+export function nextLongVideoPart({ nextStart = 1, part = 0, perVideo = 0, total = 0, order = "sequential", stopWhenExhausted = true } = {}) {
+  const per = Math.max(1, Math.min(MAX_LONG_VIDEO_QUESTIONS, Number(perVideo) || MAX_LONG_VIDEO_QUESTIONS));
+  if (order === "random") return { start: 1, count: per, part: part + 1, last: false, wrapped: false };
+  if (!(total > 0)) return { done: true };
+  let start = Math.max(1, Number(nextStart) || 1);
+  let wrapped = false;
+  if (start > total) {
+    if (stopWhenExhausted) return { done: true };
+    start = 1; wrapped = true; // repeat from the beginning
+  }
+  const end = Math.min(total, start + per - 1);
+  return { start, count: end - start + 1, part: wrapped ? 1 : part + 1, last: end >= total, wrapped };
+}
+
+// Run one slot of a long-video schedule: queue the next part (made in the
+// background). Mutates `sch` bookkeeping (the caller saves it).
+// Returns { ok, error?, completed? } like runScheduleOnce.
+export async function runLongVideoSchedule(sch, cfg, site) {
+  const lv = sch.longVideo || {};
+  const o = lv.options || {};
+  const total = (await completeQuestionsForSource(sch.source || {}).catch(() => [])).length;
+  const stop = sch.stopWhenExhausted !== false;
+  const next = nextLongVideoPart({ nextStart: lv.nextStart, part: lv.part, perVideo: o.count, total, order: o.order, stopWhenExhausted: stop });
+  sch.lastRunAt = new Date();
+  if (next.done) {
+    sch.lastResult = total ? `Completed — every part of the ${total} questions has been made.` : "No complete questions in this content.";
+    return { ok: !!total, completed: !!total, exhausted: true, error: total ? undefined : sch.lastResult };
+  }
+  const playlist = lv.playlist === "__none__" ? null : lv.playlist?.id ? lv.playlist : undefined;
+  // Post to whichever chosen network is connected right now; say which was skipped.
+  const ytOk = !!o.toYoutube && isYoutubeConfigured(cfg);
+  const fbOk = !!o.toFacebook && isFacebookConfigured(cfg);
+  const skipped = [o.toYoutube && !ytOk && "YouTube", o.toFacebook && !fbOk && "Facebook"].filter(Boolean);
+  if (!ytOk && !fbOk) {
+    sch.lastResult = `Error: ${skipped.join(" and ") || "No network"} not connected.`;
+    return { ok: false, error: sch.lastResult };
+  }
+  try {
+    queueFullQuizVideo({
+      source: sch.source,
+      cfg,
+      site,
+      titleTemplate: lv.title || "",
+      privacy: lv.privacy,
+      hashtags: sch.hashtags || "",
+      auto: true,
+      scheduleTitle: sch.title || "",
+      playlist,
+      useThumbnail: lv.useThumbnail !== false,
+      options: { ...o, toYoutube: ytOk, toFacebook: fbOk, start: next.start, count: next.count, part: o.order === "random" ? 0 : next.part },
+    });
+  } catch (e) {
+    sch.lastResult = `Error: ${e?.message || e}`;
+    return { ok: false, error: sch.lastResult };
+  }
+  sch.longVideo = { ...lv, nextStart: next.start + next.count, part: next.part };
+  sch.markModified?.("longVideo");
+  const range = o.order === "random" ? `${next.count} random questions` : `questions ${next.start}–${next.start + next.count - 1} of ${total}`;
+  sch.lastResult = `${o.order === "random" ? "Video" : `Part ${next.part}`} (${range}) is being made — you'll get an email when it's posted.${next.wrapped ? " (started again from question 1)" : ""}${skipped.length ? ` ${skipped.join(" and ")} skipped (not connected).` : ""}`;
+  return { ok: true, completed: stop && next.last && o.order !== "random" };
 }

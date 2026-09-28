@@ -15,7 +15,7 @@ import {
 import { isSafePublicUrl } from "../utils/urlGuard.js";
 import { getFacebookConfig, getFacebookSiteForConfig, completeQuestionsForSource, isFacebookConfigured } from "../config/facebook.js";
 import {
-  queueFullQuizVideo, listLongVideoJobs, getLongVideoJob, publicJob, tenantKeyNow, MAX_LONG_VIDEO_QUESTIONS,
+  queueFullQuizVideo, normalizeLongVideoOptions, listLongVideoJobs, getLongVideoJob, publicJob, tenantKeyNow, MAX_LONG_VIDEO_QUESTIONS,
 } from "../config/longVideo.js";
 
 function statusOf(site, req) {
@@ -38,6 +38,8 @@ function statusOf(site, req) {
     shortsPlaylist: site?.ytShortsPlaylistId ? { id: site.ytShortsPlaylistId, title: site.ytShortsPlaylistTitle || "" } : null,
     longPlaylist: site?.ytLongPlaylistId ? { id: site.ytLongPlaylistId, title: site.ytLongPlaylistTitle || "" } : null,
     thumb: thumbConfigFromSite(site),
+    // Saved long-video form settings (null = never saved → the form uses the AI Slideshow ones).
+    longVideoDefaults: site?.longVideoDefaults || null,
   };
 }
 
@@ -227,6 +229,18 @@ export async function longVideoQuestionCount(req, res) {
   if (!source.subject && !source.session && !source.quiz && !source.testSeries) return res.json({ total: 0, ...ready });
   const all = await completeQuestionsForSource(source).catch(() => []);
   res.json({ total: all.length, ...ready });
+}
+
+// PUT /api/youtube/long-video/defaults { options } → status. "Save settings
+// only": the long-video form opens with these next time.
+export async function saveLongVideoDefaults(req, res) {
+  const site = await getOrCreateOwn();
+  const o = normalizeLongVideoOptions(req.body?.options || {}, site);
+  delete o.start; delete o.part;
+  site.longVideoDefaults = o;
+  site.markModified?.("longVideoDefaults");
+  await site.save();
+  res.json(statusOf(site, req));
 }
 
 // GET /api/youtube/long-video — recent long-video jobs (this institute).

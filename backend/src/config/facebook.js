@@ -1740,6 +1740,12 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
 // card when requested (Instagram always needs one). Returns { ok, error? }.
 export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {}) {
   const cfg = cfgOverride || (await getFacebookConfig());
+  // Repeating LONG video: queue the next part (made in the background).
+  if (sch.kind === "longvideo") {
+    const site = await getFacebookSiteForConfig(cfg);
+    const { runLongVideoSchedule } = await import("./longVideo.js");
+    return runLongVideoSchedule(sch, cfg, site);
+  }
   // Facebook OR YouTube must be connected (a YouTube-only schedule is valid).
   if (!isFacebookConfigured(cfg) && !(sch.toYoutube && isYoutubeConfigured(cfg))) {
     return { ok: false, error: sch.toYoutube ? "Neither Facebook nor YouTube is connected." : "Facebook is not connected." };
