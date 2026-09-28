@@ -2290,6 +2290,68 @@ function YoutubeSection() {
 
 // datetime-local value → ISO (or "" when blank).
 const localToIso = (v) => (v ? new Date(v).toISOString() : "");
+// A scheduled time must be at least this far ahead (YouTube needs a future time,
+// and a full quiz video takes a while to make).
+const MIN_SCHEDULE_MIN = 15;
+// Problem with a chosen publish time, or "" when it's fine / not scheduled.
+const publishAtError = (v) => {
+  if (!v) return "";
+  const t = new Date(v).getTime();
+  if (Number.isNaN(t)) return "Pick a valid date and time.";
+  if (t < Date.now() + MIN_SCHEDULE_MIN * 60000) return `Pick a time at least ${MIN_SCHEDULE_MIN} minutes from now.`;
+  return "";
+};
+
+// "When should it go live?" — Publish now, or Schedule for a date & time.
+// value = datetime-local string ("" = publish now).
+function YtPublishTimeField({ value, onChange, disabled = false, note = "" }) {
+  const [mode, setMode] = useState(value ? "schedule" : "now");
+  // "Now", refreshed each minute, so the presets and the earliest allowed time stay current.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, []);
+  const at = (days, h, m = 0) => { const d = new Date(now); d.setDate(d.getDate() + days); d.setHours(h, m, 0, 0); return toLocalInput(d); };
+  const inHours = (h) => { const d = new Date(now + h * 3600000); d.setSeconds(0, 0); return toLocalInput(d); };
+  const presets = [["In 1 hour", inHours(1)], ["Today 6 PM", at(0, 18)], ["Tomorrow 9 AM", at(1, 9)], ["Tomorrow 6 PM", at(1, 18)]]
+    .filter(([, v]) => !publishAtError(v));
+  const err = mode === "schedule" ? (value ? publishAtError(value) : "Choose the date and time.") : "";
+  const pick = (m) => {
+    setMode(m);
+    if (m === "now") onChange("");
+    else if (!value) onChange(at(1, 9)); // a sensible starting point: tomorrow 9 AM
+  };
+  return (
+    <div>
+      <div className="inline-flex rounded-lg border border-slate-200 p-0.5 dark:border-slate-700">
+        {[["now", "Publish now"], ["schedule", "Schedule for later"]].map(([k, l]) => (
+          <button key={k} type="button" disabled={disabled} onClick={() => pick(k)}
+            className={`inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-sm font-medium ${mode === k ? "bg-[#FF0000] text-white" : "text-slate-600 dark:text-slate-300"}`}>
+            {k === "schedule" && <CalendarClock className="h-4 w-4" />}{l}
+          </button>
+        ))}
+      </div>
+      {mode === "schedule" && (
+        <div className="mt-2 space-y-2">
+          <input type="datetime-local" className="input" value={value} disabled={disabled}
+            min={toLocalInput(now + MIN_SCHEDULE_MIN * 60000)} onChange={(e) => onChange(e.target.value)} />
+          {presets.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {presets.map(([l, v]) => (
+                <button key={l} type="button" disabled={disabled} onClick={() => onChange(v)}
+                  className={`rounded-full border px-2.5 py-1 text-xs font-medium ${value === v ? "border-[#FF0000] bg-red-50 text-[#FF0000] dark:bg-red-900/20" : "border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300"}`}>{l}</button>
+              ))}
+            </div>
+          )}
+          {err
+            ? <p className="text-xs font-medium text-rose-600">{err}</p>
+            : <p className="text-xs text-emerald-700 dark:text-emerald-400">Goes live on <b>{new Date(value).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" })}</b> (your time). It stays <b>private</b> until then.{note ? ` ${note}` : ""}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // YouTube LONG videos (normal 16:9 videos, not Shorts):
 //   • "Full quiz video" — the server builds ONE narrated landscape video of a
@@ -2349,6 +2411,7 @@ function FullQuizVideoForm({ st }) {
 
   const start = async () => {
     if (!hasSource) { setMsg({ ok: false, text: "Pick the topic / quiz first." }); return; }
+    if (publishAtError(publishAt)) { setMsg({ ok: false, text: publishAtError(publishAt) }); return; }
     setBusy(true); setMsg(null);
     try {
       const pl = playlistChoice(playlist.id, playlist.title);
@@ -2356,7 +2419,8 @@ function FullQuizVideoForm({ st }) {
         source, title: title.trim(), privacy, publishAt: localToIso(publishAt), hashtags: hashtags.trim(),
         ...(pl ? { playlist: pl } : {}), useThumbnail: useThumb,
       });
-      setMsg({ ok: true, text: "Started — the video is being made below. It can take 5–20 minutes; you can leave this page (you'll get an email)." });
+      setMsg({ ok: true, text: `Started — the video is being made below. It can take 5–20 minutes; you can leave this page (you'll get an email).${publishAt ? ` It goes live on ${new Date(publishAt).toLocaleString()}.` : ""}` });
+      setPublishAt("");
       setSource({ subject: null, session: null, quiz: null, testSeries: null, label: "" }); setPickerKey((k) => k + 1);
       load();
     } catch (e) { setMsg({ ok: false, text: e.message }); } finally { setBusy(false); }
@@ -2381,9 +2445,9 @@ function FullQuizVideoForm({ st }) {
             <option value="public">Public</option><option value="unlisted">Unlisted</option><option value="private">Private</option>
           </select>
         </div>
-        <div>
-          <label className="mb-1 block text-sm font-medium">Publish at <span className="font-normal text-slate-400">(optional — blank = as soon as it's ready)</span></label>
-          <input type="datetime-local" className="input" value={publishAt} onChange={(e) => setPublishAt(e.target.value)} />
+        <div className="sm:col-span-2">
+          <label className="mb-1 block text-sm font-medium">Scheduled time</label>
+          <YtPublishTimeField key={pickerKey} value={publishAt} onChange={setPublishAt} note="The video is made and uploaded right away; YouTube publishes it at this time." />
         </div>
         <div>
           <label className="mb-1 block text-sm font-medium">Extra hashtags <span className="font-normal text-slate-400">(optional)</span></label>
@@ -2402,7 +2466,7 @@ function FullQuizVideoForm({ st }) {
               <input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={useThumb} onChange={(e) => setUseThumb(e.target.checked)} />
               Use my thumbnail template <span className="text-slate-400">(with this topic's name)</span>
             </label>
-          ) : <p className="text-xs text-slate-400">YouTube picks a frame. Upload a <b>Thumbnail template</b> above to brand every long video.</p>}
+          ) : <p className="text-xs text-slate-400">{st?.thumb?.templateUrl ? <>Your thumbnail template is switched off — turn on <b>Use for long videos</b> above and click <b>Save</b>.</> : <>YouTube picks a frame. Upload a <b>Thumbnail template</b> above and click <b>Save</b> to brand every long video.</>}</p>}
         </div>
       </div>
       <p className="mt-2 text-xs text-slate-400">Your default + subject/topic hashtags are added automatically and become YouTube tags. Tip: tick <b>“Also make one full video”</b> on a Shorts schedule to have this made automatically after its last Short.</p>
@@ -2462,6 +2526,7 @@ function OwnVideoUploadForm({ st }) {
   const upload = async () => {
     if (!file) { setMsg({ ok: false, text: "Choose a video file." }); return; }
     if (!title.trim()) { setMsg({ ok: false, text: "Add a title." }); return; }
+    if (publishAtError(publishAt)) { setMsg({ ok: false, text: publishAtError(publishAt) }); return; }
     setPct(0); setMsg(null); setDone(null);
     // Keep the screen awake / warn before leaving while uploading.
     const warn = (e) => { e.preventDefault(); e.returnValue = ""; };
@@ -2518,10 +2583,9 @@ function OwnVideoUploadForm({ st }) {
             <option value="public">Public</option><option value="unlisted">Unlisted</option><option value="private">Private</option>
           </select>
         </div>
-        <div>
-          <label className="mb-1 block text-sm font-medium">Publish at <span className="font-normal text-slate-400">(optional)</span></label>
-          <input type="datetime-local" className="input" value={publishAt} onChange={(e) => setPublishAt(e.target.value)} disabled={busy} />
-          <p className="mt-1 text-xs text-slate-400">Uploads now; YouTube makes it public at this time.</p>
+        <div className="sm:col-span-2">
+          <label className="mb-1 block text-sm font-medium">Scheduled time</label>
+          <YtPublishTimeField key={done?.id || "own"} value={publishAt} onChange={setPublishAt} disabled={busy} note="The file uploads now; YouTube publishes it at this time." />
         </div>
         <div>
           <label className="mb-1 block text-sm font-medium">Thumbnail <span className="font-normal text-slate-400">(optional, JPG/PNG ≤ 2 MB)</span></label>
