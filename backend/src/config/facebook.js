@@ -38,17 +38,19 @@ export async function getFacebookConfig(filter) {
   };
 }
 
-// Upload this run's video to YouTube as a Short with the schedule's fixed,
-// numbered title ("Daily GK Quiz #12"). Pushes a note; returns true on success.
-// Advances sch.ytPostCount only when the upload actually succeeded, so the
-// title numbers stay continuous. Never throws.
-async function publishScheduleToYoutube({ sch, cfg, videoUrl, caption, notes }) {
+// Upload this run's video to YouTube as a Short. Default title is
+// "Subject | Topic | Quiz N" (see buildYtTitle); `titleVars` carries the
+// subject/topic names and the quiz number for this video. Pushes a note;
+// returns true on success. Advances sch.ytPostCount only on a successful
+// upload. Never throws.
+async function publishScheduleToYoutube({ sch, cfg, videoUrl, caption, notes, titleVars = null }) {
   if (!videoUrl) {
     notes.push("YouTube ✗ (needs a video — turn on Reel, use AI Slideshow, or add a custom video)");
     return false;
   }
   const n = (Number(sch.ytPostCount) || 0) + 1;
-  const title = buildYtTitle(sch.ytTitle, n, sch.title || "Daily Quiz");
+  const vars = titleVars ? { ...titleVars, n: titleVars.n || n } : { n, subject: sch.title || "" };
+  const title = buildYtTitle(sch.ytTitle, vars, sch.title || "Daily Quiz");
   const description = buildYtDescription(caption);
   const r = await uploadVideoToYoutube(
     { videoUrl, title, description, tags: buildYtTags(caption), privacy: cfg.ytPrivacy },
@@ -1065,6 +1067,8 @@ import Topic from "../models/Topic.js";
 import Quiz from "../models/Quiz.js";
 import Stream from "../models/Stream.js";
 import TestSeries from "../models/TestSeries.js";
+import PracticeSubject from "../models/PracticeSubject.js";
+import PracticeTopic from "../models/PracticeTopic.js";
 import { renderQuestionImage } from "./socialImage.js";
 import { renderQuestionCardShot, renderFlashcardCardShot } from "./cardShot.js";
 import { isQuestionComplete } from "../utils/questionComplete.js";
@@ -1208,6 +1212,63 @@ export async function breadcrumbForQuestion(q) {
   if (!topicName && q.section) topicName = q.section;
 
   return [streamName, subjectName, topicName, quizTitle].filter(Boolean).join(" › ");
+}
+
+// Subject / topic / quiz names for a question, used for YouTube titles
+// ("Subject | Topic | Quiz N"). Covers BOTH the quiz bank (Subject → Topic via
+// the session) and "My Quiz" items (TestSeries → PracticeSubject/PracticeTopic).
+export async function titlePartsForQuestion(q) {
+  const out = { subject: "", topic: "", quiz: "" };
+  if (!q) return out;
+  let subjectId = q.subject || null;
+  let sessionId = q.session || null;
+  if (q.quiz) {
+    const qz = await Quiz.findById(q.quiz).select("subject session title").lean().catch(() => null);
+    if (qz) {
+      out.quiz = qz.title || "";
+      if (!subjectId && qz.subject) subjectId = qz.subject;
+      if (!sessionId && qz.session) sessionId = qz.session;
+    }
+  }
+  if (sessionId) {
+    const sess = await Session.findById(sessionId).select("subject topic").lean().catch(() => null);
+    if (sess?.subject && !subjectId) subjectId = sess.subject;
+    if (sess?.topic) {
+      const t = await Topic.findById(sess.topic).select("title subject").lean().catch(() => null);
+      if (t) { out.topic = t.title || ""; if (!subjectId && t.subject) subjectId = t.subject; }
+    }
+  }
+  if (subjectId) {
+    const s = await Subject.findById(subjectId).select("name").lean().catch(() => null);
+    out.subject = s?.name || "";
+  }
+  if (q.testSeries && (!out.subject || !out.topic || !out.quiz)) {
+    const ts = await TestSeries.findById(q.testSeries).select("name practice practiceSubject practiceTopic").lean().catch(() => null);
+    if (ts) {
+      if (!out.quiz) out.quiz = ts.name || "";
+      if (ts.practice) {
+        const [ps, pt] = await Promise.all([
+          !out.subject && ts.practiceSubject ? PracticeSubject.findById(ts.practiceSubject).select("name").lean().catch(() => null) : null,
+          !out.topic && ts.practiceTopic ? PracticeTopic.findById(ts.practiceTopic).select("name").lean().catch(() => null) : null,
+        ]);
+        if (ps?.name) out.subject = ps.name;
+        if (pt?.name) out.topic = pt.name;
+      }
+    }
+  }
+  if (!out.topic && q.topic) out.topic = String(q.topic);
+  if (!out.topic && q.section) out.topic = String(q.section);
+  return out;
+}
+
+// Which "quiz" of the source this video is: with 5 questions per video, the
+// 1st video (questions 1–5) is Quiz 1 … the 5th (21–25) is Quiz 5 of a
+// 25-question topic. Based on how many questions were posted BEFORE this run.
+export function quizNumberFor({ postedBefore = 0, perVideo = 1, poolSize = 0 } = {}) {
+  const per = Math.max(1, Math.round(Number(perVideo)) || 1);
+  const n = Math.floor(Math.max(0, Number(postedBefore) || 0) / per) + 1;
+  const total = poolSize > 0 ? Math.ceil(poolSize / per) : 0;
+  return { n, total };
 }
 
 // Build the Facebook post text for one question, honouring the schedule's
@@ -2089,8 +2150,24 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   // YouTube Short — needs this run's video (AI Slideshow / music Reel). The
   // description is the same caption the other networks got.
   let ytOk = false;
-  if (wantYt) ytOk = await publishScheduleToYoutube({ sch, cfg, videoUrl: reelVideoUrl, caption: captionBase, notes });
-  else if (sch.toYoutube) notes.push("YouTube ✗ (not connected)");
+  if (wantYt) {
+    // Title "Subject | Topic | Quiz N": N counts videos through THIS source, so
+    // 25 questions at 5 per video → Quiz 1 (Q1–5) … Quiz 5 (Q21–25).
+    const names = await titlePartsForQuestion(q);
+    const { n, total } = quizNumberFor({
+      postedBefore: recycled ? 0 : (sch.postedQuestionIds || []).length,
+      perVideo: isSlideshowRun ? (sch.slideshowQuestions || 1) : 1,
+      poolSize: poolSize || sch.poolSize || 0,
+    });
+    const titleVars = {
+      subject: names.subject || names.quiz || sch.title || "",
+      topic: names.topic,
+      quiz: names.quiz,
+      n,
+      total,
+    };
+    ytOk = await publishScheduleToYoutube({ sch, cfg, videoUrl: reelVideoUrl, caption: captionBase, notes, titleVars });
+  } else if (sch.toYoutube) notes.push("YouTube ✗ (not connected)");
 
   if (!wantFb && !wantIg && !wantYt) return { ok: false, error: "No destination selected (enable Facebook, Instagram or YouTube)." };
 

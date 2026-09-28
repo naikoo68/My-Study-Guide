@@ -1477,8 +1477,8 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
       {toYoutube && (
         <div className="mt-2">
           <label className="mb-1 block text-sm font-medium">YouTube title</label>
-          <input className="input" maxLength={90} value={ytTitle} onChange={(e) => setYtTitle(e.target.value)} placeholder={title.trim() || "Daily GK Quiz"} />
-          <p className="mt-1 text-xs text-slate-400">Numbered automatically: <b>{(ytTitle || title || "Daily GK Quiz").trim()} #1</b>, #2, #3… Connect your channel in the <b>YouTube Shorts</b> card first.</p>
+          <input className="input" maxLength={90} value={ytTitle} onChange={(e) => setYtTitle(e.target.value)} placeholder="Automatic: Subject | Topic | Quiz 1" />
+          <p className="mt-1 text-xs text-slate-400">Leave blank for <b>Subject | Topic | Quiz 1</b>, Quiz 2… — each video is the next {qCount > 1 ? `${qCount} questions` : "question"} (e.g. 25 questions at 5 per video → Quiz 1 to Quiz 5). Pick <b>Sequential</b> order so Quiz 1 is the first questions. Connect your channel in the <b>YouTube Shorts</b> card first.</p>
         </div>
       )}
       <label className="mb-1 mt-3 block text-sm font-medium">Hashtags (optional)</label>
@@ -2689,9 +2689,9 @@ export default function AdminFacebook() {
               <div className="mt-3 rounded-lg border border-red-100 bg-red-50/40 p-3 dark:border-red-900/40 dark:bg-red-900/10">
                 <label className="mb-1 block text-sm font-medium">YouTube title</label>
                 <input className="input" maxLength={90} value={form.ytTitle || ""} onChange={(e) => setForm((f) => ({ ...f, ytTitle: e.target.value }))}
-                  placeholder={form.title || "Daily GK Quiz"} />
+                  placeholder="Automatic: Subject | Topic | Quiz 1" />
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                  Every upload is numbered automatically: <b>{(form.ytTitle || form.title || "Daily GK Quiz").trim()} #1</b>, #2, #3… (put <code>{"{n}"}</code> anywhere to place the number yourself). The caption + hashtags become the description.
+                  Leave blank for the automatic title <b>Subject | Topic | Quiz 1</b>, then Quiz 2, Quiz 3… — each video is the next set of questions from this source (e.g. 25 questions at 5 per video → Quiz 1 to Quiz 5). Or type your own: <code>{"{subject}"}</code> <code>{"{topic}"}</code> <code>{"{n}"}</code> <code>{"{total}"}</code> (a plain title like “Daily GK Quiz” becomes “Daily GK Quiz #1”). Use <b>Sequential</b> order so Quiz 1 is the first questions. The caption + hashtags become the description.
                 </p>
                 {!scheduleHasVideo(form) && (
                   <p className="mt-1 text-xs font-medium text-amber-600 dark:text-amber-400">
