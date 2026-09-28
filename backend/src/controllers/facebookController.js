@@ -2,7 +2,7 @@ import FbSchedule from "../models/FbSchedule.js";
 import Question from "../models/Question.js";
 import Settings from "../models/Settings.js";
 import { randomUUID } from "node:crypto";
-import { runScheduleOnce, getFacebookConfig, getFacebookSiteForConfig, hashtagsForQuestion, getFacebookPublishedCount, countFacebookPosts, pickQuestionForSchedule, pickQuestionsForSlideshow } from "../config/facebook.js";
+import { runScheduleOnce, getFacebookConfig, getFacebookSiteForConfig, hashtagsForQuestion, getFacebookPublishedCount, countFacebookPosts, pickQuestionForSchedule, pickQuestionsForSlideshow, pickAllQuestionsForSource } from "../config/facebook.js";
 import FbPost from "../models/FbPost.js";
 import { getCurrentTenantId } from "../utils/tenantContext.js";
 import { renderQuestionImage } from "../config/socialImage.js";
@@ -144,10 +144,21 @@ export async function testSlideshow(req, res) {
   // context (AsyncLocalStorage follows the promise).
   // The questions for this preview video (up to the requested count).
   let questions = [q];
-  if (wantCount > 1) {
+  // LONG-video preview (16:9): the first questions the real video would use
+  // (same Start from / order), capped so the preview stays quick.
+  const landscape = req.body?.landscape === true;
+  if (landscape && req.body?.source && typeof req.body.source === "object") {
+    const lv = await pickAllQuestionsForSource(req.body.source, {
+      max: Math.min(3, wantCount),
+      start: Number(req.body?.start) || 1,
+      order: req.body?.order === "random" ? "random" : "sequential",
+    }).catch(() => []);
+    if (lv.length) questions = lv;
+  } else if (wantCount > 1) {
     if (pickFrom) questions = await pickQuestionsForSlideshow(pickFrom, wantCount, q).catch(() => [q]);
     else if (extraRandom.length) questions = extraRandom;
   }
+  const useLongTemplates = landscape && req.body?.useTemplates !== false;
 
   const jobId = newSlideshowJob(req.user?._id);
   const job = slideshowJobs.get(jobId);
@@ -164,9 +175,11 @@ export async function testSlideshow(req, res) {
     // The form's current slide times (so a test reflects unsaved edits).
     questionSec: clampSlideSec(req.body?.questionSec, 10),
     answerSec: clampSlideSec(req.body?.answerSec, 8),
-    // The saved question / answer slide templates (uploads save immediately).
-    questionTemplateUrl: site?.slideshowQuestionTemplateUrl || "",
-    answerTemplateUrl: site?.slideshowAnswerTemplateUrl || "",
+    // The saved question / answer slide templates (uploads save immediately):
+    // the 16:9 long-video ones for a landscape preview, else the 9:16 Reel ones.
+    questionTemplateUrl: landscape ? (useLongTemplates ? site?.longVideoQuestionTemplateUrl || "" : "") : site?.slideshowQuestionTemplateUrl || "",
+    answerTemplateUrl: landscape ? (useLongTemplates ? site?.longVideoAnswerTemplateUrl || "" : "") : site?.slideshowAnswerTemplateUrl || "",
+    ...(landscape ? { orientation: "landscape" } : {}),
     site,
     brandColor: site?.brandColor || site?.primaryColor || "#2563eb",
     siteName: site?.siteName || "My Study Guide",

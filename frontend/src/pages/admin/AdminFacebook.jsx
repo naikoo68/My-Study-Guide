@@ -1994,13 +1994,23 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
     thumbPosition: t.position || "left", thumbTextColor: t.textColor || "#ffffff", thumbAccentColor: t.accentColor || "#facc15",
   }));
   const [uploading, setUploading] = useState(false);
-  const [busy, setBusy] = useState(""); // "" | "save" | "preview"
+  const [busy, setBusy] = useState(""); // "" | "preview"
   const [preview, setPreview] = useState("");
   const [msg, setMsg] = useState(null);
-  const set = (k, v) => { setDraft((d) => ({ ...d, [k]: v })); setPreview(""); };
-  const dirty = draft.thumbTemplateUrl !== (t.templateUrl || "") || draft.thumbEnabled !== (t.enabled !== false)
-    || draft.thumbShowText !== (t.showText !== false) || draft.thumbPosition !== (t.position || "left")
-    || draft.thumbTextColor !== (t.textColor || "#ffffff") || draft.thumbAccentColor !== (t.accentColor || "#facc15");
+  // Every change is SAVED straight away — upload the template once and it's used
+  // for every long video; only the subject / topic / quiz text changes per video.
+  const colourTimer = useRef(null);
+  const persist = async (patch, okText = "Saved.") => {
+    try { onSaved(await youtubeService.save(patch)); setMsg({ ok: true, text: okText }); }
+    catch (e) { setMsg({ ok: false, text: e.message || "Could not save." }); }
+  };
+  const set = (k, v, { later = false } = {}) => {
+    setDraft((d) => ({ ...d, [k]: v })); setPreview("");
+    clearTimeout(colourTimer.current);
+    if (later) colourTimer.current = setTimeout(() => persist({ [k]: v }), 700); // colour pickers fire while dragging
+    else persist({ [k]: v });
+  };
+  useEffect(() => () => clearTimeout(colourTimer.current), []);
 
   const upload = async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
@@ -2009,22 +2019,20 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
     try {
       const r = await uploadService.imageDirect(file);
       if (!r?.url) throw new Error("Upload failed.");
-      set("thumbTemplateUrl", r.url);
-      setMsg({ ok: true, text: "Uploaded — click Save to use it." });
+      setDraft((d) => ({ ...d, thumbTemplateUrl: r.url, thumbEnabled: true })); setPreview("");
+      await persist({ thumbTemplateUrl: r.url, thumbEnabled: true }, "Template saved — every long video will use it.");
     } catch (err) { setMsg({ ok: false, text: err.message || "Upload failed." }); }
     finally { setUploading(false); if (fileRef.current) fileRef.current.value = ""; }
-  };
-  const save = async () => {
-    setBusy("save"); setMsg(null);
-    try { onSaved(await youtubeService.save(draft)); setMsg({ ok: true, text: "Thumbnail template saved." }); }
-    catch (e) { setMsg({ ok: false, text: e.message }); } finally { setBusy(""); }
   };
   const showPreview = async () => {
     setBusy("preview"); setMsg(null);
     try { const r = await youtubeService.thumbnailPreview(draft); setPreview(r?.image || ""); }
     catch (e) { setMsg({ ok: false, text: e.message }); } finally { setBusy(""); }
   };
-  const remove = () => { set("thumbTemplateUrl", ""); setMsg({ ok: true, text: "Removed — click Save." }); };
+  const remove = () => {
+    if (!window.confirm("Remove the thumbnail template? Long videos will get an automatic frame instead.")) return;
+    set("thumbTemplateUrl", "");
+  };
 
   return (
     <div className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
@@ -2033,7 +2041,7 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
         {draft.thumbTemplateUrl && (
           <label className="flex items-center gap-2 text-sm font-medium">
             Use for long videos
-            <button type="button" onClick={() => set("thumbEnabled", !draft.thumbEnabled)}
+            <button type="button" onClick={() => set("thumbEnabled", !draft.thumbEnabled)} aria-label="Use for long videos"
               className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${draft.thumbEnabled ? "bg-[#FF0000]" : "bg-slate-300 dark:bg-slate-600"}`}>
               <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${draft.thumbEnabled ? "left-6" : "left-1"}`} />
             </button>
@@ -2041,7 +2049,7 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
         )}
       </div>
       <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-        Upload your branded <b>1280×720</b> background (logo, colours, photo) with an <b>empty area</b> for text. Each long video gets it as its thumbnail with the <b>subject</b>, <b>topic</b> and <b>“25 Questions”</b> written on it. Needs a verified channel (youtube.com/verify).
+        <b>Upload once</b> — your branded <b>1280×720</b> background (logo, colours, photo) with an <b>empty area</b> for text. It's saved and used for <b>every</b> long video; only the text changes by itself: the video's <b>subject</b>, <b>topic</b> and <b>quiz</b> (e.g. “Quiz 2”, or “25 Questions” for a whole topic). Needs a verified YouTube channel (youtube.com/verify).
       </p>
       <div className="mt-3 flex flex-wrap items-start gap-4">
         <div className="flex flex-col items-center gap-2">
@@ -2057,12 +2065,12 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
             {uploading ? <><Loader2 className="h-4 w-4 animate-spin" /> Uploading…</> : <><Upload className="h-4 w-4" /> {draft.thumbTemplateUrl ? "Replace template" : "Upload template"}</>}
             <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={upload} disabled={uploading} />
           </label>
-          {preview && <p className="text-[11px] text-slate-400">Showing the preview</p>}
+          {preview && <p className="text-[11px] text-slate-400">Preview with sample text</p>}
         </div>
         <div className="min-w-[220px] flex-1 space-y-3">
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={draft.thumbShowText} onChange={(e) => set("thumbShowText", e.target.checked)} />
-            Write the subject, topic &amp; question count on it
+            Write the subject, topic &amp; quiz on it <span className="text-slate-400">(changes for each video)</span>
           </label>
           {draft.thumbShowText && (
             <>
@@ -2077,10 +2085,10 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
               </div>
               <div className="flex flex-wrap gap-4">
                 <label className="flex items-center gap-2 text-sm">Text colour
-                  <input type="color" value={draft.thumbTextColor} onChange={(e) => set("thumbTextColor", e.target.value)} className="h-8 w-10 cursor-pointer rounded border border-slate-200 dark:border-slate-700" />
+                  <input type="color" value={draft.thumbTextColor} onChange={(e) => set("thumbTextColor", e.target.value, { later: true })} className="h-8 w-10 cursor-pointer rounded border border-slate-200 dark:border-slate-700" />
                 </label>
                 <label className="flex items-center gap-2 text-sm">Badge colour
-                  <input type="color" value={draft.thumbAccentColor} onChange={(e) => set("thumbAccentColor", e.target.value)} className="h-8 w-10 cursor-pointer rounded border border-slate-200 dark:border-slate-700" />
+                  <input type="color" value={draft.thumbAccentColor} onChange={(e) => set("thumbAccentColor", e.target.value, { later: true })} className="h-8 w-10 cursor-pointer rounded border border-slate-200 dark:border-slate-700" />
                 </label>
               </div>
             </>
@@ -2089,9 +2097,7 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
             <button type="button" onClick={showPreview} disabled={!!busy || !draft.thumbTemplateUrl} className="btn-outline">
               {busy === "preview" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />} Preview
             </button>
-            <button type="button" onClick={save} disabled={!!busy || !dirty} className="btn-primary !bg-[#FF0000] hover:!bg-[#d90000]">
-              {busy === "save" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save
-            </button>
+            <span className="self-center text-xs text-slate-400">Changes save automatically.</span>
           </div>
           {msg && <p className={`text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.text}</p>}
         </div>
@@ -2375,8 +2381,7 @@ function YoutubeLongVideoSection() {
             className={`rounded-md px-3 py-1.5 text-sm font-medium ${tab === k ? "bg-[#FF0000] text-white" : "text-slate-600 dark:text-slate-300"}`}>{l}</button>
         ))}
       </div>
-      {st?.connected && <YtThumbnailTemplateEditor key={st.thumb?.templateUrl || "none"} st={st} onSaved={setSt} />}
-      {tab === "quiz" ? <FullQuizVideoForm st={st} /> : <OwnVideoUploadForm st={st} />}
+      {tab === "quiz" ? <FullQuizVideoForm st={st} onStatus={setSt} /> : <OwnVideoUploadForm st={st} onStatus={setSt} />}
     </CollapsibleCard>
   );
 }
@@ -2386,7 +2391,7 @@ const playlistChoice = (id, title) => (id === "__none__" ? { id: "" } : id ? { i
 const thumbReady = (st) => !!(st?.thumb?.templateUrl && st?.thumb?.enabled !== false);
 const defaultPlaylistLabel = (st) => (st?.longPlaylist?.id ? `Default: ${st.longPlaylist.title || "saved playlist"}` : "No playlist (default)");
 
-function FullQuizVideoForm({ st }) {
+function FullQuizVideoForm({ st, onStatus }) {
   const { settings, save: saveSettings } = useSettings();
   const [useTemplates, setUseTemplates] = useState(true);
   const [pickerKey, setPickerKey] = useState(0);
@@ -2419,6 +2424,8 @@ function FullQuizVideoForm({ st }) {
   const [answerSec, setAnswerSec] = useState(settings?.slideshowAnswerSec || 8);
   const [reveal, setReveal] = useState({ pauseSec: settings?.slideshowRevealPauseSec ?? 3, showSec: settings?.slideshowRevealSec ?? 3, say: settings?.slideshowRevealSay !== false });
   const [captions, setCaptions] = useState(settings?.slideshowAutoCaptions !== false);
+  // Preview: a short 16:9 test video (first 3 questions) — never posted.
+  const [pv, setPv] = useState({ busy: false, stage: "", progress: null, url: "", error: "", info: "" });
   // 4) Post to
   const [toYoutube, setToYoutube] = useState(true);
   const [toFacebook, setToFacebook] = useState(false);
@@ -2491,6 +2498,39 @@ function FullQuizVideoForm({ st }) {
     } catch (e) { setMsg({ ok: false, text: e.message }); } finally { setBusy(false); }
   };
 
+  const PV_STAGE = { PENDING: "Starting", GENERATING_SLIDES: "Drawing slides", GENERATING_AUDIO: "Recording narration", RENDERING_VIDEO: "Rendering video", READY: "Finishing" };
+  const previewVideo = async () => {
+    if (!hasSource) { setPv((p) => ({ ...p, error: "Pick the topic / quiz first." })); return; }
+    setPv({ busy: true, stage: "PENDING", progress: null, url: "", error: "", info: "" });
+    try {
+      const startRes = await facebookService.testSlideshow({
+        landscape: true, source, order, start: nStart, useTemplates,
+        slideshowQuestions: 3,
+        ttsVoice: voiceValue, autoCaptions: captions, slidesMode,
+        reveal: { pauseSec: clamp(reveal.pauseSec, 3, 0, 15), showSec: clamp(reveal.showSec, 3, 1, 15), say: reveal.say },
+        questionSec: clamp(questionSec, 10, 3, 40), answerSec: clamp(answerSec, 8, 3, 40),
+      });
+      if (!startRes?.jobId) throw new Error(startRes?.message || "Could not start the preview.");
+      const deadline = Date.now() + 30 * 60 * 1000;
+      let errors = 0;
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 2500));
+        let r;
+        try { r = await facebookService.testSlideshowStatus(startRes.jobId); errors = 0; }
+        catch (e) { if ((e?.status >= 400 && e?.status < 500) || ++errors >= 8) throw e; continue; }
+        if (r?.status === "done" && r?.videoUrl) {
+          setPv({ busy: false, stage: "", progress: null, url: r.videoUrl, error: "", info: `${r.questions || ""} question${r.questions === 1 ? "" : "s"} · ${r.duration || 0}s · ${r.voice || ""}${r.ttsNote ? ` · ${r.ttsNote}` : ""}` });
+          return;
+        }
+        if (r?.status === "failed") throw new Error(r?.message || "The preview could not be made.");
+        setPv((p) => ({ ...p, stage: r?.stage || p.stage, progress: r?.progress?.total ? r.progress : null }));
+        if (Date.now() > deadline) throw new Error("The preview is taking too long — please try again.");
+      }
+    } catch (e) {
+      setPv({ busy: false, stage: "", progress: null, url: "", error: e?.message || "The preview could not be made.", info: "" });
+    }
+  };
+
   const step = (n, text) => <p className="mb-1 mt-5 text-sm font-semibold">{n}. {text}</p>;
   const secInput = (value, set, lo, hi, def) => (
     <input type="number" min={lo} max={hi} className="input h-9 w-20" value={value}
@@ -2559,27 +2599,68 @@ function FullQuizVideoForm({ st }) {
           <p className="mt-1 text-xs text-slate-400">Engine and API keys are set in the <b>AI Slideshow</b> card.</p>
         </div>
         <div>
-          <label className="mb-1 block text-sm font-medium">Slides per question</label>
-          <select className="input" value={slidesMode} onChange={(e) => setSlidesMode(e.target.value)}>
-            <option value="both">Question slide + answer slide (with explanation)</option>
-            <option value="question">Question slide only (answer turns green)</option>
-          </select>
+          <label className="mb-1 block text-sm font-medium">Captions</label>
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={captions} onChange={(e) => setCaptions(e.target.checked)} /> Show the narration as captions on the slides</label>
         </div>
       </div>
-      <div className="mt-3 flex flex-wrap items-end gap-4">
-        <div><label className="mb-1 block text-xs font-medium">Question time</label><div className="flex items-center gap-2">{secInput(questionSec, setQuestionSec, 3, 40, 10)}<span className="text-xs text-slate-500">sec</span></div></div>
-        {withAnswer ? (
-          <div><label className="mb-1 block text-xs font-medium">Answer time</label><div className="flex items-center gap-2">{secInput(answerSec, setAnswerSec, 3, 40, 8)}<span className="text-xs text-slate-500">sec</span></div></div>
-        ) : (
-          <>
-            <div><label className="mb-1 block text-xs font-medium">Thinking pause</label><div className="flex items-center gap-2">{secInput(reveal.pauseSec, (v) => setReveal((r) => ({ ...r, pauseSec: v })), 0, 15, 3)}<span className="text-xs text-slate-500">sec</span></div></div>
-            <div><label className="mb-1 block text-xs font-medium">Show green answer</label><div className="flex items-center gap-2">{secInput(reveal.showSec, (v) => setReveal((r) => ({ ...r, showSec: v })), 1, 15, 3)}<span className="text-xs text-slate-500">sec</span></div></div>
-            <label className="mb-2 flex items-center gap-2 text-sm"><input type="checkbox" className="h-4 w-4 accent-emerald-600" checked={reveal.say} onChange={(e) => setReveal((r) => ({ ...r, say: e.target.checked }))} /> Say the answer</label>
-          </>
-        )}
-        <label className="mb-2 flex items-center gap-2 text-sm"><input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={captions} onChange={(e) => setCaptions(e.target.checked)} /> Captions</label>
+
+      {/* Which slides each question gets — same choices as the AI Slideshow */}
+      <p className="mb-1.5 mt-4 flex items-center gap-1.5 text-sm font-medium"><Film className="h-4 w-4 text-slate-400" /> Slides per question</p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {[
+          ["both", "Question + answer slide", "Slide 1 asks the question; slide 2 reveals the answer, explanation, key points & quick recall."],
+          ["question", "Question slide only", "After the question is read, a short pause, then the correct option turns green on the same slide. No explanation slide."],
+        ].map(([value, label, hint]) => (
+          <label key={value} className={`flex cursor-pointer items-start gap-2 rounded-lg border p-3 text-sm ${slidesMode === value ? "border-brand-500 bg-brand-50/60 dark:bg-brand-900/20" : "border-slate-200 dark:border-slate-700"}`}>
+            <input type="radio" name="lvSlidesMode" className="mt-0.5 h-4 w-4 accent-brand-600" checked={slidesMode === value} onChange={() => setSlidesMode(value)} />
+            <span><span className="font-medium">{label}</span><span className="mt-0.5 block text-xs text-slate-400">{hint}</span></span>
+          </label>
+        ))}
       </div>
-      <p className="mt-1 text-xs text-slate-400">A slide stays up longer when the voice needs it. What the narrator reads (question, options, explanation…) follows the AI Slideshow settings.</p>
+
+      {!withAnswer && (
+        <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 dark:border-emerald-900/50 dark:bg-emerald-900/10">
+          <p className="mb-2 flex items-center gap-1.5 text-sm font-medium text-emerald-800 dark:text-emerald-300"><CheckCircle2 className="h-4 w-4" /> Answer reveal</p>
+          <div className="flex flex-wrap items-end gap-4">
+            {[
+              ["pauseSec", "Thinking pause", "silence after the question is read", 0, 15],
+              ["showSec", "Show green answer for", "the correct option in green", 1, 15],
+            ].map(([key, label, hint, lo, hi]) => (
+              <div key={key}>
+                <label className="mb-1 block text-xs font-medium">{label}</label>
+                <div className="flex items-center gap-2">
+                  {secInput(reveal[key], (v) => setReveal((r) => ({ ...r, [key]: v })), lo, hi, 3)}
+                  <span className="text-xs text-slate-500">sec</span>
+                </div>
+                <p className="mt-0.5 text-[11px] text-slate-400">{hint}</p>
+              </div>
+            ))}
+            <label className="mb-4 flex items-center gap-2 text-sm">
+              <input type="checkbox" className="h-4 w-4 accent-emerald-600" checked={reveal.say} onChange={(e) => setReveal((r) => ({ ...r, say: e.target.checked }))} />
+              Say the answer (“The correct answer is option B: 1, 2 and 3”)
+            </label>
+          </div>
+        </div>
+      )}
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        {[
+          ["Question time", "Slide 1 — question + options", questionSec, setQuestionSec, 10],
+          ...(withAnswer ? [["Answer reveal time", "Slide 2 — answer + explanation", answerSec, setAnswerSec, 8]] : []),
+        ].map(([label, hint, value, setValue, def]) => (
+          <div key={label}>
+            <label className="mb-1 flex items-center gap-1.5 text-sm font-medium"><Clock className="h-4 w-4 text-slate-400" /> {label}</label>
+            <div className="flex items-center gap-2">
+              {secInput(value, setValue, 3, 40, def)}
+              <span className="text-sm text-slate-500 dark:text-slate-400">seconds</span>
+            </div>
+            <p className="mt-1 text-xs text-slate-400">{hint}</p>
+          </div>
+        ))}
+      </div>
+      <p className="mt-2 text-xs text-slate-400">
+        Each question ≈ {perQ}s{planned?.n ? <> · whole video ≈ <b>{Math.max(1, Math.round((planned.n * perQ) / 60))} min</b> ({planned.n} questions)</> : ""}. If the voice needs longer than the time you set, that slide stays up until the narration finishes. What the narrator reads (question, options, explanation…) follows the AI Slideshow settings.
+      </p>
 
       {/* 16:9 slide templates (separate from the 9:16 Reel templates) */}
       <p className="mb-1 mt-4 text-sm font-medium">Slide templates <span className="font-normal text-slate-400">(optional, 16:9)</span></p>
@@ -2604,6 +2685,27 @@ function FullQuizVideoForm({ st }) {
       {withAnswer && settings?.longVideoQuestionTemplateUrl && !settings?.longVideoAnswerTemplateUrl && useTemplates && (
         <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">No answer template — the answer slides will use the built-in design.</p>
       )}
+
+      {/* Preview — try the voice, slides, times and templates before posting */}
+      <div className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" onClick={previewVideo} disabled={pv.busy || !hasSource} className="btn-outline">
+            {pv.busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlayCircle className="h-4 w-4" />} Preview video
+          </button>
+          <span className="text-xs text-slate-400">
+            {pv.busy
+              ? `${PV_STAGE[pv.stage] || "Working"}${pv.progress ? ` · ${pv.progress.done}/${pv.progress.total}` : ""}… (about 1–3 minutes)`
+              : "Makes a short test with the first 3 questions and the settings above (voice, slides, times, templates). Nothing is posted."}
+          </span>
+        </div>
+        {pv.error && <p className="mt-2 text-sm font-medium text-rose-600">{pv.error}</p>}
+        {pv.url && (
+          <div className="mt-3">
+            <video src={pv.url} controls playsInline className="aspect-video w-full max-w-xl rounded-lg bg-black" />
+            {pv.info && <p className="mt-1 text-xs text-slate-500">{pv.info}</p>}
+          </div>
+        )}
+      </div>
 
       {step(4, "Post to")}
       <div className="flex flex-wrap gap-4">
@@ -2640,19 +2742,22 @@ function FullQuizVideoForm({ st }) {
           </>
         )}
         <div>
-          <label className="mb-1 block text-sm font-medium">Thumbnail</label>
-          {thumbReady(st) ? (
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={useThumb} onChange={(e) => setUseThumb(e.target.checked)} />
-              Use my thumbnail template <span className="text-slate-400">(YouTube + Facebook)</span>
-            </label>
-          ) : <p className="text-xs text-slate-400">{st?.thumb?.templateUrl ? <>Your thumbnail template is switched off — turn on <b>Use for long videos</b> above and click <b>Save</b>.</> : <>A frame is picked automatically. Upload a <b>Thumbnail template</b> above and click <b>Save</b> to brand every long video.</>}</p>}
-        </div>
-        <div>
           <label className="mb-1 block text-sm font-medium">Extra hashtags <span className="font-normal text-slate-400">(optional)</span></label>
           <input className="input" value={hashtags} onChange={(e) => setHashtags(e.target.value)} placeholder="#GK #JKSSB" />
         </div>
       </div>
+
+      {/* Thumbnail — upload the template ONCE; the text is filled in per video */}
+      <p className="mb-1 mt-4 text-sm font-medium">Thumbnail</p>
+      {st?.connected
+        ? <YtThumbnailTemplateEditor st={st} onSaved={onStatus} />
+        : <p className="text-xs text-slate-400">Connect YouTube first (YouTube Shorts card).</p>}
+      {thumbReady(st) && (
+        <label className="mt-2 flex items-center gap-2 text-sm">
+          <input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={useThumb} onChange={(e) => setUseThumb(e.target.checked)} />
+          Use my thumbnail for this video <span className="text-slate-400">(its subject, topic &amp; quiz are written on it · YouTube + Facebook)</span>
+        </label>
+      )}
 
       {step(5, "Scheduled time")}
       <YtPublishTimeField key={pickerKey} value={publishAt} onChange={setPublishAt}
@@ -2697,7 +2802,7 @@ function FullQuizVideoForm({ st }) {
   );
 }
 
-function OwnVideoUploadForm({ st }) {
+function OwnVideoUploadForm({ st, onStatus }) {
   const [file, setFile] = useState(null);
   const [thumb, setThumb] = useState(null);
   const [useTemplate, setUseTemplate] = useState(true);
@@ -2797,6 +2902,12 @@ function OwnVideoUploadForm({ st }) {
             : <p className="text-xs text-slate-400">Connect YouTube first.</p>}
         </div>
       </div>
+      {st?.connected && !thumb && (
+        <details className="mt-3">
+          <summary className="cursor-pointer text-sm font-medium text-slate-600 dark:text-slate-300">Thumbnail template (upload once, used for every long video)</summary>
+          <YtThumbnailTemplateEditor st={st} onSaved={onStatus} />
+        </details>
+      )}
       {busy && (
         <div className="mt-3">
           <div className="h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700"><div className="h-full bg-[#FF0000] transition-all" style={{ width: `${pct}%` }} /></div>

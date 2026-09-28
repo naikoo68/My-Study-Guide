@@ -259,7 +259,15 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
       const { renderYoutubeThumbnail } = await import("./ytThumbnail.js");
       const r = await renderYoutubeThumbnail({
         ...cfg.ytThumb,
-        lines: thumbnailLines({ subject: names.subject || names.quiz || source?.label || "", topic: names.topic, count: questions.length }),
+        // Subject | Topic | Quiz of THIS video. The quiz name only when one quiz
+        // (or My Quiz) was picked — a whole topic mixes several quizzes.
+        lines: thumbnailLines({
+          subject: names.subject || source?.label || "",
+          topic: names.topic,
+          quiz: source?.quiz || source?.testSeries ? names.quiz : "",
+          count: questions.length,
+          range: job.range,
+        }),
         brandColor: site?.brandColor || site?.primaryColor,
       });
       if (r.image) thumbnail = r;
