@@ -372,7 +372,7 @@ const settingsSchema = new mongoose.Schema(
     ytThumbBox: { type: mongoose.Schema.Types.Mixed, default: null }, // { x, y, w, h }
     ytThumbAlign: { type: String, enum: ["left", "center", "right"], default: "left" },
     ytThumbVAlign: { type: String, enum: ["top", "center", "bottom"], default: "center" },
-    ytThumbFont: { type: String, enum: ["sans", "serif", "mono"], default: "sans" },
+    ytThumbFont: { type: String, enum: ["sans", "serif", "mono", "anton", "bebas", "poppins", "oswald", "montserrat"], default: "sans" },
     ytThumbUppercase: { type: Boolean, default: false },
     ytThumbKickerColor: { type: String, default: "" }, // blank = same as text colour
     ytThumbBadgeTextColor: { type: String, default: "#111111" },
@@ -382,6 +382,11 @@ const settingsSchema = new mongoose.Schema(
     ytThumbPanelColor: { type: String, default: "" }, // shade box behind the text (blank = none)
     ytThumbPanelOpacity: { type: Number, default: 0 }, // 0–100
     ytThumbPanelRadius: { type: Number, default: 24 },
+    // Text sizes (px on the 1280×720 frame) and line spacing.
+    ytThumbHeadlineSize: { type: Number, default: 104 }, // topic — auto-shrinks only if it overflows
+    ytThumbKickerSize: { type: Number, default: 44 }, // subject line
+    ytThumbBadgeSize: { type: Number, default: 46 }, // quiz badge
+    ytThumbLineHeight: { type: Number, default: 1.05 }, // line spacing (0.8–2)
     // ---- Auto-comments ("first comment") ----
     // A GLOBAL list of comments the admin writes once; after EVERY scheduled
     // auto-post/reel publishes, the app adds a saved comment as the first

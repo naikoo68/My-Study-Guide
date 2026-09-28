@@ -8,10 +8,36 @@
 // text supports every script the server has fonts for. Returns JPEG bytes
 // ≤ 2 MB (YouTube's limit). Best-effort: callers treat a failure as "no custom
 // thumbnail" — the upload itself never fails because of it.
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { launchBrowser } from "./cardShot.js";
 
 export const THUMB_W = 1280;
 export const THUMB_H = 720;
+
+// Bundled OFL display fonts (backend/assets/fonts) — inlined into the thumbnail
+// page as base64 @font-face, so they render the same on any server regardless
+// of installed system fonts. "sans"/"serif"/"mono" use the system stacks.
+const FONT_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "assets", "fonts");
+const BUNDLED_FONTS = {
+  anton: { file: "Anton-Regular.ttf", weight: 400, label: "Anton (heavy display)" },
+  bebas: { file: "BebasNeue-Regular.ttf", weight: 400, label: "Bebas Neue (tall condensed)" },
+  poppins: { file: "Poppins-ExtraBold.ttf", weight: 800, label: "Poppins (rounded)" },
+  oswald: { file: "Oswald-VF.ttf", weight: 700, label: "Oswald (condensed)" },
+  montserrat: { file: "Montserrat-VF.ttf", weight: 800, label: "Montserrat (modern)" },
+};
+const _fontCache = new Map(); // key → base64 data URI ("" when the file is missing)
+function fontDataUri(key) {
+  if (_fontCache.has(key)) return _fontCache.get(key);
+  let uri = "";
+  try {
+    const f = BUNDLED_FONTS[key];
+    if (f) uri = `data:font/ttf;base64,${fs.readFileSync(path.join(FONT_DIR, f.file)).toString("base64")}`;
+  } catch { /* missing → fall back to a system font */ }
+  _fontCache.set(key, uri);
+  return uri;
+}
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const hex = (v, d) => (/^#[0-9a-f]{6}$/i.test(String(v || "")) ? v : d);
@@ -25,13 +51,29 @@ function rgba(color, opacityPct) {
   const r = parseInt(h.slice(1, 3), 16), g = parseInt(h.slice(3, 5), 16), b = parseInt(h.slice(5, 7), 16);
   return `rgba(${r},${g},${b},${a})`;
 }
-// The installed server fonts (see backend/Dockerfile: font-noto, ttf-freefont).
+// System font stacks (see backend/Dockerfile: font-noto, ttf-freefont). Bundled
+// fonts fall back to the sans stack if their file is ever missing.
+const SANS = `"Inter","Noto Sans","Noto Sans Devanagari","DejaVu Sans","FreeSans",Arial,sans-serif`;
 const FONT_STACKS = {
-  sans: `"Inter","Noto Sans","Noto Sans Devanagari","DejaVu Sans","FreeSans",Arial,sans-serif`,
+  sans: SANS,
   serif: `"Noto Serif","DejaVu Serif","FreeSerif","Times New Roman",serif`,
   mono: `"Noto Sans Mono","DejaVu Sans Mono","FreeMono",monospace`,
 };
-export const THUMB_FONTS = Object.keys(FONT_STACKS);
+// Every choice offered in the admin (system + bundled).
+export const THUMB_FONTS = [...Object.keys(FONT_STACKS), ...Object.keys(BUNDLED_FONTS)];
+// Family name + weight + optional @font-face for a chosen font key.
+function fontFace(key) {
+  if (FONT_STACKS[key]) return { family: FONT_STACKS[key], weight: null, css: "" };
+  const b = BUNDLED_FONTS[key];
+  const uri = b ? fontDataUri(key) : "";
+  if (!uri) return { family: SANS, weight: null, css: "" };
+  const fam = `MSG_${key}`;
+  return {
+    family: `"${fam}",${SANS}`,
+    weight: b.weight,
+    css: `@font-face{font-family:"${fam}";src:url(${uri}) format("truetype");font-weight:100 900;font-display:block;}`,
+  };
+}
 export const THUMB_ALIGN = ["left", "center", "right"];
 export const THUMB_VALIGN = ["top", "center", "bottom"];
 // The default text box (fractions of the 1280×720 frame): the left ~58%.
@@ -66,13 +108,20 @@ export function buildThumbnailHtml(opts = {}) {
     textColor = "#ffffff", kickerColor = "", strokeColor = "#000000", strokeWidth = 3, shadow = true,
     accentColor = "#facc15", badgeTextColor = "#111111",
     panelColor = "", panelOpacity = 0, panelRadius = 24,
+    headlineSize = 104, kickerSize = 44, badgeSize = 46, lineHeight = 1.05,
   } = opts;
 
   const color = hex(textColor, "#ffffff");
   const kColor = hex(kickerColor, "") || color;
   const badgeBg = hex(accentColor, "#facc15");
   const badgeColor = hex(badgeTextColor, "#111111");
-  const family = FONT_STACKS[font] || FONT_STACKS.sans;
+  const ff = fontFace(font);
+  const family = ff.family;
+  const weightCss = ff.weight ? `font-weight:${ff.weight};` : "font-weight:900;";
+  const hSize = num(headlineSize, 104, 24, 200);
+  const kSize = num(kickerSize, 44, 12, 120);
+  const bSize = num(badgeSize, 46, 12, 120);
+  const lh = num(lineHeight, 1.05, 0.8, 2);
   const sw = num(strokeWidth, 3, 0, 16);
   const stroke = sw > 0 ? `-webkit-text-stroke:${sw}px ${hex(strokeColor, "#000000")};paint-order:stroke fill;` : "";
   const shadowCss = shadow ? "text-shadow:0 6px 18px rgba(0,0,0,.8);" : "";
@@ -116,28 +165,30 @@ export function buildThumbnailHtml(opts = {}) {
     : `background:linear-gradient(135deg, ${hex(brandColor, "#2563eb")}, #0f172a);`;
 
   return `<!doctype html><html><head><meta charset="utf-8"><style>
+    ${ff.css}
     *{margin:0;padding:0;box-sizing:border-box}
     html,body{width:${THUMB_W}px;height:${THUMB_H}px;overflow:hidden}
     body{font-family:${family}}
     #thumb{position:relative;width:${THUMB_W}px;height:${THUMB_H}px;${bg}}
-    .kicker{font-size:44px;font-weight:800;color:${kColor};${up}letter-spacing:1px;${kShadowCss}}
-    .headline{font-size:104px;line-height:1.05;font-weight:900;color:${color};width:100%;${up}
+    .kicker{font-size:${kSize}px;font-weight:800;color:${kColor};${up}letter-spacing:1px;${kShadowCss}}
+    .headline{font-size:${hSize}px;line-height:${lh};${weightCss}color:${color};width:100%;${up}
       overflow-wrap:break-word;${stroke}${shadowCss}}
-    .badge{display:inline-block;font-size:46px;font-weight:900;color:${badgeColor};background:${badgeBg};
+    .badge{display:inline-block;font-size:${bSize}px;font-weight:900;color:${badgeColor};background:${badgeBg};
       padding:8px 26px;border-radius:14px;box-shadow:0 6px 18px rgba(0,0,0,.45)}
   </style></head><body><div id="thumb">${text}</div>
   <script>
-    // Shrink the headline until it's at most 3 lines, no word is cut, and the
-    // whole text block fits its box (a short topic stays big and bold).
+    // Start at the chosen size, then shrink ONLY if the headline overflows its
+    // box (more than 3 lines, a cut word, or taller than the box). A short
+    // topic keeps the size you set.
     (function(){
       var h=document.getElementById("headline"), box=document.getElementById("box"), inner=document.getElementById("inner");
       if(!h||!box||!inner) return;
-      var size=104;
+      var size=${hSize}, lh=${lh};
       function over(){
-        var lines=Math.round(h.offsetHeight/(size*1.05));
+        var lines=Math.round(h.offsetHeight/(size*lh));
         return lines>3 || h.scrollWidth>h.clientWidth+4 || inner.scrollHeight>box.clientHeight-4;
       }
-      while(size>36 && over()){ size-=4; h.style.fontSize=size+"px"; }
+      while(size>24 && over()){ size-=4; h.style.fontSize=size+"px"; }
     })();
   </script></body></html>`;
 }

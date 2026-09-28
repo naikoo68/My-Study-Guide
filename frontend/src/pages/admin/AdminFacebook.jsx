@@ -61,6 +61,13 @@ const READ_TOGGLES = [
 const readOptsFrom = (s) => Object.fromEntries(READ_TOGGLES.map((t) => [t.key, s?.[t.setting] !== false]));
 const readOptsToSettings = (r) => Object.fromEntries(READ_TOGGLES.map((t) => [t.setting, r[t.key] !== false]));
 
+// Approximate browser fonts for the thumbnail box preview (the exact server
+// fonts render only in "Exact preview").
+const PREVIEW_FONT = {
+  serif: "Georgia,serif", mono: "monospace",
+  anton: "\"Arial Narrow\",Impact,sans-serif", bebas: "\"Arial Narrow\",Impact,sans-serif",
+  oswald: "\"Arial Narrow\",sans-serif", poppins: "\"Trebuchet MS\",sans-serif", montserrat: "\"Trebuchet MS\",sans-serif",
+};
 // "#rrggbb" + alpha (0–1) → "rgba(...)" for the thumbnail shade preview.
 function hexToRgba(hex, a = 1) {
   const h = /^#[0-9a-f]{6}$/i.test(String(hex || "")) ? hex : "#000000";
@@ -2005,6 +2012,7 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
     thumbAccentColor: t.accentColor || "#facc15", thumbBadgeTextColor: t.badgeTextColor || "#111111",
     thumbStrokeColor: t.strokeColor || "#000000", thumbStrokeWidth: t.strokeWidth ?? 3, thumbShadow: t.shadow !== false,
     thumbPanelColor: t.panelColor || "", thumbPanelOpacity: t.panelOpacity ?? 0, thumbPanelRadius: t.panelRadius ?? 24,
+    thumbHeadlineSize: t.headlineSize ?? 104, thumbKickerSize: t.kickerSize ?? 44, thumbBadgeSize: t.badgeSize ?? 46, thumbLineHeight: t.lineHeight ?? 1.05,
   }));
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState("");
@@ -2095,7 +2103,7 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
     WebkitTextStroke: draft.thumbStrokeWidth > 0 ? `${Math.max(1, draft.thumbStrokeWidth / 3)}px ${draft.thumbStrokeColor}` : undefined,
     textShadow: draft.thumbShadow ? "0 2px 6px rgba(0,0,0,.8)" : undefined,
     textTransform: draft.thumbUppercase ? "uppercase" : undefined,
-    fontFamily: draft.thumbFont === "serif" ? "Georgia,serif" : draft.thumbFont === "mono" ? "monospace" : "inherit",
+    fontFamily: PREVIEW_FONT[draft.thumbFont] || "inherit",
     textAlign: draft.thumbAlign,
     alignItems: draft.thumbAlign === "center" ? "center" : draft.thumbAlign === "right" ? "flex-end" : "flex-start",
     justifyContent: draft.thumbVAlign === "top" ? "flex-start" : draft.thumbVAlign === "bottom" ? "flex-end" : "center",
@@ -2135,9 +2143,9 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
                   style={{ left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.w * 100}%`, height: `${box.h * 100}%` }}>
                   <div className="flex h-full w-full flex-col gap-0.5 overflow-hidden p-1 text-[7px] font-black leading-tight" style={sampleStyle}>
                     <div style={panelBg}>
-                      <div style={{ color: draft.thumbKickerColor || draft.thumbTextColor, fontSize: "6px" }}>ACADEMIC LIBRARIANSHIP</div>
-                      <div style={{ fontSize: "13px", lineHeight: 1 }}>Library Management</div>
-                      <div style={{ display: "inline-block", background: draft.thumbAccentColor, color: draft.thumbBadgeTextColor, borderRadius: 3, padding: "0 4px", fontSize: "8px", marginTop: 2 }}>Quiz 2</div>
+                      <div style={{ color: draft.thumbKickerColor || draft.thumbTextColor, fontSize: `${(draft.thumbKickerSize / 44) * 6}px` }}>ACADEMIC LIBRARIANSHIP</div>
+                      <div style={{ fontSize: `${(draft.thumbHeadlineSize / 104) * 13}px`, lineHeight: draft.thumbLineHeight }}>Library Management</div>
+                      <div style={{ display: "inline-block", background: draft.thumbAccentColor, color: draft.thumbBadgeTextColor, borderRadius: 3, padding: "0 4px", fontSize: `${(draft.thumbBadgeSize / 46) * 8}px`, marginTop: 2 }}>Quiz 2</div>
                     </div>
                   </div>
                   <span onPointerDown={onPointerDown("resize")} className="absolute -bottom-1.5 -right-1.5 h-3.5 w-3.5 cursor-se-resize rounded-full border-2 border-white bg-[#FF0000]" />
@@ -2189,6 +2197,11 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
                       <option value="sans">Sans (bold)</option>
                       <option value="serif">Serif</option>
                       <option value="mono">Mono</option>
+                      <option value="anton">Anton (heavy)</option>
+                      <option value="bebas">Bebas Neue (condensed)</option>
+                      <option value="oswald">Oswald (condensed)</option>
+                      <option value="poppins">Poppins (rounded)</option>
+                      <option value="montserrat">Montserrat (modern)</option>
                     </select>
                   </div>
                 </div>
@@ -2197,6 +2210,30 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
                   {colorInput("Subject colour", "thumbKickerColor", "#ffffff")}
                   {colorInput("Quiz badge", "thumbAccentColor", "#facc15")}
                   {colorInput("Badge text", "thumbBadgeTextColor", "#111111")}
+                </div>
+                <div className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                  <p className="text-xs font-semibold text-slate-500">Text size &amp; spacing</p>
+                  {[
+                    ["Topic size", "thumbHeadlineSize", 24, 200, 104],
+                    ["Subject size", "thumbKickerSize", 12, 120, 44],
+                    ["Quiz badge size", "thumbBadgeSize", 12, 120, 46],
+                  ].map(([label, key, lo, hi]) => (
+                    <label key={key} className="flex items-center justify-between gap-2 text-sm">
+                      <span>{label}</span>
+                      <span className="flex items-center gap-2">
+                        <input type="range" min={lo} max={hi} value={draft[key]} onChange={(e) => set(key, Number(e.target.value), { later: true })} className="w-28 accent-[#FF0000]" />
+                        <span className="w-8 text-right text-xs text-slate-400">{draft[key]}</span>
+                      </span>
+                    </label>
+                  ))}
+                  <label className="flex items-center justify-between gap-2 text-sm">
+                    <span>Line spacing</span>
+                    <span className="flex items-center gap-2">
+                      <input type="range" min={0.8} max={2} step={0.05} value={draft.thumbLineHeight} onChange={(e) => set("thumbLineHeight", Number(e.target.value), { later: true })} className="w-28 accent-[#FF0000]" />
+                      <span className="w-8 text-right text-xs text-slate-400">{Number(draft.thumbLineHeight).toFixed(2)}</span>
+                    </span>
+                  </label>
+                  <p className="text-[11px] text-slate-400">The topic shrinks automatically only if it doesn't fit the box.</p>
                 </div>
                 <button type="button" onClick={() => setShowStyle((v) => !v)} className="flex items-center gap-1 text-xs font-semibold text-brand-600">
                   <ChevronDown className={`h-4 w-4 transition ${showStyle ? "rotate-180" : ""}`} /> Outline, shadow &amp; shade

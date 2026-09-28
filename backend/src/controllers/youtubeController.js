@@ -75,6 +75,10 @@ function applyThumbFields(target, b) {
   if ("thumbPanelColor" in b) target.ytThumbPanelColor = b.thumbPanelColor ? hexColor(b.thumbPanelColor, "") : "";
   if ("thumbPanelOpacity" in b) target.ytThumbPanelOpacity = clampInt(b.thumbPanelOpacity, 0, 0, 100);
   if ("thumbPanelRadius" in b) target.ytThumbPanelRadius = clampInt(b.thumbPanelRadius, 24, 0, 80);
+  if ("thumbHeadlineSize" in b) target.ytThumbHeadlineSize = clampInt(b.thumbHeadlineSize, 104, 24, 200);
+  if ("thumbKickerSize" in b) target.ytThumbKickerSize = clampInt(b.thumbKickerSize, 44, 12, 120);
+  if ("thumbBadgeSize" in b) target.ytThumbBadgeSize = clampInt(b.thumbBadgeSize, 46, 12, 120);
+  if ("thumbLineHeight" in b) { const n = Number(b.thumbLineHeight); target.ytThumbLineHeight = Number.isFinite(n) ? Math.max(0.8, Math.min(2, n)) : 1.05; }
 }
 const clampInt = (v, d, lo, hi) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
 
@@ -355,7 +359,8 @@ export async function youtubeThumbnailPreview(req, res) {
   const THUMB_KEYS = ["ytThumbTemplateUrl", "ytThumbEnabled", "ytThumbShowText", "ytThumbTextPosition",
     "ytThumbTextColor", "ytThumbAccentColor", "ytThumbBox", "ytThumbAlign", "ytThumbVAlign", "ytThumbFont",
     "ytThumbUppercase", "ytThumbKickerColor", "ytThumbBadgeTextColor", "ytThumbStrokeColor", "ytThumbStrokeWidth",
-    "ytThumbShadow", "ytThumbPanelColor", "ytThumbPanelOpacity", "ytThumbPanelRadius"];
+    "ytThumbShadow", "ytThumbPanelColor", "ytThumbPanelOpacity", "ytThumbPanelRadius",
+    "ytThumbHeadlineSize", "ytThumbKickerSize", "ytThumbBadgeSize", "ytThumbLineHeight"];
   const draft = Object.fromEntries(THUMB_KEYS.map((k) => [k, site[k]]));
   draft.ytThumbEnabled = true;
   applyThumbFields(draft, { ...b, thumbEnabled: true });

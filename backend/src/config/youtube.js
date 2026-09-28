@@ -37,7 +37,7 @@ export function scopesAllowPlaylists(scopes) {
   return PLAYLIST_SCOPES.some((s) => got.includes(s));
 }
 export const YT_THUMB_POSITIONS = ["left", "center", "right", "bottom"];
-export const YT_THUMB_FONTS = ["sans", "serif", "mono"];
+export const YT_THUMB_FONTS = ["sans", "serif", "mono", "anton", "bebas", "poppins", "oswald", "montserrat"];
 export const DEFAULT_THUMB_BOX = { x: 0.05, y: 0.12, w: 0.56, h: 0.76 };
 // Clean a thumbnail text box → { x, y, w, h } fractions kept on-frame (pure).
 export function cleanThumbBox(b) {
@@ -126,8 +126,12 @@ export function thumbConfigFromSite(site) {
     box: cleanThumbBox(site?.ytThumbBox),
     align: ["left", "center", "right"].includes(site?.ytThumbAlign) ? site.ytThumbAlign : "left",
     vAlign: ["top", "center", "bottom"].includes(site?.ytThumbVAlign) ? site.ytThumbVAlign : "center",
-    font: ["sans", "serif", "mono"].includes(site?.ytThumbFont) ? site.ytThumbFont : "sans",
+    font: YT_THUMB_FONTS.includes(site?.ytThumbFont) ? site.ytThumbFont : "sans",
     uppercase: !!site?.ytThumbUppercase,
+    headlineSize: int(site?.ytThumbHeadlineSize, 104, 24, 200),
+    kickerSize: int(site?.ytThumbKickerSize, 44, 12, 120),
+    badgeSize: int(site?.ytThumbBadgeSize, 46, 12, 120),
+    lineHeight: Math.max(0.8, Math.min(2, Number(site?.ytThumbLineHeight) || 1.05)),
     textColor: col(site?.ytThumbTextColor, "#ffffff"),
     kickerColor: col(site?.ytThumbKickerColor, ""),
     accentColor: col(site?.ytThumbAccentColor, "#facc15"),
