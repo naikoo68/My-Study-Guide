@@ -22,7 +22,7 @@ export function ffmpegPath() {
 }
 
 // Run ffmpeg with `args`; resolves with its stderr text (ffmpeg logs there).
-function runFfmpeg(args, { timeoutMs = 180000 } = {}) {
+export function runFfmpeg(args, { timeoutMs = 180000 } = {}) {
   return new Promise((resolve, reject) => {
     let stderr = "";
     let child;

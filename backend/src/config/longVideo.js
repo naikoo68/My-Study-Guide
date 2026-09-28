@@ -232,6 +232,7 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
   job.status = "running";
   job.stage = "picking";
   let filePath = "";
+  let shortPath = ""; // the vertical Short copy (deleted at the end)
   try {
     const all = await completeQuestionsForSource(source);
     const max = opts.count || MAX_LONG_VIDEO_QUESTIONS;
@@ -299,7 +300,7 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
     const asShort = opts.asShort && job.duration > 0 && job.duration <= YT_SHORT_MAX_SEC;
     if (opts.asShort && opts.toYoutube) {
       job.notes.push(asShort
-        ? "YouTube: marked as a Short (#Shorts)"
+        ? "YouTube: uploading a vertical Short (#Shorts)"
         : `Not a Short — the video is ${Math.round((job.duration / 60) * 10) / 10} min (max 3 min)`);
     }
     const description = buildYtLongDescription({
@@ -334,12 +335,24 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
 
     const errors = [];
     let anyOk = false;
-    // 1) YouTube
+    // 1) YouTube. For a Short, upload a VERTICAL (9:16) copy — YouTube only
+    //    shows vertical/square ≤3-min videos as Shorts; a 16:9 video with
+    //    #Shorts stays a normal video. Facebook still gets the landscape file.
     if (opts.toYoutube) {
       job.stage = "uploading";
       job.progress = { done: 0, total: 100 };
+      let ytFile = filePath;
+      if (asShort) {
+        try {
+          const { makeVerticalShort } = await import("./verticalShort.js");
+          shortPath = await makeVerticalShort(filePath);
+          ytFile = shortPath;
+        } catch (e) {
+          job.notes.push(`Short: couldn't make the vertical version (${e?.message || e}) — uploaded as a normal video`);
+        }
+      }
       const up = await uploadVideoFileToYoutube({
-        filePath,
+        filePath: ytFile,
         title: job.title,
         description,
         tags: buildYtTags(tags),
@@ -353,7 +366,8 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
         job.videoId = up.id;
         job.privacy = up.privacy || job.privacy;
         const yt = [];
-        if (thumbnail) {
+        // A Short uses an auto frame, not a custom thumbnail — skip it there.
+        if (thumbnail && ytFile === filePath) {
           const t = await setYtThumbnail({ videoId: up.id, image: thumbnail.image, mime: thumbnail.mime }, cfg);
           yt.push(t.ok ? "Thumbnail ✓" : `Thumbnail ✗ (${t.error})`);
         }
@@ -412,6 +426,7 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
     }
   } finally {
     if (filePath) await fs.rm(filePath, { force: true }).catch(() => {});
+    if (shortPath) await fs.rm(shortPath, { force: true }).catch(() => {});
   }
 }
 
