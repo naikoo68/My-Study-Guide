@@ -6,10 +6,10 @@ import {
   Send, Loader2, CheckCircle2, AlertTriangle, KeyRound, Plus, Trash2, Pencil, X,
   Clock, CalendarClock, ListChecks, Power, Save, Upload, UserCircle, Type, Search, Mail,
   ImagePlus, FileText, Wand2, RefreshCw, Film, Music, Camera, ChevronDown, MessageCircle,
-  Sparkles, Volume2, PlayCircle, Link2, Unplug,
+  Sparkles, Volume2, PlayCircle, Link2, Unplug, Clapperboard,
 } from "lucide-react";
 import { Facebook, Instagram, Youtube } from "../../components/ui/SocialIcons";
-import { settingsService, facebookService, youtubeService, contentService, practiceService, uploadService } from "../../services";
+import { settingsService, facebookService, youtubeService, uploadVideoFileToYoutube, contentService, practiceService, uploadService } from "../../services";
 import { useSettings } from "../../context/SettingsContext";
 import { Loading, ErrorState } from "../../components/ui/AsyncState";
 import { estimateSlideshowEta, smoothRemaining, learnSlideshowProfile, loadSlideshowProfile, saveSlideshowProfile, fmtDuration } from "../../lib/slideshowEta";
@@ -1170,6 +1170,7 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
   const [toInstagram, setToInstagram] = useState(false);
   const [toYoutube, setToYoutube] = useState(false);
   const [ytTitle, setYtTitle] = useState("");
+  const [ytFullVideo, setYtFullVideo] = useState(false);
   const [hashtags, setHashtags] = useState("");
   const [questionCount, setQuestionCount] = useState(1); // questions per video (1–10)
   const [creating, setCreating] = useState(false);
@@ -1380,6 +1381,7 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
         toInstagram,
         toYoutube,
         ytTitle: ytTitle.trim(),
+        ytFullVideo: toYoutube && ytFullVideo,
         hashtags: hashtags.trim(),
         slideshowQuestions: qCount,
         includeOptions: true,
@@ -1479,6 +1481,10 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
           <label className="mb-1 block text-sm font-medium">YouTube title</label>
           <input className="input" maxLength={90} value={ytTitle} onChange={(e) => setYtTitle(e.target.value)} placeholder="Automatic: Subject | Topic | Quiz 1" />
           <p className="mt-1 text-xs text-slate-400">Leave blank for <b>Subject | Topic | Quiz 1</b>, Quiz 2… — each video is the next {qCount > 1 ? `${qCount} questions` : "question"} (e.g. 25 questions at 5 per video → Quiz 1 to Quiz 5). Pick <b>Sequential</b> order so Quiz 1 is the first questions. Connect your channel in the <b>YouTube Shorts</b> card first.</p>
+          <label className="mt-2 flex items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-0.5 h-4 w-4 accent-[#FF0000]" checked={ytFullVideo} onChange={(e) => setYtFullVideo(e.target.checked)} />
+            <span>Also make <b>one full video</b> of the whole topic after the last Short <span className="text-slate-400">(landscape, all questions + answers).</span></span>
+          </label>
         </div>
       )}
       <label className="mb-1 mt-3 block text-sm font-medium">Hashtags (optional)</label>
@@ -2051,6 +2057,223 @@ function YoutubeSection() {
   );
 }
 
+// datetime-local value → ISO (or "" when blank).
+const localToIso = (v) => (v ? new Date(v).toISOString() : "");
+
+// YouTube LONG videos (normal 16:9 videos, not Shorts):
+//   • "Full quiz video" — the server builds ONE narrated landscape video of a
+//     whole topic (every question + answer, with chapters) and uploads it.
+//   • "Upload your own" — a lesson/lecture file goes from this browser
+//     straight to YouTube (any size), now or scheduled.
+function YoutubeLongVideoSection() {
+  const [tab, setTab] = useState("quiz");
+  return (
+    <CollapsibleCard title="YouTube long videos" icon={Clapperboard} iconClass="h-5 w-5 text-[#FF0000]">
+      <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
+        Normal (landscape 16:9) YouTube videos — not Shorts. Uses the channel connected in the <b>YouTube Shorts</b> card.
+      </p>
+      <div className="mt-3 inline-flex rounded-lg border border-slate-200 p-0.5 dark:border-slate-700">
+        {[["quiz", "Full quiz video (automatic)"], ["own", "Upload your own video"]].map(([k, l]) => (
+          <button key={k} type="button" onClick={() => setTab(k)}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium ${tab === k ? "bg-[#FF0000] text-white" : "text-slate-600 dark:text-slate-300"}`}>{l}</button>
+        ))}
+      </div>
+      {tab === "quiz" ? <FullQuizVideoForm /> : <OwnVideoUploadForm />}
+    </CollapsibleCard>
+  );
+}
+
+function FullQuizVideoForm() {
+  const [pickerKey, setPickerKey] = useState(0);
+  const [source, setSource] = useState({ subject: null, session: null, quiz: null, testSeries: null, label: "" });
+  const [title, setTitle] = useState("");
+  const [privacy, setPrivacy] = useState("public");
+  const [publishAt, setPublishAt] = useState("");
+  const [hashtags, setHashtags] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const [jobs, setJobs] = useState([]);
+  const [maxQ, setMaxQ] = useState(50);
+  const hasSource = !!(source.subject || source.session || source.quiz || source.testSeries);
+
+  const load = () => youtubeService.longVideos().then((r) => { setJobs(r?.jobs || []); if (r?.maxQuestions) setMaxQ(r.maxQuestions); }).catch(() => {});
+  useEffect(() => { load(); }, []);
+  // Poll while any job is still working.
+  const active = jobs.some((j) => j.status === "queued" || j.status === "running");
+  useEffect(() => {
+    if (!active) return undefined;
+    const t = setInterval(load, 5000);
+    return () => clearInterval(t);
+  }, [active]);
+
+  const start = async () => {
+    if (!hasSource) { setMsg({ ok: false, text: "Pick the topic / quiz first." }); return; }
+    setBusy(true); setMsg(null);
+    try {
+      await youtubeService.longVideo({ source, title: title.trim(), privacy, publishAt: localToIso(publishAt), hashtags: hashtags.trim() });
+      setMsg({ ok: true, text: "Started — the video is being made below. It can take 5–20 minutes; you can leave this page (you'll get an email)." });
+      setSource({ subject: null, session: null, quiz: null, testSeries: null, label: "" }); setPickerKey((k) => k + 1);
+      load();
+    } catch (e) { setMsg({ ok: false, text: e.message }); } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="mt-4">
+      <p className="text-sm text-slate-500 dark:text-slate-400">
+        Makes <b>one landscape video</b> of every question in the topic (up to {maxQ}), each followed by its answer, narrated with your AI Slideshow voice — with a clickable chapter for every question. Title: <b>Subject | Topic | Full Quiz (25 Questions)</b>.
+      </p>
+      <p className="mb-1 mt-3 text-sm font-semibold">1. Content</p>
+      <SourcePicker key={pickerKey} onPick={setSource} />
+      {source.label && <p className="mt-1 text-xs text-slate-500">Selected: <b>{source.label}</b></p>}
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-sm font-medium">Title <span className="font-normal text-slate-400">(optional)</span></label>
+          <input className="input" maxLength={100} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Automatic: Subject | Topic | Full Quiz (25 Questions)" />
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium">Visibility</label>
+          <select className="input" value={privacy} onChange={(e) => setPrivacy(e.target.value)}>
+            <option value="public">Public</option><option value="unlisted">Unlisted</option><option value="private">Private</option>
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium">Publish at <span className="font-normal text-slate-400">(optional — blank = as soon as it's ready)</span></label>
+          <input type="datetime-local" className="input" value={publishAt} onChange={(e) => setPublishAt(e.target.value)} />
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium">Extra hashtags <span className="font-normal text-slate-400">(optional)</span></label>
+          <input className="input" value={hashtags} onChange={(e) => setHashtags(e.target.value)} placeholder="#GK #JKSSB" />
+        </div>
+      </div>
+      <p className="mt-2 text-xs text-slate-400">Your default + subject/topic hashtags are added automatically and become YouTube tags. Tip: tick <b>“Also make one full video”</b> on a Shorts schedule to have this made automatically after its last Short.</p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button type="button" onClick={start} disabled={busy || !hasSource} className="btn-primary !bg-[#FF0000] hover:!bg-[#d90000]">
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Clapperboard className="h-4 w-4" />} Make &amp; upload video
+        </button>
+        {msg && <span className={`text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.text}</span>}
+      </div>
+
+      {jobs.length > 0 && (
+        <div className="mt-4 space-y-2">
+          <p className="text-sm font-semibold">Recent long videos</p>
+          {jobs.map((j) => (
+            <div key={j.id} className="rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-700">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-medium">{j.title || j.label || "Full quiz video"}{j.auto && <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-500 dark:bg-slate-800">auto</span>}</span>
+                <span className={`text-xs font-semibold ${j.status === "done" ? "text-emerald-600" : j.status === "failed" ? "text-rose-600" : "text-amber-600"}`}>
+                  {j.status === "done" ? "Uploaded" : j.status === "failed" ? "Failed" : j.stageLabel}
+                  {j.progress && (j.status === "running") ? ` · ${j.stage === "uploading" ? `${j.progress.done}%` : `${j.progress.done}/${j.progress.total}`}` : ""}
+                </span>
+              </div>
+              <p className="mt-0.5 text-xs text-slate-500">
+                {j.questions ? `${j.questions} questions` : ""}{j.duration ? ` · ${Math.floor(j.duration / 60)}:${String(j.duration % 60).padStart(2, "0")} min` : ""}
+                {j.publishAt ? ` · publishes ${new Date(j.publishAt).toLocaleString()}` : ""}
+              </p>
+              {j.url && <a href={j.url} target="_blank" rel="noreferrer" className="mt-1 inline-block text-xs font-semibold text-[#FF0000] hover:underline">Open on YouTube{j.privacy && j.privacy !== "public" ? ` (${j.privacy})` : ""}</a>}
+              {j.error && <p className="mt-1 text-xs text-rose-600">{j.error}</p>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OwnVideoUploadForm() {
+  const [file, setFile] = useState(null);
+  const [thumb, setThumb] = useState(null);
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [tags, setTags] = useState("");
+  const [privacy, setPrivacy] = useState("public");
+  const [publishAt, setPublishAt] = useState("");
+  const [pct, setPct] = useState(null);
+  const [msg, setMsg] = useState(null);
+  const [done, setDone] = useState(null);
+  const busy = pct !== null;
+
+  const pickFile = (f) => {
+    setFile(f || null); setDone(null); setMsg(null);
+    if (f && !title) setTitle(f.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").slice(0, 100));
+  };
+  const upload = async () => {
+    if (!file) { setMsg({ ok: false, text: "Choose a video file." }); return; }
+    if (!title.trim()) { setMsg({ ok: false, text: "Add a title." }); return; }
+    setPct(0); setMsg(null); setDone(null);
+    // Keep the screen awake / warn before leaving while uploading.
+    const warn = (e) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    try {
+      const tagList = tags.split(/[,#\n]+/).map((t) => t.trim()).filter(Boolean).slice(0, 30);
+      const r = await uploadVideoFileToYoutube(file, {
+        title: title.trim().replace(/[<>]/g, "").slice(0, 100),
+        description: description.replace(/[<>]/g, "").slice(0, 4900),
+        tags: tagList, privacy, publishAt: localToIso(publishAt),
+      }, { thumbnail: thumb, onProgress: (p) => setPct(Math.round(p * 100)) });
+      setDone(r);
+      setMsg({ ok: true, text: `Uploaded${r.privacy && r.privacy !== privacy ? ` (YouTube set it to ${r.privacy})` : ""}.${r.thumbError ? ` ${r.thumbError}` : ""}` });
+      setFile(null); setThumb(null); setTitle(""); setDescription(""); setTags(""); setPublishAt("");
+    } catch (e) { setMsg({ ok: false, text: e.message }); } finally { setPct(null); window.removeEventListener("beforeunload", warn); }
+  };
+  const mb = (n) => `${(n / 1024 / 1024).toFixed(n > 1024 * 1024 * 1024 ? 0 : 1)} MB`;
+
+  return (
+    <div className="mt-4">
+      <p className="text-sm text-slate-500 dark:text-slate-400">
+        Upload a lesson, lecture or any video — it goes <b>straight from this device to YouTube</b>, so big files work. Keep this page open until it finishes.
+      </p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <div className="sm:col-span-2">
+          <label className="mb-1 block text-sm font-medium">Video file</label>
+          <input type="file" accept="video/*" disabled={busy} onChange={(e) => pickFile(e.target.files?.[0])} className="block w-full text-sm" />
+          {file && <p className="mt-1 text-xs text-slate-500">{file.name} · {mb(file.size)}</p>}
+        </div>
+        <div className="sm:col-span-2">
+          <label className="mb-1 block text-sm font-medium">Title</label>
+          <input className="input" maxLength={100} value={title} onChange={(e) => setTitle(e.target.value)} disabled={busy} placeholder="e.g. Indian Polity | Fundamental Rights | Full Lecture" />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="mb-1 block text-sm font-medium">Description</label>
+          <textarea className="input min-h-[90px] resize-y" value={description} onChange={(e) => setDescription(e.target.value)} disabled={busy} placeholder={"What the video covers…\n\n0:00 Introduction\n2:15 Article 14 …   (timestamps become chapters)"} />
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium">Tags <span className="font-normal text-slate-400">(comma separated)</span></label>
+          <input className="input" value={tags} onChange={(e) => setTags(e.target.value)} disabled={busy} placeholder="Indian Polity, Fundamental Rights, JKSSB" />
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium">Visibility</label>
+          <select className="input" value={privacy} onChange={(e) => setPrivacy(e.target.value)} disabled={busy}>
+            <option value="public">Public</option><option value="unlisted">Unlisted</option><option value="private">Private</option>
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium">Publish at <span className="font-normal text-slate-400">(optional)</span></label>
+          <input type="datetime-local" className="input" value={publishAt} onChange={(e) => setPublishAt(e.target.value)} disabled={busy} />
+          <p className="mt-1 text-xs text-slate-400">Uploads now; YouTube makes it public at this time.</p>
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium">Thumbnail <span className="font-normal text-slate-400">(optional, JPG/PNG ≤ 2 MB)</span></label>
+          <input type="file" accept="image/jpeg,image/png" disabled={busy} onChange={(e) => setThumb(e.target.files?.[0] || null)} className="block w-full text-sm" />
+        </div>
+      </div>
+      {busy && (
+        <div className="mt-3">
+          <div className="h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700"><div className="h-full bg-[#FF0000] transition-all" style={{ width: `${pct}%` }} /></div>
+          <p className="mt-1 text-xs text-slate-500">Uploading… {pct}% — keep this page open.</p>
+        </div>
+      )}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button type="button" onClick={upload} disabled={busy || !file} className="btn-primary !bg-[#FF0000] hover:!bg-[#d90000]">
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Upload to YouTube
+        </button>
+        {msg && <span className={`text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.text}</span>}
+      </div>
+      {done?.url && <a href={done.url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-sm font-semibold text-[#FF0000] hover:underline">Open the video on YouTube</a>}
+      <p className="mt-3 text-xs text-slate-400">Videos longer than 15 minutes need a verified channel (youtube.com/verify). Custom thumbnails need a verified channel too.</p>
+    </div>
+  );
+}
+
 const emptyForm = {
   kind: "question",
   mode: "recurring", runAt: "", // one-off (mode "once") uses runAt; recurring uses times/days
@@ -2059,7 +2282,7 @@ const emptyForm = {
   times: ["09:00"], days: [], timezone: "Asia/Kolkata",
   includeOptions: true, includeAnswer: false, includeLink: false, hashtags: "", order: "random",
   stopWhenExhausted: true,
-  toFacebook: true, toInstagram: false, toYoutube: false, ytTitle: "", asImage: false,
+  toFacebook: true, toInstagram: false, toYoutube: false, ytTitle: "", ytFullVideo: false, asImage: false,
   asReel: false, customAudios: [], reelDuration: 30, // Reel mode for question/flashcard: rotate through these music tracks, trimmed to reelDuration seconds
   asStory: false, // also share the image as a 24h Story (Facebook + Instagram)
   // AI Educational Slideshow + Voice — builds narrated 9:16 slides and posts a Reel.
@@ -2185,7 +2408,7 @@ export default function AdminFacebook() {
     includeOptions: s.includeOptions !== false, includeAnswer: !!s.includeAnswer, includeLink: !!s.includeLink,
     hashtags: s.hashtags || "", order: s.order || "random",
     stopWhenExhausted: s.stopWhenExhausted !== false,
-    toFacebook: s.toFacebook !== false, toInstagram: !!s.toInstagram, toYoutube: !!s.toYoutube, ytTitle: s.ytTitle || "", asImage: !!s.asImage,
+    toFacebook: s.toFacebook !== false, toInstagram: !!s.toInstagram, toYoutube: !!s.toYoutube, ytTitle: s.ytTitle || "", ytFullVideo: !!s.ytFullVideo, asImage: !!s.asImage,
     asReel: !!s.asReel,
     reelDuration: s.reelDuration || 30,
     asStory: !!s.asStory,
@@ -2446,6 +2669,7 @@ export default function AdminFacebook() {
       </CollapsibleCard>
 
       <YoutubeSection />
+      <YoutubeLongVideoSection />
 
       {/* Selfie / logo Watermark */}
       <SelfieWatermarkSection settings={settings} saveSettings={saveSettings} />
@@ -2693,6 +2917,12 @@ export default function AdminFacebook() {
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                   Leave blank for the automatic title <b>Subject | Topic | Quiz 1</b>, then Quiz 2, Quiz 3… — each video is the next set of questions from this source (e.g. 25 questions at 5 per video → Quiz 1 to Quiz 5). Or type your own: <code>{"{subject}"}</code> <code>{"{topic}"}</code> <code>{"{n}"}</code> <code>{"{total}"}</code> (a plain title like “Daily GK Quiz” becomes “Daily GK Quiz #1”). Use <b>Sequential</b> order so Quiz 1 is the first questions. The caption + hashtags become the description.
                 </p>
+                {form.kind !== "custom" && (
+                  <label className="mt-2 flex items-start gap-2 text-sm">
+                    <input type="checkbox" className="mt-0.5 h-4 w-4 accent-[#FF0000]" checked={!!form.ytFullVideo} onChange={(e) => setForm((f) => ({ ...f, ytFullVideo: e.target.checked }))} />
+                    <span>Also make <b>one full video</b> of the whole topic when the last Short is posted <span className="text-slate-400">(landscape, all questions + answers, e.g. “Subject | Topic | Full Quiz (25 Questions)”). Needs “Stop when all posted”.</span></span>
+                  </label>
+                )}
                 {!scheduleHasVideo(form) && (
                   <p className="mt-1 text-xs font-medium text-amber-600 dark:text-amber-400">
                     YouTube only accepts videos — {form.kind === "custom" ? "add a video URL above" : "turn on Reel below (or use the AI Slideshow post type)"}.

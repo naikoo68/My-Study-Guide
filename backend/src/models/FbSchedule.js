@@ -119,6 +119,9 @@ const fbScheduleSchema = new mongoose.Schema(
     toYoutube: { type: Boolean, default: false },
     ytTitle: { type: String, default: "" }, // e.g. "Daily GK Quiz" → "Daily GK Quiz #12" ({n} places the number)
     ytPostCount: { type: Number, default: 0 }, // YouTube uploads so far → the next title number
+    // When the LAST question of the source has been posted, also upload the
+    // whole source as ONE long 16:9 YouTube video ("… | Full Quiz (25 Questions)").
+    ytFullVideo: { type: Boolean, default: false },
     asImage: { type: Boolean, default: false }, // render the question as an image card (Facebook)
     imageUrl: { type: String, default: "" }, // pre-captured screenshot (client-rendered) to post as-is
 

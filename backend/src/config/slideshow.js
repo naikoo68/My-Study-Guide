@@ -152,6 +152,11 @@ export async function generateSlideshow(question, opts = {}) {
   // callers that persist the status (the scheduled poster) aren't hit per slide.
   const onProgress = typeof opts.onProgress === "function" ? opts.onProgress : () => {};
   const questions = (Array.isArray(question) ? question : [question]).filter((x) => x && typeof x === "object");
+  // Long YouTube video mode: 16:9 1920×1080 slides, no Reel length speed-up,
+  // no 9:16 templates, and (keepFile) the MP4 is handed back as a local file
+  // instead of being hosted on Cloudinary (long videos are big).
+  const landscape = opts.orientation === "landscape";
+  const keepFile = !!opts.keepFile;
   if (!questions.length) throw new Error("A question is required for the slideshow.");
   if (!isCloudinaryConfigured()) throw new Error("Cloudinary is not configured (media processing unavailable).");
   if (!(await isFfmpegAvailable())) {
@@ -185,7 +190,8 @@ export async function generateSlideshow(question, opts = {}) {
   const answerSec = secs(opts.answerSec, 8);
 
   // Optional uploaded templates (backgrounds) for the question / answer slides.
-  const templates = {
+  // (Templates are designed for 9:16, so they're not used for landscape videos.)
+  const templates = landscape ? { question: "", answer: "" } : {
     question: String(opts.questionTemplateUrl || "").trim(),
     answer: String(opts.answerTemplateUrl || "").trim(),
   };
@@ -248,7 +254,7 @@ export async function generateSlideshow(question, opts = {}) {
         templateSize: templateSizes[templateRole(s.role)] || null,
         outPath: shotPaths[i],
       })),
-      { siteUrl: brandOpts.siteUrl }
+      { siteUrl: brandOpts.siteUrl, landscape }
     ).catch((e) => plan.map(() => ({ error: e?.message || String(e) })));
     // Slides that couldn't be screenshotted fall back to the basic SVG design —
     // report WHICH and WHY (returned to the admin with the video).
@@ -307,7 +313,8 @@ export async function generateSlideshow(question, opts = {}) {
     onStatus(SLIDESHOW_STATUS.RENDERING_VIDEO);
     onProgress(SLIDESHOW_STATUS.RENDERING_VIDEO, 0, plan.length);
     const outPath = path.join(workDir, "slideshow.mp4");
-    const { duration } = await composeSlideshowMp4({
+    const { duration, segmentDurations = [] } = await composeSlideshowMp4({
+      ...(landscape ? { width: 1920, height: 1080, maxTotalSec: Infinity } : {}),
       // Slide 1 stays up for the question time, slide 2 for the answer time —
       // or longer when the narration needs it (the voice is never cut off).
       // The reveal slide shows for its own time; the question slide before it
@@ -323,20 +330,40 @@ export async function generateSlideshow(question, opts = {}) {
       workDir,
       onProgress: (done, total) => onProgress(SLIDESHOW_STATUS.RENDERING_VIDEO, done, total),
     });
-    const uploaded = await uploadFileToCloudinary(outPath, {
-      resourceType: "video",
-      folder: "mystudyguide/slideshow/final",
+    // Start time of each question in the video (YouTube chapters).
+    const chapters = [];
+    let at = 0;
+    plan.forEach((s, i) => {
+      const qi = questions.indexOf(planQuestions[i]);
+      if (qi >= 0 && !chapters[qi]) chapters[qi] = { question: qi + 1, startSec: at };
+      at += Number(segmentDurations[i]) || 0;
     });
-    if (!uploaded?.secure_url) throw new Error("Cloudinary did not return a URL for the slideshow video.");
+
+    let uploaded = null;
+    let filePath = "";
+    if (keepFile) {
+      // Move the MP4 out of the temp dir (which is wiped below); the caller
+      // uploads it and then deletes it.
+      filePath = path.join(os.tmpdir(), `msg-longvideo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mp4`);
+      await fs.rename(outPath, filePath).catch(async () => { await fs.copyFile(outPath, filePath); });
+    } else {
+      uploaded = await uploadFileToCloudinary(outPath, {
+        resourceType: "video",
+        folder: "mystudyguide/slideshow/final",
+      });
+      if (!uploaded?.secure_url) throw new Error("Cloudinary did not return a URL for the slideshow video.");
+    }
 
     onStatus(SLIDESHOW_STATUS.READY);
     const steps = stepMarks.slice(0, -1).map(([st, at], i) => `${st} ${Math.round((stepMarks[i + 1][1] - at) / 1000)}s`);
     console.log(`[slideshow] ${plan.length} slides in ${Math.round((Date.now() - stepMarks[0][1]) / 1000)}s — ${steps.join(", ")}`);
     return {
-      videoUrl: uploaded.secure_url,
+      videoUrl: uploaded?.secure_url || "",
+      filePath, // set when keepFile — the caller must delete it
+      chapters: chapters.filter(Boolean),
       slides: plan.length,
       questions: questions.length,
-      duration: Math.round(Number(uploaded.duration) || duration || 0),
+      duration: Math.round(Number(uploaded?.duration) || duration || 0),
       voice,
       provider: ttsCfg.provider,
       ttsNote, // set when the chosen voice's provider was blocked and another was used

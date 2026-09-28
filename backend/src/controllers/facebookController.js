@@ -362,6 +362,7 @@ export function pickScheduleFields(body = {}) {
     toInstagram: !!body.toInstagram,
     toYoutube: !!body.toYoutube,
     ytTitle: String(body.ytTitle || "").replace(/[<>]/g, "").trim().slice(0, 90),
+    ytFullVideo: !!body.toYoutube && !!body.ytFullVideo,
     asImage: !!body.asImage,
     // Post question/flashcard runs as a Reel by mixing the card image with music.
     // (A slideshow is its own narrated Reel, so it never uses the music Reel.)

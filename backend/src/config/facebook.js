@@ -1429,7 +1429,7 @@ function questionExcerpt(q, n = 120) {
 // Fire-and-forget email to the admin about a scheduler event (post / error /
 // completion). Recipient = the configured FB notify email, else NOTIFY_EMAIL,
 // else the first admin account. Never throws (must not break posting).
-async function fbNotify({ site, subject, text, html }) {
+export async function fbNotify({ site, subject, text, html }) {
   try {
     let to = String(site?.fbNotifyEmail || "").trim() || process.env.NOTIFY_EMAIL || "";
     if (!to) {
@@ -1490,6 +1490,19 @@ function dueSlot(sch, now) {
 // same source, excluding everything already posted and already picked, so a
 // video never repeats a question. Returns fewer than `count` when the source
 // runs out (never recycles INTO a video). Non-destructive: never saves `sch`.
+// EVERY complete question in a source, in order (oldest first — the same order
+// "Sequential" schedules post them), for a full-topic long video. Capped.
+export async function pickAllQuestionsForSource(source = {}, { max = 60 } = {}) {
+  if (source?.question) {
+    const q = await Question.findById(source.question).lean().catch(() => null);
+    return q && isQuestionComplete(q).ok ? [q] : [];
+  }
+  const filter = await liveScopeFilter(source);
+  if (!filter) return [];
+  const all = await Question.find(filter).sort({ createdAt: 1 }).limit(Math.max(1, max) * 3).lean();
+  return all.filter((q) => isQuestionComplete(q).ok).slice(0, Math.max(1, max));
+}
+
 export async function pickQuestionsForSlideshow(sch, count, first) {
   const want = Math.max(1, Math.min(10, Math.round(Number(count)) || 1));
   const list = first ? [first] : [];
@@ -2236,6 +2249,17 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
     sch.lastResult = finishedPool
       ? `Completed — all ${poolSize} question(s) posted.`
       : `${notes.join(" · ")}${recycled ? " (restarted the pool)" : ""}`;
+    // Last Short of the topic done → also make the full-topic long video
+    // (in the background — never inside this tick). Emailed when finished.
+    if (finishedPool && sch.toYoutube && sch.ytFullVideo && isYoutubeConfigured(cfg) && sch.source && !sch.source.question) {
+      try {
+        const { queueFullQuizVideo } = await import("./longVideo.js");
+        queueFullQuizVideo({ source: sch.source, cfg, site, hashtags: sch.hashtags, auto: true, scheduleTitle: schTitle });
+        sch.lastResult += " Full YouTube video is being made (you'll get an email).";
+      } catch (e) {
+        sch.lastResult += ` Full YouTube video not started: ${e?.message || e}`;
+      }
+    }
     if (finishedPool && notify && site?.fbNotifyOnComplete !== false) {
       await fbNotify({
         site,

@@ -8,8 +8,12 @@ import { clientBaseFromReq } from "../config/clientUrl.js";
 import {
   ytClientCreds, ytRedirectUri, youtubeConfigFromSite, signYtState, verifyYtState,
   buildYtAuthUrl, exchangeYtCode, getYtAccessToken, getYtChannel, revokeYtToken,
-  encryptYtSecret, YT_PRIVACY,
+  encryptYtSecret, YT_PRIVACY, isYoutubeConfigured,
 } from "../config/youtube.js";
+import { getFacebookConfig, getFacebookSiteForConfig } from "../config/facebook.js";
+import {
+  queueFullQuizVideo, listLongVideoJobs, getLongVideoJob, publicJob, tenantKeyNow, MAX_LONG_VIDEO_QUESTIONS,
+} from "../config/longVideo.js";
 
 function statusOf(site, req) {
   const { clientId, clientSecret } = ytClientCreds(site);
@@ -124,6 +128,73 @@ export async function youtubeDisconnect(req, res) {
   site.ytRefreshToken = ""; site.ytChannelId = ""; site.ytChannelTitle = ""; site.ytConnectedAt = null; site.ytEnabled = false;
   await site.save();
   res.json(statusOf(site, req));
+}
+
+// ---- Long videos ----
+const oid = (v) => (/^[a-f0-9]{24}$/i.test(String(v || "").trim()) ? String(v).trim() : null);
+const cleanPublishAt = (v) => {
+  if (!v) return null;
+  const d = new Date(v);
+  return isNaN(d.getTime()) || d.getTime() < Date.now() + 5 * 60 * 1000 ? null : d.toISOString();
+};
+
+// POST /api/youtube/long-video — make ONE 16:9 video of every question in a
+// source and upload it. Body: { source:{subject,session,quiz,testSeries,label},
+// title?, privacy?, publishAt?, hashtags? } → { job } (poll GET …/:id).
+export async function startLongVideo(req, res) {
+  const b = req.body || {};
+  const src = b.source || {};
+  const source = {
+    subject: oid(src.subject), session: oid(src.session), quiz: oid(src.quiz), testSeries: oid(src.testSeries),
+    label: String(src.label || "").trim().slice(0, 300),
+  };
+  if (!source.subject && !source.session && !source.quiz && !source.testSeries) {
+    return res.status(400).json({ message: "Pick the content (a subject, topic session, quiz or My Quiz) first." });
+  }
+  const cfg = await getFacebookConfig();
+  if (!isYoutubeConfigured(cfg)) return res.status(400).json({ message: "Connect YouTube first (YouTube Shorts card)." });
+  const site = await getFacebookSiteForConfig(cfg);
+  try {
+    const job = queueFullQuizVideo({
+      source, cfg, site,
+      titleTemplate: String(b.title || "").replace(/[<>]/g, "").trim().slice(0, 100),
+      privacy: YT_PRIVACY.includes(b.privacy) ? b.privacy : cfg.ytPrivacy,
+      publishAt: cleanPublishAt(b.publishAt),
+      hashtags: String(b.hashtags || "").trim().slice(0, 1000),
+    });
+    res.status(202).json({ job });
+  } catch (e) {
+    res.status(400).json({ message: e.message });
+  }
+}
+
+// GET /api/youtube/long-video — recent long-video jobs (this institute).
+export async function listLongVideos(req, res) {
+  res.json({ jobs: listLongVideoJobs(tenantKeyNow()), maxQuestions: MAX_LONG_VIDEO_QUESTIONS });
+}
+
+// GET /api/youtube/long-video/:id
+export async function longVideoStatus(req, res) {
+  const j = getLongVideoJob(req.params.id, tenantKeyNow());
+  if (!j) return res.status(404).json({ message: "Job not found (it may have expired or the server restarted)." });
+  res.json({ job: publicJob(j) });
+}
+
+// POST /api/youtube/upload-token — a SHORT-LIVED (≤1 h) access token so the
+// admin's browser can upload a big video file STRAIGHT to YouTube (the file
+// never passes through our server — no size limit here). Admin only; the
+// long-lived refresh token never leaves the server.
+export async function youtubeUploadToken(req, res) {
+  const site = await getOrCreateOwn();
+  const cfg = youtubeConfigFromSite(site);
+  if (!cfg.ytRefreshToken || !cfg.ytEnabled) return res.status(400).json({ message: "Connect YouTube (and switch uploads on) first." });
+  try {
+    const accessToken = await getYtAccessToken(cfg);
+    res.set("Cache-Control", "no-store");
+    res.json({ accessToken, privacy: cfg.ytPrivacy, channelTitle: site.ytChannelTitle || "" });
+  } catch (e) {
+    res.status(400).json({ message: e.message || "Could not get a YouTube upload token." });
+  }
 }
 
 // POST /api/youtube/test — checks the saved connection works (no upload).

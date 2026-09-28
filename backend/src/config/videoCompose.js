@@ -111,7 +111,7 @@ export async function probeDuration(file) {
 //            order; minSec = how long this slide stays up at least; bgPath =
 //            an optional template image drawn underneath the slide)
 //   outPath: where to write the final MP4
-// Returns { duration } (seconds).
+// Returns { duration, segmentDurations } (seconds).
 export async function composeSlideshowMp4({
   slides = [],
   outPath,
@@ -222,5 +222,8 @@ export async function composeSlideshowMp4({
 
   // (The ≤90 s speed-up was already applied per slide above — no re-encode.)
   const duration = await probeDuration(outPath);
-  return { duration };
+  // Each slide's length in the final video (for YouTube chapters).
+  const segmentDurations = [];
+  for (const sp of segPaths) segmentDurations.push(await probeDuration(sp).catch(() => 0));
+  return { duration, segmentDurations };
 }

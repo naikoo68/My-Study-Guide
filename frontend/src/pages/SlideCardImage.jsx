@@ -11,6 +11,7 @@
 //                           card in the middle (the uploaded template is laid
 //                           underneath by ffmpeg, never cropped)
 //   &site=<text>            footer text for the built-in design
+//   &o=l                    LANDSCAPE 16:9 (1920×1080) slide for long YouTube videos
 // Sets data-card-ready="1" once the question + web fonts have loaded and the
 // content has been scaled to fit.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -47,18 +48,26 @@ function templateCard(tw, th) {
   };
 }
 const BUILTIN_CARD = { left: 50, top: 230, width: 980, height: 1530 };
+// Landscape (1920×1080): slim brand bar on top, a wide card below.
+const LAND_W = 1920, LAND_H = 1080;
+const LAND_CARD = { left: 70, top: 150, width: 1780, height: 830 };
+const LAND_CAPTION_H = 150;
 const CARD_PAD = 56;
 const CAPTION_H = 230; // room kept at the bottom of the card for the caption
 // The quiz components are sized for a ~450px-wide phone card; draw them at that
 // width and zoom up (max 2.6×) so text is big on a phone-sized video. Long
 // content zooms less so it always fits.
 const MAX_ZOOM = 2.6;
+// Landscape content is laid out wider (not a phone column) so it uses the width.
+const LAND_LAYOUT_W = 900;
 
 // Zooms its content to fill `width` × `height` (never above MAX_ZOOM) and
 // centres it vertically. Reports when the size has settled.
-function ZoomFit({ width, height, onFit, children }) {
+// `layoutW` (landscape): lay content out at this fixed width, zoom it to fit
+// both the width and the height, and centre it horizontally.
+function ZoomFit({ width, height, onFit, children, maxZoom = MAX_ZOOM, layoutW = 0 }) {
   const innerRef = useRef(null);
-  const [zoom, setZoom] = useState(MAX_ZOOM);
+  const [zoom, setZoom] = useState(maxZoom);
   const [offset, setOffset] = useState(0);
   const passes = useRef(0);
   // Re-fit whenever the content's size changes (math / fonts / images load
@@ -70,8 +79,9 @@ function ZoomFit({ width, height, onFit, children }) {
     if (!el) return undefined;
     const fit = () => {
       const sh = el.scrollHeight; // untransformed height at the current layout width
-      const k = Math.min(MAX_ZOOM, height / Math.max(1, sh)) * 0.99;
-      const cur = parseFloat(el.dataset.zoom) || MAX_ZOOM;
+      const cap = layoutW ? Math.min(maxZoom, width / layoutW) : maxZoom;
+      const k = Math.min(cap, height / Math.max(1, sh)) * 0.99;
+      const cur = parseFloat(el.dataset.zoom) || maxZoom;
       if (Math.abs(k - cur) > 0.01 && passes.current < 8) {
         passes.current += 1;
         onFit?.(false);
@@ -87,10 +97,15 @@ function ZoomFit({ width, height, onFit, children }) {
     const ro = new ResizeObserver(() => fit());
     ro.observe(el);
     return () => ro.disconnect();
-  }, [zoom, width, height, onFit]);
+  }, [zoom, width, height, onFit, maxZoom, layoutW]);
   return (
     <div style={{ position: "relative", width, height, overflow: "hidden" }}>
-      <div ref={innerRef} data-zoom={zoom} style={{ position: "absolute", top: offset, left: 0, width: width / zoom, transformOrigin: "top left", transform: `scale(${zoom})` }}>
+      <div ref={innerRef} data-zoom={zoom} style={{
+        position: "absolute", top: offset,
+        left: layoutW ? Math.max(0, (width - layoutW * zoom) / 2) : 0,
+        width: layoutW || width / zoom,
+        transformOrigin: "top left", transform: `scale(${zoom})`,
+      }}>
         {children}
       </div>
     </div>
@@ -136,6 +151,7 @@ export default function SlideCardImage() {
   const site = (sp.get("site") || "").trim();
   const tplW = parseInt(sp.get("tw"), 10) || 0;
   const tplH = parseInt(sp.get("th"), 10) || 0;
+  const landscape = sp.get("o") === "l";
   const [q, setQ] = useState(null);
   const [error, setError] = useState("");
   const [fontsReady, setFontsReady] = useState(false);
@@ -185,6 +201,8 @@ export default function SlideCardImage() {
   if (error) return <div data-card-error="1" style={{ padding: 24, fontFamily: "sans-serif" }}>{error}</div>;
   if (!q) return <div style={{ padding: 24, fontFamily: "sans-serif" }}>Loading…</div>;
 
+  if (landscape) return <LandscapeSlide q={q} role={role} tag={tag} caption={caption} site={site} ready={ready} onFit={setFitted} />;
+
   const card = templateMode ? templateCard(tplW, tplH) : BUILTIN_CARD;
   const innerW = card.width - CARD_PAD * 2;
   const innerH = card.height - CARD_PAD * 2 - (caption ? CAPTION_H : 0);
@@ -228,6 +246,48 @@ export default function SlideCardImage() {
       {!templateMode && site && (
         <div style={{ position: "absolute", left: 0, right: 0, bottom: 70 }} className="text-center text-3xl font-semibold text-slate-500">{site}</div>
       )}
+    </div>
+  );
+}
+
+// 16:9 slide for long YouTube videos: brand bar + site on top, one wide card
+// with the question (or answer), and the caption strip at the bottom of it.
+function LandscapeSlide({ q, role, tag, caption, site, ready, onFit }) {
+  const card = LAND_CARD;
+  const pad = 48;
+  const innerW = card.width - pad * 2;
+  const innerH = card.height - pad * 2 - (caption ? LAND_CAPTION_H : 0);
+  return (
+    <div
+      data-card-el
+      data-card-ready={ready ? "1" : "0"}
+      style={{ position: "relative", width: LAND_W, height: LAND_H, overflow: "hidden", background: "linear-gradient(135deg,#eef2ff 0%,#ffffff 50%,#ecfdf5 100%)" }}
+    >
+      <div style={{ position: "absolute", left: card.left, right: card.left, top: 36, height: 80 }} className="flex items-center justify-between">
+        <span className="flex items-center gap-3">
+          <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-600 text-white"><GraduationCap className="h-9 w-9" /></span>
+          <span className="text-5xl font-extrabold leading-none"><span className="text-slate-900">My</span><span className="text-brand-600">Study</span><span className="text-slate-900">Guide</span></span>
+        </span>
+        {site && <span className="text-3xl font-semibold text-slate-500">{site}</span>}
+      </div>
+      <div
+        style={{
+          position: "absolute", left: card.left, top: card.top, width: card.width, height: card.height,
+          padding: pad, borderRadius: 36, background: "#ffffff", boxShadow: "0 12px 40px rgba(15,23,42,0.10)", boxSizing: "border-box",
+        }}
+      >
+        <ZoomFit width={innerW} height={innerH} onFit={onFit} maxZoom={2.2} layoutW={LAND_LAYOUT_W}>
+          {role === "answer" ? <AnswerSlide q={q} tag={tag} /> : <QuestionSlide q={q} tag={tag} reveal={role === "reveal"} />}
+        </ZoomFit>
+        {caption && (
+          <div
+            style={{ position: "absolute", left: pad, right: pad, bottom: pad, height: LAND_CAPTION_H - 24 }}
+            className="flex items-center justify-center overflow-hidden rounded-3xl bg-slate-900/85 px-10 text-center text-[32px] font-semibold leading-snug text-white"
+          >
+            <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{caption}</span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
