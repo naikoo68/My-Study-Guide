@@ -1057,7 +1057,9 @@ function ReelMusicLibrarySection({ settings, saveSettings }) {
 
 // Upload / remove ONE slide template image (question or answer). Saved to
 // site settings immediately, like the flashcard template.
-function SlideTemplateUploader({ label, hint, settingKey, settings, saveSettings }) {
+function SlideTemplateUploader({ label, hint, settingKey, settings, saveSettings, landscape = false }) {
+  // Preview box shape: tall for 9:16 Reel templates, wide for 16:9 long-video ones.
+  const box = landscape ? "h-[72px] w-32" : "h-32 w-[72px]";
   const fileRef = useRef(null);
   const [uploading, setUploading] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -1084,11 +1086,11 @@ function SlideTemplateUploader({ label, hint, settingKey, settings, saveSettings
     <div className="flex items-start gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
       {url ? (
         <div className="relative flex-shrink-0">
-          <img src={url} alt={label} className="h-32 w-[72px] rounded-md border border-slate-200 bg-slate-100 object-contain dark:border-slate-700 dark:bg-slate-800" />
+          <img src={url} alt={label} className={`${box} rounded-md border border-slate-200 bg-slate-100 object-contain dark:border-slate-700 dark:bg-slate-800`} />
           <button type="button" onClick={remove} title="Remove" className="absolute -right-2 -top-2 rounded-full bg-rose-100 p-1 text-rose-600 shadow hover:bg-rose-200 dark:bg-rose-900/40"><Trash2 className="h-3.5 w-3.5" /></button>
         </div>
       ) : (
-        <div className="flex h-32 w-[72px] flex-shrink-0 items-center justify-center rounded-md border-2 border-dashed border-slate-300 text-slate-300 dark:border-slate-600"><ImagePlus className="h-6 w-6" /></div>
+        <div className={`flex ${box} flex-shrink-0 items-center justify-center rounded-md border-2 border-dashed border-slate-300 text-slate-300 dark:border-slate-600`}><ImagePlus className="h-6 w-6" /></div>
       )}
       <div className="min-w-0">
         <p className="text-sm font-medium">{label}</p>
@@ -2385,7 +2387,8 @@ const thumbReady = (st) => !!(st?.thumb?.templateUrl && st?.thumb?.enabled !== f
 const defaultPlaylistLabel = (st) => (st?.longPlaylist?.id ? `Default: ${st.longPlaylist.title || "saved playlist"}` : "No playlist (default)");
 
 function FullQuizVideoForm({ st }) {
-  const { settings } = useSettings();
+  const { settings, save: saveSettings } = useSettings();
+  const [useTemplates, setUseTemplates] = useState(true);
   const [pickerKey, setPickerKey] = useState(0);
   const [playlist, setPlaylist] = useState({ id: "", title: "" });
   const [useThumb, setUseThumb] = useState(true);
@@ -2476,7 +2479,7 @@ function FullQuizVideoForm({ st }) {
           count: qMode === "all" ? 0 : nCount, start: nStart, order,
           voice: voiceValue, slidesMode, reveal: { pauseSec: clamp(reveal.pauseSec, 3, 0, 15), showSec: clamp(reveal.showSec, 3, 1, 15), say: reveal.say },
           questionSec: clamp(questionSec, 10, 3, 40), answerSec: clamp(answerSec, 8, 3, 40), autoCaptions: captions,
-          toYoutube, toFacebook,
+          useTemplates, toYoutube, toFacebook,
         },
       });
       setMsg({ ok: true, text: `Started — the video is being made below. It can take 5–20 minutes; you can leave this page (you'll get an email).${publishAt ? ` It goes live on ${new Date(publishAt).toLocaleString()}.` : ""}` });
@@ -2577,6 +2580,30 @@ function FullQuizVideoForm({ st }) {
         <label className="mb-2 flex items-center gap-2 text-sm"><input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={captions} onChange={(e) => setCaptions(e.target.checked)} /> Captions</label>
       </div>
       <p className="mt-1 text-xs text-slate-400">A slide stays up longer when the voice needs it. What the narrator reads (question, options, explanation…) follows the AI Slideshow settings.</p>
+
+      {/* 16:9 slide templates (separate from the 9:16 Reel templates) */}
+      <p className="mb-1 mt-4 text-sm font-medium">Slide templates <span className="font-normal text-slate-400">(optional, 16:9)</span></p>
+      <p className="mb-2 text-xs text-slate-400">
+        Your own background for the slides — best at <b>1920×1080</b>. Keep a band at the <b>top</b> (about 190 px, logo/title) and the <b>bottom</b> (about 150 px, website/buttons) for your branding; the question or answer goes on a white card in the middle. Saved for every long video; leave empty for the built-in design. These are separate from the tall (9:16) Reel templates in the AI Slideshow card.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <SlideTemplateUploader landscape label={withAnswer ? "Question slide template" : "Question & green-answer template"}
+          hint={withAnswer ? "Background for the question + options slide" : "Used for the question and the green reveal (same slide)"}
+          settingKey="longVideoQuestionTemplateUrl" settings={settings} saveSettings={saveSettings} />
+        {withAnswer && (
+          <SlideTemplateUploader landscape label="Answer slide template" hint="Background for the answer + explanation slide"
+            settingKey="longVideoAnswerTemplateUrl" settings={settings} saveSettings={saveSettings} />
+        )}
+      </div>
+      {(settings?.longVideoQuestionTemplateUrl || (withAnswer && settings?.longVideoAnswerTemplateUrl)) && (
+        <label className="mt-2 flex items-center gap-2 text-sm">
+          <input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={useTemplates} onChange={(e) => setUseTemplates(e.target.checked)} />
+          Use my slide templates for this video
+        </label>
+      )}
+      {withAnswer && settings?.longVideoQuestionTemplateUrl && !settings?.longVideoAnswerTemplateUrl && useTemplates && (
+        <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">No answer template — the answer slides will use the built-in design.</p>
+      )}
 
       {step(4, "Post to")}
       <div className="flex flex-wrap gap-4">

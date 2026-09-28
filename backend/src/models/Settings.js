@@ -313,6 +313,10 @@ const settingsSchema = new mongoose.Schema(
     // question/answer in a white card in the middle) instead of the built-in
     // design. Recommended size 1080×1920.
     slideshowQuestionTemplateUrl: { type: String, default: "" },
+    // Slide backgrounds for LONG (16:9, 1920×1080) YouTube/Facebook videos —
+    // separate from the 9:16 Reel templates above. Blank = built-in design.
+    longVideoQuestionTemplateUrl: { type: String, default: "" },
+    longVideoAnswerTemplateUrl: { type: String, default: "" },
     slideshowAnswerTemplateUrl: { type: String, default: "" },
     // Center TEXT watermark drawn diagonally across the middle of every
     // Facebook/Instagram question-card image (in addition to the selfie/logo

@@ -12,6 +12,7 @@
 //                           underneath by ffmpeg, never cropped)
 //   &site=<text>            footer text for the built-in design
 //   &o=l                    LANDSCAPE 16:9 (1920×1080) slide for long YouTube videos
+//                           (with &tpl=1: the 16:9 long-video template mode)
 // Sets data-card-ready="1" once the question + web fonts have loaded and the
 // content has been scaled to fit.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -52,6 +53,27 @@ const BUILTIN_CARD = { left: 50, top: 230, width: 980, height: 1530 };
 const LAND_W = 1920, LAND_H = 1080;
 const LAND_CARD = { left: 70, top: 150, width: 1780, height: 830 };
 const LAND_CAPTION_H = 150;
+// Landscape TEMPLATE mode: the card sits in the template's middle, leaving a
+// header band on top (logo / title) and a footer band below (site / buttons).
+const LAND_TEMPLATE_CARD = { left: 110, top: 190, width: 1700, height: 740 };
+
+// Same idea as templateCard(), for the 16:9 frame: the template is FITTED
+// (never cropped) inside 1920×1080, and the card keeps the same relative spot
+// inside the fitted template.
+function landTemplateCard(tw, th) {
+  if (!(tw > 0 && th > 0)) return LAND_TEMPLATE_CARD;
+  const s = Math.min(LAND_W / tw, LAND_H / th);
+  const fw = tw * s, fh = th * s;
+  const fx = (LAND_W - fw) / 2, fy = (LAND_H - fh) / 2;
+  const rx = (v) => Math.round(fx + (v / LAND_W) * fw);
+  const ry = (v) => Math.round(fy + (v / LAND_H) * fh);
+  const left = rx(LAND_TEMPLATE_CARD.left), top = ry(LAND_TEMPLATE_CARD.top);
+  return {
+    left, top,
+    width: rx(LAND_TEMPLATE_CARD.left + LAND_TEMPLATE_CARD.width) - left,
+    height: ry(LAND_TEMPLATE_CARD.top + LAND_TEMPLATE_CARD.height) - top,
+  };
+}
 const CARD_PAD = 56;
 const CAPTION_H = 230; // room kept at the bottom of the card for the caption
 // The quiz components are sized for a ~450px-wide phone card; draw them at that
@@ -201,7 +223,7 @@ export default function SlideCardImage() {
   if (error) return <div data-card-error="1" style={{ padding: 24, fontFamily: "sans-serif" }}>{error}</div>;
   if (!q) return <div style={{ padding: 24, fontFamily: "sans-serif" }}>Loading…</div>;
 
-  if (landscape) return <LandscapeSlide q={q} role={role} tag={tag} caption={caption} site={site} ready={ready} onFit={setFitted} />;
+  if (landscape) return <LandscapeSlide q={q} role={role} tag={tag} caption={caption} site={site} ready={ready} onFit={setFitted} templateMode={templateMode} tplW={tplW} tplH={tplH} />;
 
   const card = templateMode ? templateCard(tplW, tplH) : BUILTIN_CARD;
   const innerW = card.width - CARD_PAD * 2;
@@ -252,28 +274,30 @@ export default function SlideCardImage() {
 
 // 16:9 slide for long YouTube videos: brand bar + site on top, one wide card
 // with the question (or answer), and the caption strip at the bottom of it.
-function LandscapeSlide({ q, role, tag, caption, site, ready, onFit }) {
-  const card = LAND_CARD;
-  const pad = 48;
+// Template mode: transparent page (the uploaded 16:9 template is laid underneath
+// by ffmpeg), no built-in brand bar, and the card placed in the template's middle.
+function LandscapeSlide({ q, role, tag, caption, site, ready, onFit, templateMode = false, tplW = 0, tplH = 0 }) {
+  const card = templateMode ? landTemplateCard(tplW, tplH) : LAND_CARD;
+  const pad = templateMode ? 40 : 48;
   const innerW = card.width - pad * 2;
   const innerH = card.height - pad * 2 - (caption ? LAND_CAPTION_H : 0);
   return (
     <div
       data-card-el
       data-card-ready={ready ? "1" : "0"}
-      style={{ position: "relative", width: LAND_W, height: LAND_H, overflow: "hidden", background: "linear-gradient(135deg,#eef2ff 0%,#ffffff 50%,#ecfdf5 100%)" }}
+      style={{ position: "relative", width: LAND_W, height: LAND_H, overflow: "hidden", background: templateMode ? "transparent" : "linear-gradient(135deg,#eef2ff 0%,#ffffff 50%,#ecfdf5 100%)" }}
     >
-      <div style={{ position: "absolute", left: card.left, right: card.left, top: 36, height: 80 }} className="flex items-center justify-between">
+      {!templateMode && <div style={{ position: "absolute", left: card.left, right: card.left, top: 36, height: 80 }} className="flex items-center justify-between">
         <span className="flex items-center gap-3">
           <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-600 text-white"><GraduationCap className="h-9 w-9" /></span>
           <span className="text-5xl font-extrabold leading-none"><span className="text-slate-900">My</span><span className="text-brand-600">Study</span><span className="text-slate-900">Guide</span></span>
         </span>
         {site && <span className="text-3xl font-semibold text-slate-500">{site}</span>}
-      </div>
+      </div>}
       <div
         style={{
           position: "absolute", left: card.left, top: card.top, width: card.width, height: card.height,
-          padding: pad, borderRadius: 36, background: "#ffffff", boxShadow: "0 12px 40px rgba(15,23,42,0.10)", boxSizing: "border-box",
+          padding: pad, borderRadius: 36, background: templateMode ? "rgba(255,255,255,0.94)" : "#ffffff", boxShadow: "0 12px 40px rgba(15,23,42,0.10)", boxSizing: "border-box",
         }}
       >
         <ZoomFit width={innerW} height={innerH} onFit={onFit} maxZoom={2.2} layoutW={LAND_LAYOUT_W}>

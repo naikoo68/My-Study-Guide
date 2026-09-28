@@ -190,8 +190,9 @@ export async function generateSlideshow(question, opts = {}) {
   const answerSec = secs(opts.answerSec, 8);
 
   // Optional uploaded templates (backgrounds) for the question / answer slides.
-  // (Templates are designed for 9:16, so they're not used for landscape videos.)
-  const templates = landscape ? { question: "", answer: "" } : {
+  // The caller passes the RIGHT set: the 9:16 Reel templates, or the 16:9
+  // long-video templates for a landscape video.
+  const templates = {
     question: String(opts.questionTemplateUrl || "").trim(),
     answer: String(opts.answerTemplateUrl || "").trim(),
   };
