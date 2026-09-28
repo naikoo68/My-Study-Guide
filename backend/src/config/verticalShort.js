@@ -12,8 +12,9 @@ export const SHORT_H = 1920;
 
 // inPath (landscape mp4) → a new 9:16 mp4 path. Throws on failure; the caller
 // deletes the file afterwards.
-export async function makeVerticalShort(inPath) {
+export async function makeVerticalShort(inPath, { maxSec = 0 } = {}) {
   const outPath = path.join(os.tmpdir(), `msg-short-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mp4`);
+  const trim = maxSec > 0 ? ["-t", String(Math.max(1, Math.round(maxSec)))] : [];
   // Blurred cover fill (scaled up + cropped) behind the whole video fitted in
   // the middle. Audio is copied through. One re-encode of the (short) video.
   const vf =
@@ -24,6 +25,7 @@ export async function makeVerticalShort(inPath) {
   await runFfmpeg([
     "-hide_banner", "-loglevel", "error", "-y",
     "-i", inPath,
+    ...trim,
     "-filter_complex", vf,
     "-map", "[v]", "-map", "0:a?",
     "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-r", "25", "-threads", "2",

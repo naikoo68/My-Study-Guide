@@ -38,6 +38,7 @@ const STAGE_LABEL = {
   ready: "Video ready",
   uploading: "Uploading to YouTube",
   uploading_facebook: "Uploading to Facebook",
+  short: "Uploading the Short",
   finishing: "Setting thumbnail & playlist",
   done: "Done",
   failed: "Failed",
@@ -64,6 +65,7 @@ export function publicJob(j) {
     url: j.url,
     videoId: j.videoId,
     fbUrl: j.fbUrl || "",
+    shortUrl: j.shortUrl || "",
     toYoutube: j.toYoutube !== false,
     toFacebook: !!j.toFacebook,
     range: j.range || "",
@@ -97,6 +99,19 @@ export const DEFAULT_YT_PART_TITLE = "{subject} | {topic} | Questions {range}";
 // Default title for each video of a repeating long-video schedule.
 export const DEFAULT_YT_SERIES_TITLE = "{subject} | {topic} | Part {part} (Questions {range})";
 
+// End time (s) of the first N questions of a video, from its chapter marks —
+// used to cut a short teaser. Capped to the YouTube Short limit. Pure.
+function firstQuestionsEndSec(chapters, n, totalDur) {
+  const ch = (Array.isArray(chapters) ? chapters : []).filter((c) => Number.isFinite(Number(c?.startSec)));
+  const next = ch.find((c) => Number(c.question) === n + 1);
+  const end = next ? Number(next.startSec) : (Number(totalDur) || YT_SHORT_MAX_SEC);
+  return Math.max(5, Math.min(YT_SHORT_MAX_SEC, Math.round(end)));
+}
+// A short teaser's title (kept within YouTube's 100 chars).
+function shortTitle(title) {
+  const t = String(title || "Quiz").replace(/\s+/g, " ").trim();
+  return `${t} #Shorts`.slice(0, 100);
+}
 const clampInt = (v, def, lo, hi) => {
   const n = Math.round(Number(v));
   return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : def;
@@ -173,6 +188,7 @@ export function queueFullQuizVideo({ source, cfg, site, titleTemplate = "", priv
     url: "",
     videoId: "",
     fbUrl: "",
+    shortUrl: "",
     toYoutube: opts.toYoutube,
     toFacebook: opts.toFacebook,
     privacy: privacy || cfg.ytPrivacy || "public",
@@ -213,7 +229,7 @@ async function reportToSchedule(job, ok) {
   const label = job.part ? `Part ${job.part}` : "Video";
   const lv = sch.longVideo || {};
   if (ok) {
-    const links = [job.url, job.fbUrl].filter(Boolean).join(" · ");
+    const links = [job.url, job.shortUrl, job.fbUrl].filter(Boolean).join(" · ");
     const extra = (job.notes || []).filter((n) => !/^(YouTube|Facebook) ✓/.test(n));
     sch.lastResult = `${label} posted ✓${links ? ` — ${links}` : ""}${extra.length ? ` · ${extra.join(" · ")}` : ""}`;
     sch.longVideo = { ...lv, postedCount: (Number(lv.postedCount) || 0) + 1 };
@@ -296,19 +312,11 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
 
     const tags = await hashtagsForQuestion(questions[0], site, hashtags);
     const offset = opts.order === "random" ? 0 : first - 1;
-    // Short only when the admin asked AND the finished video is <= 3 minutes.
-    const asShort = opts.asShort && job.duration > 0 && job.duration <= YT_SHORT_MAX_SEC;
-    if (opts.asShort && opts.toYoutube) {
-      job.notes.push(asShort
-        ? "YouTube: uploading a vertical Short (#Shorts)"
-        : `Not a Short — the video is ${Math.round((job.duration / 60) * 10) / 10} min (max 3 min)`);
-    }
     const description = buildYtLongDescription({
       intro: `${questions.length} questions with answers${job.range ? ` (questions ${job.range})` : ""}${breadcrumb ? ` — ${breadcrumb}` : ""}.`,
       chapters: (result.chapters || []).map((c) => ({ ...c, label: `Question ${offset + c.question}` })),
       hashtags: tags,
       siteUrl,
-      shorts: asShort,
     });
 
     // Template thumbnail — drawn ONCE, used by YouTube and Facebook.
@@ -335,24 +343,12 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
 
     const errors = [];
     let anyOk = false;
-    // 1) YouTube. For a Short, upload a VERTICAL (9:16) copy — YouTube only
-    //    shows vertical/square ≤3-min videos as Shorts; a 16:9 video with
-    //    #Shorts stays a normal video. Facebook still gets the landscape file.
+    // 1) YouTube — the FULL landscape video (normal).
     if (opts.toYoutube) {
       job.stage = "uploading";
       job.progress = { done: 0, total: 100 };
-      let ytFile = filePath;
-      if (asShort) {
-        try {
-          const { makeVerticalShort } = await import("./verticalShort.js");
-          shortPath = await makeVerticalShort(filePath);
-          ytFile = shortPath;
-        } catch (e) {
-          job.notes.push(`Short: couldn't make the vertical version (${e?.message || e}) — uploaded as a normal video`);
-        }
-      }
       const up = await uploadVideoFileToYoutube({
-        filePath: ytFile,
+        filePath,
         title: job.title,
         description,
         tags: buildYtTags(tags),
@@ -366,19 +362,50 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
         job.videoId = up.id;
         job.privacy = up.privacy || job.privacy;
         const yt = [];
-        // A Short uses an auto frame, not a custom thumbnail — skip it there.
-        if (thumbnail && ytFile === filePath) {
+        if (thumbnail) {
           const t = await setYtThumbnail({ videoId: up.id, image: thumbnail.image, mime: thumbnail.mime }, cfg);
           yt.push(t.ok ? "Thumbnail ✓" : `Thumbnail ✗ (${t.error})`);
         }
         if (job.playlist) yt.push(...(await applyYtExtras({ videoId: up.id, playlist: job.playlist }, cfg)));
-        // The render took longer than the gap to the scheduled time → YouTube got
-        // it without a schedule (published right away). Say so instead of hiding it.
         if (job.publishAt && !up.publishAt) yt.unshift("scheduled time had already passed — published right away");
         job.notes.push(`YouTube ✓${yt.length ? ` (${yt.join(" · ")})` : ""}`);
       } else {
         errors.push(`YouTube: ${up.error}`);
         job.notes.push(`YouTube ✗ (${up.error})`);
+      }
+
+      // 2) A SHORT teaser — the FIRST 3 questions only, vertical (9:16), with a
+      //    link to the full video in its description. Only if the full upload
+      //    succeeded (so we have its link). Best-effort.
+      if (opts.asShort && up.ok) {
+        job.stage = "short";
+        try {
+          const cutEnd = firstQuestionsEndSec(result.chapters, 3, job.duration);
+          const { makeVerticalShort } = await import("./verticalShort.js");
+          shortPath = await makeVerticalShort(filePath, { maxSec: cutEnd });
+          const shortDesc = buildYtLongDescription({
+            intro: `${Math.min(3, questions.length)} sample questions${breadcrumb ? ` — ${breadcrumb}` : ""}. Watch the full quiz here: ${job.url}`,
+            hashtags: tags,
+            shorts: true,
+          });
+          const s = await uploadVideoFileToYoutube({
+            filePath: shortPath,
+            title: shortTitle(job.title),
+            description: shortDesc,
+            tags: buildYtTags(tags),
+            privacy: job.privacy,
+            publishAt: job.publishAt,
+          }, cfg);
+          if (s.ok) {
+            job.shortUrl = s.url;
+            if (job.playlist) await applyYtExtras({ videoId: s.id, playlist: job.playlist }, cfg);
+            job.notes.push(`Short ✓ (${s.url})`);
+          } else {
+            job.notes.push(`Short ✗ (${s.error})`);
+          }
+        } catch (e) {
+          job.notes.push(`Short ✗ (${e?.message || e})`);
+        }
       }
     }
     // 2) Facebook Page (normal video)
@@ -402,7 +429,7 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
     job.finishedAt = Date.now();
     await reportToSchedule(job, true).catch(() => {});
     if (site?.fbNotifyOnPost === true || job.auto) {
-      const links = [job.url, job.fbUrl].filter(Boolean);
+      const links = [job.url, job.shortUrl, job.fbUrl].filter(Boolean);
       await fbNotify({
         site,
         subject: `🎬 Long video posted — ${job.title}`,
