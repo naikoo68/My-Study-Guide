@@ -59,10 +59,14 @@ const LAND_TEMPLATE_CARD = { left: 110, top: 190, width: 1700, height: 740 };
 
 // Same idea as templateCard(), for the 16:9 frame: the template is FITTED
 // (never cropped) inside 1920×1080, and the card keeps the same relative spot
-// inside the fitted template.
-function landTemplateCard(tw, th) {
+// inside the fitted template. `inset` is the SAFE MARGIN (fraction per side)
+// the video compositor leaves around the template, so the card lines up with
+// the template exactly as it appears in the finished video.
+function landTemplateCard(tw, th, inset = 0) {
   if (!(tw > 0 && th > 0)) return LAND_TEMPLATE_CARD;
-  const s = Math.min(LAND_W / tw, LAND_H / th);
+  const m = Math.max(0, Math.min(0.2, Number(inset) || 0));
+  const boxW = LAND_W * (1 - 2 * m), boxH = LAND_H * (1 - 2 * m);
+  const s = Math.min(boxW / tw, boxH / th);
   const fw = tw * s, fh = th * s;
   const fx = (LAND_W - fw) / 2, fy = (LAND_H - fh) / 2;
   const rx = (v) => Math.round(fx + (v / LAND_W) * fw);
@@ -173,6 +177,7 @@ export default function SlideCardImage() {
   const site = (sp.get("site") || "").trim();
   const tplW = parseInt(sp.get("tw"), 10) || 0;
   const tplH = parseInt(sp.get("th"), 10) || 0;
+  const tplInset = parseFloat(sp.get("m")) || 0; // safe margin around the template (fraction/side)
   const landscape = sp.get("o") === "l";
   const [q, setQ] = useState(null);
   const [error, setError] = useState("");
@@ -223,7 +228,7 @@ export default function SlideCardImage() {
   if (error) return <div data-card-error="1" style={{ padding: 24, fontFamily: "sans-serif" }}>{error}</div>;
   if (!q) return <div style={{ padding: 24, fontFamily: "sans-serif" }}>Loading…</div>;
 
-  if (landscape) return <LandscapeSlide q={q} role={role} tag={tag} caption={caption} site={site} ready={ready} onFit={setFitted} templateMode={templateMode} tplW={tplW} tplH={tplH} />;
+  if (landscape) return <LandscapeSlide q={q} role={role} tag={tag} caption={caption} site={site} ready={ready} onFit={setFitted} templateMode={templateMode} tplW={tplW} tplH={tplH} tplInset={tplInset} />;
 
   const card = templateMode ? templateCard(tplW, tplH) : BUILTIN_CARD;
   const innerW = card.width - CARD_PAD * 2;
@@ -276,8 +281,8 @@ export default function SlideCardImage() {
 // with the question (or answer), and the caption strip at the bottom of it.
 // Template mode: transparent page (the uploaded 16:9 template is laid underneath
 // by ffmpeg), no built-in brand bar, and the card placed in the template's middle.
-function LandscapeSlide({ q, role, tag, caption, site, ready, onFit, templateMode = false, tplW = 0, tplH = 0 }) {
-  const card = templateMode ? landTemplateCard(tplW, tplH) : LAND_CARD;
+function LandscapeSlide({ q, role, tag, caption, site, ready, onFit, templateMode = false, tplW = 0, tplH = 0, tplInset = 0 }) {
+  const card = templateMode ? landTemplateCard(tplW, tplH, tplInset) : LAND_CARD;
   const pad = templateMode ? 40 : 48;
   const innerW = card.width - pad * 2;
   const innerH = card.height - pad * 2 - (caption ? LAND_CAPTION_H : 0);
