@@ -104,6 +104,7 @@ const clampInt = (v, def, lo, hi) => {
 //   start        — start from question N (Sequential only)
 //   order        — "sequential" | "random"
 //   voice, slidesMode, reveal, questionSec, answerSec, autoCaptions — narration & slides
+//   useTemplates — false = built-in slide design even when 16:9 templates are saved
 //   toYoutube, toFacebook — where to post
 export function normalizeLongVideoOptions(o = {}, site = {}) {
   const order = o.order === "random" ? "random" : "sequential";
@@ -123,6 +124,7 @@ export function normalizeLongVideoOptions(o = {}, site = {}) {
     questionSec: clampInt(o.questionSec ?? site?.slideshowQuestionSec, 10, 3, 40),
     answerSec: clampInt(o.answerSec ?? site?.slideshowAnswerSec, 8, 3, 40),
     autoCaptions: (o.autoCaptions ?? site?.slideshowAutoCaptions) !== false,
+    useTemplates: o.useTemplates !== false, // use the saved 16:9 slide templates (if any)
     toYoutube: o.toYoutube !== false,
     toFacebook: !!o.toFacebook,
   };
@@ -225,6 +227,9 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
       answerSec: opts.answerSec,
       slidesMode: opts.slidesMode,
       reveal: opts.reveal,
+      // 16:9 slide backgrounds (Long videos → Slide templates). Blank = built-in.
+      questionTemplateUrl: opts.useTemplates ? site?.longVideoQuestionTemplateUrl || "" : "",
+      answerTemplateUrl: opts.useTemplates ? site?.longVideoAnswerTemplateUrl || "" : "",
       site,
       brandColor: site?.brandColor || site?.primaryColor || "#2563eb",
       siteName: site?.siteName || "My Study Guide",
