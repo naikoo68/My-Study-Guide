@@ -2015,7 +2015,6 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
     thumbHeadlineSize: t.headlineSize ?? 104, thumbKickerSize: t.kickerSize ?? 44, thumbBadgeSize: t.badgeSize ?? 46, thumbLineHeight: t.lineHeight ?? 1.05,
   }));
   const [uploading, setUploading] = useState(false);
-  const [busy, setBusy] = useState("");
   const [preview, setPreview] = useState("");
   const [msg, setMsg] = useState(null);
   const [showStyle, setShowStyle] = useState(false);
@@ -2034,6 +2033,32 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
   };
   useEffect(() => () => clearTimeout(timer.current), []);
 
+  // LIVE preview: after any change, render the REAL thumbnail on the server
+  // (debounced) so the box shows your actual fonts, colours, sizes, shade and
+  // rotation — not a rough approximation. Skipped while dragging the box.
+  const autoTimer = useRef(null);
+  const previewReq = useRef(0);
+  const [autoBusy, setAutoBusy] = useState(false);
+  const refreshPreview = async () => {
+    if (!draft.thumbTemplateUrl || !draft.thumbShowText) return;
+    const id = ++previewReq.current;
+    setAutoBusy(true);
+    try { const r = await youtubeService.thumbnailPreview(draft); if (id === previewReq.current) setPreview(r?.image || ""); }
+    catch { /* keep the editing view on error */ }
+    finally { if (id === previewReq.current) setAutoBusy(false); }
+  };
+  useEffect(() => {
+    if (!draft.thumbTemplateUrl || !draft.thumbShowText) return undefined;
+    clearTimeout(autoTimer.current);
+    // Debounced: while dragging, each move resets this timer, so it only fires
+    // once the box settles. A drag release also triggers a refresh explicitly.
+    autoTimer.current = setTimeout(refreshPreview, 800);
+    return () => clearTimeout(autoTimer.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(draft)]);
+  // Only show the rendered preview while text is on and a template is set.
+  const showExact = !!preview && draft.thumbShowText && !!draft.thumbTemplateUrl;
+
   const upload = async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
     if (!/^image\/(jpeg|png|webp)$/.test(file.type)) { setMsg({ ok: false, text: "Choose a JPG, PNG or WebP image." }); return; }
@@ -2045,11 +2070,6 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
       await persist({ thumbTemplateUrl: r.url, thumbEnabled: true }, "Template saved — every long video will use it.");
     } catch (err) { setMsg({ ok: false, text: err.message || "Upload failed." }); }
     finally { setUploading(false); if (fileRef.current) fileRef.current.value = ""; }
-  };
-  const showPreview = async () => {
-    setBusy("preview"); setMsg(null);
-    try { const r = await youtubeService.thumbnailPreview(draft); setPreview(r?.image || ""); }
-    catch (e) { setMsg({ ok: false, text: e.message }); } finally { setBusy(""); }
   };
   const remove = () => {
     if (!window.confirm("Remove the thumbnail template? Long videos will get an automatic frame instead.")) return;
@@ -2092,6 +2112,8 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
     clearTimeout(timer.current);
     const patch = d.mode === "rotate" ? { thumbRotate: draft.thumbRotate || 0 } : { thumbBox: draft.thumbBox || DEF_BOX };
     timer.current = setTimeout(() => persist(patch), 200);
+    clearTimeout(autoTimer.current);
+    autoTimer.current = setTimeout(refreshPreview, 300);
   };
   const rot = draft.thumbRotate || 0;
 
@@ -2148,19 +2170,23 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
           {draft.thumbTemplateUrl ? (
             <div ref={frameRef} className="relative aspect-video w-80 select-none overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700"
               onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerLeave={onPointerUp}>
-              <img src={preview || draft.thumbTemplateUrl} alt="Thumbnail template" className="pointer-events-none absolute inset-0 h-full w-full object-cover" draggable={false} />
-              {!preview && draft.thumbShowText && (
+              <img src={showExact ? preview : draft.thumbTemplateUrl} alt="Thumbnail template" className="pointer-events-none absolute inset-0 h-full w-full object-cover" draggable={false} />
+              {draft.thumbShowText && (
                 <div
                   className="absolute rounded border-2 border-dashed border-white/90 shadow-[0_0_0_1px_rgba(0,0,0,.4)]"
                   style={{ left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.w * 100}%`, height: `${box.h * 100}%`, transform: `rotate(${rot}deg)`, transformOrigin: "center center" }}>
-                  {/* Move: drag anywhere in the box */}
-                  <div onPointerDown={onPointerDown("move")} className="flex h-full w-full touch-none cursor-move flex-col gap-0.5 overflow-hidden p-1 text-[7px] font-black leading-tight" style={sampleStyle}>
-                    <div style={panelBg}>
-                      <div style={{ color: draft.thumbKickerColor || draft.thumbTextColor, fontSize: `${(draft.thumbKickerSize / 44) * 6}px` }}>Subject Name</div>
-                      <div style={{ fontSize: `${(draft.thumbHeadlineSize / 104) * 13}px`, lineHeight: draft.thumbLineHeight }}>Topic Name</div>
-                      <div style={{ display: "inline-block", background: draft.thumbAccentColor, color: draft.thumbBadgeTextColor, borderRadius: 3, padding: "0 4px", fontSize: `${(draft.thumbBadgeSize / 46) * 8}px`, marginTop: 2 }}>Quiz 1</div>
+                  {/* Full-box move layer (drag anywhere in the box) */}
+                  <div onPointerDown={onPointerDown("move")} className="absolute inset-0 touch-none cursor-move" />
+                  {/* Rough sample text — only until the exact preview renders */}
+                  {!showExact && (
+                    <div className="pointer-events-none flex h-full w-full flex-col gap-0.5 overflow-hidden p-1 text-[7px] font-black leading-tight" style={sampleStyle}>
+                      <div style={panelBg}>
+                        <div style={{ color: draft.thumbKickerColor || draft.thumbTextColor, fontSize: `${(draft.thumbKickerSize / 44) * 6}px` }}>Subject Name</div>
+                        <div style={{ fontSize: `${(draft.thumbHeadlineSize / 104) * 13}px`, lineHeight: draft.thumbLineHeight }}>Topic Name</div>
+                        <div style={{ display: "inline-block", background: draft.thumbAccentColor, color: draft.thumbBadgeTextColor, borderRadius: 3, padding: "0 4px", fontSize: `${(draft.thumbBadgeSize / 46) * 8}px`, marginTop: 2 }}>Quiz 1</div>
+                      </div>
                     </div>
-                  </div>
+                  )}
                   {/* Move handle (centre) */}
                   <span onPointerDown={onPointerDown("move")} title="Drag to move" className="absolute left-1/2 top-1/2 flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 touch-none cursor-move items-center justify-center rounded-full border-2 border-white bg-black/45 text-white"><Move className="h-3.5 w-3.5" /></span>
                   {/* Resize handle (bottom-right) */}
@@ -2170,6 +2196,7 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
                   <span className="absolute -top-1.5 left-1/2 h-4 w-0.5 -translate-x-1/2 bg-white/80" />
                 </div>
               )}
+              {autoBusy && <span className="absolute right-1 top-1 z-10 rounded bg-black/55 px-1.5 py-0.5 text-[10px] text-white">updating…</span>}
               <button type="button" onClick={remove} title="Remove" className="absolute -right-2 -top-2 z-10 rounded-full bg-rose-100 p-1.5 text-rose-600 shadow hover:bg-rose-200 dark:bg-rose-900/40"><Trash2 className="h-4 w-4" /></button>
             </div>
           ) : (
@@ -2181,14 +2208,12 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
               <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={upload} disabled={uploading} />
             </label>
             {draft.thumbTemplateUrl && (
-              <button type="button" onClick={showPreview} disabled={!!busy} className="btn-outline text-sm">
-                {busy === "preview" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />} Exact preview
+              <button type="button" onClick={refreshPreview} disabled={autoBusy} className="btn-outline text-sm">
+                {autoBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Refresh preview
               </button>
             )}
           </div>
-          {preview
-            ? <p className="text-[11px] text-emerald-600">Exact preview (real fonts &amp; colours). <button type="button" onClick={() => setPreview("")} className="text-brand-600 hover:underline">← back to editing the box</button></p>
-            : <p className="text-[11px] text-slate-400"><b>Editing</b> — sample text, rough fonts. Move / resize / rotate the box, then hit <b>Exact preview</b> to see the real result.</p>}
+          <p className="text-[11px] text-slate-400"><b>Live preview</b> — updates with your real fonts, colours, sizes &amp; rotation a moment after each change. Drag the box to move, the red corner to resize, the blue knob to rotate.</p>
         </div>
 
         {/* Controls */}
