@@ -132,6 +132,7 @@ export function thumbConfigFromSite(site) {
     kickerSize: int(site?.ytThumbKickerSize, 44, 12, 120),
     badgeSize: int(site?.ytThumbBadgeSize, 46, 12, 120),
     lineHeight: Math.max(0.8, Math.min(2, Number(site?.ytThumbLineHeight) || 1.05)),
+    rotate: int(site?.ytThumbRotate, 0, -180, 180),
     textColor: col(site?.ytThumbTextColor, "#ffffff"),
     kickerColor: col(site?.ytThumbKickerColor, ""),
     accentColor: col(site?.ytThumbAccentColor, "#facc15"),

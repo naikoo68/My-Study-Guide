@@ -109,7 +109,10 @@ export function buildThumbnailHtml(opts = {}) {
     accentColor = "#facc15", badgeTextColor = "#111111",
     panelColor = "", panelOpacity = 0, panelRadius = 24,
     headlineSize = 104, kickerSize = 44, badgeSize = 46, lineHeight = 1.05,
+    rotate = 0,
   } = opts;
+  const rot = num(rotate, 0, -180, 180);
+  const rotCss = rot ? `transform:rotate(${rot}deg);transform-origin:center center;` : "";
 
   const color = hex(textColor, "#ffffff");
   const kColor = hex(kickerColor, "") || color;
@@ -151,7 +154,7 @@ export function buildThumbnailHtml(opts = {}) {
 
   const { kicker = "", headline = "", badge = "" } = lines || {};
   const text = showText && (kicker || headline || badge)
-    ? `<div id="box" style="position:absolute;display:flex;flex-direction:column;justify-content:${justify};align-items:${alignItems};text-align:${textAlign};${boxCss}">
+    ? `<div id="box" style="position:absolute;display:flex;flex-direction:column;justify-content:${justify};align-items:${alignItems};text-align:${textAlign};${boxCss}${rotCss}">
         <div id="inner" style="display:flex;flex-direction:column;gap:16px;max-width:100%;align-items:inherit;${panel}">
           ${kicker ? `<div class="kicker">${esc(kicker)}</div>` : ""}
           ${headline ? `<div id="headline" class="headline">${esc(headline)}</div>` : ""}
