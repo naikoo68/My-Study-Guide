@@ -13,6 +13,7 @@ import PracticeSubject from "../models/PracticeSubject.js";
 import PracticeTopic from "../models/PracticeTopic.js";
 import { isSafePublicUrl } from "../utils/urlGuard.js";
 import { isYoutubeConfigured, cleanYtPlaylistId } from "../config/youtube.js";
+import { pickLongVideoScheduleFields } from "../config/longVideo.js";
 import { isQuestionComplete } from "../utils/questionComplete.js";
 import { composeImageAudioToVideo, isCloudinaryConfigured } from "../config/cloudinary.js";
 import { generateSlideshow, isSlideshowConfigured } from "../config/slideshow.js";
@@ -316,7 +317,9 @@ function clampQuestionCount(v) {
 export function pickScheduleFields(body = {}) {
   const src = body.source || {};
   const cleanId = (v) => (v ? v : null);
-  let kind = ["custom", "flashcard", "slideshow"].includes(body.kind) ? body.kind : "question";
+  let kind = ["custom", "flashcard", "slideshow", "longvideo"].includes(body.kind) ? body.kind : "question";
+  const isLongVideo = kind === "longvideo";
+  const longVideo = isLongVideo ? pickLongVideoScheduleFields(body.longVideo || {}) : null;
   // Older schedules stored the slideshow as a toggle on a "question" post. Keep
   // them slideshows when they're re-saved (e.g. the list's pause/enable button
   // sends the stored row back as-is).
@@ -371,9 +374,11 @@ export function pickScheduleFields(body = {}) {
     hashtags: String(body.hashtags || "").trim(),
     order: body.order === "sequential" ? "sequential" : "random",
     stopWhenExhausted: body.stopWhenExhausted !== false, // default true: stop once every question posted
-    toFacebook: body.toFacebook !== false,
-    toInstagram: !!body.toInstagram,
-    toYoutube: !!body.toYoutube,
+    // A long-video schedule's destinations come from its own settings.
+    toFacebook: isLongVideo ? !!longVideo.options.toFacebook : body.toFacebook !== false,
+    toInstagram: isLongVideo ? false : !!body.toInstagram,
+    toYoutube: isLongVideo ? !!longVideo.options.toYoutube : !!body.toYoutube,
+    longVideo,
     ytTitle: String(body.ytTitle || "").replace(/[<>]/g, "").trim().slice(0, 90),
     ytFullVideo: !!body.toYoutube && !!body.ytFullVideo,
     ytPlaylistId: body.toYoutube ? cleanYtPlaylistId(body.ytPlaylistId) : "",
@@ -420,6 +425,9 @@ export function validateScheduleData(data) {
     }
   } else if (!data.source.subject && !data.source.session && !data.source.quiz && !data.source.testSeries) {
     return "Pick a source (a subject, session, quiz or test) to draw questions from.";
+  }
+  if (data.kind === "longvideo" && !data.longVideo?.options?.toYoutube && !data.longVideo?.options?.toFacebook) {
+    return "Choose where to post the long videos (YouTube and/or Facebook).";
   }
   // NOTE: Reel mode (asReel) no longer requires per-schedule audio — the music
   // comes from the SHARED library on site settings (fbReelAudios). The admin UI

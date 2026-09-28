@@ -353,6 +353,7 @@ export const youtubeService = {
   longVideo: (data) => api.post("/youtube/long-video", data), // → { job }
   longVideos: () => api.get("/youtube/long-video"), // → { jobs, maxQuestions, youtubeReady, facebookReady }
   longVideoCount: (data) => api.post("/youtube/long-video/count", data), // { source } → { total, max }
+  saveLongVideoDefaults: (data) => api.put("/youtube/long-video/defaults", data), // { options } → status
   longVideoStatus: (id) => api.get(`/youtube/long-video/${id}`), // → { job }
   // Short-lived token so the browser can upload a video file straight to YouTube.
   uploadToken: () => api.post("/youtube/upload-token"),

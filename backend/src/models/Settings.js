@@ -317,6 +317,10 @@ const settingsSchema = new mongoose.Schema(
     // separate from the 9:16 Reel templates above. Blank = built-in design.
     longVideoQuestionTemplateUrl: { type: String, default: "" },
     longVideoAnswerTemplateUrl: { type: String, default: "" },
+    // The long-video form's saved settings ("Save settings only"): questions,
+    // engine, voice, slides, times, read-aloud, captions, destinations. Cleaned
+    // by normalizeLongVideoOptions (config/longVideo.js).
+    longVideoDefaults: { type: mongoose.Schema.Types.Mixed, default: null },
     slideshowAnswerTemplateUrl: { type: String, default: "" },
     // Center TEXT watermark drawn diagonally across the middle of every
     // Facebook/Instagram question-card image (in addition to the selfie/logo
