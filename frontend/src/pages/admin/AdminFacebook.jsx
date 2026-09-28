@@ -2156,9 +2156,9 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
                   {/* Move: drag anywhere in the box */}
                   <div onPointerDown={onPointerDown("move")} className="flex h-full w-full cursor-move flex-col gap-0.5 overflow-hidden p-1 text-[7px] font-black leading-tight" style={sampleStyle}>
                     <div style={panelBg}>
-                      <div style={{ color: draft.thumbKickerColor || draft.thumbTextColor, fontSize: `${(draft.thumbKickerSize / 44) * 6}px` }}>ACADEMIC LIBRARIANSHIP</div>
-                      <div style={{ fontSize: `${(draft.thumbHeadlineSize / 104) * 13}px`, lineHeight: draft.thumbLineHeight }}>Library Management</div>
-                      <div style={{ display: "inline-block", background: draft.thumbAccentColor, color: draft.thumbBadgeTextColor, borderRadius: 3, padding: "0 4px", fontSize: `${(draft.thumbBadgeSize / 46) * 8}px`, marginTop: 2 }}>Quiz 2</div>
+                      <div style={{ color: draft.thumbKickerColor || draft.thumbTextColor, fontSize: `${(draft.thumbKickerSize / 44) * 6}px` }}>Subject Name</div>
+                      <div style={{ fontSize: `${(draft.thumbHeadlineSize / 104) * 13}px`, lineHeight: draft.thumbLineHeight }}>Topic Name</div>
+                      <div style={{ display: "inline-block", background: draft.thumbAccentColor, color: draft.thumbBadgeTextColor, borderRadius: 3, padding: "0 4px", fontSize: `${(draft.thumbBadgeSize / 46) * 8}px`, marginTop: 2 }}>Quiz 1</div>
                     </div>
                   </div>
                   {/* Move handle (centre) */}
@@ -2187,8 +2187,8 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
             )}
           </div>
           {preview
-            ? <button type="button" onClick={() => setPreview("")} className="text-[11px] text-brand-600 hover:underline">← back to editing the box</button>
-            : <p className="text-[11px] text-slate-400">Drag the box; drag the red corner to resize.</p>}
+            ? <p className="text-[11px] text-emerald-600">Exact preview (real fonts &amp; colours). <button type="button" onClick={() => setPreview("")} className="text-brand-600 hover:underline">← back to editing the box</button></p>
+            : <p className="text-[11px] text-slate-400"><b>Editing</b> — sample text, rough fonts. Move / resize / rotate the box, then hit <b>Exact preview</b> to see the real result.</p>}
         </div>
 
         {/* Controls */}
