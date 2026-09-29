@@ -15,6 +15,9 @@ import { launchBrowser } from "./cardShot.js";
 
 export const THUMB_W = 1280;
 export const THUMB_H = 720;
+// Long-video slides are 16:9 at full HD.
+export const SLIDE_W = 1920;
+export const SLIDE_H = 1080;
 
 // Bundled OFL display fonts (backend/assets/fonts) — inlined into the thumbnail
 // page as base64 @font-face, so they render the same on any server regardless
@@ -109,8 +112,10 @@ export function buildThumbnailHtml(opts = {}) {
     accentColor = "#facc15", badgeTextColor = "#111111",
     panelColor = "", panelOpacity = 0, panelRadius = 24,
     headlineSize = 104, kickerSize = 44, badgeSize = 46, lineHeight = 1.05,
-    rotate = 0,
+    rotate = 0, width = THUMB_W, height = THUMB_H,
   } = opts;
+  const W = Number(width) || THUMB_W;
+  const H = Number(height) || THUMB_H;
   const rot = num(rotate, 0, -180, 180);
   const rotCss = rot ? `transform:rotate(${rot}deg);transform-origin:center center;` : "";
 
@@ -170,9 +175,9 @@ export function buildThumbnailHtml(opts = {}) {
   return `<!doctype html><html><head><meta charset="utf-8"><style>
     ${ff.css}
     *{margin:0;padding:0;box-sizing:border-box}
-    html,body{width:${THUMB_W}px;height:${THUMB_H}px;overflow:hidden}
+    html,body{width:${W}px;height:${H}px;overflow:hidden}
     body{font-family:${family}}
-    #thumb{position:relative;width:${THUMB_W}px;height:${THUMB_H}px;${bg}}
+    #thumb{position:relative;width:${W}px;height:${H}px;${bg}}
     .kicker{font-size:${kSize}px;font-weight:800;color:${kColor};${up}letter-spacing:1px;${kShadowCss}}
     .headline{font-size:${hSize}px;line-height:${lh};${weightCss}color:${color};width:100%;${up}
       overflow-wrap:break-word;${stroke}${shadowCss}}
@@ -202,7 +207,7 @@ export async function renderYoutubeThumbnail(opts = {}) {
   try {
     browser = await launchBrowser();
     const page = await browser.newPage();
-    await page.setViewport({ width: THUMB_W, height: THUMB_H, deviceScaleFactor: 1 });
+    await page.setViewport({ width: Number(opts.width) || THUMB_W, height: Number(opts.height) || THUMB_H, deviceScaleFactor: 1 });
     await page.setContent(buildThumbnailHtml(opts), { waitUntil: "networkidle0", timeout: 25000 });
     if (opts.templateUrl) {
       // Make sure the background image actually loaded (a broken link → error, not a blank thumbnail).

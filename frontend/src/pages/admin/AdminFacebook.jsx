@@ -2323,6 +2323,247 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
   );
 }
 
+// Intro / end / Short-end SLIDE template with the same draggable text box +
+// styling as the thumbnail. The video's text (subject/topic/"Let's begin", or
+// the closing lines) fills the box. Config is saved as one object under
+// `settingKey`; the background image under `templateKey`. Sample text is shown
+// in the preview; each real video fills in its own.
+function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, onSaved }) {
+  const DEF_BOX = { x: 0.08, y: 0.3, w: 0.84, h: 0.4 };
+  const t = initial || {};
+  const fileRef = useRef(null);
+  const frameRef = useRef(null);
+  const dragRef = useRef(null);
+  const timer = useRef(null);
+  const autoTimer = useRef(null);
+  const previewReq = useRef(0);
+  const [templateUrl, setTemplateUrl] = useState(t.templateUrl || "");
+  const [draft, setDraft] = useState(() => ({
+    showText: t.showText !== false,
+    box: t.box || DEF_BOX, align: t.align || "center", vAlign: t.vAlign || "center",
+    font: t.font || "sans", uppercase: !!t.uppercase,
+    headlineSize: t.headlineSize ?? 84, kickerSize: t.kickerSize ?? 44, badgeSize: t.badgeSize ?? 46,
+    lineHeight: t.lineHeight ?? 1.1, rotate: t.rotate ?? 0,
+    textColor: t.textColor || "#0f172a", kickerColor: t.kickerColor || "",
+    accentColor: t.accentColor || "#2563eb", badgeTextColor: t.badgeTextColor || "#ffffff",
+    strokeColor: t.strokeColor || "#000000", strokeWidth: t.strokeWidth ?? 0, shadow: t.shadow !== false,
+    panelColor: t.panelColor || "", panelOpacity: t.panelOpacity ?? 0, panelRadius: t.panelRadius ?? 24,
+  }));
+  const [uploading, setUploading] = useState(false);
+  const [preview, setPreview] = useState("");
+  const [autoBusy, setAutoBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const [showStyle, setShowStyle] = useState(false);
+
+  const saveCfg = (patch) => { const next = { ...draft, ...patch }; return youtubeService.save({ [settingKey]: next }); };
+  const persist = async (patch) => {
+    try { onSaved?.(await saveCfg(patch)); setMsg({ ok: true, text: "Saved." }); }
+    catch (e) { setMsg({ ok: false, text: e.message || "Could not save." }); }
+  };
+  const set = (k, v, { later = false } = {}) => {
+    setDraft((d) => ({ ...d, [k]: v })); setPreview("");
+    clearTimeout(timer.current);
+    if (later) timer.current = setTimeout(() => persist({ [k]: v }), 600); else persist({ [k]: v });
+  };
+  useEffect(() => () => { clearTimeout(timer.current); clearTimeout(autoTimer.current); }, []);
+
+  const refreshPreview = async () => {
+    if (!templateUrl || !draft.showText) return;
+    const id = ++previewReq.current; setAutoBusy(true);
+    try { const r = await youtubeService.slideTextPreview({ role, config: draft, templateUrl }); if (id === previewReq.current) setPreview(r?.image || ""); }
+    catch { /* keep editing view */ } finally { if (id === previewReq.current) setAutoBusy(false); }
+  };
+  useEffect(() => {
+    if (!templateUrl || !draft.showText) return undefined;
+    clearTimeout(autoTimer.current);
+    autoTimer.current = setTimeout(refreshPreview, 800);
+    return () => clearTimeout(autoTimer.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(draft), templateUrl]);
+  const showExact = !!preview && draft.showText && !!templateUrl;
+
+  const upload = async (e) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type)) { setMsg({ ok: false, text: "Choose a JPG, PNG or WebP image." }); return; }
+    setUploading(true); setMsg(null);
+    try {
+      const r = await uploadService.imageDirect(file);
+      if (!r?.url) throw new Error("Upload failed.");
+      setTemplateUrl(r.url); setPreview("");
+      onSaved?.(await youtubeService.save({ [templateKey]: r.url }));
+      setMsg({ ok: true, text: "Template saved." });
+    } catch (err) { setMsg({ ok: false, text: err.message || "Upload failed." }); }
+    finally { setUploading(false); if (fileRef.current) fileRef.current.value = ""; }
+  };
+  const removeTpl = async () => {
+    if (!window.confirm("Remove this slide template? The built-in design is used instead.")) return;
+    setTemplateUrl(""); setPreview("");
+    try { onSaved?.(await youtubeService.save({ [templateKey]: "" })); } catch { /* ignore */ }
+  };
+
+  const box = draft.box || DEF_BOX;
+  const rot = draft.rotate || 0;
+  const onPointerDown = (mode) => (e) => {
+    e.preventDefault();
+    const frame = frameRef.current; if (!frame) return; // eslint-disable-line react-hooks/refs
+    const rect = frame.getBoundingClientRect();
+    dragRef.current = { mode, rect, startX: e.clientX, startY: e.clientY, box: { ...box } }; // eslint-disable-line react-hooks/refs
+    e.target.setPointerCapture?.(e.pointerId);
+  };
+  const onPointerMove = (e) => {
+    const d = dragRef.current; if (!d) return;
+    if (d.mode === "rotate") {
+      const cx = d.rect.left + (d.box.x + d.box.w / 2) * d.rect.width;
+      const cy = d.rect.top + (d.box.y + d.box.h / 2) * d.rect.height;
+      let deg = Math.round((Math.atan2(e.clientY - cy, e.clientX - cx) * 180) / Math.PI + 90);
+      if (deg > 180) deg -= 360; if (deg < -180) deg += 360;
+      if (e.shiftKey) deg = Math.round(deg / 15) * 15;
+      setDraft((dd) => ({ ...dd, rotate: deg })); setPreview("");
+      return;
+    }
+    const dx = (e.clientX - d.startX) / d.rect.width;
+    const dy = (e.clientY - d.startY) / d.rect.height;
+    let { x, y, w, h } = d.box;
+    if (d.mode === "move") { x = Math.max(0, Math.min(1 - w, x + dx)); y = Math.max(0, Math.min(1 - h, y + dy)); }
+    else { w = Math.max(0.12, Math.min(1 - x, w + dx)); h = Math.max(0.12, Math.min(1 - y, h + dy)); }
+    setDraft((dd) => ({ ...dd, box: { x, y, w, h } })); setPreview("");
+  };
+  const onPointerUp = () => {
+    const d = dragRef.current; if (!d) return;
+    dragRef.current = null;
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => persist(d.mode === "rotate" ? { rotate: draft.rotate } : { box: draft.box }), 200);
+    clearTimeout(autoTimer.current);
+    autoTimer.current = setTimeout(refreshPreview, 300);
+  };
+
+  const stepRow = (label, key, lo, hi, step = 1, { fmt, round = 0, icon = null } = {}) => {
+    const cur = Number(draft[key]);
+    const clampV = (v) => Math.max(lo, Math.min(hi, round ? Number(v.toFixed(round)) : Math.round(v)));
+    return (
+      <label className="flex items-center justify-between gap-2 text-sm">
+        <span className="flex items-center gap-1">{icon}{label}</span>
+        <span className="flex items-center gap-1.5">
+          <button type="button" onClick={() => set(key, clampV(cur - step), { later: true })} className="flex h-6 w-6 items-center justify-center rounded border border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300">−</button>
+          <input type="range" min={lo} max={hi} step={step} value={cur} onChange={(e) => set(key, Number(e.target.value), { later: true })} className="w-24 accent-[#FF0000]" />
+          <button type="button" onClick={() => set(key, clampV(cur + step), { later: true })} className="flex h-6 w-6 items-center justify-center rounded border border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300">+</button>
+          <span className="w-9 text-right text-xs text-slate-400">{fmt ? fmt(cur) : cur}</span>
+        </span>
+      </label>
+    );
+  };
+  const colorInput = (label, key, fallback, clearable) => (
+    <label className="flex items-center justify-between gap-2 text-sm">
+      <span>{label}</span>
+      <span className="flex items-center gap-1">
+        {clearable && <button type="button" onClick={() => set(key, "")} className="text-xs text-slate-400 hover:text-rose-600">clear</button>}
+        <input type="color" value={draft[key] || fallback} onChange={(e) => set(key, e.target.value, { later: true })} className="h-8 w-10 cursor-pointer rounded border border-slate-200 dark:border-slate-700" />
+      </span>
+    </label>
+  );
+
+  return (
+    <div className="mt-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+      <p className="text-sm font-semibold">{title}</p>
+      <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{note} Upload a 1920×1080 background, then drag the box onto its empty area — the slide's text fills it with the styling below.</p>
+      <div className="mt-3 flex flex-wrap items-start gap-4">
+        <div className="flex flex-col items-center gap-2">
+          {templateUrl ? (
+            <div ref={frameRef} className="relative aspect-video w-80 select-none overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700"
+              onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerLeave={onPointerUp}>
+              <img src={showExact ? preview : templateUrl} alt="" className="pointer-events-none absolute inset-0 h-full w-full object-cover" draggable={false} />
+              {draft.showText && (
+                <div className="absolute rounded border-2 border-dashed border-white/90 shadow-[0_0_0_1px_rgba(0,0,0,.4)]"
+                  style={{ left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.w * 100}%`, height: `${box.h * 100}%`, transform: `rotate(${rot}deg)`, transformOrigin: "center center" }}>
+                  <div onPointerDown={onPointerDown("move")} className="absolute inset-0 touch-none cursor-move" />
+                  {!showExact && (
+                    <div className="pointer-events-none flex h-full w-full flex-col items-center justify-center gap-0.5 overflow-hidden p-1 text-center text-[9px] font-black" style={{ color: draft.textColor }}>
+                      <div style={{ fontSize: 12 }}>{role === "intro" ? "Topic" : role === "outro" ? "Thanks for watching!" : "Watch the full quiz"}</div>
+                      <div style={{ display: "inline-block", background: draft.accentColor, color: draft.badgeTextColor, borderRadius: 3, padding: "0 4px" }}>{role === "intro" ? "Let's begin!" : "Subscribe!"}</div>
+                    </div>
+                  )}
+                  <span onPointerDown={onPointerDown("move")} title="Move" className="absolute left-1/2 top-1/2 flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 touch-none cursor-move items-center justify-center rounded-full border-2 border-white bg-black/45 text-white"><Move className="h-3.5 w-3.5" /></span>
+                  <span onPointerDown={onPointerDown("resize")} title="Resize" className="absolute -bottom-1.5 -right-1.5 h-4 w-4 touch-none cursor-se-resize rounded-full border-2 border-white bg-[#FF0000]" />
+                  <span onPointerDown={onPointerDown("rotate")} title="Rotate" className="absolute -top-6 left-1/2 flex h-5 w-5 -translate-x-1/2 touch-none cursor-grab items-center justify-center rounded-full border-2 border-white bg-brand-600 text-white"><RotateCw className="h-3 w-3" /></span>
+                  <span className="absolute -top-1.5 left-1/2 h-4 w-0.5 -translate-x-1/2 bg-white/80" />
+                </div>
+              )}
+              {autoBusy && <span className="absolute right-1 top-1 z-10 rounded bg-black/55 px-1.5 py-0.5 text-[10px] text-white">updating…</span>}
+              <button type="button" onClick={removeTpl} title="Remove" className="absolute -right-2 -top-2 z-10 rounded-full bg-rose-100 p-1.5 text-rose-600 shadow hover:bg-rose-200 dark:bg-rose-900/40"><Trash2 className="h-4 w-4" /></button>
+            </div>
+          ) : (
+            <div className="flex aspect-video w-80 items-center justify-center rounded-lg border-2 border-dashed border-slate-300 text-slate-300 dark:border-slate-600"><ImagePlus className="h-8 w-8" /></div>
+          )}
+          <label className={`btn-outline cursor-pointer text-sm ${uploading ? "pointer-events-none opacity-60" : ""}`}>
+            {uploading ? <><Loader2 className="h-4 w-4 animate-spin" /> Uploading…</> : <><Upload className="h-4 w-4" /> {templateUrl ? "Replace" : "Upload template"}</>}
+            <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={upload} disabled={uploading} />
+          </label>
+          {templateUrl && <p className="text-[11px] text-slate-400">Live preview with sample text · drag the box, red corner resizes, blue knob rotates.</p>}
+        </div>
+        {templateUrl && (
+          <div className="min-w-[240px] flex-1 space-y-3">
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={draft.showText} onChange={(e) => set("showText", e.target.checked)} /> Write the text on it
+            </label>
+            {draft.showText && (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium">Align</label>
+                    <div className="flex gap-1">
+                      {[["left", "L"], ["center", "C"], ["right", "R"]].map(([v, l]) => (
+                        <button key={v} type="button" onClick={() => set("align", v)} className={`h-8 flex-1 rounded border text-xs font-bold ${draft.align === v ? "border-[#FF0000] bg-red-50 text-[#FF0000] dark:bg-red-900/20" : "border-slate-200 dark:border-slate-700"}`}>{l}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium">Font</label>
+                    <select className="input h-8 py-0 text-sm" value={draft.font} onChange={(e) => set("font", e.target.value)}>
+                      <option value="sans">Sans (bold)</option><option value="serif">Serif</option><option value="mono">Mono</option>
+                      <option value="anton">Anton</option><option value="bebas">Bebas Neue</option><option value="oswald">Oswald</option><option value="poppins">Poppins</option><option value="montserrat">Montserrat</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                  {colorInput("Text colour", "textColor", "#0f172a")}
+                  {colorInput("Badge colour", "accentColor", "#2563eb")}
+                  {colorInput("Badge text", "badgeTextColor", "#ffffff")}
+                </div>
+                <div className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                  {stepRow("Main text size", "headlineSize", 24, 200, 2)}
+                  {stepRow("Badge size", "badgeSize", 12, 120, 2)}
+                  {stepRow("Line spacing", "lineHeight", 0.8, 2, 0.05, { round: 2, fmt: (v) => v.toFixed(2) })}
+                  {stepRow("Rotate", "rotate", -180, 180, 1, { icon: <RotateCw className="h-3.5 w-3.5 text-slate-400" />, fmt: (v) => `${v}°` })}
+                </div>
+                <button type="button" onClick={() => setShowStyle((v) => !v)} className="flex items-center gap-1 text-xs font-semibold text-brand-600">
+                  <ChevronDown className={`h-4 w-4 transition ${showStyle ? "rotate-180" : ""}`} /> Outline, shadow &amp; shade
+                </button>
+                {showStyle && (
+                  <div className="space-y-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                      {colorInput("Outline colour", "strokeColor", "#000000")}
+                      {stepRow("Outline", "strokeWidth", 0, 12, 1)}
+                    </div>
+                    <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={draft.shadow} onChange={(e) => set("shadow", e.target.checked)} /> Drop shadow</label>
+                    <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={draft.uppercase} onChange={(e) => set("uppercase", e.target.checked)} /> UPPERCASE</label>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 border-t border-slate-100 pt-2 dark:border-slate-800">
+                      {colorInput("Shade colour", "panelColor", "#000000", true)}
+                      {stepRow("Opacity", "panelOpacity", 0, 100, 5)}
+                      {stepRow("Corners", "panelRadius", 0, 60, 2)}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+            <span className="block text-xs text-slate-400">Changes save automatically.</span>
+            {msg && <p className={`text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.text}</p>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Default playlists ("folders") for Shorts and long videos — saved immediately.
 function YtDefaultPlaylists({ st, onSaved }) {
   const [msg, setMsg] = useState(null);
@@ -2996,13 +3237,17 @@ function FullQuizVideoForm({ st, onStatus }) {
           <SlideTemplateUploader landscape label="Answer slide template" hint="Background for the answer + explanation slide"
             settingKey="longVideoAnswerTemplateUrl" settings={settings} saveSettings={saveSettings} />
         )}
-        <SlideTemplateUploader landscape label="Intro slide template" hint="Opening title slide (subject / topic · “Let's begin”)"
-          settingKey="longVideoIntroTemplateUrl" settings={settings} saveSettings={saveSettings} />
-        <SlideTemplateUploader landscape label="End slide template (full video)" hint="Closing “Thanks for watching · like &amp; subscribe” slide"
-          settingKey="longVideoOutroTemplateUrl" settings={settings} saveSettings={saveSettings} />
-        <SlideTemplateUploader landscape label="End slide template (Short)" hint="Short's closing “Watch the full quiz · subscribe” slide"
-          settingKey="longVideoShortOutroTemplateUrl" settings={settings} saveSettings={saveSettings} />
       </div>
+      {st?.connected && (
+        <div className="mt-3 space-y-3">
+          <SlideTextEditor role="intro" title="Intro slide" note="Opening title (subject / topic · “Let's begin”)."
+            settingKey="longVideoIntroText" templateKey="longVideoIntroTemplateUrl" initial={st.introText} onSaved={onStatus} />
+          <SlideTextEditor role="outro" title="End slide (full video)" note="Closing “Thanks for watching · like &amp; subscribe”."
+            settingKey="longVideoOutroText" templateKey="longVideoOutroTemplateUrl" initial={st.outroText} onSaved={onStatus} />
+          <SlideTextEditor role="shortoutro" title="End slide (Short)" note="Short's closing “Watch the full quiz · subscribe”."
+            settingKey="longVideoShortOutroText" templateKey="longVideoShortOutroTemplateUrl" initial={st.shortOutroText} onSaved={onStatus} />
+        </div>
+      )}
       {(settings?.longVideoQuestionTemplateUrl || (withAnswer && settings?.longVideoAnswerTemplateUrl)) && (
         <label className="mt-2 flex items-center gap-2 text-sm">
           <input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={useTemplates} onChange={(e) => setUseTemplates(e.target.checked)} />

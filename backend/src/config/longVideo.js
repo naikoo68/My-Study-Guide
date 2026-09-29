@@ -12,7 +12,7 @@ import { tenantStore, getCurrentTenantId } from "../utils/tenantContext.js";
 import { generateSlideshow } from "./slideshow.js";
 import {
   uploadVideoFileToYoutube, buildYtTitle, buildYtLongDescription, buildYtTags,
-  isYoutubeConfigured, DEFAULT_YT_LONG_TITLE, applyYtExtras, thumbnailLines, thumbTemplateActive, setYtThumbnail,
+  isYoutubeConfigured, DEFAULT_YT_LONG_TITLE, applyYtExtras, thumbnailLines, thumbTemplateActive, setYtThumbnail, slideTextConfigFromSite,
 } from "./youtube.js";
 import { postLongVideoToFacebookPage } from "./fbLongVideo.js";
 import { TTS_PROVIDERS } from "../utils/ttsVoices.js";
@@ -325,6 +325,12 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
       introTemplateUrl: opts.useTemplates ? site?.longVideoIntroTemplateUrl || "" : "",
       outroTemplateUrl: opts.useTemplates ? site?.longVideoOutroTemplateUrl || "" : "",
       shortOutroTemplateUrl: opts.useTemplates ? site?.longVideoShortOutroTemplateUrl || "" : "",
+      // Intro / end / Short-end text boxes (same styling engine as the thumbnail).
+      slideText: opts.useTemplates ? {
+        intro: slideTextConfigFromSite(site, "intro"),
+        outro: slideTextConfigFromSite(site, "outro"),
+        shortoutro: slideTextConfigFromSite(site, "shortoutro"),
+      } : undefined,
       site: opts.engine ? { ...site, ttsProvider: opts.engine } : site,
       brandColor: site?.brandColor || site?.primaryColor || "#2563eb",
       siteName: site?.siteName || "My Study Guide",
