@@ -2372,6 +2372,13 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
     clearTimeout(timer.current);
     if (later) timer.current = setTimeout(() => persist({ [k]: v }), 600); else persist({ [k]: v });
   };
+  // Hide / centred card / movable box — two saved fields, saved together.
+  const setMode = (m) => {
+    const patch = m === "hide" ? { showText: false } : { showText: true, useBox: m === "box" };
+    setDraft((d) => ({ ...d, ...patch })); setPreview("");
+    clearTimeout(timer.current);
+    persist(patch);
+  };
   useEffect(() => () => { clearTimeout(timer.current); clearTimeout(autoTimer.current); }, []);
 
   const refreshPreview = async () => {
@@ -2396,9 +2403,18 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
     try {
       const r = await uploadService.imageDirect(file);
       if (!r?.url) throw new Error("Upload failed.");
+      const first = !templateUrl && role !== "intro"; // end slides only — the intro keeps its text
       setTemplateUrl(r.url); setPreview("");
-      onSaved?.(await youtubeService.save({ [templateKey]: r.url }));
-      setMsg({ ok: true, text: "Template saved." });
+      if (first) {
+        // A new template usually carries its own design — show it as is (text
+        // hidden, narration kept). Pick a text option below to add text.
+        setDraft((d) => ({ ...d, showText: false }));
+        onSaved?.(await youtubeService.save({ [templateKey]: r.url, [settingKey]: { ...draft, showText: false } }));
+        setMsg({ ok: true, text: "Template saved — text hidden, only your template is shown (the narrator still reads)." });
+      } else {
+        onSaved?.(await youtubeService.save({ [templateKey]: r.url }));
+        setMsg({ ok: true, text: "Template saved." });
+      }
     } catch (err) { setMsg({ ok: false, text: err.message || "Upload failed." }); }
     finally { setUploading(false); if (fileRef.current) fileRef.current.value = ""; }
   };
@@ -2509,15 +2525,24 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
         </div>
         {templateUrl && (
           <div className="w-full min-w-0 space-y-3 sm:flex-1">
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={draft.showText} onChange={(e) => set("showText", e.target.checked)} /> Write the text on it
-            </label>
-            {draft.showText && (
-              <label className="flex items-start gap-2 rounded-lg border border-slate-200 p-2.5 text-sm dark:border-slate-700">
-                <input type="checkbox" className="mt-0.5 h-4 w-4 accent-[#FF0000]" checked={draft.useBox} onChange={(e) => set("useBox", e.target.checked)} />
-                <span><b>Use a movable text box</b> <span className="text-slate-400">— off = the text is centred on the template automatically (fixed). On = drag / resize / rotate the box and style it below.</span></span>
-              </label>
-            )}
+            <div>
+              <p className="mb-1.5 text-sm font-medium">Text on this slide</p>
+              <div className="space-y-1.5">
+                {[
+                  ["hide", "Hide text — show only my template", "Viewers see just your template. The narrator still reads the line below."],
+                  ["centred", "White card in the middle", "The built-in text card is drawn centred on your template."],
+                  ["box", "Movable text box", "Drag / resize / rotate the text and style it below."],
+                ].filter(([m]) => m !== "hide" || role !== "intro" || !draft.showText).map(([m, label, hint]) => {
+                  const cur = !draft.showText ? "hide" : draft.useBox ? "box" : "centred";
+                  return (
+                    <label key={m} className={`flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 text-sm ${cur === m ? "border-[#FF0000] bg-red-50/50 dark:bg-red-900/10" : "border-slate-200 dark:border-slate-700"}`}>
+                      <input type="radio" name={`slideTextMode-${role}`} className="mt-0.5 h-4 w-4 accent-[#FF0000]" checked={cur === m} onChange={() => setMode(m)} />
+                      <span><b>{label}</b> <span className="block text-xs text-slate-400">{hint}</span></span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
             {draft.showText && draft.useBox && (
               <>
                 <div className="grid grid-cols-2 gap-3">
@@ -2567,7 +2592,7 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
               </>
             )}
             {draft.showText && !draft.useBox && <p className="text-xs text-slate-400">The subject / topic / closing text is centred on your template automatically.</p>}
-            {!draft.showText && <p className="text-xs text-slate-400">Only your template is shown — no text is drawn on it.</p>}
+            {!draft.showText && <p className="text-xs text-emerald-700 dark:text-emerald-400">Text hidden — only your template is shown. The narrator still says the line below. (Needs “Use my slide templates” ticked for the video.)</p>}
           </div>
         )}
       </div>
@@ -2876,6 +2901,22 @@ function FullQuizVideoForm({ st, onStatus }) {
   const { settings, save: saveSettings } = useSettings();
   const [useTemplates, setUseTemplates] = useState(st?.longVideoDefaults?.useTemplates !== false);
   const [pickerKey, setPickerKey] = useState(0);
+  // "Hide text on end slides": saves both end slides (full + Short) at once,
+  // then remounts the editors. The intro slide is left as it is.
+  const [slideEdRev, setSlideEdRev] = useState(0);
+  const [hidingText, setHidingText] = useState(false);
+  const [hideMsg, setHideMsg] = useState(null);
+  const SLIDE_ROLES = [["outro", "longVideoOutroText", "outroText"], ["shortoutro", "longVideoShortOutroText", "shortOutroText"]];
+  const allSlideTextHidden = SLIDE_ROLES.every(([, , k]) => st?.[k]?.showText === false);
+  const hideAllSlideText = async () => {
+    setHidingText(true); setHideMsg(null);
+    try {
+      const body = Object.fromEntries(SLIDE_ROLES.map(([, key, k]) => [key, { ...(st?.[k] || {}), showText: false }]));
+      onStatus?.(await youtubeService.save(body));
+      setSlideEdRev((n) => n + 1);
+      setHideMsg({ ok: true, text: "Done — both end slides (full video and Short) now show only your templates. The narrator still reads them. The intro slide is unchanged." });
+    } catch (e) { setHideMsg({ ok: false, text: e.message || "Could not save." }); } finally { setHidingText(false); }
+  };
   const [playlist, setPlaylist] = useState({ id: "", title: "" });
   const [useThumb, setUseThumb] = useState(true);
   const [source, setSource] = useState({ subject: null, session: null, quiz: null, testSeries: null, label: "" });
@@ -3260,7 +3301,17 @@ function FullQuizVideoForm({ st, onStatus }) {
         )}
       </div>
       {st?.connected && (
-        <div className="mt-3 space-y-3">
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button type="button" onClick={hideAllSlideText} disabled={hidingText || allSlideTextHidden} className="btn-outline text-sm">
+            {hidingText ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {allSlideTextHidden ? "Text hidden on end slides ✓" : "Hide text on end slides"}
+          </button>
+          <span className="text-xs text-slate-400">Full video + Short end slides: viewers see only your templates, the narrator still reads the lines. The intro slide keeps its text.</span>
+          {hideMsg && <span className={`w-full text-xs font-medium ${hideMsg.ok ? "text-emerald-600" : "text-rose-600"}`}>{hideMsg.text}</span>}
+        </div>
+      )}
+      {st?.connected && (
+        <div key={slideEdRev} className="mt-3 space-y-3">
           <SlideTextEditor role="intro" title="Intro slide" note="Opening title (subject / topic · “Let's begin”)."
             settingKey="longVideoIntroText" templateKey="longVideoIntroTemplateUrl" initial={st.introText} onSaved={onStatus} />
           <SlideTextEditor role="outro" title="End slide (full video)" note="Closing “Thanks for watching · subscribe, like &amp; share for more”."
@@ -3269,7 +3320,7 @@ function FullQuizVideoForm({ st, onStatus }) {
             settingKey="longVideoShortOutroText" templateKey="longVideoShortOutroTemplateUrl" initial={st.shortOutroText} onSaved={onStatus} />
         </div>
       )}
-      {(settings?.longVideoQuestionTemplateUrl || (withAnswer && settings?.longVideoAnswerTemplateUrl)) && (
+      {(settings?.longVideoQuestionTemplateUrl || (withAnswer && settings?.longVideoAnswerTemplateUrl) || st?.introText?.templateUrl || st?.outroText?.templateUrl || st?.shortOutroText?.templateUrl) && (
         <label className="mt-2 flex items-center gap-2 text-sm">
           <input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={useTemplates} onChange={(e) => setUseTemplates(e.target.checked)} />
           Use my slide templates for this video
