@@ -125,6 +125,10 @@ export function normalizeTextBox(o = {}, { defaultUseBox = false } = {}) {
     // draggable text box + styling below is used.
     useBox: c.useBox !== undefined ? !!c.useBox : defaultUseBox,
     showText: c.showText !== false,
+    // Intro slides: which names to show AND say — "Subject — Topic", only the
+    // subject, or only the topic. Both ON by default.
+    showSubject: c.showSubject !== false,
+    showTopic: c.showTopic !== false,
     box: cleanThumbBox(c.box),
     align: ["left", "center", "right"].includes(c.align) ? c.align : "center",
     vAlign: ["top", "center", "bottom"].includes(c.vAlign) ? c.vAlign : "center",

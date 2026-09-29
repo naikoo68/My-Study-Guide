@@ -490,10 +490,12 @@ export async function youtubeSlideTextPreview(req, res) {
   const cfg = { ...saved, ...normalizeTextBox({ ...saved, ...(req.body?.config || {}) }) };
   const templateUrl = String(req.body?.templateUrl || saved.templateUrl || "").trim();
   if (!templateUrl) return res.status(400).json({ message: "Upload a slide template first." });
+  // Intro sample follows the Subject / Topic switches.
+  const introHead = [cfg.showSubject !== false && "Subject", cfg.showTopic !== false && "Topic"].filter(Boolean).join(" — ") || "Quiz Time";
   const SAMPLE = {
-    intro: { headline: "Subject — Topic", badge: "Let's begin!" },
+    intro: { headline: introHead, badge: "Let's begin!" },
     outro: { headline: "Thanks for watching!", badge: "Subscribe · Like · Share for more" },
-    shortintro: { headline: "Subject — Topic", badge: "Let's begin!" },
+    shortintro: { headline: introHead, badge: "Let's begin!" },
     shortoutro: { headline: "Thanks for watching!", badge: "Watch the full quiz — visit the channel" },
   }[role];
   const { renderYoutubeThumbnail } = await import("../config/ytThumbnail.js");

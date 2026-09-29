@@ -382,7 +382,11 @@ export function buildSlidePlan(q, opts = {}) {
 // ---- Intro / outro slides (title + closing call-to-action). Pure. ----------
 // An opening title slide for the video: subject / topic, "Let's begin".
 // `narration` (optional) replaces the spoken line.
-export function introSlidePlan({ subject = "", topic = "", siteName = "", narration = "" } = {}) {
+// showSubject / showTopic (default true): the intro can show (and say) only the
+// topic, only the subject, or both. With both off it's a plain "Quiz Time".
+export function introSlidePlan({ subject = "", topic = "", siteName = "", narration = "", showSubject = true, showTopic = true } = {}) {
+  subject = showSubject === false ? "" : subject;
+  topic = showTopic === false ? "" : topic;
   const title = [asText(subject), asText(topic)].filter(Boolean).join(" — ");
   const heading = title || "Quiz Time";
   return {
