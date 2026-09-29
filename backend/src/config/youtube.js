@@ -454,8 +454,13 @@ export async function uploadVideoToYoutube({ videoUrl, title, description, tags 
 
 // ---- Long (normal, 16:9) videos ----
 
-// Default title for a full-topic quiz video.
-export const DEFAULT_YT_LONG_TITLE = "{subject} | {topic} | Full Quiz ({count} Questions)";
+// Default title for a long quiz video that holds the WHOLE quiz:
+// "Economics | Characteristics and Problems of Developing Economy | Quiz 1 (25 Questions)".
+// (A video with only PART of the quiz uses DEFAULT_YT_SERIES_TITLE in
+// config/longVideo.js: "… | Quiz 1 (Part 1) (25 Questions)".) Never "Full Quiz".
+export const DEFAULT_YT_LONG_TITLE = "{subject} | {topic} | {quiz} ({count} Questions)";
+// The same when the source is a whole topic (no single quiz name).
+export const DEFAULT_YT_LONG_TITLE_NOQUIZ = "{subject} | {topic} ({count} Questions)";
 
 // "m:ss" / "h:mm:ss" for YouTube chapter timestamps.
 export function ytTimestamp(sec) {
@@ -470,8 +475,10 @@ export function ytTimestamp(sec) {
 // the hashtags. No #Shorts. Max 5000 bytes.
 // A YouTube Short must be 3 minutes or less.
 export const YT_SHORT_MAX_SEC = 180;
-export function buildYtLongDescription({ intro = "", chapters = [], hashtags = "", siteUrl = "", shorts = false } = {}) {
+// `title` (optional) is the FIRST line — the video's title, then a blank line.
+export function buildYtLongDescription({ title = "", intro = "", chapters = [], hashtags = "", siteUrl = "", shorts = false } = {}) {
   const lines = [];
+  if (title) { lines.push(clean(title).trim()); if (intro) lines.push(""); }
   if (intro) lines.push(clean(intro).trim());
   const ch = (Array.isArray(chapters) ? chapters : []).filter((c) => Number.isFinite(Number(c?.startSec)));
   const ok = ch.length >= 3 && ch.every((c, i) => i === 0 || Number(c.startSec) - Number(ch[i - 1].startSec) >= 10);

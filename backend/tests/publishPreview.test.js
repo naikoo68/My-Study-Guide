@@ -30,7 +30,7 @@ const { queuePublishPreview, getLongVideoJob, tenantKeyNow } = await import("../
 
 const fakePreview = () => ({
   id: "p1", preview: true, status: "done", label: "Economics",
-  title: "Economics | Economy and It's Types | Full Quiz (25 Questions)",
+  title: "Economics | Economy and It's Types | Quiz 1 (25 Questions)",
   questions: 25, range: "", duration: 940,
   videoUrl: "https://res.cloudinary.com/x/full.mp4", shortUrl: "https://res.cloudinary.com/x/short.mp4", shortQuestions: 3,
   thumb: { image: Buffer.from("jpg"), mime: "image/jpeg" },
@@ -82,5 +82,18 @@ describe("publish a finished preview", () => {
   it("refuses an unfinished preview or no destination", () => {
     expect(() => queuePublishPreview({ preview: { ...fakePreview(), status: "running" }, cfg: {}, site: {} })).toThrow(/can't be published/);
     expect(() => queuePublishPreview({ preview: fakePreview(), cfg: {}, site: {}, options: { toYoutube: false } })).toThrow(/Choose where/);
+  });
+});
+
+describe("the published description starts with the title", () => {
+  it("first line = title", async () => {
+    const { queuePublishPreview: q2, getLongVideoJob: g2, tenantKeyNow: t2 } = await import("../src/config/longVideo.js");
+    uploads.length = 0;
+    globalThis.fetch = vi.fn(async () => new Response(new Uint8Array([1])));
+    const j = q2({ preview: { ...fakePreview(), id: "p-desc" }, cfg: {}, site: {}, options: { toYoutube: true, asShort: true } });
+    for (let i = 0; i < 200; i++) { const x = g2(j.id, t2()); if (x?.status === "done") break; await new Promise((r) => setTimeout(r, 10)); }
+    expect(uploads[0].description.split("\n")[0]).toBe("Economics | Economy and It's Types | Quiz 1 (25 Questions)");
+    expect(uploads[1].description.split("\n")[0]).toBe("Economics | Economy and It's Types | Quiz 1 (25 Questions)");
+    expect(uploads[1].description).toContain("Watch the full video here");
   });
 });
