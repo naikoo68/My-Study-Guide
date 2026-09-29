@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { X, Wand2, Loader2, CheckCircle2, AlertTriangle, Server, KeyRound } from "lucide-react";
 import { aiService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
+import { waitFromStatus, useSecondsLeft, bulkWaitText } from "./bulkWait";
 
 // Which question types the bulk action can be limited to. "all" = every type.
 const Q_TYPE_OPTIONS = [
@@ -48,6 +49,9 @@ export default function ExtendExplanationsModal({ open, target, title, onClose, 
   const [progress, setProgress] = useState(null); // { done, total, remainingRun }
   const [remainingQuestionIds, setRemainingQuestionIds] = useState(null); // exact unfinished ids after a partial run
   const [msg, setMsg] = useState("");
+  // While the job runs: { done, total, wait } → a status line that ticks every second.
+  const [live, setLive] = useState(null);
+  const secondsLeft = useSecondsLeft(live?.wait?.until || 0);
   const [keyStats, setKeyStats] = useState(null); // live per-key activity this run { label: {requests,ok,limited,error,questions} }
   const jobRef = useRef(null);      // current background job id (for Cancel)
   const cancelRef = useRef(false);  // set true when the user cancels → stops polling
@@ -125,6 +129,7 @@ export default function ExtendExplanationsModal({ open, target, title, onClose, 
         const returnedRemainingIds = Array.isArray(s.remainingQuestionIds) ? s.remainingQuestionIds : null;
         const remainingCount = returnedRemainingIds?.length ?? Math.max(0, total - doneCount);
 
+        if (s.status !== "pending") setLive(null);
         if (s.status === "done") {
           if (returnedRemainingIds) setRemainingQuestionIds(returnedRemainingIds);
           setProgress({ done: doneCount, total, remainingRun: runWasResume });
@@ -150,19 +155,18 @@ export default function ExtendExplanationsModal({ open, target, title, onClose, 
           if (doneCount > 0) onDone?.();
         } else {
           setProgress({ done: doneCount, total, remainingRun: runWasResume });
-          const waitLeft = s.waitUntil ? Math.max(0, Math.ceil((s.waitUntil - Date.now()) / 1000)) : 0;
           if (cancelRef.current) {
+            setLive(null);
             setMsg(`Cancelling… keeping ${doneCount} question(s) already updated.`);
-          } else if (waitLeft > 0) {
-            const waitingKeys = s.waitingKeys || 1;
-            setMsg(`⏳ ${waitingKeys} API key${waitingKeys === 1 ? "" : "s"} rate limited at ${doneCount} of ${total} — next retry in ${waitLeft}s…`);
           } else {
-            setMsg(`Updating ${runWasResume ? "remaining " : ""}explanations… ${doneCount} of ${total}`);
+            setMsg("");
+            setLive({ verb: `Updating ${runWasResume ? "remaining " : ""}explanations`, done: doneCount, total, wait: waitFromStatus(s) });
           }
         }
       }
-      if (!done) setMsg("Still working — this is taking longer than expected. It keeps running in the background; reopen later.");
+      if (!done) { setLive(null); setMsg("Still working — this is taking longer than expected. It keeps running in the background; reopen later."); }
     } catch (e) {
+      setLive(null);
       setMsg(e.message || "Failed.");
     } finally {
       jobRef.current = null;
@@ -301,6 +305,9 @@ export default function ExtendExplanationsModal({ open, target, title, onClose, 
           </>
         )}
 
+        {live && busy && !msg && (
+          <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">{bulkWaitText({ ...live, secondsLeft })}</p>
+        )}
         {msg && (
           <p className="mt-3 inline-flex items-center gap-1 text-sm font-medium">
             {msg.startsWith("✓") && <CheckCircle2 className="h-4 w-4 text-emerald-600" />} {msg}
