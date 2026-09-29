@@ -16,7 +16,7 @@ import { isSafePublicUrl } from "../utils/urlGuard.js";
 import { getFacebookConfig, getFacebookSiteForConfig, completeQuestionsForSource, isFacebookConfigured } from "../config/facebook.js";
 import {
   queueFullQuizVideo, normalizeLongVideoOptions, listLongVideoJobs, getLongVideoJob, publicJob, tenantKeyNow, MAX_LONG_VIDEO_QUESTIONS,
-  queueLongVideoPreview, getLongVideoPreview, publicPreviewJob, queuePublishPreview,
+  queueLongVideoPreview, getLongVideoPreview, publicPreviewJob, queuePublishPreview, retryLongVideoJob,
 } from "../config/longVideo.js";
 
 function statusOf(site, req) {
@@ -351,7 +351,20 @@ export async function saveLongVideoDefaults(req, res) {
 // GET /api/youtube/long-video — recent long-video jobs (this institute).
 export async function listLongVideos(req, res) {
   const cfg = await getFacebookConfig();
-  res.json({ jobs: listLongVideoJobs(tenantKeyNow()), maxQuestions: MAX_LONG_VIDEO_QUESTIONS, youtubeReady: isYoutubeConfigured(cfg), facebookReady: isFacebookConfigured(cfg) });
+  res.json({ jobs: await listLongVideoJobs(tenantKeyNow()), maxQuestions: MAX_LONG_VIDEO_QUESTIONS, youtubeReady: isYoutubeConfigured(cfg), facebookReady: isFacebookConfigured(cfg) });
+}
+
+// POST /api/youtube/long-video/:id/retry → { job } — make a failed video again
+// with the same settings (e.g. one stopped by a server restart).
+export async function retryLongVideo(req, res) {
+  const cfg = await getFacebookConfig();
+  const site = await getFacebookSiteForConfig(cfg);
+  try {
+    const job = await retryLongVideoJob(req.params.id, tenantKeyNow(), { cfg, site });
+    res.status(202).json({ job });
+  } catch (e) {
+    res.status(400).json({ message: e.message });
+  }
 }
 
 // GET /api/youtube/long-video/:id

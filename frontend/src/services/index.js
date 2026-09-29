@@ -354,6 +354,7 @@ export const youtubeService = {
   longVideos: () => api.get("/youtube/long-video"), // → { jobs, maxQuestions, youtubeReady, facebookReady }
   longVideoCount: (data) => api.post("/youtube/long-video/count", data), // { source } → { total, max }
   saveLongVideoDefaults: (data) => api.put("/youtube/long-video/defaults", data), // { options } → status
+  retryLongVideo: (id) => api.post(`/youtube/long-video/${id}/retry`, {}), // → { job } — same settings again
   longVideoStatus: (id) => api.get(`/youtube/long-video/${id}`), // → { job }
   // Preview: full video + Short + thumbnail, nothing posted → { job }; poll the status.
   // Speak an intro / end line (with [pause] marks) → { audio: dataUrl, voice, provider, note }

@@ -257,6 +257,13 @@ async function start() {
   // pings could then trigger posts). Starting it here guarantees it always runs.
   setInterval(() => { runDueFbSchedules().catch(() => {}); }, 60 * 1000);
 
+  // Long videos cut off by this restart (e.g. a deploy mid-render): mark them
+  // failed with the reason + Retry, and re-queue a schedule's part — instead of
+  // leaving them "being made" forever / vanishing from Recent long videos.
+  import("./config/longVideo.js")
+    .then((m) => m.recoverInterruptedLongVideoJobs())
+    .catch((e) => console.error("Long-video recovery skipped:", e?.message || e));
+
   // One-time data import from an existing MongoDB. When RUN_MONGO_MIGRATION is
   // "true" (and MONGO_URI is set), copy everything from the old MongoDB into
   // DynamoDB (replacing sample data) and SKIP the normal bootstrap. Remove the

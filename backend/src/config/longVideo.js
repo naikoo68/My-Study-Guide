@@ -117,10 +117,100 @@ export function getLongVideoJob(id, tenantKey) {
   return j;
 }
 
-export function listLongVideoJobs(tenantKey, limit = 10) {
+// ---- Saved job records (survive a server restart / deploy) ----
+// The live job runs in memory; its record in the database (LongVideoJob) keeps
+// "Recent long videos" filled after a restart, and a job cut off by a restart
+// is marked failed with the reason and a Retry. Best-effort: a database error
+// never stops a video. Skipped in unit tests.
+const PERSIST = !process.env.VITEST;
+const Rec = () => import("../models/LongVideoJob.js").then((m) => m.default);
+async function saveRecord(job, { create = false } = {}) {
+  if (!PERSIST || job.preview) return;
+  if (!create && job._recReady) await job._recReady; // never update before it exists
+  try {
+    const M = await Rec();
+    const set = { status: job.status, view: publicJob(job), tenantKey: job.tenantKey };
+    if (create) await M.create({ jobId: job.id, ...set, request: job.request || null });
+    else await M.updateOne({ jobId: job.id }, { $set: set });
+  } catch (e) {
+    console.warn(`[longVideo] could not save job ${job.id}: ${e?.message || e}`);
+  }
+}
+// Run `fn` (the job) while saving its progress every few seconds + at the end.
+async function withRecord(job, fn) {
+  const t = PERSIST ? setInterval(() => { saveRecord(job); }, 8000) : null;
+  try { await fn(); } finally { if (t) clearInterval(t); await saveRecord(job); }
+}
+
+export async function listLongVideoJobs(tenantKey, limit = 10) {
   cleanup();
-  return [...jobs.values()].filter((j) => j.tenantKey === tenantKey && !j.preview)
-    .sort((a, b) => b.createdAt - a.createdAt).slice(0, limit).map(publicJob);
+  const live = [...jobs.values()].filter((j) => j.tenantKey === tenantKey && !j.preview);
+  const byId = new Map(live.map((j) => [j.id, { ...publicJob(j), canRetry: canRetryLive(j) }]));
+  if (PERSIST) {
+    try {
+      const M = await Rec();
+      const recs = await M.find({ tenantKey }).sort({ createdAt: -1 }).limit(limit).lean();
+      for (const r of recs || []) {
+        if (!r?.view || byId.has(r.jobId)) continue;
+        byId.set(r.jobId, { ...r.view, status: r.status, canRetry: r.status === "failed" && !!r.request && !r.retriedAs });
+      }
+    } catch { /* memory only */ }
+  }
+  return [...byId.values()].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, limit);
+}
+const canRetryLive = (j) => j.status === "failed" && !!j.request && !j.retriedAs;
+
+// On boot: any job still "queued" / "running" in the database was cut off by
+// the restart — nothing more will happen to it. Mark it failed with the reason
+// (so it doesn't look stuck) and roll a schedule's part back so it's re-made.
+export async function recoverInterruptedLongVideoJobs() {
+  if (!PERSIST) return 0;
+  const M = await Rec();
+  const stuck = await M.find({ status: { $in: ["queued", "running"] } }).lean();
+  const msg = "The server restarted (e.g. an update was deployed) while this video was being made, so it was stopped. Tap Retry to make it again.";
+  for (const r of stuck || []) {
+    const partlyPosted = !!(r.view?.url || r.view?.fbUrl);
+    const view = { ...(r.view || {}), status: "failed", stage: "failed", stageLabel: STAGE_LABEL.failed, error: partlyPosted ? `${msg} (It was already uploaded — check the links first.)` : msg, finishedAt: Date.now() };
+    await M.updateOne({ jobId: r.jobId }, { $set: { status: "failed", view } }).catch(() => {});
+    const req = r.request || {};
+    if (req.scheduleId && !partlyPosted) {
+      await reportToSchedule({ scheduleId: req.scheduleId, part: req.part || 0, startUsed: req.startUsed, error: "server restarted — this part will be made again", notes: [] }, false).catch(() => {});
+    }
+  }
+  if (stuck?.length) console.log(`[longVideo] marked ${stuck.length} interrupted long-video job(s) as failed (server restart).`);
+  return stuck?.length || 0;
+}
+
+// Retry a failed job (live or saved) with the same settings → the new job.
+export async function retryLongVideoJob(id, tenantKey, { cfg, site }) {
+  let req = null;
+  let rec = null;
+  const live = jobs.get(String(id));
+  if (live && live.tenantKey === tenantKey && !live.preview) {
+    if (live.status !== "failed") throw new Error("Only a failed video can be retried.");
+    if (live.retriedAs) throw new Error("This video was already retried.");
+    req = live.request;
+  }
+  if (!req && PERSIST) {
+    const M = await Rec();
+    rec = await M.findOne({ jobId: String(id), tenantKey }).lean();
+    if (!rec) throw new Error("Video not found.");
+    if (rec.status !== "failed") throw new Error("Only a failed video can be retried.");
+    if (rec.retriedAs) throw new Error("This video was already retried.");
+    req = rec.request;
+  }
+  if (!req) throw new Error("This video can't be retried — start it again from the form.");
+  const publishAt = req.publishAt && new Date(req.publishAt).getTime() > Date.now() + 5 * 60 * 1000 ? req.publishAt : null;
+  const job = queueFullQuizVideo({
+    source: req.source, cfg, site,
+    titleTemplate: req.titleTemplate || "", privacy: req.privacy, publishAt, hashtags: req.hashtags || "",
+    auto: !!req.auto, scheduleTitle: req.scheduleTitle || "",
+    ...(req.playlist === "__default__" ? {} : { playlist: req.playlist || null }),
+    useThumbnail: req.useThumbnail !== false, options: req.options || {}, scheduleId: req.scheduleId || "",
+  });
+  if (live) live.retriedAs = job.id;
+  if (PERSIST) (await Rec()).updateOne({ jobId: String(id) }, { $set: { retriedAs: job.id } }).catch(() => {});
+  return job;
 }
 
 export const tenantKeyNow = () => String(getCurrentTenantId() || "");
@@ -234,11 +324,18 @@ export function queueFullQuizVideo({ source, cfg, site, titleTemplate = "", priv
     createdAt: Date.now(),
     finishedAt: null,
   };
+  // Everything needed to make it again (Retry after a failure / restart).
+  job.request = {
+    source, titleTemplate, privacy: job.privacy, publishAt: job.publishAt, hashtags, auto, scheduleTitle,
+    playlist: playlist === undefined ? "__default__" : (playlist?.id ? playlist : null),
+    useThumbnail: useThumbnail !== false, options, scheduleId: job.scheduleId, part: job.part, startUsed: job.startUsed,
+  };
   jobs.set(job.id, job);
+  job._recReady = saveRecord(job, { create: true });
   // Keep the caller's tenant context for the background run.
   const store = tenantStore.getStore();
   const args = { source, cfg, site, titleTemplate, hashtags, opts };
-  const run = () => (store ? tenantStore.run(store, () => runJob(job, args)) : runJob(job, args));
+  const run = () => withRecord(job, () => (store ? tenantStore.run(store, () => runJob(job, args)) : runJob(job, args)));
   chain = chain.then(run, run).catch(() => {});
   return publicJob(job);
 }
@@ -804,9 +901,10 @@ export function queuePublishPreview({ preview, cfg, site, privacy, publishAt = n
   };
   jobs.set(job.id, job);
   preview.publishedJobId = job.id;
+  job._recReady = saveRecord(job, { create: true });
   const store = tenantStore.getStore();
   const args = { preview, cfg, site, hashtags, opts };
-  const run = () => (store ? tenantStore.run(store, () => runPublish(job, args)) : runPublish(job, args));
+  const run = () => withRecord(job, () => (store ? tenantStore.run(store, () => runPublish(job, args)) : runPublish(job, args)));
   chain = chain.then(run, run).catch(() => {});
   return publicJob(job);
 }

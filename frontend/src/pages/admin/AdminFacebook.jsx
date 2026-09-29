@@ -3127,7 +3127,7 @@ function FullQuizVideoForm({ st, onStatus }) {
         ...(pl ? { playlist: pl } : {}), useThumbnail: useThumb,
         options: buildOptions(),
       });
-      setMsg({ ok: true, text: `Started — the video is being made below. It can take 5–20 minutes; you can leave this page (you'll get an email).${publishAt ? ` It goes live on ${new Date(publishAt).toLocaleString()}.` : ""}` });
+      setMsg({ ok: true, text: `Started — the video is being made in “Recent long videos” below. It can take 5–20 minutes; you can leave this page (you'll get an email).${publishAt ? ` It goes live on ${new Date(publishAt).toLocaleString()}.` : ""} Tip: don't deploy a backend update while it's being made — that stops it (you can Retry).` });
       setPublishAt("");
       // Next part: continue from where this video ends.
       if (qMode === "custom" && order === "sequential" && planned?.to) setStartAt(planned.to + 1);
@@ -3184,6 +3184,13 @@ function FullQuizVideoForm({ st, onStatus }) {
       setPubMsg({ ok: true, text: `Publishing — the previewed video${toYoutube && asShort ? " and Short are" : " is"} being uploaded (not re-made). Follow it in “Recent long videos” below.${publishAt ? ` It goes live on ${new Date(publishAt).toLocaleString()}.` : ""}` });
       load();
     } catch (e) { setPubMsg({ ok: false, text: e?.message || "Could not publish." }); } finally { setPubBusy(false); }
+  };
+  // Retry a failed video (e.g. one stopped by a server restart / deploy).
+  const [retrying, setRetrying] = useState("");
+  const retryJob = async (id) => {
+    setRetrying(id); setMsg(null);
+    try { await youtubeService.retryLongVideo(id); setMsg({ ok: true, text: "Started again with the same settings — follow it below." }); load(); }
+    catch (e) { setMsg({ ok: false, text: e?.message || "Could not retry." }); } finally { setRetrying(""); }
   };
   const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.max(0, s) % 60).padStart(2, "0")}`;
   const PV_PHASE = { picking: "Loading questions", full: "Full video", short: "Short", vertical: "Short", upload: "Saving", thumb: "Thumbnail" };
@@ -3647,6 +3654,11 @@ function FullQuizVideoForm({ st, onStatus }) {
               </div>
               {j.notes?.length > 0 && <p className="mt-1 text-xs text-slate-500">{j.notes.join(" · ")}</p>}
               {j.error && <p className="mt-1 text-xs text-rose-600">{j.error}</p>}
+              {j.status === "failed" && j.canRetry && (
+                <button type="button" onClick={() => retryJob(j.id)} disabled={retrying === j.id} className="btn-outline mt-2 !px-2.5 !py-1 text-xs">
+                  {retrying === j.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />} Retry — make it again with the same settings
+                </button>
+              )}
             </div>
           ))}
         </div>
