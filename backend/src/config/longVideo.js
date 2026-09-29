@@ -243,14 +243,24 @@ async function reportToSchedule(job, ok) {
   if (!sch) return;
   const label = job.part ? `Part ${job.part}` : "Video";
   const lv = sch.longVideo || {};
-  if (ok) {
+  // The video is LIVE if ANY destination upload succeeded — even when the job
+  // was later marked "failed" because a follow-up step (thumbnail, playlist,
+  // Facebook cross-post, notification …) threw. In that case the part is
+  // already spent: rolling the position back would re-render and re-upload the
+  // SAME video next run, creating a DUPLICATE (YouTube uploads aren't
+  // idempotent). So once anything is uploaded we NEVER roll back.
+  const uploaded = !!(job.url || job.fbUrl || job.videoId || job.shortUrl);
+  if (ok || uploaded) {
     const links = [job.url, job.shortUrl, job.fbUrl].filter(Boolean).join(" · ");
     const extra = (job.notes || []).filter((n) => !/^(YouTube|Facebook) ✓/.test(n));
-    sch.lastResult = `${label} posted ✓${links ? ` — ${links}` : ""}${extra.length ? ` · ${extra.join(" · ")}` : ""}`;
+    // A partial failure after a successful upload is surfaced, but the video
+    // still counts as posted and the position stays advanced.
+    const partial = !ok && job.error ? ` — note: ${job.error}` : "";
+    sch.lastResult = `${label} posted ✓${links ? ` — ${links}` : ""}${extra.length ? ` · ${extra.join(" · ")}` : ""}${partial}`;
     sch.longVideo = { ...lv, postedCount: (Number(lv.postedCount) || 0) + 1 };
   } else {
     sch.lastResult = `${label} failed: ${job.error}`;
-    // Retry this part next run (only for in-order schedules).
+    // Nothing was uploaded — retry this part next run (only for in-order schedules).
     if (Number.isInteger(job.startUsed) && job.startUsed > 0) {
       sch.longVideo = { ...lv, nextStart: job.startUsed, part: Math.max(0, (job.part || 1) - 1) };
     }
@@ -403,11 +413,18 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
         job.videoId = up.id;
         job.privacy = up.privacy || job.privacy;
         const yt = [];
-        if (thumbnail) {
-          const t = await setYtThumbnail({ videoId: up.id, image: thumbnail.image, mime: thumbnail.mime }, cfg);
-          yt.push(t.ok ? "Thumbnail ✓" : `Thumbnail ✗ (${t.error})`);
+        // The video is already live — the thumbnail and playlist are best-effort
+        // extras. A failure (or a thrown network error) here must NOT fail the
+        // job, or the schedule would re-upload a DUPLICATE on the next run.
+        try {
+          if (thumbnail) {
+            const t = await setYtThumbnail({ videoId: up.id, image: thumbnail.image, mime: thumbnail.mime }, cfg);
+            yt.push(t.ok ? "Thumbnail ✓" : `Thumbnail ✗ (${t.error})`);
+          }
+          if (job.playlist) yt.push(...(await applyYtExtras({ videoId: up.id, playlist: job.playlist }, cfg)));
+        } catch (e) {
+          yt.push(`extras ✗ (${e?.message || e})`);
         }
-        if (job.playlist) yt.push(...(await applyYtExtras({ videoId: up.id, playlist: job.playlist }, cfg)));
         if (job.publishAt && !up.publishAt) yt.unshift("scheduled time had already passed — published right away");
         job.notes.push(`YouTube ✓${yt.length ? ` (${yt.join(" · ")})` : ""}`);
       } else {
@@ -461,14 +478,23 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
     if (opts.toFacebook) {
       job.stage = "uploading_facebook";
       job.progress = null;
-      const fb = await postLongVideoToFacebookPage({ filePath, title: job.title, description, publishAt: job.publishAt, thumbnail }, cfg);
-      if (fb.ok) {
-        anyOk = true;
-        job.fbUrl = fb.url;
-        job.notes.push(`Facebook ✓${fb.scheduled ? " (scheduled)" : ""}${fb.late ? " (scheduled time was too close — published right away)" : ""}`);
-      } else {
-        errors.push(`Facebook: ${fb.error}`);
-        job.notes.push(`Facebook ✗ (${fb.error})`);
+      // Guard the whole call: if YouTube already uploaded, a thrown Facebook
+      // error must not fail the job (that would re-upload a duplicate). If
+      // Facebook is the only target and it throws, anyOk stays false below and
+      // the job fails cleanly so the SAME part is retried (no duplicate).
+      try {
+        const fb = await postLongVideoToFacebookPage({ filePath, title: job.title, description, publishAt: job.publishAt, thumbnail }, cfg);
+        if (fb.ok) {
+          anyOk = true;
+          job.fbUrl = fb.url;
+          job.notes.push(`Facebook ✓${fb.scheduled ? " (scheduled)" : ""}${fb.late ? " (scheduled time was too close — published right away)" : ""}`);
+        } else {
+          errors.push(`Facebook: ${fb.error}`);
+          job.notes.push(`Facebook ✗ (${fb.error})`);
+        }
+      } catch (e) {
+        errors.push(`Facebook: ${e?.message || e}`);
+        job.notes.push(`Facebook ✗ (${e?.message || e})`);
       }
     }
     if (!anyOk) throw new Error(errors.join(" · ") || "Nothing was uploaded.");
