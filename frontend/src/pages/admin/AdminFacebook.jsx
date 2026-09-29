@@ -1,6 +1,8 @@
 // Admin → Facebook auto-post page — connect a page/account and configure automatic
 // social posts for new content.
 
+import LiveTextBox from "../../components/admin/LiveTextBox.jsx";
+import useElementWidth from "../../components/admin/useElementWidth.js";
 import { useEffect, useState, useRef } from "react";
 import {
   Send, Loader2, CheckCircle2, AlertTriangle, KeyRound, Plus, Trash2, Pencil, X,
@@ -2413,14 +2415,18 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
     try { const r = await youtubeService.slideTextPreview({ role, config: draft, templateUrl }); if (id === previewReq.current) setPreview(r?.image || ""); }
     catch { /* keep editing view */ } finally { if (id === previewReq.current) setAutoBusy(false); }
   };
-  useEffect(() => {
-    if (!templateUrl || !draft.showText || !draft.useBox) return undefined;
-    clearTimeout(autoTimer.current);
-    autoTimer.current = setTimeout(refreshPreview, 800);
-    return () => clearTimeout(autoTimer.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(draft), templateUrl]);
+  // The text is drawn INSTANTLY in the browser (LiveTextBox) on every change —
+  // size, colour, font, outline, shade, alignment, spacing, rotation. "Check
+  // final render" asks the server for the exact image (shown until the next change).
   const showExact = !!preview && draft.showText && draft.useBox && !!templateUrl;
+  const SLIDE_W = vertical ? 1080 : 1920, SLIDE_H = vertical ? 1920 : 1080;
+  const frameW = useElementWidth(frameRef);
+  const sampleLines = {
+    intro: { headline: "Subject — Topic", badge: "Let's begin!" },
+    shortintro: { headline: "Subject — Topic", badge: "Let's begin!" },
+    outro: { headline: "Thanks for watching!", badge: "Subscribe · Like · Share for more" },
+    shortoutro: { headline: "Thanks for watching!", badge: "Watch the full quiz — visit the channel" },
+  }[role];
 
   const upload = async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
@@ -2482,8 +2488,6 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
     dragRef.current = null;
     clearTimeout(timer.current);
     timer.current = setTimeout(() => persist(d.mode === "rotate" ? { rotate: draft.rotate } : { box: draft.box }), 200);
-    clearTimeout(autoTimer.current);
-    autoTimer.current = setTimeout(refreshPreview, 300);
   };
 
   const stepRow = (label, key, lo, hi, step = 1, { fmt, round = 0, icon = null } = {}) => {
@@ -2521,23 +2525,21 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
             <div ref={frameRef} className={`relative ${vertical ? "aspect-[9/16] w-44 sm:w-48" : "aspect-video w-full max-w-[20rem]"} select-none overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700`}
               onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerLeave={onPointerUp}>
               <img src={showExact ? preview : templateUrl} alt="" className="pointer-events-none absolute inset-0 h-full w-full object-cover" draggable={false} />
+              {draft.showText && draft.useBox && !showExact && (
+                <LiveTextBox cfg={draft} lines={sampleLines} W={SLIDE_W} H={SLIDE_H} frameW={frameW}
+                  defaults={{ textColor: "#0f172a", accentColor: "#2563eb", badgeTextColor: "#ffffff", strokeWidth: 0, headlineSize: 84, lineHeight: 1.1 }} />
+              )}
               {draft.showText && draft.useBox && (
                 <div className="absolute rounded border-2 border-dashed border-white/90 shadow-[0_0_0_1px_rgba(0,0,0,.4)]"
                   style={{ left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.w * 100}%`, height: `${box.h * 100}%`, transform: `rotate(${rot}deg)`, transformOrigin: "center center" }}>
                   <div onPointerDown={onPointerDown("move")} className="absolute inset-0 touch-none cursor-move" />
-                  {!showExact && (
-                    <div className="pointer-events-none flex h-full w-full flex-col items-center justify-center gap-0.5 overflow-hidden p-1 text-center text-[9px] font-black" style={{ color: draft.textColor }}>
-                      <div style={{ fontSize: 12 }}>{isIntroRole ? "Topic" : "Thanks for watching!"}</div>
-                      <div style={{ display: "inline-block", background: draft.accentColor, color: draft.badgeTextColor, borderRadius: 3, padding: "0 4px" }}>{isIntroRole ? "Let's begin!" : role === "outro" ? "Subscribe · Like · Share" : "Watch the full quiz"}</div>
-                    </div>
-                  )}
                   <span onPointerDown={onPointerDown("move")} title="Move" className="absolute left-1/2 top-1/2 flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 touch-none cursor-move items-center justify-center rounded-full border-2 border-white bg-black/45 text-white"><Move className="h-3.5 w-3.5" /></span>
                   <span onPointerDown={onPointerDown("resize")} title="Resize" className="absolute -bottom-1.5 -right-1.5 h-4 w-4 touch-none cursor-se-resize rounded-full border-2 border-white bg-[#FF0000]" />
                   <span onPointerDown={onPointerDown("rotate")} title="Rotate" className="absolute -top-6 left-1/2 flex h-5 w-5 -translate-x-1/2 touch-none cursor-grab items-center justify-center rounded-full border-2 border-white bg-brand-600 text-white"><RotateCw className="h-3 w-3" /></span>
                   <span className="absolute -top-1.5 left-1/2 h-4 w-0.5 -translate-x-1/2 bg-white/80" />
                 </div>
               )}
-              {autoBusy && <span className="absolute right-1 top-1 z-10 rounded bg-black/55 px-1.5 py-0.5 text-[10px] text-white">updating…</span>}
+              {showExact && <span className="absolute left-1 top-1 z-10 rounded bg-emerald-600/90 px-1.5 py-0.5 text-[10px] font-semibold text-white">final render</span>}
               <button type="button" onClick={removeTpl} title="Remove" className="absolute -right-2 -top-2 z-10 rounded-full bg-rose-100 p-1.5 text-rose-600 shadow hover:bg-rose-200 dark:bg-rose-900/40"><Trash2 className="h-4 w-4" /></button>
             </div>
           ) : (
@@ -2547,7 +2549,12 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
             {uploading ? <><Loader2 className="h-4 w-4 animate-spin" /> Uploading…</> : <><Upload className="h-4 w-4" /> {templateUrl ? "Replace" : "Upload template"}</>}
             <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={upload} disabled={uploading} />
           </label>
-          {templateUrl && <p className="text-[11px] text-slate-400">Live preview with sample text · drag the box, red corner resizes, blue knob rotates.</p>}
+          {templateUrl && draft.showText && draft.useBox && (
+            <button type="button" onClick={refreshPreview} disabled={autoBusy} className="btn-outline !px-2.5 !py-1 text-xs">
+              {autoBusy ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Rendering…</> : "Check final render"}
+            </button>
+          )}
+          {templateUrl && <p className="max-w-[20rem] text-center text-[11px] text-slate-400">Live preview with sample text — updates instantly as you change size, colour, font… · drag the box, red corner resizes, blue knob rotates.</p>}
         </div>
         {templateUrl && (
           <div className="w-full min-w-0 space-y-3 sm:flex-1">
