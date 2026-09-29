@@ -208,7 +208,7 @@ export default function SlideCardImage() {
   const [sp] = useSearchParams();
   const roleParam = sp.get("role");
   const role = roleParam === "answer" ? "answer" : roleParam === "reveal" ? "reveal"
-    : roleParam === "intro" ? "intro" : (roleParam === "outro" || roleParam === "shortoutro") ? "outro" : "question";
+    : (roleParam === "intro" || roleParam === "shortintro") ? "intro" : (roleParam === "outro" || roleParam === "shortoutro") ? "outro" : "question";
   const tag = (sp.get("tag") || "").trim();
   const caption = (sp.get("cap") || "").trim();
   const templateMode = sp.get("tpl") === "1";

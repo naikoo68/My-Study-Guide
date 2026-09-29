@@ -320,12 +320,14 @@ const settingsSchema = new mongoose.Schema(
     // Intro (opening title) and outro (closing) slide backgrounds, 16:9.
     longVideoIntroTemplateUrl: { type: String, default: "" },
     longVideoOutroTemplateUrl: { type: String, default: "" }, // full video's "thanks for watching" slide
-    longVideoShortOutroTemplateUrl: { type: String, default: "" }, // Short's "watch the full quiz" slide
+    longVideoShortOutroTemplateUrl: { type: String, default: "" }, // Short's "watch the full quiz" slide (9:16)
+    longVideoShortIntroTemplateUrl: { type: String, default: "" }, // Short's opening title slide (9:16)
     // Text box + styling for the intro / end / Short-end slides (same shape as
     // the thumbnail's) — position, colours, sizes, font, outline, shade, rotate.
     longVideoIntroText: { type: mongoose.Schema.Types.Mixed, default: null },
     longVideoOutroText: { type: mongoose.Schema.Types.Mixed, default: null },
     longVideoShortOutroText: { type: mongoose.Schema.Types.Mixed, default: null },
+    longVideoShortIntroText: { type: mongoose.Schema.Types.Mixed, default: null },
     // The long-video form's saved settings ("Save settings only"): questions,
     // engine, voice, slides, times, read-aloud, captions, destinations. Cleaned
     // by normalizeLongVideoOptions (config/longVideo.js).
