@@ -16,7 +16,7 @@ import { isSafePublicUrl } from "../utils/urlGuard.js";
 import { getFacebookConfig, getFacebookSiteForConfig, completeQuestionsForSource, isFacebookConfigured } from "../config/facebook.js";
 import {
   queueFullQuizVideo, normalizeLongVideoOptions, listLongVideoJobs, getLongVideoJob, publicJob, tenantKeyNow, MAX_LONG_VIDEO_QUESTIONS,
-  queueLongVideoPreview, getLongVideoPreview, publicPreviewJob,
+  queueLongVideoPreview, getLongVideoPreview, publicPreviewJob, queuePublishPreview,
 } from "../config/longVideo.js";
 
 function statusOf(site, req) {
@@ -295,6 +295,33 @@ export function longVideoPreviewStatus(req, res) {
   if (!j) return res.status(404).json({ message: "Preview not found (it may have expired or the server restarted) — try again." });
   res.set("Cache-Control", "no-store");
   res.json({ job: publicPreviewJob(j) });
+}
+
+// POST /api/youtube/long-video/preview/:id/publish
+// { privacy?, publishAt?, hashtags?, playlist?, options:{ toYoutube, toFacebook, asShort } }
+// → { job } — posts the EXACT previewed files (no re-render). Poll the list.
+export async function publishLongVideoPreview(req, res) {
+  const preview = getLongVideoPreview(req.params.id, tenantKeyNow(), req.user?._id);
+  if (!preview) return res.status(404).json({ message: "Preview not found (it may have expired or the server restarted) — make the preview again." });
+  const b = req.body || {};
+  if (b.publishAt && !cleanPublishAt(b.publishAt)) {
+    return res.status(400).json({ message: "The scheduled time must be a valid date at least 5 minutes from now." });
+  }
+  const cfg = await getFacebookConfig();
+  const site = await getFacebookSiteForConfig(cfg);
+  try {
+    const job = queuePublishPreview({
+      preview, cfg, site,
+      privacy: YT_PRIVACY.includes(b.privacy) ? b.privacy : cfg.ytPrivacy,
+      publishAt: cleanPublishAt(b.publishAt),
+      hashtags: String(b.hashtags || "").trim().slice(0, 1000),
+      ...("playlist" in b ? { playlist: playlistFields(b.playlist).id ? playlistFields(b.playlist) : null } : {}),
+      options: b.options && typeof b.options === "object" ? b.options : {},
+    });
+    res.status(202).json({ job });
+  } catch (e) {
+    res.status(400).json({ message: e.message });
+  }
 }
 
 // POST /api/youtube/long-video/count { source } → { total, max, facebookReady, youtubeReady }
