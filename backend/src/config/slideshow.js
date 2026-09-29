@@ -288,9 +288,38 @@ export async function generateSlideshow(question, opts = {}) {
         fallbackSlides.map((f) => `#${f.slide} ${f.error}`).join(" | "));
     }
 
+    // Intro / end / Short-end slides with their OWN uploaded template + text
+    // box render through the thumbnail engine (draggable box, full styling),
+    // exactly like the thumbnail. Best-effort — falls back to the screenshot.
+    const preRendered = {};
+    if (opts.slideText) {
+      for (let i = 0; i < plan.length; i++) {
+        const s = plan[i];
+        const cfg = ["intro", "outro", "shortoutro"].includes(s.role) ? opts.slideText[s.role] : null;
+        if (!cfg?.templateUrl || cfg.showText === false) continue;
+        try {
+          const { renderYoutubeThumbnail } = await import("./ytThumbnail.js");
+          const r = await renderYoutubeThumbnail({
+            ...cfg,
+            width: landscape ? 1920 : 1080,
+            height: landscape ? 1080 : 1920,
+            lines: { kicker: "", headline: s.heading || "", badge: (s.lines || []).join(" · ") },
+            brandColor: brandOpts.brandColor,
+          });
+          if (r.image) {
+            const fp = path.join(workDir, `slidebox${String(i).padStart(2, "0")}.jpg`);
+            await fs.writeFile(fp, r.image);
+            preRendered[i] = fp;
+          }
+        } catch { /* fall back to the normal slide render */ }
+      }
+    }
+
     const imagePaths = [];
     for (let i = 0; i < plan.length; i++) {
-      if (shots[i]?.ok) {
+      if (preRendered[i]) {
+        imagePaths.push(preRendered[i]);
+      } else if (shots[i]?.ok) {
         imagePaths.push(shotPaths[i]);
       } else {
         // Fallback: the lightweight SVG slide (never blocks the video).

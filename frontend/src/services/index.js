@@ -362,6 +362,8 @@ export const youtubeService = {
   createPlaylist: (data) => api.post("/youtube/playlists", data), // { title, privacy } → { playlist }
   // Long-video thumbnail template: live preview (unsaved fields allowed) → { image: dataUrl }
   thumbnailPreview: (data) => api.post("/youtube/thumbnail-preview", data, { timeout: 60000 }),
+  // Intro / end / Short-end slide text box: live preview → { image: dataUrl }
+  slideTextPreview: (data) => api.post("/youtube/slide-text-preview", data, { timeout: 60000 }),
   // After a browser upload: template thumbnail and/or playlist → { notes }
   finishUpload: (videoId, data) => api.post(`/youtube/videos/${encodeURIComponent(videoId)}/finish`, data, { timeout: 90000 }),
 };

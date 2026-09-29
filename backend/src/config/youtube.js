@@ -114,6 +114,47 @@ export function youtubeConfigFromSite(site) {
 }
 
 // The thumbnail template settings (long videos) as a plain object.
+// Clean a free-form text-box config (stored as one JSON object) — the SAME
+// box + styling the thumbnail uses, for the intro / end / Short-end slides.
+export function normalizeTextBox(o = {}) {
+  const col = (v, d) => (/^#[0-9a-f]{6}$/i.test(String(v || "")) ? v : d);
+  const int = (v, d, lo, hi) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
+  const c = o && typeof o === "object" ? o : {};
+  return {
+    showText: c.showText !== false,
+    box: cleanThumbBox(c.box),
+    align: ["left", "center", "right"].includes(c.align) ? c.align : "center",
+    vAlign: ["top", "center", "bottom"].includes(c.vAlign) ? c.vAlign : "center",
+    font: YT_THUMB_FONTS.includes(c.font) ? c.font : "sans",
+    uppercase: !!c.uppercase,
+    headlineSize: int(c.headlineSize, 84, 24, 200),
+    kickerSize: int(c.kickerSize, 44, 12, 120),
+    badgeSize: int(c.badgeSize, 46, 12, 120),
+    lineHeight: Math.max(0.8, Math.min(2, Number(c.lineHeight) || 1.1)),
+    rotate: int(c.rotate, 0, -180, 180),
+    textColor: col(c.textColor, "#0f172a"),
+    kickerColor: col(c.kickerColor, ""),
+    accentColor: col(c.accentColor, "#2563eb"),
+    badgeTextColor: col(c.badgeTextColor, "#ffffff"),
+    strokeColor: col(c.strokeColor, "#000000"),
+    strokeWidth: int(c.strokeWidth, 0, 0, 16),
+    shadow: c.shadow !== false,
+    panelColor: col(c.panelColor, ""),
+    panelOpacity: int(c.panelOpacity, 0, 0, 100),
+    panelRadius: int(c.panelRadius, 24, 0, 80),
+  };
+}
+// The saved text-box + template for a long-video slide role.
+const SLIDE_ROLE_FIELD = { intro: "Intro", outro: "Outro", shortoutro: "ShortOutro" };
+export function slideTextConfigFromSite(site, role) {
+  const F = SLIDE_ROLE_FIELD[role];
+  if (!F) return null;
+  return {
+    ...normalizeTextBox(site?.[`longVideo${F}Text`] || {}),
+    templateUrl: String(site?.[`longVideo${F}TemplateUrl`] || "").trim(),
+  };
+}
+
 export function thumbConfigFromSite(site) {
   const col = (v, d) => (/^#[0-9a-f]{6}$/i.test(String(v || "")) ? v : d);
   const int = (v, d, lo, hi) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };

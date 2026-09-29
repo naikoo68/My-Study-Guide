@@ -10,7 +10,7 @@ import {
   buildYtAuthUrl, exchangeYtCode, getYtAccessToken, getYtChannel, revokeYtToken,
   encryptYtSecret, YT_PRIVACY, isYoutubeConfigured,
   scopesAllowPlaylists, getYtGrantedScopes, listYtPlaylists, createYtPlaylist, cleanYtPlaylistId,
-  thumbConfigFromSite, thumbnailLines, applyYtExtras, YT_THUMB_POSITIONS, YT_THUMB_FONTS, cleanThumbBox,
+  thumbConfigFromSite, thumbnailLines, applyYtExtras, YT_THUMB_POSITIONS, YT_THUMB_FONTS, cleanThumbBox, slideTextConfigFromSite, normalizeTextBox,
 } from "../config/youtube.js";
 import { isSafePublicUrl } from "../utils/urlGuard.js";
 import { getFacebookConfig, getFacebookSiteForConfig, completeQuestionsForSource, isFacebookConfigured } from "../config/facebook.js";
@@ -38,6 +38,10 @@ function statusOf(site, req) {
     shortsPlaylist: site?.ytShortsPlaylistId ? { id: site.ytShortsPlaylistId, title: site.ytShortsPlaylistTitle || "" } : null,
     longPlaylist: site?.ytLongPlaylistId ? { id: site.ytLongPlaylistId, title: site.ytLongPlaylistTitle || "" } : null,
     thumb: thumbConfigFromSite(site),
+    // Text box + styling for the intro / end / Short-end slides (like the thumbnail).
+    introText: slideTextConfigFromSite(site, "intro"),
+    outroText: slideTextConfigFromSite(site, "outro"),
+    shortOutroText: slideTextConfigFromSite(site, "shortoutro"),
     // Saved long-video form settings (null = never saved → the form uses the AI Slideshow ones).
     longVideoDefaults: site?.longVideoDefaults || null,
   };
@@ -380,6 +384,31 @@ export async function youtubeThumbnailPreview(req, res) {
   if (!r.image) return res.status(400).json({ message: r.error || "Could not draw the thumbnail." });
   res.set("Cache-Control", "no-store");
   res.json({ image: `data:${r.mime};base64,${r.image.toString("base64")}`, bytes: r.image.length });
+}
+
+// POST /api/youtube/slide-text-preview { role, config } → { image } — a preview
+// of an intro / end / Short-end slide with its text box + styling and sample text.
+export async function youtubeSlideTextPreview(req, res) {
+  const site = await getOrCreateOwn();
+  const role = ["intro", "outro", "shortoutro"].includes(req.body?.role) ? req.body.role : "intro";
+  const saved = slideTextConfigFromSite(site, role) || {};
+  const cfg = { ...saved, ...normalizeTextBox({ ...saved, ...(req.body?.config || {}) }) };
+  const templateUrl = String(req.body?.templateUrl || saved.templateUrl || "").trim();
+  if (!templateUrl) return res.status(400).json({ message: "Upload a slide template first." });
+  const SAMPLE = {
+    intro: { headline: "Subject — Topic", badge: "Let's begin!" },
+    outro: { headline: "Thanks for watching!", badge: "Like · Share · Subscribe" },
+    shortoutro: { headline: "Watch the full quiz", badge: "Subscribe for more!" },
+  }[role];
+  const { renderYoutubeThumbnail } = await import("../config/ytThumbnail.js");
+  const r = await renderYoutubeThumbnail({
+    ...cfg, templateUrl, width: 1920, height: 1080,
+    lines: { kicker: "", headline: SAMPLE.headline, badge: SAMPLE.badge },
+    brandColor: site.brandColor || site.primaryColor,
+  });
+  if (!r.image) return res.status(400).json({ message: r.error || "Could not draw the slide." });
+  res.set("Cache-Control", "no-store");
+  res.json({ image: `data:${r.mime};base64,${r.image.toString("base64")}` });
 }
 
 // POST /api/youtube/videos/:videoId/finish { title?, useThumbnail?, playlist?:{id,title} }

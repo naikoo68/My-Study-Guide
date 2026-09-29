@@ -7,6 +7,7 @@ import { uploadToCloudinary } from "../config/cloudinary.js";
 import { toInstagramSafeUrl } from "../utils/instagramImage.js";
 import { publicLogoUrl, apiOriginFromRequest } from "../utils/logoUrl.js";
 import { isSafePublicUrl } from "../utils/urlGuard.js";
+import { normalizeTextBox } from "../config/youtube.js";
 import { TTS_PROVIDERS, DEFAULT_TTS_PROVIDER, TTS_KEY_FIELDS } from "../utils/ttsVoices.js";
 import { isSafeProviderUrl } from "../utils/urlGuard.js";
 
@@ -254,6 +255,7 @@ export async function updateSettings(req, res) {
     "slideshowQuestionTemplateUrl", "slideshowAnswerTemplateUrl",
     "longVideoQuestionTemplateUrl", "longVideoAnswerTemplateUrl",
     "longVideoIntroTemplateUrl", "longVideoOutroTemplateUrl", "longVideoShortOutroTemplateUrl",
+    "longVideoIntroText", "longVideoOutroText", "longVideoShortOutroText",
     "googleClientId",
   ];
   const update = {};
@@ -309,6 +311,9 @@ export async function updateSettings(req, res) {
     if (k in update) update[k] = update[k] !== false;
   }
   // Slide templates: only safe public http(s) image URLs (from the uploader); "" clears.
+  for (const k of ["longVideoIntroText", "longVideoOutroText", "longVideoShortOutroText"]) {
+    if (k in update) update[k] = update[k] && typeof update[k] === "object" ? normalizeTextBox(update[k]) : null;
+  }
   for (const k of ["slideshowQuestionTemplateUrl", "slideshowAnswerTemplateUrl", "longVideoQuestionTemplateUrl", "longVideoAnswerTemplateUrl", "longVideoIntroTemplateUrl", "longVideoOutroTemplateUrl", "longVideoShortOutroTemplateUrl"]) {
     if (k in update) {
       const u = String(update[k] || "").trim();
