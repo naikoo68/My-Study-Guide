@@ -117,6 +117,20 @@ export async function saveYoutubeSettings(req, res) {
   if ("shortsPlaylist" in b) { const p = playlistFields(b.shortsPlaylist); site.ytShortsPlaylistId = p.id; site.ytShortsPlaylistTitle = p.title; }
   if ("longPlaylist" in b) { const p = playlistFields(b.longPlaylist); site.ytLongPlaylistId = p.id; site.ytLongPlaylistTitle = p.title; }
   applyThumbFields(site, b);
+  // Intro / end / Short-end slide text boxes (Mixed) — same shape as the thumbnail.
+  for (const k of ["longVideoIntroText", "longVideoOutroText", "longVideoShortOutroText"]) {
+    if (k in b) {
+      site[k] = b[k] && typeof b[k] === "object" ? normalizeTextBox(b[k]) : null;
+      site.markModified(k);
+    }
+  }
+  // Slide template backgrounds — only safe public http(s) image URLs; "" clears.
+  for (const k of ["longVideoIntroTemplateUrl", "longVideoOutroTemplateUrl", "longVideoShortOutroTemplateUrl", "longVideoQuestionTemplateUrl", "longVideoAnswerTemplateUrl"]) {
+    if (k in b) {
+      const u = String(b[k] || "").trim();
+      site[k] = u && /^https?:\/\//i.test(u) && isSafePublicUrl(u) ? u : "";
+    }
+  }
   await site.save();
   res.json(statusOf(site, req));
 }
