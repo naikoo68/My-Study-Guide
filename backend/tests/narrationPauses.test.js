@@ -29,3 +29,17 @@ describe("narration pause marks", () => {
     expect(stripNarrationPauses("Thanks! [pause 2] Subscribe [p] now")).toBe("Thanks! Subscribe now");
   });
 });
+
+describe("pauseConcatArgs — exact pauses", () => {
+  it("trims the voice engine's own silence from spoken parts only, then inserts the exact pause", async () => {
+    const { pauseConcatArgs } = await import("../src/config/slideshow.js");
+    const args = pauseConcatArgs([{ file: "a.mp3" }, { pause: 1.5 }, { file: "b.mp3" }], "out.m4a");
+    const filter = args[args.indexOf("-filter_complex") + 1];
+    const [a0, a1, a2] = filter.split(";");
+    expect(a0).toMatch(/^\[0:a\].*silenceremove.*areverse.*silenceremove.*areverse\[a0\]$/);
+    expect(a1).not.toMatch(/silenceremove/); // the pause itself is never trimmed
+    expect(a2).toMatch(/silenceremove/);
+    expect(args.join(" ")).toContain("-t 1.5 -i anullsrc");
+    expect(filter).toContain("[a0][a1][a2]concat=n=3:v=0:a=1[out]");
+  });
+});

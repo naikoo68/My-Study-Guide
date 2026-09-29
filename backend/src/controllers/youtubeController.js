@@ -467,6 +467,35 @@ export async function youtubeSlideTextPreview(req, res) {
   res.json({ image: `data:${r.mime};base64,${r.image.toString("base64")}` });
 }
 
+// POST /api/youtube/narration-preview { role, text?, engine?, voice? }
+// → { audio: "data:audio/…;base64,…", voice, provider, note } — "Preview voice"
+// in the intro / end slide editors: speaks the line (with its [pause] marks)
+// exactly as the video will, with the long-video form's engine + voice. Empty
+// text = the slide's default line. Admin only; nothing is saved.
+export async function youtubeNarrationPreview(req, res) {
+  const b = req.body || {};
+  const role = ["intro", "outro", "shortintro", "shortoutro"].includes(b.role) ? b.role : "outro";
+  const { DEFAULT_OUTRO_NARRATION } = await import("../config/slidePlan.js");
+  const fallback = role === "outro" ? DEFAULT_OUTRO_NARRATION.full
+    : role === "shortoutro" ? DEFAULT_OUTRO_NARRATION.short
+    : "Subject — Topic. Let's begin the quiz.";
+  const text = String(b.text || "").replace(/\s+/g, " ").trim().slice(0, 400) || fallback;
+  const cfg = await getFacebookConfig();
+  const saved = await getFacebookSiteForConfig(cfg);
+  const base = saved ? { ...(saved.toObject ? saved.toObject() : saved) } : {};
+  const { TTS_PROVIDERS } = await import("../utils/ttsVoices.js");
+  const engine = String(b.engine || "").trim().toLowerCase();
+  if (TTS_PROVIDERS.includes(engine)) base.ttsProvider = engine;
+  try {
+    const { previewNarration } = await import("../config/slideshow.js");
+    const r = await previewNarration({ text, voice: String(b.voice || base.slideshowVoice || "").slice(0, 120), site: base });
+    res.set("Cache-Control", "no-store");
+    res.json({ audio: `data:${r.mime};base64,${r.buffer.toString("base64")}`, voice: r.voice, provider: r.provider, note: r.note || "" });
+  } catch (e) {
+    res.status(400).json({ message: e?.message || "Could not make the voice preview." });
+  }
+}
+
 // POST /api/youtube/videos/:videoId/finish { title?, useThumbnail?, playlist?:{id,title} }
 // After a browser upload (your own video): set the template thumbnail and/or
 // add it to a playlist. → { notes:[…] }
