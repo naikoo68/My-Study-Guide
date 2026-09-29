@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { X, RefreshCw, Loader2, CheckCircle2, AlertTriangle, Server, KeyRound } from "lucide-react";
 import { aiService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
+import { waitFromStatus, useSecondsLeft, bulkWaitText } from "./bulkWait";
 
 // Which question types the bulk action can be limited to. "all" = every type.
 const Q_TYPE_OPTIONS = [
@@ -51,6 +52,8 @@ export default function RegenerateAllModal({ open, target, title, onClose, onDon
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(null); // { done, total }
   const [msg, setMsg] = useState("");
+  const [live, setLive] = useState(null); // running: { done, total, wait } → a status line ticking every second
+  const secondsLeft = useSecondsLeft(live?.wait?.until || 0);
   const [keyStats, setKeyStats] = useState(null); // live per-key activity this run
   const jobRef = useRef(null);      // current background job id (for Cancel)
   const cancelRef = useRef(false);  // set true when the user cancels → stops polling
@@ -111,6 +114,7 @@ export default function RegenerateAllModal({ open, target, title, onClose, onDon
       for (let i = 0; i < 400 && !done; i++) {
         await sleep(2000);
         if (cancelRef.current) {
+          setLive(null);
           setMsg(`✓ Cancelled — kept the ${lastCount} question(s) already regenerated.`);
           onDone?.();
           break;
@@ -120,6 +124,7 @@ export default function RegenerateAllModal({ open, target, title, onClose, onDon
         if (s.keyStats && Object.keys(s.keyStats).length) setKeyStats(s.keyStats);
         const total = s.requested || requested;
         lastCount = s.count ?? lastCount;
+        if (s.status !== "pending") setLive(null);
         if (s.status === "done") {
           const doneCount = s.updatedCount ?? s.count ?? total;
           setProgress({ done: doneCount, total });
@@ -136,14 +141,13 @@ export default function RegenerateAllModal({ open, target, title, onClose, onDon
           done = true;
         } else {
           setProgress({ done: s.count || 0, total });
-          const waitLeft = s.waitUntil ? Math.ceil((s.waitUntil - Date.now()) / 1000) : 0;
-          setMsg(waitLeft > 0
-            ? `⏳ AI rate limit reached at ${s.count || 0} of ${total} — auto-continuing in ${waitLeft}s…`
-            : `Regenerating… ${s.count || 0} of ${total}`);
+          setMsg("");
+          setLive({ verb: "Regenerating", done: s.count || 0, total, wait: waitFromStatus(s) });
         }
       }
-      if (!done) setMsg("Still working — this is taking longer than expected. It keeps running in the background; reopen later.");
+      if (!done) { setLive(null); setMsg("Still working — this is taking longer than expected. It keeps running in the background; reopen later."); }
     } catch (e) {
+      setLive(null);
       setMsg(e.message || "Failed.");
     } finally {
       jobRef.current = null;
@@ -276,6 +280,9 @@ export default function RegenerateAllModal({ open, target, title, onClose, onDon
           </>
         )}
 
+        {live && busy && !msg && (
+          <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">{bulkWaitText({ ...live, secondsLeft })}</p>
+        )}
         {msg && (
           <p className="mt-3 inline-flex items-center gap-1 text-sm font-medium">
             {msg.startsWith("✓") && <CheckCircle2 className="h-4 w-4 text-emerald-600" />} {msg}

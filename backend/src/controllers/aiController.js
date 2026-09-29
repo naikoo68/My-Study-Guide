@@ -11,6 +11,7 @@ import { softDeletePatch } from "../utils/softDelete.js";
 import { getClientPlans, findSiteSettings } from "../utils/plans.js";
 import { webResearch } from "../utils/webResearch.js";
 import { glossCleaned, glossReplacements, applyGlossReplacements } from "../utils/glossEdit.js";
+import { runKeyLanes, bulkRetryMs } from "../utils/keyLanes.js";
 import { splitIntoStems, contentOfBlock, questionLocation } from "./contentController.js";
 import Subject from "../models/Subject.js";
 import { uploadImage, isCloudinaryConfigured } from "../config/cloudinary.js";
@@ -2232,8 +2233,12 @@ export function jobStatus(req, res) {
     warning: job.warning || null, // weak-model heads-up (persists across polls)
     cancelled: !!job.cancelled,
     keyStats: job.keyStats || {}, // live per-key activity this run
-    waitUntil: job.waitUntil || null, // epoch ms until the next API-key retry → UI shows one stable countdown
-    waitingKeys: job.waitingKeys || 0,
+    waitUntil: job.waitUntil || null, // epoch ms until the next API-key retry (server clock)
+    // The same, RELATIVE — the UI counts down from this, so a phone whose clock
+    // is a few seconds off still shows the right time.
+    waitMs: job.waitUntil ? Math.max(0, job.waitUntil - Date.now()) : 0,
+    waitingKeys: job.waitingKeys || 0, // keys cooling down from a rate limit
+    workingKeys: job.workingKeys || 0, // keys with a request in flight right now
     questions: job.status === "done" ? job.questions : undefined,
   });
 }
@@ -4431,23 +4436,9 @@ async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = n
   // single path, so bulk output is just as detailed. Multiple API keys still run
   // in parallel, so throughput stays high.
   const CHUNK = 2;
-  // Keep every key's cooldown deadline separately. A later 429 must not replace
-  // the countdown already visible for an earlier retry (the old shared scalar
-  // made a 10-second countdown jump back up unexpectedly).
-  const waitDeadlines = new Map();
-  const syncWaitState = () => {
-    const now = Date.now();
-    const active = [...waitDeadlines.values()].filter((until) => until > now);
-    save({
-      waitUntil: active.length ? Math.min(...active) : null,
-      waitingKeys: active.length,
-    });
-  };
-
   const sysPrompt = String(systemPrompt || "") + BATCH_REWRITE_SUFFIX;
   const queue = [...questions];
   const itemTries = new Map();
-  const reserveChunk = () => (queue.length ? queue.splice(0, CHUNK) : null); // atomic: no await between check & splice
   const requeue = (q) => {
     const k = String(q._id);
     const n = (itemTries.get(k) || 0) + 1;
@@ -4513,7 +4504,7 @@ async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = n
       return {
         outcome: isDailyQuotaLimit(r.detail) ? "exhausted" : "limited",
         filled,
-        retryMs: retryWaitMs(null, r.detail) || 30000,
+        retryMs: bulkRetryMs(r.detail), // the provider's retryDelay (+1 s) — never earlier
       };
     }
     if ([401, 403, 404].includes(r.status)) { ks.error += 1; save({}); return { outcome: "dead", filled }; }
@@ -4521,43 +4512,27 @@ async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = n
     return { outcome: "soft", filled };
   };
 
-  // Several workers run SIMULTANEOUSLY (at least one per API key, and up to
-  // AI_BULK_CONCURRENCY in total — see bulkWorkerLanes), each pulling chunks
-  // from the shared queue. A 429 parks only that worker while the others keep going.
-  const worker = async (ep) => {
-    let quotaWaits = 0;
-    const _kl = ep.label || `••••${String(ep.key).slice(-4)}`;
-    const ks = job.keyStats[_kl] || (job.keyStats[_kl] = { requests: 0, ok: 0, limited: 0, error: 0, questions: 0 });
-    while (Date.now() < deadline && !job.cancelled) {
-      const chunk = reserveChunk();
-      if (!chunk) break;
-      let outcome, filled, retryMs;
-      try { ({ outcome, filled, retryMs } = await runChunkOnKey(chunk, ep, ks)); }
-      catch { outcome = "soft"; filled = new Set(); }
-      if (outcome === "dead" || outcome === "exhausted") { for (const q of chunk) queue.push(q); break; }
-      if (outcome === "limited") {
-        for (const q of chunk) queue.push(q);
-        if (quotaWaits >= MAX_QUOTA_WAITS) break;
-        const waitMs = Math.min(retryMs || 30000, 60000);
-        if (Date.now() + waitMs >= deadline) break;
-        quotaWaits += 1;
-        const waiterId = Symbol(_kl);
-        const waitUntil = Date.now() + waitMs;
-        waitDeadlines.set(waiterId, waitUntil);
-        syncWaitState();
-        await sleep(waitMs);
-        waitDeadlines.delete(waiterId);
-        syncWaitState();
-        continue;
-      }
-      // ok / soft: re-queue every question the reply did NOT fill (skipped item
-      // or truncated tail) so it gets another pass (bounded).
-      for (const q of chunk) if (!filled.has(String(q._id))) requeue(q);
-    }
+  // Lanes (at least one per API key, up to AI_BULK_CONCURRENCY in total — see
+  // bulkWorkerLanes) pull chunks from the shared queue via runKeyLanes: a 429
+  // parks only THAT key (for the provider's retryDelay) and hands its chunk to a
+  // free key; healthy keys stay until the queue is really finished.
+  const laneLabel = (ep) => ep.label || `••••${String(ep.key).slice(-4)}`;
+  const statsFor = (ep) => {
+    const kl = laneLabel(ep);
+    return job.keyStats[kl] || (job.keyStats[kl] = { requests: 0, ok: 0, limited: 0, error: 0, questions: 0 });
   };
+  const runLanes = () => runKeyLanes({
+    lanes: bulkWorkerLanes(endpoints, Math.ceil(total / CHUNK)),
+    laneLabel, queue, chunkSize: CHUNK, itemId: (q) => String(q._id), requeue,
+    runChunk: (chunk, ep) => runChunkOnKey(chunk, ep, statsFor(ep)),
+    isStopped: () => Date.now() >= deadline || !!job.cancelled,
+    timeLeftMs: () => deadline - Date.now(),
+    maxQuotaWaits: MAX_QUOTA_WAITS,
+    onState: (st) => save(st),
+  });
 
   try {
-    await Promise.all(bulkWorkerLanes(endpoints, Math.ceil(total / CHUNK)).map((ep) => worker(ep)));
+    await runLanes();
     if (updated === 0) {
       save({
         status: "error",
@@ -4799,7 +4774,6 @@ async function runFlashcardJob(id, { endpoints, model, questions, owner = null }
   const MAX_QUOTA_WAITS = 6;
   const MAX_ITEM_RETRIES = 4; // per question: soft failures before we give up on that one
   const CHUNK = 4;            // small chunks → the reply always fits the token budget (no truncation)
-  let activeWaits = 0;        // workers sleeping on a 429 — drives the UI countdown (job.waitUntil)
 
   // Shared work queue of INDIVIDUAL questions — the SAME model the question
   // generator / extend job use: every key pulls chunks from one queue, and any
@@ -4808,7 +4782,6 @@ async function runFlashcardJob(id, { endpoints, model, questions, owner = null }
   // That's what stops the run stalling at 0 AND stops questions staying empty.
   const queue = [...questions];
   const itemTries = new Map(); // q._id -> soft-retry count
-  const reserveChunk = () => (queue.length ? queue.splice(0, CHUNK) : null); // atomic: no await between check & splice
   const requeue = (q) => {
     const k = String(q._id);
     const n = (itemTries.get(k) || 0) + 1;
@@ -4856,47 +4829,29 @@ async function runFlashcardJob(id, { endpoints, model, questions, owner = null }
       return { outcome: filled.size ? "ok" : "soft", filled };
     }
     lastError = r;
-    if (r.status === 429) { ks.limited += 1; save({}); return { outcome: "limited", filled }; }
+    if (r.status === 429) { ks.limited += 1; save({}); return { outcome: isDailyQuotaLimit(r.detail) ? "exhausted" : "limited", filled, retryMs: bulkRetryMs(r.detail) }; }
     if ([401, 403, 404].includes(r.status)) { ks.error += 1; save({}); return { outcome: "dead", filled }; }
     ks.error += 1; save({});
     return { outcome: "soft", filled };
   };
 
-  // Several workers run SIMULTANEOUSLY (at least one per API key, up to
-  // AI_BULK_CONCURRENCY in total — see bulkWorkerLanes). A worker rides out its own per-minute limit (429) while
-  // the others keep going; there is no whole-job pause.
-  const worker = async (ep) => {
-    let quotaWaits = 0;
-    const _kl = ep.label || `••••${String(ep.key).slice(-4)}`;
-    const ks = job.keyStats[_kl] || (job.keyStats[_kl] = { requests: 0, ok: 0, limited: 0, error: 0, questions: 0 });
-    while (Date.now() < deadline && !job.cancelled) {
-      const chunk = reserveChunk();
-      if (!chunk) break; // queue drained — this key retires cleanly
-      let outcome, filled;
-      try { ({ outcome, filled } = await runChunkOnKey(chunk, ep, ks)); }
-      catch { outcome = "soft"; filled = new Set(); }
-      if (outcome === "dead") { for (const q of chunk) queue.push(q); break; } // key unauthorized/invalid — hand its work back, retire it
-      if (outcome === "limited") {
-        for (const q of chunk) queue.push(q); // let a free key take these right away
-        if (quotaWaits >= MAX_QUOTA_WAITS) break;
-        const waitMs = Math.min(retryWaitMs(null, lastError?.detail) || 30000, 60000);
-        if (Date.now() + waitMs >= deadline) break;
-        quotaWaits += 1;
-        // Show a live countdown in the UI while we wait out the rate limit.
-        activeWaits += 1;
-        save({ waitUntil: Date.now() + waitMs });
-        await sleep(waitMs);
-        if (--activeWaits === 0) save({ waitUntil: null });
-        continue;
-      }
-      // ok / soft: re-queue every question in this chunk the AI did NOT fill
-      // (skipped item or truncated tail) so it gets another pass (bounded).
-      for (const q of chunk) if (!filled.has(String(q._id))) requeue(q);
-    }
+  // Same scheduler as Extend / Regenerate (see runKeyLanes).
+  const laneLabel = (ep) => ep.label || `••••${String(ep.key).slice(-4)}`;
+  const statsFor = (ep) => {
+    const kl = laneLabel(ep);
+    return job.keyStats[kl] || (job.keyStats[kl] = { requests: 0, ok: 0, limited: 0, error: 0, questions: 0 });
   };
 
   try {
-    await Promise.all(bulkWorkerLanes(endpoints, Math.ceil(questions.length / CHUNK)).map((ep) => worker(ep)));
+    await runKeyLanes({
+      lanes: bulkWorkerLanes(endpoints, Math.ceil(questions.length / CHUNK)),
+      laneLabel, queue, chunkSize: CHUNK, itemId: (q) => String(q._id), requeue,
+      runChunk: (chunk, ep) => runChunkOnKey(chunk, ep, statsFor(ep)),
+      isStopped: () => Date.now() >= deadline || !!job.cancelled,
+      timeLeftMs: () => deadline - Date.now(),
+      maxQuotaWaits: MAX_QUOTA_WAITS,
+      onState: (st) => save(st),
+    });
     if (updated === 0) {
       save({ status: "error", error: lastError
         ? (lastError.status === 429 ? "AI quota/rate limit reached before anything was generated. Wait a minute and try again." : `AI provider error (${lastError.status || 0}).`)
