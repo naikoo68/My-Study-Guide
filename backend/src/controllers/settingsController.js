@@ -253,6 +253,7 @@ export async function updateSettings(req, res) {
     "slideshowReadQuestion", "slideshowReadOptions", "slideshowReadExplanation", "slideshowReadKeyPoints", "slideshowReadQuickRecall",
     "slideshowQuestionTemplateUrl", "slideshowAnswerTemplateUrl",
     "longVideoQuestionTemplateUrl", "longVideoAnswerTemplateUrl",
+    "longVideoIntroTemplateUrl", "longVideoOutroTemplateUrl", "longVideoShortOutroTemplateUrl",
     "googleClientId",
   ];
   const update = {};
@@ -308,7 +309,7 @@ export async function updateSettings(req, res) {
     if (k in update) update[k] = update[k] !== false;
   }
   // Slide templates: only safe public http(s) image URLs (from the uploader); "" clears.
-  for (const k of ["slideshowQuestionTemplateUrl", "slideshowAnswerTemplateUrl", "longVideoQuestionTemplateUrl", "longVideoAnswerTemplateUrl"]) {
+  for (const k of ["slideshowQuestionTemplateUrl", "slideshowAnswerTemplateUrl", "longVideoQuestionTemplateUrl", "longVideoAnswerTemplateUrl", "longVideoIntroTemplateUrl", "longVideoOutroTemplateUrl", "longVideoShortOutroTemplateUrl"]) {
     if (k in update) {
       const u = String(update[k] || "").trim();
       update[k] = u && /^https?:\/\//i.test(u) && isSafePublicUrl(u) ? u : "";

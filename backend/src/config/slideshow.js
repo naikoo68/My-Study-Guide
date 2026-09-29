@@ -88,7 +88,7 @@ export function normalizeSlidesMode(v) {
 }
 
 // The reveal slide IS the question slide (just recoloured) → same template.
-const templateRole = (role) => (role === "reveal" || role === "intro" || role === "outro" ? "question" : role);
+const templateRole = (role) => (role === "reveal" ? "question" : role);
 
 // Question-only mode's answer reveal (all in seconds):
 //   pauseSec — silent thinking time after the question is read (0–15, default 3)
@@ -197,6 +197,9 @@ export async function generateSlideshow(question, opts = {}) {
   const templates = {
     question: String(opts.questionTemplateUrl || "").trim(),
     answer: String(opts.answerTemplateUrl || "").trim(),
+    intro: String(opts.introTemplateUrl || "").trim(),
+    outro: String(opts.outroTemplateUrl || "").trim(),
+    shortoutro: String(opts.shortOutroTemplateUrl || "").trim(),
   };
 
   // 1) Plan two slides per question (question → answer; adapts to the type).
@@ -245,7 +248,7 @@ export async function generateSlideshow(question, opts = {}) {
     // Download each template once (if set). A template that can't be fetched
     // is skipped — that slide type falls back to the built-in design.
     const templatePaths = {};
-    for (const role of ["question", "answer"]) {
+    for (const role of ["question", "answer", "intro", "outro", "shortoutro"]) {
       if (!templates[role]) continue;
       const p = path.join(workDir, `template-${role}`);
       try { await downloadTo(templates[role], p); templatePaths[role] = p; } catch { /* use built-in design */ }

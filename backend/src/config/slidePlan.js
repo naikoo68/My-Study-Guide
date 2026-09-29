@@ -400,7 +400,7 @@ export function outroSlidePlan(kind = "full", { siteName = "" } = {}) {
   if (kind === "short") {
     return {
       id: "outro",
-      role: "outro",
+      role: "shortoutro",
       tag: siteName ? asText(siteName) : "",
       accent: "brand",
       heading: "Watch the full quiz",

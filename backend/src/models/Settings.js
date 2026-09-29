@@ -317,6 +317,10 @@ const settingsSchema = new mongoose.Schema(
     // separate from the 9:16 Reel templates above. Blank = built-in design.
     longVideoQuestionTemplateUrl: { type: String, default: "" },
     longVideoAnswerTemplateUrl: { type: String, default: "" },
+    // Intro (opening title) and outro (closing) slide backgrounds, 16:9.
+    longVideoIntroTemplateUrl: { type: String, default: "" },
+    longVideoOutroTemplateUrl: { type: String, default: "" }, // full video's "thanks for watching" slide
+    longVideoShortOutroTemplateUrl: { type: String, default: "" }, // Short's "watch the full quiz" slide
     // The long-video form's saved settings ("Save settings only"): questions,
     // engine, voice, slides, times, read-aloud, captions, destinations. Cleaned
     // by normalizeLongVideoOptions (config/longVideo.js).
