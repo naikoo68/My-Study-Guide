@@ -12,7 +12,7 @@ import { tenantStore, getCurrentTenantId } from "../utils/tenantContext.js";
 import { generateSlideshow } from "./slideshow.js";
 import {
   uploadVideoFileToYoutube, buildYtTitle, buildYtLongDescription, buildYtTags,
-  isYoutubeConfigured, DEFAULT_YT_LONG_TITLE, applyYtExtras, thumbnailLines, thumbTemplateActive, setYtThumbnail, YT_SHORT_MAX_SEC,
+  isYoutubeConfigured, DEFAULT_YT_LONG_TITLE, applyYtExtras, thumbnailLines, thumbTemplateActive, setYtThumbnail,
 } from "./youtube.js";
 import { postLongVideoToFacebookPage } from "./fbLongVideo.js";
 import { TTS_PROVIDERS } from "../utils/ttsVoices.js";
@@ -119,14 +119,6 @@ export const DEFAULT_YT_PART_TITLE = "{subject} | {topic} | Questions {range}";
 // Default title for each video of a repeating long-video schedule.
 export const DEFAULT_YT_SERIES_TITLE = "{subject} | {topic} | Part {part} (Questions {range})";
 
-// End time (s) of the first N questions of a video, from its chapter marks —
-// used to cut a short teaser. Capped to the YouTube Short limit. Pure.
-function firstQuestionsEndSec(chapters, n, totalDur) {
-  const ch = (Array.isArray(chapters) ? chapters : []).filter((c) => Number.isFinite(Number(c?.startSec)));
-  const next = ch.find((c) => Number(c.question) === n + 1);
-  const end = next ? Number(next.startSec) : (Number(totalDur) || YT_SHORT_MAX_SEC);
-  return Math.max(5, Math.min(YT_SHORT_MAX_SEC, Math.round(end)));
-}
 // A short teaser's title (kept within YouTube's 100 chars).
 function shortTitle(title) {
   const t = String(title || "Quiz").replace(/\s+/g, " ").trim();
@@ -269,6 +261,7 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
   job.stage = "picking";
   let filePath = "";
   let shortPath = ""; // the vertical Short copy (deleted at the end)
+  let shortSourcePath = ""; // the landscape short render before padding
   try {
     const all = await completeQuestionsForSource(source);
     const max = opts.count || MAX_LONG_VIDEO_QUESTIONS;
@@ -303,7 +296,9 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
     }, source?.label || "Full Quiz");
 
     const siteUrl = (cfg.siteUrl || "https://www.mystudyguide.in").replace(/\/+$/, "");
-    const result = await generateSlideshow(questions, {
+    // Shared slideshow options — an opening title slide and a closing
+    // "thanks for watching" slide wrap every long video.
+    const slideBase = {
       orientation: "landscape",
       keepFile: true,
       voice: opts.voice || site?.slideshowVoice,
@@ -313,17 +308,22 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
       slidesMode: opts.slidesMode,
       reveal: opts.reveal,
       read: opts.read,
-      // 16:9 slide backgrounds (Long videos → Slide templates). Blank = built-in.
       questionTemplateUrl: opts.useTemplates ? site?.longVideoQuestionTemplateUrl || "" : "",
       answerTemplateUrl: opts.useTemplates ? site?.longVideoAnswerTemplateUrl || "" : "",
-      // The chosen engine for THIS video (saved keys/models are kept).
       site: opts.engine ? { ...site, ttsProvider: opts.engine } : site,
       brandColor: site?.brandColor || site?.primaryColor || "#2563eb",
       siteName: site?.siteName || "My Study Guide",
       siteUrl: siteUrl.replace(/^https?:\/\//, ""),
       subjectName: breadcrumb || "",
-      onStatus: (st) => { job.stage = String(st || "").toLowerCase(); },
-      onProgress: (stage, done, total) => { job.stage = String(stage || "").toLowerCase(); job.progress = { done, total }; },
+    };
+    const onStatus = (st) => { job.stage = String(st || "").toLowerCase(); };
+    const onProgress = (stage, done, total) => { job.stage = String(stage || "").toLowerCase(); job.progress = { done, total }; };
+    const result = await generateSlideshow(questions, {
+      ...slideBase,
+      intro: { subject: names.subject || names.quiz || source?.label || "", topic: names.topic },
+      outro: "full",
+      onStatus,
+      onProgress,
     });
     filePath = result.filePath;
     job.duration = result.duration;
@@ -400,11 +400,19 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
       if (opts.asShort && up.ok) {
         job.stage = "short";
         try {
-          const cutEnd = firstQuestionsEndSec(result.chapters, 3, job.duration);
+          // Render a SEPARATE short: intro + the first 3 questions + a closing
+          // "watch the full quiz on our channel" slide — then make it vertical.
+          const teaserQs = questions.slice(0, 3);
+          const shortRender = await generateSlideshow(teaserQs, {
+            ...slideBase,
+            intro: { subject: names.subject || names.quiz || source?.label || "", topic: names.topic },
+            outro: "short",
+          });
+          shortSourcePath = shortRender.filePath;
           const { makeVerticalShort } = await import("./verticalShort.js");
-          shortPath = await makeVerticalShort(filePath, { maxSec: cutEnd });
+          shortPath = await makeVerticalShort(shortSourcePath);
           const shortDesc = buildYtLongDescription({
-            intro: `${Math.min(3, questions.length)} sample questions${breadcrumb ? ` — ${breadcrumb}` : ""}. Watch the full quiz here: ${job.url}`,
+            intro: `${teaserQs.length} sample question${teaserQs.length === 1 ? "" : "s"}${breadcrumb ? ` — ${breadcrumb}` : ""}. Watch the full quiz here: ${job.url}`,
             hashtags: tags,
             shorts: true,
           });
@@ -474,6 +482,7 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
   } finally {
     if (filePath) await fs.rm(filePath, { force: true }).catch(() => {});
     if (shortPath) await fs.rm(shortPath, { force: true }).catch(() => {});
+    if (shortSourcePath) await fs.rm(shortSourcePath, { force: true }).catch(() => {});
   }
 }
 

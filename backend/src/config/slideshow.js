@@ -20,7 +20,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { isCloudinaryConfigured, uploadFileToCloudinary } from "./cloudinary.js";
 import { resolveTtsConfig, resolveWorkingTtsConfig, synthesizeSpeech } from "./tts.js";
-import { buildSlidePlan, normalizeReadOptions, readOptionsFromSettings } from "./slidePlan.js";
+import { buildSlidePlan, normalizeReadOptions, readOptionsFromSettings, introSlidePlan, outroSlidePlan } from "./slidePlan.js";
 import { chunkForGoogle } from "./googleTts.js";
 import { renderSlideImage } from "./slideRender.js";
 import { renderSlideCardShots } from "./cardShot.js";
@@ -88,7 +88,7 @@ export function normalizeSlidesMode(v) {
 }
 
 // The reveal slide IS the question slide (just recoloured) → same template.
-const templateRole = (role) => (role === "reveal" ? "question" : role);
+const templateRole = (role) => (role === "reveal" || role === "intro" || role === "outro" ? "question" : role);
 
 // Question-only mode's answer reveal (all in seconds):
 //   pauseSec — silent thinking time after the question is read (0–15, default 3)
@@ -225,6 +225,17 @@ export async function generateSlideshow(question, opts = {}) {
   });
   if (!plan.length) throw new Error("Could not build any slides for this question.");
 
+  // Optional opening title slide and closing call-to-action slide.
+  if (opts.intro) {
+    const io = typeof opts.intro === "object" ? opts.intro : {};
+    plan.unshift(introSlidePlan({ subject: io.subject, topic: io.topic, siteName: brandOpts.siteName }));
+    planQuestions.unshift(null);
+  }
+  if (opts.outro) {
+    plan.push(outroSlidePlan(opts.outro === "short" ? "short" : "full", { siteName: brandOpts.siteName }));
+    planQuestions.push(null);
+  }
+
   const workDir = await fs.mkdtemp(path.join(os.tmpdir(), "msg-slideshow-"));
   try {
     // 2) Render every slide image (branded 9:16 SVG → JPEG on Cloudinary) and
@@ -249,8 +260,10 @@ export async function generateSlideshow(question, opts = {}) {
     const shotPaths = plan.map((_, i) => path.join(workDir, `shot${String(i).padStart(2, "0")}.png`));
     const shots = await renderSlideCardShots(
       plan.map((s, i) => ({
-        questionId: planQuestions[i]?._id ? String(planQuestions[i]._id) : "",
+        questionId: planQuestions[i]?._id ? String(planQuestions[i]._id) : (s.role === "intro" || s.role === "outro" ? s.role : ""),
         role: s.role,
+        heading: s.heading || "",
+        lines: s.lines || [],
         tag: s.tag,
         caption: brandOpts.autoCaptions ? (s.caption || s.narration) : "",
         template: !!templatePaths[templateRole(s.role)],

@@ -182,9 +182,15 @@ async function shootSlide(browser, it, { siteUrl = "", readyTimeoutMs = 25000, l
     page.on("response", (res) => { if (res.url().includes("/card-question/")) apiStatus = res.status(); });
 
     const p = new URLSearchParams();
-    p.set("role", it.role === "answer" || it.role === "reveal" ? it.role : "question");
+    const roleParam = ["answer", "reveal", "intro", "outro"].includes(it.role) ? it.role : "question";
+    p.set("role", roleParam);
     if (it.tag) p.set("tag", String(it.tag));
     if (it.caption) p.set("cap", String(it.caption).slice(0, 600));
+    // Intro/outro slides carry their text in the URL (no question to fetch).
+    if (it.role === "intro" || it.role === "outro") {
+      if (it.heading) p.set("h", String(it.heading).slice(0, 120));
+      if (Array.isArray(it.lines) && it.lines.length) p.set("sub", it.lines.join("||").slice(0, 200));
+    }
     if (it.template) p.set("tpl", "1");
     if (it.template && it.templateSize?.width > 0 && it.templateSize?.height > 0) {
       p.set("tw", String(it.templateSize.width));
