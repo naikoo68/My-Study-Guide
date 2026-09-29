@@ -374,13 +374,25 @@ export function buildYtDescription(caption) {
 }
 
 // Hashtags → YouTube tags (no "#", total ≤ 500 chars).
-export function buildYtTags(text) {
+// `first` — plain-word tags put in FRONT (e.g. the subject and topic names
+// "Economics", "Characteristics and Problems of Developing Economy"), so they're
+// never cut by the 500-character limit. YouTube counts a tag with spaces as
+// its length + 2 (it's quoted).
+export function buildYtTags(text, { first = [] } = {}) {
   const tags = [];
   let total = 0;
+  const key = (t) => t.toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, "");
+  for (const raw of first || []) {
+    const t = String(raw || "").replace(/[<>,"]/g, " ").replace(/\s+/g, " ").trim().slice(0, 100);
+    if (!t || tags.some((x) => key(x) === key(t))) continue;
+    const cost = t.length + (/\s/.test(t) ? 3 : 1);
+    if (total + cost > 500) break;
+    tags.push(t); total += cost;
+  }
   // \p{M} keeps combining marks (e.g. Hindi vowel signs) inside the tag.
   for (const m of String(text || "").matchAll(/#([\p{L}\p{M}\p{N}_]+)/gu)) {
     const t = m[1];
-    if (/^shorts$/i.test(t) || tags.some((x) => x.toLowerCase() === t.toLowerCase())) continue;
+    if (/^shorts$/i.test(t) || tags.some((x) => key(x) === key(t))) continue;
     if (total + t.length + 1 > 500) break;
     tags.push(t); total += t.length + 1;
   }

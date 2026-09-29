@@ -1114,39 +1114,22 @@ export async function hashtagsForQuestion(q, site, extra = "") {
   const out = [];
   const push = (t) => { if (t && !out.some((x) => x.toLowerCase() === t.toLowerCase())) out.push(t); };
   for (const w of String(extra || "").split(/[\s,]+/)) push(normTag(w));
-  for (const w of String(site?.fbDefaultHashtags || "").split(/[\s,]+/)) push(normTag(w));
+  // Subject / topic tags come BEFORE the site's default tags: the list is capped
+  // at MAX_HASHTAGS, and the admin's defaults alone can fill it — which used to
+  // cut the subject & topic off every post ("Economics" never appeared).
+  // Names via titlePartsForQuestion, so Quiz Bank (Subject → Topic) AND My Quiz
+  // (PracticeSubject / PracticeTopic) both work, without the "A)" prefixes.
   if (site?.fbAutoHashtags !== false && q) {
-    let subjectName = "";
-    let topicName = "";
-    if (q.subject) {
-      const s = await Subject.findById(q.subject).select("name").lean().catch(() => null);
-      subjectName = s?.name || "";
-    }
-    // Look up the Topic name from the session hierarchy (Question → Session → Topic).
-    // Falls back to q.topic (a plain string field used by test-series questions).
-    let sessionId = q.session;
-    if (!sessionId && q.quiz) {
-      // Question linked to a quiz but not directly to a session — get session from quiz.
-      const qz = await Quiz.findById(q.quiz).select("session").lean().catch(() => null);
-      sessionId = qz?.session || null;
-    }
-    if (sessionId) {
-      const sess = await Session.findById(sessionId).select("topic").lean().catch(() => null);
-      if (sess?.topic) {
-        const t = await Topic.findById(sess.topic).select("title").lean().catch(() => null);
-        topicName = t?.title || "";
-      }
-    }
-    if (!topicName && q.topic) topicName = q.topic;
-    // "A) Basic Terminologies" → #BasicTerminologies (the order prefix is dropped).
-    push(toTagWords(displayName(subjectName)));
-    push(toTagWords(displayName(topicName)));
+    const names = await titlePartsForQuestion(q).catch(() => ({}));
+    push(toTagWords(names.subject));
+    push(toTagWords(names.topic));
     push(toTagWords(displayName(q.section)));
   }
+  for (const w of String(site?.fbDefaultHashtags || "").split(/[\s,]+/)) push(normTag(w));
   // Cap the number of hashtags. A huge wall of tags is treated as spam by
   // Facebook (which then stops turning the extras into blue links) and exceeds
-  // Instagram's hard 30-hashtag limit — so keep the first 30 (per-post + global
-  // defaults + auto tags), which all reliably render as clickable links.
+  // Instagram's hard 30-hashtag limit — so keep the first 30 (per-post, subject
+  // & topic, then global defaults), which all reliably render as clickable links.
   return out.slice(0, MAX_HASHTAGS).join(" ");
 }
 

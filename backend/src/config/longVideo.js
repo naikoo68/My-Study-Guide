@@ -410,6 +410,7 @@ async function planLongVideo(job, { source, cfg, site, titleTemplate, opts }) {
 
   const names = await titlePartsForQuestion(questions[0]);
   const breadcrumb = await breadcrumbForQuestion(questions[0]);
+  job.tagNames = { subject: names.subject || "", topic: names.topic || "" };
   // Part number of THIS video within the quiz/source. For a repeating
   // schedule it's opts.part; for a one-off chunk (Choose how many + Start
   // from), derive it from where it starts. A 100-question quiz at 25/video →
@@ -526,7 +527,7 @@ async function uploadRendered(job, { cfg, opts, filePath, description, tags, thu
       filePath,
       title: job.title,
       description,
-      tags: buildYtTags(tags),
+      tags: buildYtTags(tags, { first: [job.tagNames?.subject, job.tagNames?.topic] }), // subject & topic as readable tags first
       privacy: job.privacy,
       publishAt: job.publishAt,
       onProgress: (sent, size) => { job.progress = { done: Math.round((sent / size) * 100), total: 100 }; },
@@ -569,7 +570,7 @@ async function uploadRendered(job, { cfg, opts, filePath, description, tags, thu
           filePath: shortPath,
           title: shortTitle(job.title),
           description: shortDesc,
-          tags: buildYtTags(tags),
+          tags: buildYtTags(tags, { first: [job.tagNames?.subject, job.tagNames?.topic] }), // subject & topic as readable tags first
           privacy: job.privacy,
           publishAt: job.publishAt,
         }, cfg);
@@ -940,6 +941,7 @@ async function runPublish(job, { preview, cfg, site, hashtags, opts }) {
   const temp = [];
   try {
     const d = preview.publishData;
+    job.tagNames = { subject: d.names?.subject || "", topic: d.names?.topic || "" };
     job.stage = "downloading_preview";
     const filePath = await downloadToFile(preview.videoUrl, "mp4");
     temp.push(filePath);
