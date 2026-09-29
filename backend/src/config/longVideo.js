@@ -43,6 +43,7 @@ const STAGE_LABEL = {
   uploading_facebook: "Uploading to Facebook",
   short: "Uploading the Short",
   uploading_preview: "Saving the preview videos",
+  downloading_preview: "Getting the previewed video",
   finishing: "Setting thumbnail & playlist",
   done: "Done",
   failed: "Failed",
@@ -64,10 +65,16 @@ const STAGE_PCT = {
   uploading: [88, 8], uploading_facebook: [96, 2], short: [98, 2],
   done: [100, 0], failed: [0, 0],
 };
+// A preview being published has nothing to render — only download + uploads.
+const PUBLISH_PCT = {
+  queued: [0, 1], picking: [1, 1], downloading_preview: [2, 10],
+  uploading: [12, 68], short: [80, 14], uploading_facebook: [94, 5],
+  done: [100, 0], failed: [0, 0],
+};
 export function jobPercent(j) {
   if (!j) return 0;
   if (j.status === "done") return 100;
-  const [base, span] = STAGE_PCT[j.stage] || [0, 0];
+  const [base, span] = (j.fromPreview ? PUBLISH_PCT : STAGE_PCT)[j.stage] || [0, 0];
   let frac = 0;
   if (j.progress && j.progress.total > 0) frac = Math.max(0, Math.min(1, j.progress.done / j.progress.total));
   return Math.max(0, Math.min(99, Math.round(base + span * frac)));
@@ -382,6 +389,98 @@ async function drawLongVideoThumbnail(job, { source, cfg, site, names, questions
   return null;
 }
 
+// Post an already-rendered long video (+ its Short) to YouTube and/or
+// Facebook: upload, thumbnail, playlist, the Short with a link to the full
+// video, then Facebook. Used by a normal run AND by "Publish" on a preview (the
+// exact files that were previewed). getShort() → { path, count } makes / fetches
+// the Short only when it's needed. Returns the Short's local path (the caller
+// deletes it). Throws when nothing could be uploaded.
+async function uploadRendered(job, { cfg, opts, filePath, description, tags, thumbnail, breadcrumb, getShort }) {
+  const errors = [];
+  let anyOk = false;
+  // 1) YouTube — the FULL landscape video (normal).
+  if (opts.toYoutube) {
+    job.stage = "uploading";
+    job.progress = { done: 0, total: 100 };
+    const up = await uploadVideoFileToYoutube({
+      filePath,
+      title: job.title,
+      description,
+      tags: buildYtTags(tags),
+      privacy: job.privacy,
+      publishAt: job.publishAt,
+      onProgress: (sent, size) => { job.progress = { done: Math.round((sent / size) * 100), total: 100 }; },
+    }, cfg);
+    if (up.ok) {
+      anyOk = true;
+      job.url = up.url;
+      job.videoId = up.id;
+      job.privacy = up.privacy || job.privacy;
+      const yt = [];
+      if (thumbnail) {
+        const t = await setYtThumbnail({ videoId: up.id, image: thumbnail.image, mime: thumbnail.mime }, cfg);
+        yt.push(t.ok ? "Thumbnail ✓" : `Thumbnail ✗ (${t.error})`);
+      }
+      if (job.playlist) yt.push(...(await applyYtExtras({ videoId: up.id, playlist: job.playlist }, cfg)));
+      if (job.publishAt && !up.publishAt) yt.unshift("scheduled time had already passed — published right away");
+      job.notes.push(`YouTube ✓${yt.length ? ` (${yt.join(" · ")})` : ""}`);
+    } else {
+      errors.push(`YouTube: ${up.error}`);
+      job.notes.push(`YouTube ✗ (${up.error})`);
+    }
+
+    // 2) A SHORT teaser — the FIRST 3 questions only, vertical (9:16), with a
+    //    link to the full video in its description. Only if the full upload
+    //    succeeded (so we have its link). Best-effort.
+    if (opts.asShort && up.ok) {
+      job.stage = "short";
+      try {
+        // The vertical (9:16) short: Short intro + the first 3 questions + a
+        // closing "watch the full quiz on our channel" slide.
+        const short = await getShort();
+        const shortPath = short.path;
+        const shortDesc = buildYtLongDescription({
+          intro: `${short.count} sample question${short.count === 1 ? "" : "s"}${breadcrumb ? ` — ${breadcrumb}` : ""}. Watch the full quiz here: ${job.url}`,
+          hashtags: tags,
+          shorts: true,
+        });
+        const s = await uploadVideoFileToYoutube({
+          filePath: shortPath,
+          title: shortTitle(job.title),
+          description: shortDesc,
+          tags: buildYtTags(tags),
+          privacy: job.privacy,
+          publishAt: job.publishAt,
+        }, cfg);
+        if (s.ok) {
+          job.shortUrl = s.url;
+          if (job.playlist) await applyYtExtras({ videoId: s.id, playlist: job.playlist }, cfg);
+          job.notes.push(`Short ✓ (${s.url})`);
+        } else {
+          job.notes.push(`Short ✗ (${s.error})`);
+        }
+      } catch (e) {
+        job.notes.push(`Short ✗ (${e?.message || e})`);
+      }
+    }
+  }
+  // 2) Facebook Page (normal video)
+  if (opts.toFacebook) {
+    job.stage = "uploading_facebook";
+    job.progress = null;
+    const fb = await postLongVideoToFacebookPage({ filePath, title: job.title, description, publishAt: job.publishAt, thumbnail }, cfg);
+    if (fb.ok) {
+      anyOk = true;
+      job.fbUrl = fb.url;
+      job.notes.push(`Facebook ✓${fb.scheduled ? " (scheduled)" : ""}${fb.late ? " (scheduled time was too close — published right away)" : ""}`);
+    } else {
+      errors.push(`Facebook: ${fb.error}`);
+      job.notes.push(`Facebook ✗ (${fb.error})`);
+    }
+  }
+  if (!anyOk) throw new Error(errors.join(" · ") || "Nothing was uploaded.");
+}
+
 async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts }) {
   job.status = "running";
   job.stage = "picking";
@@ -419,90 +518,16 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
       thumbnail = await drawLongVideoThumbnail(job, { source, cfg, site, names, questions });
     }
 
-    const errors = [];
-    let anyOk = false;
-    // 1) YouTube — the FULL landscape video (normal).
-    if (opts.toYoutube) {
-      job.stage = "uploading";
-      job.progress = { done: 0, total: 100 };
-      const up = await uploadVideoFileToYoutube({
-        filePath,
-        title: job.title,
-        description,
-        tags: buildYtTags(tags),
-        privacy: job.privacy,
-        publishAt: job.publishAt,
-        onProgress: (sent, size) => { job.progress = { done: Math.round((sent / size) * 100), total: 100 }; },
-      }, cfg);
-      if (up.ok) {
-        anyOk = true;
-        job.url = up.url;
-        job.videoId = up.id;
-        job.privacy = up.privacy || job.privacy;
-        const yt = [];
-        if (thumbnail) {
-          const t = await setYtThumbnail({ videoId: up.id, image: thumbnail.image, mime: thumbnail.mime }, cfg);
-          yt.push(t.ok ? "Thumbnail ✓" : `Thumbnail ✗ (${t.error})`);
-        }
-        if (job.playlist) yt.push(...(await applyYtExtras({ videoId: up.id, playlist: job.playlist }, cfg)));
-        if (job.publishAt && !up.publishAt) yt.unshift("scheduled time had already passed — published right away");
-        job.notes.push(`YouTube ✓${yt.length ? ` (${yt.join(" · ")})` : ""}`);
-      } else {
-        errors.push(`YouTube: ${up.error}`);
-        job.notes.push(`YouTube ✗ (${up.error})`);
-      }
-
-      // 2) A SHORT teaser — the FIRST 3 questions only, vertical (9:16), with a
-      //    link to the full video in its description. Only if the full upload
-      //    succeeded (so we have its link). Best-effort.
-      if (opts.asShort && up.ok) {
-        job.stage = "short";
-        try {
-          // Render a SEPARATE vertical (9:16) short: Short intro + the first 3
-          // questions + a closing "watch the full quiz on our channel" slide.
-          const teaserQs = questions.slice(0, 3);
-          const shortRender = await generateSlideshow(teaserQs, shortBase);
-          shortPath = shortRender.filePath;
-          const shortDesc = buildYtLongDescription({
-            intro: `${teaserQs.length} sample question${teaserQs.length === 1 ? "" : "s"}${breadcrumb ? ` — ${breadcrumb}` : ""}. Watch the full quiz here: ${job.url}`,
-            hashtags: tags,
-            shorts: true,
-          });
-          const s = await uploadVideoFileToYoutube({
-            filePath: shortPath,
-            title: shortTitle(job.title),
-            description: shortDesc,
-            tags: buildYtTags(tags),
-            privacy: job.privacy,
-            publishAt: job.publishAt,
-          }, cfg);
-          if (s.ok) {
-            job.shortUrl = s.url;
-            if (job.playlist) await applyYtExtras({ videoId: s.id, playlist: job.playlist }, cfg);
-            job.notes.push(`Short ✓ (${s.url})`);
-          } else {
-            job.notes.push(`Short ✗ (${s.error})`);
-          }
-        } catch (e) {
-          job.notes.push(`Short ✗ (${e?.message || e})`);
-        }
-      }
-    }
-    // 2) Facebook Page (normal video)
-    if (opts.toFacebook) {
-      job.stage = "uploading_facebook";
-      job.progress = null;
-      const fb = await postLongVideoToFacebookPage({ filePath, title: job.title, description, publishAt: job.publishAt, thumbnail }, cfg);
-      if (fb.ok) {
-        anyOk = true;
-        job.fbUrl = fb.url;
-        job.notes.push(`Facebook ✓${fb.scheduled ? " (scheduled)" : ""}${fb.late ? " (scheduled time was too close — published right away)" : ""}`);
-      } else {
-        errors.push(`Facebook: ${fb.error}`);
-        job.notes.push(`Facebook ✗ (${fb.error})`);
-      }
-    }
-    if (!anyOk) throw new Error(errors.join(" · ") || "Nothing was uploaded.");
+    await uploadRendered(job, {
+      cfg, opts, filePath, description, tags, thumbnail, breadcrumb,
+      // The Short is rendered only when it will be posted (deleted in finally).
+      getShort: async () => {
+        const teaserQs = questions.slice(0, 3);
+        const r = await generateSlideshow(teaserQs, shortBase);
+        shortPath = r.filePath;
+        return { path: r.filePath, count: teaserQs.length };
+      },
+    });
 
     job.status = "done";
     job.stage = "done";
@@ -584,6 +609,8 @@ export function publicPreviewJob(j) {
     shortDuration: j.shortDuration || 0,
     thumbnailUrl: j.thumbnailUrl || "",
     voice: j.voice || "",
+    canPublish: j.status === "done" && !!j.publishData && !!j.videoUrl && !j.publishedJobId,
+    publishedJobId: j.publishedJobId || "",
     notes: j.notes || [],
     error: j.error,
     createdAt: j.createdAt,
@@ -642,7 +669,7 @@ async function runPreview(job, { source, cfg, site, titleTemplate, opts }) {
   try {
     const { isCloudinaryConfigured, uploadFileToCloudinary } = await import("./cloudinary.js");
     if (!isCloudinaryConfigured()) throw new Error("Media storage isn't set up (Cloudinary keys missing), so the preview can't be played.");
-    const { questions, names, slideBase, intro, shortBase } = await planLongVideo(job, { source, cfg, site, titleTemplate, opts });
+    const { questions, names, breadcrumb, first, siteUrl, slideBase, intro, shortBase } = await planLongVideo(job, { source, cfg, site, titleTemplate, opts });
     const track = (phase) => ({
       onStatus: (st) => { job.phase = phase; job.stage = String(st || "").toLowerCase(); job.progress = null; },
       onProgress: (st, done, total) => { job.phase = phase; job.stage = String(st || "").toLowerCase(); job.progress = { done, total }; },
@@ -656,6 +683,13 @@ async function runPreview(job, { source, cfg, site, titleTemplate, opts }) {
     job.duration = full.duration;
     job.voice = full.voice || "";
     if (full.ttsNote) job.notes.push(full.ttsNote);
+    // What "Publish" needs later to post THESE files (no re-render).
+    job.publishData = {
+      source, opts, breadcrumb, siteUrl, names,
+      firstQuestion: questions[0],
+      chapters: full.chapters || [],
+      offset: opts.order === "random" ? 0 : first - 1,
+    };
 
     // 2) The SHORT — rendered vertical (9:16): Short intro + first 3 questions + Short end slide.
     job.phase = "short";
@@ -691,6 +725,7 @@ async function runPreview(job, { source, cfg, site, titleTemplate, opts }) {
         temp.push(p);
         const up = await uploadFileToCloudinary(p, { resourceType: "image", folder }).catch((e) => { job.notes.push(`Thumbnail ✗ (${e?.message || e})`); return null; });
         if (up?.secure_url) job.thumbnailUrl = up.secure_url;
+        job.thumb = { image: t.image, mime: t.mime }; // kept for "Publish"
       }
     } else {
       job.notes.push("No thumbnail — upload/enable a thumbnail template in the YouTube card (or tick “Use thumbnail”).");
@@ -709,6 +744,122 @@ async function runPreview(job, { source, cfg, site, titleTemplate, opts }) {
   }
 }
 
+
+// ---- Publish a finished preview (the SAME files — nothing is re-rendered) ----
+//
+// The previewed full video + Short (on Cloudinary) are downloaded again and
+// posted exactly like a normal run: YouTube (+ thumbnail, playlist, the Short
+// with a link to the full video) and/or Facebook. Shows as a normal job in
+// "Recent long videos". One publish per preview.
+
+async function downloadToFile(url, ext) {
+  const { Readable } = await import("node:stream");
+  const { pipeline } = await import("node:stream/promises");
+  const { createWriteStream } = await import("node:fs");
+  const res = await fetch(url);
+  if (!res.ok || !res.body) throw new Error(`Could not fetch the preview file (HTTP ${res.status}) — make the preview again.`);
+  const p = path.join(os.tmpdir(), `msg-publish-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`);
+  await pipeline(Readable.fromWeb(res.body), createWriteStream(p));
+  return p;
+}
+
+// preview: the finished preview job. Destinations / privacy / time / playlist /
+// hashtags come from the form at the moment "Publish" is tapped.
+export function queuePublishPreview({ preview, cfg, site, privacy, publishAt = null, hashtags = "", playlist, options = {} }) {
+  cleanup();
+  if (!preview || preview.status !== "done" || !preview.publishData || !preview.videoUrl) throw new Error("This preview can't be published — make the preview again.");
+  if (preview.publishedJobId) throw new Error("This preview has already been published.");
+  const base = preview.publishData.opts || {};
+  const opts = { ...base, toYoutube: options.toYoutube !== false, toFacebook: !!options.toFacebook, asShort: !!options.asShort };
+  if (!opts.toYoutube && !opts.toFacebook) throw new Error("Choose where to post the video (YouTube and/or Facebook).");
+  if (opts.toYoutube && !isYoutubeConfigured(cfg)) throw new Error("Connect YouTube first (YouTube Shorts card) — or untick YouTube.");
+  if (opts.toFacebook && !isFacebookConfigured(cfg)) throw new Error("Connect your Facebook Page first — or untick Facebook.");
+  const job = {
+    id: randomUUID(),
+    tenantKey: tenantKeyNow(),
+    status: "queued",
+    stage: "queued",
+    progress: null,
+    label: preview.label || "",
+    title: preview.title,
+    questions: preview.questions,
+    range: preview.range || "",
+    duration: preview.duration,
+    url: "", videoId: "", fbUrl: "", shortUrl: "",
+    toYoutube: opts.toYoutube,
+    toFacebook: opts.toFacebook,
+    privacy: privacy || cfg.ytPrivacy || "public",
+    publishAt: publishAt || null,
+    error: "",
+    notes: ["Published from the preview (same video — not re-made)"],
+    playlist: playlist === undefined
+      ? (cfg.ytLongPlaylistId ? { id: cfg.ytLongPlaylistId, title: cfg.ytLongPlaylistTitle || "" } : null)
+      : (playlist?.id ? playlist : null),
+    useThumbnail: !!preview.thumb,
+    auto: false,
+    scheduleId: "",
+    fromPreview: preview.id,
+    createdAt: Date.now(),
+    finishedAt: null,
+  };
+  jobs.set(job.id, job);
+  preview.publishedJobId = job.id;
+  const store = tenantStore.getStore();
+  const args = { preview, cfg, site, hashtags, opts };
+  const run = () => (store ? tenantStore.run(store, () => runPublish(job, args)) : runPublish(job, args));
+  chain = chain.then(run, run).catch(() => {});
+  return publicJob(job);
+}
+
+async function runPublish(job, { preview, cfg, site, hashtags, opts }) {
+  job.status = "running";
+  job.stage = "picking";
+  const temp = [];
+  try {
+    const d = preview.publishData;
+    job.stage = "downloading_preview";
+    const filePath = await downloadToFile(preview.videoUrl, "mp4");
+    temp.push(filePath);
+    const tags = await hashtagsForQuestion(d.firstQuestion, site, hashtags);
+    const description = buildYtLongDescription({
+      intro: `${job.questions} questions with answers${job.range ? ` (questions ${job.range})` : ""}${d.breadcrumb ? ` — ${d.breadcrumb}` : ""}.`,
+      chapters: (d.chapters || []).map((c) => ({ ...c, label: `Question ${d.offset + c.question}` })),
+      hashtags: tags,
+      siteUrl: d.siteUrl,
+    });
+    await uploadRendered(job, {
+      cfg, opts, filePath, description, tags, breadcrumb: d.breadcrumb,
+      thumbnail: job.useThumbnail ? preview.thumb : null,
+      getShort: async () => {
+        if (!preview.shortUrl) throw new Error("the preview has no Short");
+        const p = await downloadToFile(preview.shortUrl, "mp4");
+        temp.push(p);
+        return { path: p, count: preview.shortQuestions || 3 };
+      },
+    });
+    job.status = "done";
+    job.stage = "done";
+    job.finishedAt = Date.now();
+    if (site?.fbNotifyOnPost === true) {
+      const links = [job.url, job.shortUrl, job.fbUrl].filter(Boolean);
+      await fbNotify({
+        site,
+        subject: `🎬 Long video posted — ${job.title}`,
+        text: `Posted "${job.title}" (${job.questions} questions):\n${links.join("\n")}\n${job.notes.join(" · ")}`,
+        html: `<p>🎬 Posted <b>${escHtml(job.title)}</b> (${job.questions} questions).</p>${links.map((u) => `<p><a href="${escHtml(u)}">${escHtml(u)}</a></p>`).join("")}<p>${escHtml(job.notes.join(" · "))}</p>`,
+      }).catch(() => {});
+    }
+  } catch (e) {
+    job.status = "failed";
+    job.stage = "failed";
+    job.error = String(e?.message || e).slice(0, 500);
+    job.finishedAt = Date.now();
+    // Nothing went up → allow another try from the same preview.
+    if (!job.url && !job.fbUrl) preview.publishedJobId = "";
+  } finally {
+    await Promise.all(temp.map((p) => fs.rm(p, { force: true }).catch(() => {})));
+  }
+}
 
 // ---- Repeating long-video schedules (FbSchedule kind "longvideo") ----
 //

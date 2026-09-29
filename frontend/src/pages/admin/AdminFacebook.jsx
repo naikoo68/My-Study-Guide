@@ -3140,6 +3140,7 @@ function FullQuizVideoForm({ st, onStatus }) {
     if (!hasSource) { setPv({ ...PV_EMPTY, error: "Pick the topic / quiz first." }); return; }
     if (planned && planned.n === 0) { setPv({ ...PV_EMPTY, error: `This content has only ${total} questions — lower "Start from".` }); return; }
     setPv({ busy: true, job: { status: "queued", percent: 0, createdAt: Date.now() }, error: "" });
+    setPubMsg(null);
     setClock(Date.now());
     try {
       const startRes = await youtubeService.longVideoPreview({ source, title: title.trim(), useThumbnail: useThumb, options: buildOptions() });
@@ -3162,6 +3163,27 @@ function FullQuizVideoForm({ st, onStatus }) {
     } catch (e) {
       setPv({ busy: false, job: null, error: e?.message || "The preview could not be made." });
     }
+  };
+  // "Publish" on a finished preview: posts THOSE files (no re-render), with the
+  // form's current Post to / visibility / time / playlist / hashtags.
+  const [pubBusy, setPubBusy] = useState(false);
+  const [pubMsg, setPubMsg] = useState(null);
+  const publishPreview = async () => {
+    const id = pv.job?.id; if (!id) return;
+    if (!toYoutube && !toFacebook) { setPubMsg({ ok: false, text: "Choose YouTube and/or Facebook under “Post to”." }); return; }
+    if (publishAtError(publishAt)) { setPubMsg({ ok: false, text: publishAtError(publishAt) }); return; }
+    setPubBusy(true); setPubMsg(null);
+    try {
+      const pl = playlistChoice(playlist.id, playlist.title);
+      await youtubeService.publishLongVideoPreview(id, {
+        privacy, publishAt: localToIso(publishAt), hashtags: hashtags.trim(),
+        ...(pl ? { playlist: pl } : {}),
+        options: { toYoutube, toFacebook, asShort: toYoutube && asShort },
+      });
+      setPv((p) => ({ ...p, job: p.job ? { ...p.job, canPublish: false, published: true } : p.job }));
+      setPubMsg({ ok: true, text: `Publishing — the previewed video${toYoutube && asShort ? " and Short are" : " is"} being uploaded (not re-made). Follow it in “Recent long videos” below.${publishAt ? ` It goes live on ${new Date(publishAt).toLocaleString()}.` : ""}` });
+      load();
+    } catch (e) { setPubMsg({ ok: false, text: e?.message || "Could not publish." }); } finally { setPubBusy(false); }
   };
   const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.max(0, s) % 60).padStart(2, "0")}`;
   const PV_PHASE = { picking: "Loading questions", full: "Full video", short: "Short", vertical: "Short", upload: "Saving", thumb: "Thumbnail" };
@@ -3569,6 +3591,19 @@ function FullQuizVideoForm({ st, onStatus }) {
               </div>
             )}
             {j.notes?.length > 0 && <p className="text-xs text-amber-600 dark:text-amber-400">{j.notes.join(" · ")}</p>}
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 dark:border-emerald-900/50 dark:bg-emerald-900/10">
+              <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-300">Happy with it? Publish these videos</p>
+              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                Posts exactly what you see above — no re-making. Goes to: <b>{[toYoutube && `YouTube (${privacy})`, toYoutube && asShort && "YouTube Short", toFacebook && "Facebook Page"].filter(Boolean).join(" + ") || "nothing selected"}</b>
+                {publishAt ? <> · goes live <b>{new Date(publishAt).toLocaleString()}</b></> : " · right away"}. Change these under <b>Post to</b> above.
+              </p>
+              <button type="button" onClick={publishPreview} disabled={pubBusy || !j.canPublish || (!toYoutube && !toFacebook)}
+                className="btn-primary mt-2 !bg-emerald-600 hover:!bg-emerald-700">
+                {pubBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                {j.published || j.publishedJobId ? "Published ✓" : publishAt ? "Schedule these videos" : "Publish these videos"}
+              </button>
+              {pubMsg && <p className={`mt-2 text-sm font-medium ${pubMsg.ok ? "text-emerald-600" : "text-rose-600"}`}>{pubMsg.text}</p>}
+            </div>
           </div>
         );
       })()}
