@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { youtubeStatus, saveYoutubeSettings, youtubeConnect, youtubeCallback, youtubeDisconnect, youtubeTest, startLongVideo, listLongVideos, longVideoStatus, youtubeUploadToken, youtubePlaylists, youtubeCreatePlaylist, youtubeThumbnailPreview, youtubeFinishUpload, longVideoQuestionCount, saveLongVideoDefaults, youtubeSlideTextPreview, startLongVideoPreview, longVideoPreviewStatus } from "../controllers/youtubeController.js";
+import { youtubeStatus, saveYoutubeSettings, youtubeConnect, youtubeCallback, youtubeDisconnect, youtubeTest, startLongVideo, listLongVideos, longVideoStatus, youtubeUploadToken, youtubePlaylists, youtubeCreatePlaylist, youtubeThumbnailPreview, youtubeFinishUpload, longVideoQuestionCount, saveLongVideoDefaults, youtubeSlideTextPreview, startLongVideoPreview, longVideoPreviewStatus, youtubeNarrationPreview } from "../controllers/youtubeController.js";
 import { protect, authorize } from "../middleware/auth.js";
 
 // YouTube auto-post connection (admin). Posting itself happens through the
@@ -27,6 +27,7 @@ router.get("/playlists", ...admin, youtubePlaylists);
 router.post("/playlists", ...admin, youtubeCreatePlaylist);
 router.post("/thumbnail-preview", ...admin, youtubeThumbnailPreview);
 router.post("/slide-text-preview", ...admin, youtubeSlideTextPreview);
+router.post("/narration-preview", ...admin, youtubeNarrationPreview);
 router.post("/videos/:videoId/finish", ...admin, youtubeFinishUpload);
 // PUBLIC — Google redirects the browser here; protected by the signed `state`.
 router.get("/oauth/callback", youtubeCallback);

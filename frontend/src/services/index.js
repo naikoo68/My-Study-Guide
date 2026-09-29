@@ -356,6 +356,8 @@ export const youtubeService = {
   saveLongVideoDefaults: (data) => api.put("/youtube/long-video/defaults", data), // { options } → status
   longVideoStatus: (id) => api.get(`/youtube/long-video/${id}`), // → { job }
   // Preview: full video + Short + thumbnail, nothing posted → { job }; poll the status.
+  // Speak an intro / end line (with [pause] marks) → { audio: dataUrl, voice, provider, note }
+  narrationPreview: (data) => api.post("/youtube/narration-preview", data, { timeout: 60000 }),
   longVideoPreview: (data) => api.post("/youtube/long-video/preview", data, { timeout: 60000 }),
   longVideoPreviewStatus: (id) => api.get(`/youtube/long-video/preview/${id}`, { timeout: 30000 }), // → { job }
   // Short-lived token so the browser can upload a video file straight to YouTube.

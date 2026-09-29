@@ -85,28 +85,70 @@ async function synthesizeLongSpeech({ text, voice, cfg }) {
 // Narration with pause marks ("Thanks for watching! [pause 2] Subscribe…"):
 // each text part is spoken separately and REAL silence is put between them, so
 // it works the same on every voice engine. Writes one audio file → its path.
-async function synthesizeWithPauses({ text, voice, cfg, workDir, name }) {
-  const parts = splitNarrationPauses(text);
-  const inputs = []; // ffmpeg input args
+//
+// Voice engines pad every clip with their own silence (often 0.3–1 s at each
+// end), which made "[pause 1]" last 2–3 s. So each spoken part is TRIMMED of
+// its leading / trailing silence first, and then exactly the pause you set is
+// inserted — "[pause 1]" is 1 second between the words.
+const TRIM_SILENCE =
+  "silenceremove=start_periods=1:start_duration=0:start_threshold=-50dB:detection=peak," +
+  "areverse," +
+  "silenceremove=start_periods=1:start_duration=0:start_threshold=-50dB:detection=peak," +
+  "areverse";
+// parts: [{ file } | { pause }] → ffmpeg args (pure; tested).
+export function pauseConcatArgs(parts, outPath) {
+  const inputs = [];
   const labels = [];
-  let n = 0;
-  for (const part of parts) {
+  parts.forEach((p, n) => {
+    if (p.file) inputs.push("-i", p.file);
+    else inputs.push("-f", "lavfi", "-t", String(p.pause), "-i", "anullsrc=r=24000:cl=mono");
+    const norm = "aresample=24000,aformat=sample_fmts=fltp:channel_layouts=mono";
+    labels.push(`[${n}:a]${norm}${p.file ? `,${TRIM_SILENCE}` : ""}[a${n}]`);
+  });
+  const filter = `${labels.join(";")};${labels.map((_, i) => `[a${i}]`).join("")}concat=n=${parts.length}:v=0:a=1[out]`;
+  return ["-hide_banner", "-loglevel", "error", "-y", ...inputs, "-filter_complex", filter, "-map", "[out]", "-c:a", "aac", "-b:a", "128k", outPath];
+}
+
+async function synthesizeWithPauses({ text, voice, cfg, workDir, name }) {
+  const parts = [];
+  for (const part of splitNarrationPauses(text)) {
     if (part.text) {
       const r = await synthesizeLongSpeech({ text: part.text, voice, cfg });
-      const fp = path.join(workDir, `${name}-part${n}.mp3`);
-      await fs.writeFile(fp, r.buffer);
-      inputs.push("-i", fp);
+      const file = path.join(workDir, `${name}-part${parts.length}.mp3`);
+      await fs.writeFile(file, r.buffer);
+      parts.push({ file });
     } else {
-      inputs.push("-f", "lavfi", "-t", String(part.pause), "-i", "anullsrc=r=24000:cl=mono");
+      parts.push({ pause: part.pause });
     }
-    labels.push(`[${n}:a]aresample=24000,aformat=sample_fmts=fltp:channel_layouts=mono[a${n}]`);
-    n++;
   }
-  if (!n) return null;
+  if (!parts.length) return null;
   const outPath = path.join(workDir, `${name}.m4a`);
-  const filter = `${labels.join(";")};${labels.map((_, i) => `[a${i}]`).join("")}concat=n=${n}:v=0:a=1[out]`;
-  await runFfmpeg(["-hide_banner", "-loglevel", "error", "-y", ...inputs, "-filter_complex", filter, "-map", "[out]", "-c:a", "aac", "-b:a", "128k", outPath], { timeoutMs: 120000 });
+  await runFfmpeg(pauseConcatArgs(parts, outPath), { timeoutMs: 120000 });
   return outPath;
+}
+
+// "Preview voice" in the slide editors: speak ONE intro / end line exactly as
+// the video will (same engine, voice, pause handling). → { buffer, mime, voice, provider, note }
+export async function previewNarration({ text, voice: wantVoice, site } = {}) {
+  const line = String(text || "").trim().slice(0, 400);
+  if (!line) throw new Error("Nothing to say — type the narration first.");
+  const ttsCfg = await resolveWorkingTtsConfig(resolveTtsConfig(site || null));
+  const voice = ttsCfg.requestedProvider
+    ? voiceForFallback(ttsCfg.provider, wantVoice)
+    : normalizeVoiceForProvider(ttsCfg.provider, wantVoice);
+  const note = ttsCfg.requestedProvider ? `${ttsCfg.requestedProvider} is unavailable here — used ${ttsCfg.provider} "${voice}".` : "";
+  if (!hasNarrationPauses(line)) {
+    const r = await synthesizeLongSpeech({ text: line, voice, cfg: ttsCfg });
+    return { buffer: r.buffer, mime: "audio/mpeg", voice, provider: ttsCfg.provider, note };
+  }
+  if (!(await isFfmpegAvailable())) throw new Error("ffmpeg is not installed on the server — pauses can't be previewed.");
+  const workDir = await fs.mkdtemp(path.join(os.tmpdir(), "msg-narr-"));
+  try {
+    const p = await synthesizeWithPauses({ text: line, voice, cfg: ttsCfg, workDir, name: "preview" });
+    return { buffer: await fs.readFile(p), mime: "audio/mp4", voice, provider: ttsCfg.provider, note };
+  } finally {
+    await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
 // "both" = question + answer slide per question (default); "question" = only

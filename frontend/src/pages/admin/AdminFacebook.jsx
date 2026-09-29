@@ -2328,7 +2328,7 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
 // the closing lines) fills the box. Config is saved as one object under
 // `settingKey`; the background image under `templateKey`. Sample text is shown
 // in the preview; each real video fills in its own.
-function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, onSaved }) {
+function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, onSaved, ttsEngine = "", ttsVoice = "" }) {
   // The Short's intro / end slides are VERTICAL (9:16, 1080×1920); the full video's are 16:9.
   const vertical = role === "shortintro" || role === "shortoutro";
   const isIntroRole = role === "intro" || role === "shortintro";
@@ -2365,6 +2365,16 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
   const [autoBusy, setAutoBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const [showStyle, setShowStyle] = useState(false);
+  // "Preview voice": hear the line (with its pauses) in the form's engine + voice.
+  const [say, setSay] = useState({ busy: false, url: "", info: "", error: "" });
+  const previewVoice = async () => {
+    setSay({ busy: true, url: "", info: "", error: "" });
+    try {
+      const r = await youtubeService.narrationPreview({ role, text: draft.narration || "", engine: ttsEngine, voice: ttsVoice });
+      if (!r?.audio) throw new Error("No audio came back.");
+      setSay({ busy: false, url: r.audio, info: [r.provider, r.voice, r.note].filter(Boolean).join(" · "), error: "" });
+    } catch (e) { setSay({ busy: false, url: "", info: "", error: e?.message || "Could not make the voice preview." }); }
+  };
   // "Narrator says": insert a pause mark at the cursor.
   const narrRef = useRef(null);
   const insertPause = (mark) => {
@@ -2617,6 +2627,14 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
           <span className="mb-1 block font-medium">Narrator says</span>
           <textarea ref={narrRef} rows={2} maxLength={400} className="input w-full text-sm" placeholder={defaultNarration}
             value={draft.narration} onChange={(e) => set("narration", e.target.value, { later: true })} />
+          <span className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={previewVoice} disabled={say.busy} className="btn-outline !px-2.5 !py-1 text-xs">
+              {say.busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Volume2 className="h-3.5 w-3.5" />} {say.busy ? "Making…" : "Preview voice"}
+            </button>
+            {say.url && <audio key={say.url} src={say.url} controls autoPlay className="h-8 max-w-full" />}
+          </span>
+          {say.info && <span className="block text-[11px] text-slate-400">{say.info}</span>}
+          {say.error && <span className="block text-[11px] font-medium text-rose-600">{say.error}</span>}
           <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
             Add a pause:
             {[["[pause]", "1 s"], ["[pause 2]", "2 s"], ["[pause 0.5]", "½ s"]].map(([mark, l]) => (
@@ -3338,15 +3356,15 @@ function FullQuizVideoForm({ st, onStatus }) {
       {st?.connected && (
         <div key={slideEdRev} className="mt-3 space-y-3">
           <SlideTextEditor role="intro" title="Intro slide" note="Opening title (subject / topic · “Let's begin”)."
-            settingKey="longVideoIntroText" templateKey="longVideoIntroTemplateUrl" initial={st.introText} onSaved={onStatus} />
+            settingKey="longVideoIntroText" templateKey="longVideoIntroTemplateUrl" initial={st.introText} onSaved={onStatus} ttsEngine={provider} ttsVoice={voiceValue} />
           <SlideTextEditor role="outro" title="End slide (full video)" note="Closing “Thanks for watching · subscribe, like &amp; share for more”."
-            settingKey="longVideoOutroText" templateKey="longVideoOutroTemplateUrl" initial={st.outroText} onSaved={onStatus} />
+            settingKey="longVideoOutroText" templateKey="longVideoOutroTemplateUrl" initial={st.outroText} onSaved={onStatus} ttsEngine={provider} ttsVoice={voiceValue} />
           <p className="pt-2 text-sm font-semibold">Short slides <span className="font-normal text-slate-400">(vertical 9:16 — the Short is made vertical from the start)</span></p>
           <p className="text-xs text-slate-400">The Short's question / answer slides use the <b>9:16 Reel templates</b> from the AI Slideshow card.</p>
           <SlideTextEditor role="shortintro" title="Intro slide (Short)" note="The Short's opening title (subject / topic · “Let's begin”)."
-            settingKey="longVideoShortIntroText" templateKey="longVideoShortIntroTemplateUrl" initial={st.shortIntroText} onSaved={onStatus} />
+            settingKey="longVideoShortIntroText" templateKey="longVideoShortIntroTemplateUrl" initial={st.shortIntroText} onSaved={onStatus} ttsEngine={provider} ttsVoice={voiceValue} />
           <SlideTextEditor role="shortoutro" title="End slide (Short)" note="Short's closing “Thanks for watching · subscribe, like &amp; share · watch the full quiz on the channel”."
-            settingKey="longVideoShortOutroText" templateKey="longVideoShortOutroTemplateUrl" initial={st.shortOutroText} onSaved={onStatus} />
+            settingKey="longVideoShortOutroText" templateKey="longVideoShortOutroTemplateUrl" initial={st.shortOutroText} onSaved={onStatus} ttsEngine={provider} ttsVoice={voiceValue} />
         </div>
       )}
       {(settings?.longVideoQuestionTemplateUrl || (withAnswer && settings?.longVideoAnswerTemplateUrl) || st?.introText?.templateUrl || st?.outroText?.templateUrl || st?.shortOutroText?.templateUrl || st?.shortIntroText?.templateUrl || settings?.slideshowQuestionTemplateUrl) && (
