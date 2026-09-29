@@ -296,7 +296,9 @@ export async function generateSlideshow(question, opts = {}) {
       for (let i = 0; i < plan.length; i++) {
         const s = plan[i];
         const cfg = ["intro", "outro", "shortoutro"].includes(s.role) ? opts.slideText[s.role] : null;
-        if (!cfg?.templateUrl || cfg.showText === false) continue;
+        // Only the movable-box mode renders here; "fixed" slides fall through to
+        // the built-in centred layout (screenshot) on their template.
+        if (!cfg?.templateUrl || cfg.showText === false || !cfg.useBox) continue;
         try {
           const { renderYoutubeThumbnail } = await import("./ytThumbnail.js");
           const r = await renderYoutubeThumbnail({

@@ -2339,6 +2339,7 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
   const previewReq = useRef(0);
   const [templateUrl, setTemplateUrl] = useState(t.templateUrl || "");
   const [draft, setDraft] = useState(() => ({
+    useBox: t.useBox !== undefined ? !!t.useBox : role === "intro",
     showText: t.showText !== false,
     box: t.box || DEF_BOX, align: t.align || "center", vAlign: t.vAlign || "center",
     font: t.font || "sans", uppercase: !!t.uppercase,
@@ -2368,19 +2369,19 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
   useEffect(() => () => { clearTimeout(timer.current); clearTimeout(autoTimer.current); }, []);
 
   const refreshPreview = async () => {
-    if (!templateUrl || !draft.showText) return;
+    if (!templateUrl || !draft.showText || !draft.useBox) return;
     const id = ++previewReq.current; setAutoBusy(true);
     try { const r = await youtubeService.slideTextPreview({ role, config: draft, templateUrl }); if (id === previewReq.current) setPreview(r?.image || ""); }
     catch { /* keep editing view */ } finally { if (id === previewReq.current) setAutoBusy(false); }
   };
   useEffect(() => {
-    if (!templateUrl || !draft.showText) return undefined;
+    if (!templateUrl || !draft.showText || !draft.useBox) return undefined;
     clearTimeout(autoTimer.current);
     autoTimer.current = setTimeout(refreshPreview, 800);
     return () => clearTimeout(autoTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(draft), templateUrl]);
-  const showExact = !!preview && draft.showText && !!templateUrl;
+  const showExact = !!preview && draft.showText && draft.useBox && !!templateUrl;
 
   const upload = async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
@@ -2442,12 +2443,12 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
     const clampV = (v) => Math.max(lo, Math.min(hi, round ? Number(v.toFixed(round)) : Math.round(v)));
     return (
       <label className="flex items-center justify-between gap-2 text-sm">
-        <span className="flex items-center gap-1">{icon}{label}</span>
-        <span className="flex items-center gap-1.5">
-          <button type="button" onClick={() => set(key, clampV(cur - step), { later: true })} className="flex h-6 w-6 items-center justify-center rounded border border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300">−</button>
-          <input type="range" min={lo} max={hi} step={step} value={cur} onChange={(e) => set(key, Number(e.target.value), { later: true })} className="w-24 accent-[#FF0000]" />
-          <button type="button" onClick={() => set(key, clampV(cur + step), { later: true })} className="flex h-6 w-6 items-center justify-center rounded border border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300">+</button>
-          <span className="w-9 text-right text-xs text-slate-400">{fmt ? fmt(cur) : cur}</span>
+        <span className="flex flex-shrink-0 items-center gap-1">{icon}{label}</span>
+        <span className="flex min-w-0 flex-1 items-center justify-end gap-1.5">
+          <button type="button" onClick={() => set(key, clampV(cur - step), { later: true })} className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded border border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300">−</button>
+          <input type="range" min={lo} max={hi} step={step} value={cur} onChange={(e) => set(key, Number(e.target.value), { later: true })} className="min-w-0 flex-1 accent-[#FF0000]" style={{ maxWidth: "7rem" }} />
+          <button type="button" onClick={() => set(key, clampV(cur + step), { later: true })} className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded border border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300">+</button>
+          <span className="w-9 flex-shrink-0 text-right text-xs text-slate-400">{fmt ? fmt(cur) : cur}</span>
         </span>
       </label>
     );
@@ -2467,12 +2468,12 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
       <p className="text-sm font-semibold">{title}</p>
       <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{note} Upload a 1920×1080 background, then drag the box onto its empty area — the slide's text fills it with the styling below.</p>
       <div className="mt-3 flex flex-wrap items-start gap-4">
-        <div className="flex flex-col items-center gap-2">
+        <div className="flex w-full flex-col items-center gap-2 sm:w-auto">
           {templateUrl ? (
-            <div ref={frameRef} className="relative aspect-video w-80 select-none overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700"
+            <div ref={frameRef} className="relative aspect-video w-full max-w-[20rem] select-none overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700"
               onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerLeave={onPointerUp}>
               <img src={showExact ? preview : templateUrl} alt="" className="pointer-events-none absolute inset-0 h-full w-full object-cover" draggable={false} />
-              {draft.showText && (
+              {draft.showText && draft.useBox && (
                 <div className="absolute rounded border-2 border-dashed border-white/90 shadow-[0_0_0_1px_rgba(0,0,0,.4)]"
                   style={{ left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.w * 100}%`, height: `${box.h * 100}%`, transform: `rotate(${rot}deg)`, transformOrigin: "center center" }}>
                   <div onPointerDown={onPointerDown("move")} className="absolute inset-0 touch-none cursor-move" />
@@ -2501,11 +2502,17 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
           {templateUrl && <p className="text-[11px] text-slate-400">Live preview with sample text · drag the box, red corner resizes, blue knob rotates.</p>}
         </div>
         {templateUrl && (
-          <div className="min-w-[240px] flex-1 space-y-3">
+          <div className="w-full min-w-0 space-y-3 sm:flex-1">
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={draft.showText} onChange={(e) => set("showText", e.target.checked)} /> Write the text on it
             </label>
             {draft.showText && (
+              <label className="flex items-start gap-2 rounded-lg border border-slate-200 p-2.5 text-sm dark:border-slate-700">
+                <input type="checkbox" className="mt-0.5 h-4 w-4 accent-[#FF0000]" checked={draft.useBox} onChange={(e) => set("useBox", e.target.checked)} />
+                <span><b>Use a movable text box</b> <span className="text-slate-400">— off = the text is centred on the template automatically (fixed). On = drag / resize / rotate the box and style it below.</span></span>
+              </label>
+            )}
+            {draft.showText && draft.useBox && (
               <>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -2516,9 +2523,9 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
                       ))}
                     </div>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <label className="mb-1 block text-xs font-medium">Font</label>
-                    <select className="input h-8 py-0 text-sm" value={draft.font} onChange={(e) => set("font", e.target.value)}>
+                    <select className="input h-8 w-full py-0 text-sm" value={draft.font} onChange={(e) => set("font", e.target.value)}>
                       <option value="sans">Sans (bold)</option><option value="serif">Serif</option><option value="mono">Mono</option>
                       <option value="anton">Anton</option><option value="bebas">Bebas Neue</option><option value="oswald">Oswald</option><option value="poppins">Poppins</option><option value="montserrat">Montserrat</option>
                     </select>
@@ -2539,14 +2546,12 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
                   <ChevronDown className={`h-4 w-4 transition ${showStyle ? "rotate-180" : ""}`} /> Outline, shadow &amp; shade
                 </button>
                 {showStyle && (
-                  <div className="space-y-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                      {colorInput("Outline colour", "strokeColor", "#000000")}
-                      {stepRow("Outline", "strokeWidth", 0, 12, 1)}
-                    </div>
+                  <div className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                    {colorInput("Outline colour", "strokeColor", "#000000")}
+                    {stepRow("Outline", "strokeWidth", 0, 12, 1)}
                     <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={draft.shadow} onChange={(e) => set("shadow", e.target.checked)} /> Drop shadow</label>
                     <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={draft.uppercase} onChange={(e) => set("uppercase", e.target.checked)} /> UPPERCASE</label>
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 border-t border-slate-100 pt-2 dark:border-slate-800">
+                    <div className="border-t border-slate-100 pt-2 dark:border-slate-800">
                       {colorInput("Shade colour", "panelColor", "#000000", true)}
                       {stepRow("Opacity", "panelOpacity", 0, 100, 5)}
                       {stepRow("Corners", "panelRadius", 0, 60, 2)}
@@ -2555,6 +2560,7 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
                 )}
               </>
             )}
+            {draft.showText && !draft.useBox && <p className="text-xs text-slate-400">The subject / topic / closing text is centred on your template automatically.</p>}
             <span className="block text-xs text-slate-400">Changes save automatically.</span>
             {msg && <p className={`text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.text}</p>}
           </div>
