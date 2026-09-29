@@ -99,6 +99,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
   const jobIdRef = useRef(null); // id of the running background job (so Stop can cancel it)
   const runProducedRef = useRef(0); // how many questions the LAST generate() run produced (for per-subtopic tallying)
   const stopRef = useRef(false); // set when the user clicks Stop — breaks/short-circuits the poll loop
+  const wakeRef = useRef(null); // ends the current poll wait early (Stop → check now)
   const pendingDoneRef = useRef([]); // subtopics queued (via "Use selected") to hide after the next Generate
   const [inserting, setInserting] = useState(false);
   const [minimized, setMinimized] = useState(false); // collapsed to a floating pill — keeps generating in the background
@@ -526,7 +527,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
       }
     }
 
-    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const sleep = (ms) => new Promise((r) => { const t = setTimeout(r, ms); wakeRef.current = () => { clearTimeout(t); r(); }; });
     // Accumulate the avoid-list LOCALLY across waves — React state updates are
     // async, so relying on avoidStems would let the next wave repeat this wave's
     // questions. We still mirror it into state for later manual "Generate more".
@@ -589,7 +590,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
       });
       let done = false, result = { produced: 0, timedOut: true };
       for (let i = 0; i < 300 && !done; i++) {
-        await sleep(2000);
+        await sleep(stopRef.current ? 300 : 2000); // after Stop, check quickly
         let s;
         try { s = await aiService.job(jobId); } catch { continue; }
         if (s.keyStats && Object.keys(s.keyStats).length) setKeyStats(s.keyStats);
@@ -851,6 +852,7 @@ export default function AiGenerate({ open, onClose, onUpload, title = "Generate 
     } catch {
       /* best-effort — the poll loop still winds down on the next finalize */
     }
+    wakeRef.current?.(); // the server has stopped — fetch the kept questions now
   };
 
   // Resume an interrupted session: keep every restored question and continue the

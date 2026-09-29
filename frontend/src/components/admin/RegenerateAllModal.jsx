@@ -57,6 +57,7 @@ export default function RegenerateAllModal({ open, target, title, onClose, onDon
   const [keyStats, setKeyStats] = useState(null); // live per-key activity this run
   const jobRef = useRef(null);      // current background job id (for Cancel)
   const cancelRef = useRef(false);  // set true when the user cancels → stops polling
+  const wakeRef = useRef(null);     // ends the current poll wait early (Cancel → check now)
 
   useEffect(() => {
     if (!open) return;
@@ -80,10 +81,15 @@ export default function RegenerateAllModal({ open, target, title, onClose, onDon
 
   if (!open) return null;
 
+  // Cancel: the server aborts the job's AI requests and finishes it at once
+  // (keeping every question already saved); then poll RIGHT AWAY (wake the
+  // 2-second wait) so the result shows immediately.
   const cancel = async () => {
     cancelRef.current = true;
+    setLive(null);
     setMsg("Cancelling…");
     try { if (jobRef.current) await aiService.cancelJob(jobRef.current); } catch { /* ignore */ }
+    wakeRef.current?.();
   };
 
   const run = async () => {
@@ -108,12 +114,15 @@ export default function RegenerateAllModal({ open, target, title, onClose, onDon
       if (!jobId) throw new Error("Could not start.");
       jobRef.current = jobId;
       setProgress({ done: 0, total: requested });
-      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const sleep = (ms) => new Promise((r) => { const t = setTimeout(r, ms); wakeRef.current = () => { clearTimeout(t); r(); }; });
       let done = false;
       let lastCount = 0;
+      let cancelPolls = 0;
       for (let i = 0; i < 400 && !done; i++) {
-        await sleep(2000);
-        if (cancelRef.current) {
+        await sleep(cancelRef.current ? 300 : 2000);
+        // Cancelled but the server didn't answer "done" within ~2 s (e.g. an old
+        // server) — stop here and keep what's saved.
+        if (cancelRef.current && ++cancelPolls > 6) {
           setLive(null);
           setMsg(`✓ Cancelled — kept the ${lastCount} question(s) already regenerated.`);
           onDone?.();
@@ -128,6 +137,12 @@ export default function RegenerateAllModal({ open, target, title, onClose, onDon
         if (s.status === "done") {
           const doneCount = s.updatedCount ?? s.count ?? total;
           setProgress({ done: doneCount, total });
+          if (cancelRef.current || s.cancelled) {
+            setMsg(`✓ Cancelled — kept the ${doneCount} question(s) already regenerated${total > doneCount ? `; ${total - doneCount} not changed` : ""}.`);
+            done = true;
+            onDone?.();
+            break;
+          }
           const note = s.error === "quota"
             ? " — the AI kept hitting its rate/quota limit even after waiting (often a DAILY free-tier limit). Add another API key or try later, then click “Regenerate all questions” to resume."
             : s.error === "partial" || doneCount < total

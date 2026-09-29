@@ -12,6 +12,7 @@ import { getClientPlans, findSiteSettings } from "../utils/plans.js";
 import { webResearch } from "../utils/webResearch.js";
 import { glossCleaned, glossReplacements, applyGlossReplacements } from "../utils/glossEdit.js";
 import { runKeyLanes, bulkRetryMs } from "../utils/keyLanes.js";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { splitIntoStems, contentOfBlock, questionLocation } from "./contentController.js";
 import Subject from "../models/Subject.js";
 import { uploadImage, isCloudinaryConfigured } from "../config/cloudinary.js";
@@ -1526,64 +1527,78 @@ async function callProvider({ key, baseUrl, model, userPrompt, maxTokens, system
   // the worker moves to the next chunk/key rather than burning minutes here.
   const WAITS = [1500, 3000, 6000];
   const TIMEOUT_MS = timeoutMs; // hard cap per call so a hung provider can't stall the whole job (short for key probes)
+  // The job was cancelled → abort this request (and never retry it).
+  const jobSignal = currentJobSignal();
+  const CANCELLED = { ok: false, status: 499, cancelled: true, detail: "Cancelled." };
   for (let attempt = 0; ; attempt++) {
+    if (jobSignal?.aborted) return CANCELLED;
     let resp;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    const onJobAbort = () => controller.abort();
+    jobSignal?.addEventListener?.("abort", onJobAbort, { once: true });
     try {
-      resp = await fetch(`${safeBase}/chat/completions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
-    } catch (err) {
-      clearTimeout(timer);
-      // Network error or a timeout (abort). Retry a few times on this key, then
-      // give up so the worker moves on to another chunk/key instead of hanging.
-      if (attempt < WAITS.length) { await new Promise((r) => setTimeout(r, WAITS[attempt])); continue; }
-      return { ok: false, status: 0, detail: err?.name === "AbortError" ? "Request timed out." : (err?.message || "Network error.") };
-    }
-    clearTimeout(timer);
-    if (resp.ok) {
-      // Read the body as TEXT first, then parse — so a non-JSON 200 (e.g. a
-      // firewall/WAF or gateway HTML page like "<!doctype html>…", which some
-      // proxies return) becomes a clean provider error instead of throwing an
-      // unhandled "Unexpected token '<'" that would break the whole job.
-      const raw = await resp.text().catch(() => "");
-      let data;
       try {
-        data = JSON.parse(raw);
-      } catch {
-        return {
-          ok: false,
-          status: 502,
-          detail: `Provider returned a non-JSON response (looks like an HTML/error page). This usually means the Base URL is wrong or the key's gateway is blocking the request. ${raw.slice(0, 120)}`,
-        };
+        resp = await fetch(`${safeBase}/chat/completions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
+      } catch (err) {
+        clearTimeout(timer);
+        if (jobSignal?.aborted) return CANCELLED;
+        // Network error or a timeout (abort). Retry a few times on this key, then
+        // give up so the worker moves on to another chunk/key instead of hanging.
+        if (attempt < WAITS.length) { await jobSleep(WAITS[attempt], jobSignal); continue; }
+        return { ok: false, status: 0, detail: err?.name === "AbortError" ? "Request timed out." : (err?.message || "Network error.") };
       }
-      const content = extractContent(data);
-      // A 200 with NO usable text — Gemini does this on a safety block or when a
-      // "thinking" model spends its whole budget reasoning and emits no answer.
-      // For JSON tasks (failOnEmpty) report it as a soft, retriable error (520)
-      // so callWithFallback rolls over to the next key/model instead of treating
-      // an empty reply as success. Key-test / model-detect keep the old behavior.
-      if (failOnEmpty && !String(content || "").trim()) {
-        return { ok: false, status: 520, empty: true, detail: "The model returned an empty response (possible safety filter, or a thinking-only/weak model)." };
+      clearTimeout(timer);
+      if (resp.ok) {
+        // Read the body as TEXT first, then parse — so a non-JSON 200 (e.g. a
+        // firewall/WAF or gateway HTML page like "<!doctype html>…", which some
+        // proxies return) becomes a clean provider error instead of throwing an
+        // unhandled "Unexpected token '<'" that would break the whole job.
+        const raw = await resp.text().catch(() => "");
+        if (jobSignal?.aborted) return CANCELLED;
+        let data;
+        try {
+          data = JSON.parse(raw);
+        } catch {
+          return {
+            ok: false,
+            status: 502,
+            detail: `Provider returned a non-JSON response (looks like an HTML/error page). This usually means the Base URL is wrong or the key's gateway is blocking the request. ${raw.slice(0, 120)}`,
+          };
+        }
+        const content = extractContent(data);
+        // A 200 with NO usable text — Gemini does this on a safety block or when a
+        // "thinking" model spends its whole budget reasoning and emits no answer.
+        // For JSON tasks (failOnEmpty) report it as a soft, retriable error (520)
+        // so callWithFallback rolls over to the next key/model instead of treating
+        // an empty reply as success. Key-test / model-detect keep the old behavior.
+        if (failOnEmpty && !String(content || "").trim()) {
+          return { ok: false, status: 520, empty: true, detail: "The model returned an empty response (possible safety filter, or a thinking-only/weak model)." };
+        }
+        return { ok: true, content, tokens: data?.usage?.total_tokens || 0 };
       }
-      return { ok: true, content, tokens: data?.usage?.total_tokens || 0 };
+      const detail = await resp.text().catch(() => "");
+      if (jobSignal?.aborted) return CANCELLED;
+      // Some Gemini model versions reject the `reasoning_effort` field with a 400.
+      // Retry once WITHOUT it so a valid key isn't wrongly marked as "not working".
+      if (resp.status === 400 && payload.reasoning_effort) {
+        delete payload.reasoning_effort;
+        continue;
+      }
+      const canRetry = TRANSIENT.includes(resp.status) && attempt < WAITS.length;
+      if (!canRetry) return { ok: false, status: resp.status, detail };
+      // For 429 (quota/rate) honour the server's suggested delay; else backoff.
+      const wait = resp.status === 429 ? retryWaitMs(resp.headers, detail) || WAITS[attempt] : WAITS[attempt];
+      await jobSleep(wait, jobSignal);
+    } finally {
+      clearTimeout(timer);
+      jobSignal?.removeEventListener?.("abort", onJobAbort);
     }
-    const detail = await resp.text().catch(() => "");
-    // Some Gemini model versions reject the `reasoning_effort` field with a 400.
-    // Retry once WITHOUT it so a valid key isn't wrongly marked as "not working".
-    if (resp.status === 400 && payload.reasoning_effort) {
-      delete payload.reasoning_effort;
-      continue;
-    }
-    const canRetry = TRANSIENT.includes(resp.status) && attempt < WAITS.length;
-    if (!canRetry) return { ok: false, status: resp.status, detail };
-    // For 429 (quota/rate) honour the server's suggested delay; else backoff.
-    const wait = resp.status === 429 ? retryWaitMs(resp.headers, detail) || WAITS[attempt] : WAITS[attempt];
-    await new Promise((r) => setTimeout(r, wait));
   }
 }
 
@@ -1633,6 +1648,30 @@ function newJobId() {
 // but if their promise ever rejects OUTSIDE that (an unexpected error), mark the
 // job errored so the client stops polling — and log it — instead of leaving a
 // stuck "pending" job and (pre-safety-net) crashing the process.
+// Every background AI job runs inside its own context carrying an AbortSignal.
+// Cancel (POST /api/ai/job/:id/cancel) fires it: every AI request the job has
+// in flight is ABORTED at once (callProvider reads the signal from here — no
+// need to thread it through every helper), and every wait (rate-limit pause,
+// retry back-off) wakes immediately. So Stop / Cancel takes effect in about a
+// second instead of after the slowest open request (up to a minute) finishes.
+const jobCtx = new AsyncLocalStorage();
+const currentJobSignal = () => jobCtx.getStore()?.signal || null;
+function startJob(id, run) {
+  const job = genJobs.get(id);
+  const ac = new AbortController();
+  if (job) job._abort = ac;
+  guardJob(id, jobCtx.run({ signal: ac.signal, id }, run));
+}
+// Sleep that ends early when `signal` (default: the current job's) is aborted.
+function jobSleep(ms, signal = currentJobSignal()) {
+  return new Promise((resolve) => {
+    if (signal?.aborted) return resolve();
+    const t = setTimeout(done, Math.max(0, ms));
+    function done() { clearTimeout(t); signal?.removeEventListener?.("abort", done); resolve(); }
+    signal?.addEventListener?.("abort", done, { once: true });
+  });
+}
+
 function guardJob(id, p) {
   Promise.resolve(p).catch((e) => {
     const j = genJobs.get(id);
@@ -1929,7 +1968,7 @@ async function runGenerationJob(id, ctx) {
         // Surface the wait as a live countdown in the UI (jobStatus → waitUntil).
         activeWaits += 1;
         save({ waitUntil: Date.now() + waitMs });
-        await sleep(waitMs);
+        await jobSleep(waitMs); // wakes at once on Stop
         if (--activeWaits === 0) save({ waitUntil: null });
         resetModelCycle(ep); // fresh pass over all the key's models after the wait
       }
@@ -2192,7 +2231,7 @@ export async function generateQuestions(req, res) {
     : []; // may include EVERY existing question in the whole topic (across its quizzes) so new questions don't duplicate them
 
   // Fire-and-forget — the client polls /api/ai/job/:id for progress.
-  guardJob(id, runGenerationJob(id, { workers, fallbackWorkers, model, topic, notes, subject, stream, plan, count, difficulty, types, target, avoid, owner: jobOwner, source, userSubtopics, numerical: !!req.body?.numerical, reshape: !!req.body?.reshape, outLang }));
+  startJob(id, () => runGenerationJob(id, { workers, fallbackWorkers, model, topic, notes, subject, stream, plan, count, difficulty, types, target, avoid, owner: jobOwner, source, userSubtopics, numerical: !!req.body?.numerical, reshape: !!req.body?.reshape, outLang }));
 
   res.json({ jobId: id, requested: target, model, warning });
 }
@@ -2254,7 +2293,17 @@ export function cancelJob(req, res) {
   if (!job) return res.status(404).json({ message: "Job not found or expired." });
   job.cancelled = true;
   job.updatedAt = Date.now();
-  res.json({ ok: true, status: job.status });
+  // Abort every AI request in flight and wake every wait — the job's workers
+  // stop within a moment instead of after the slowest request (up to a minute).
+  try { job._abort?.abort(); } catch { /* ignore */ }
+  // Extend / Regenerate / Flashcard jobs: finish RIGHT NOW with what's saved
+  // (each question is written as it completes, and nothing is written after
+  // Cancel), so the modal can close its progress immediately.
+  if (job.rewrite && job.status === "pending") {
+    const n = job.questions.length;
+    Object.assign(job, { status: "done", cancelled: true, updatedCount: n, remaining: Math.max(0, (job.requested || 0) - n), waitUntil: null, waitingKeys: 0, workingKeys: 0 });
+  }
+  res.json({ ok: true, status: job.status, cancelled: true, count: job.questions.length, requested: job.requested });
 }
 
 
@@ -2779,7 +2828,7 @@ async function runExtractionJob(id, { endpoints, model, chunks, owner = null, ha
             // Quota/rate limit — wait for it to reset, then keep going instead of
             // abandoning every remaining chunk. Expose the wait for a countdown.
             const wait = 60000;
-            if (Date.now() + wait < deadline) { save({ waitUntil: Date.now() + wait }); await sleep(wait); save({ waitUntil: null }); }
+            if (Date.now() + wait < deadline) { save({ waitUntil: Date.now() + wait }); await jobSleep(wait); save({ waitUntil: null }); }
           }
           continue;
         }
@@ -2801,7 +2850,7 @@ async function runExtractionJob(id, { endpoints, model, chunks, owner = null, ha
       }
       pending = failed;
       // Brief pause before retrying stragglers left by transient (non-quota) errors.
-      if (pending.length && round < MAX_ROUNDS - 1 && Date.now() < deadline && !job.cancelled) await sleep(1500);
+      if (pending.length && round < MAX_ROUNDS - 1 && Date.now() < deadline && !job.cancelled) await jobSleep(1500);
     }
 
     if (job.cancelled) {
@@ -2890,7 +2939,7 @@ export async function extractQuestions(req, res) {
   // Optional strong user instructions to steer extraction.
   const notes = String(req.body?.notes || "").trim();
 
-  guardJob(id, runExtractionJob(id, { endpoints, model, chunks, owner: scope.owner, have, notes }));
+  startJob(id, () => runExtractionJob(id, { endpoints, model, chunks, owner: scope.owner, have, notes }));
   res.json({ jobId: id, chunks: chunks.length, questionsDetected: detected?.count || 0, model });
 }
 
@@ -4419,6 +4468,7 @@ function bulkWorkerLanes(endpoints, jobChunks) {
 //   isUsable          — (parsed) => whether the parsed result is good enough to apply
 async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = null, systemPrompt, perQuestionPrompt, buildSet, isUsable, failLabel = "updated" }) {
   const job = genJobs.get(id);
+  job.rewrite = true; // cancel finalizes it immediately (see cancelJob)
   const deadline = Date.now() + 12 * 60 * 1000;
   const save = (patch) => Object.assign(job, patch, { updatedAt: Date.now() });
   const total = questions.length;
@@ -4478,6 +4528,7 @@ async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = n
         if (!parsed || !isUsable(parsed)) continue;
         const set = buildSet(q, parsed);
         if (!set || !Object.keys(set).length) continue;
+        if (job.cancelled) break; // cancelled — never change a question after Cancel
         let writeResult;
         try {
           writeResult = await Question.updateOne({ _id: q._id }, { $set: set });
@@ -4529,11 +4580,14 @@ async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = n
     timeLeftMs: () => deadline - Date.now(),
     maxQuotaWaits: MAX_QUOTA_WAITS,
     onState: (st) => save(st),
+    sleep: (ms) => jobSleep(ms), // wakes at once on Cancel
   });
 
   try {
     await runLanes();
-    if (updated === 0) {
+    if (job.cancelled) {
+      save({ status: "done", cancelled: true, updatedCount: updated, requested: total, remaining: total - updated, waitUntil: null, waitingKeys: 0, workingKeys: 0 });
+    } else if (updated === 0) {
       save({
         status: "error",
         error: lastError
@@ -4632,7 +4686,7 @@ export async function extendExplanations(req, res) {
     model: chosen.model,
     updatedAt: Date.now(),
   });
-  guardJob(id, runExtendJob(id, { endpoints: chosen.endpoints, model: chosen.model, questions, owner: scope.owner, notes, fixOptions: !!req.body?.fixOptions, extendQuestion: !!req.body?.extendQuestion, shuffleOptions: !!req.body?.shuffleOptions }));
+  startJob(id, () => runExtendJob(id, { endpoints: chosen.endpoints, model: chosen.model, questions, owner: scope.owner, notes, fixOptions: !!req.body?.fixOptions, extendQuestion: !!req.body?.extendQuestion, shuffleOptions: !!req.body?.shuffleOptions }));
   res.json({ jobId: id, requested: questions.length, model: chosen.model });
 }
 
@@ -4765,6 +4819,7 @@ function parseFlashcardItems(content) {
 
 async function runFlashcardJob(id, { endpoints, model, questions, owner = null }) {
   const job = genJobs.get(id);
+  job.rewrite = true; // cancel finalizes it immediately (see cancelJob)
   const deadline = Date.now() + 12 * 60 * 1000;
   const save = (patch) => Object.assign(job, patch, { updatedAt: Date.now() });
   if (!job.keyStats) job.keyStats = {};
@@ -4819,6 +4874,7 @@ async function runFlashcardJob(id, { endpoints, model, questions, owner = null }
         if (typeof it.quickRecall === "string" && it.quickRecall.trim()) set.quickRecall = it.quickRecall.trim();
         if (typeof it.explanation === "string" && it.explanation.trim()) set.explanation = it.explanation.trim();
         if (!Object.keys(set).length) continue;
+        if (job.cancelled) break; // never change a question after Cancel
         await Question.updateOne({ _id: q._id }, { $set: set }).catch(() => {});
         updated += 1;
         filled.add(String(q._id));
@@ -4851,8 +4907,11 @@ async function runFlashcardJob(id, { endpoints, model, questions, owner = null }
       timeLeftMs: () => deadline - Date.now(),
       maxQuotaWaits: MAX_QUOTA_WAITS,
       onState: (st) => save(st),
+      sleep: (ms) => jobSleep(ms),
     });
-    if (updated === 0) {
+    if (job.cancelled) {
+      save({ status: "done", cancelled: true, updatedCount: updated, requested: questions.length, waitUntil: null, waitingKeys: 0, workingKeys: 0 });
+    } else if (updated === 0) {
       save({ status: "error", error: lastError
         ? (lastError.status === 429 ? "AI quota/rate limit reached before anything was generated. Wait a minute and try again." : `AI provider error (${lastError.status || 0}).`)
         : "The AI didn't return usable flashcard notes. Try again." });
@@ -4892,7 +4951,7 @@ export async function generateFlashcardDetails(req, res) {
   genJobs.set(id, { status: "pending", questions: [], requested: questions.length, error: null, model: chosen.model, updatedAt: Date.now() });
   // The job chunks the questions internally (small chunks + per-question retry),
   // mirroring the question generator so nothing is dropped or left empty.
-  guardJob(id, runFlashcardJob(id, { endpoints: chosen.endpoints, model: chosen.model, questions, owner: scope.owner }));
+  startJob(id, () => runFlashcardJob(id, { endpoints: chosen.endpoints, model: chosen.model, questions, owner: scope.owner }));
   res.json({ jobId: id, requested: questions.length, model: chosen.model });
 }
 
@@ -5375,7 +5434,7 @@ export async function regenerateAll(req, res) {
   cleanupJobs();
   const id = newJobId();
   genJobs.set(id, { status: "pending", questions: [], requested: questions.length, error: null, model: chosen.model, updatedAt: Date.now() });
-  guardJob(id, runRegenAllJob(id, { endpoints: chosen.endpoints, model: chosen.model, questions, owner: scope.owner, notes, fixOptions, extendQuestion, shuffleOptions }));
+  startJob(id, () => runRegenAllJob(id, { endpoints: chosen.endpoints, model: chosen.model, questions, owner: scope.owner, notes, fixOptions, extendQuestion, shuffleOptions }));
   res.json({ jobId: id, requested: questions.length, model: chosen.model });
 }
 
@@ -6342,6 +6401,11 @@ export {
   isDailyQuotaLimit,
   quota429Message,
   pickPreferredModel,
+  // Background-job cancellation (tested: Stop is instant).
+  callProvider,
+  startJob,
+  jobSleep,
+  genJobs as _genJobs,
   // Extend / Regenerate result builders (tested: gloss clean-up).
   buildExtendSet,
   buildRegenSet,

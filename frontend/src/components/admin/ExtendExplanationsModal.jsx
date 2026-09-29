@@ -55,6 +55,7 @@ export default function ExtendExplanationsModal({ open, target, title, onClose, 
   const [keyStats, setKeyStats] = useState(null); // live per-key activity this run { label: {requests,ok,limited,error,questions} }
   const jobRef = useRef(null);      // current background job id (for Cancel)
   const cancelRef = useRef(false);  // set true when the user cancels → stops polling
+  const wakeRef = useRef(null);     // ends the current poll wait early (Cancel → check now)
 
   useEffect(() => {
     if (!open) return;
@@ -84,10 +85,15 @@ export default function ExtendExplanationsModal({ open, target, title, onClose, 
 
   if (!open) return null;
 
+  // Cancel: the server aborts the job's AI requests and finishes it at once
+  // (keeping every question already saved); then poll RIGHT AWAY (wake the
+  // 2-second wait) so the result shows immediately.
   const cancel = async () => {
     cancelRef.current = true;
+    setLive(null);
     setMsg("Cancelling…");
     try { if (jobRef.current) await aiService.cancelJob(jobRef.current); } catch { /* ignore */ }
+    wakeRef.current?.();
   };
 
   const run = async () => {
@@ -115,11 +121,11 @@ export default function ExtendExplanationsModal({ open, target, title, onClose, 
       if (!jobId) throw new Error("Could not start.");
       jobRef.current = jobId;
       setProgress({ done: 0, total: requested, remainingRun: runWasResume });
-      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const sleep = (ms) => new Promise((r) => { const t = setTimeout(r, ms); wakeRef.current = () => { clearTimeout(t); r(); }; });
       let done = false;
       let lastCount = 0;
       for (let i = 0; i < 400 && !done; i++) {
-        await sleep(2000);
+        await sleep(cancelRef.current ? 300 : 2000);
         let s;
         try { s = await aiService.job(jobId); } catch { continue; }
         if (s.keyStats && Object.keys(s.keyStats).length) setKeyStats(s.keyStats);
