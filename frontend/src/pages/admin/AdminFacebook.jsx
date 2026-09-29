@@ -2920,6 +2920,31 @@ function FullQuizVideoForm({ st, onStatus }) {
   const [savingDefaults, setSavingDefaults] = useState(false);
   // Preview: a short 16:9 test video (first 3 questions) — never posted.
   const [pv, setPv] = useState({ busy: false, stage: "", progress: null, url: "", error: "", info: "" });
+  // Preview % done + time left (same estimator as the AI Slideshow test).
+  const pvLive = useRef(null);
+  const [pvEta, setPvEta] = useState(null);
+  const [pvElapsed, setPvElapsed] = useState(0);
+  useEffect(() => {
+    if (!pv.busy) return undefined;
+    const id = setInterval(() => {
+      const live = pvLive.current; if (!live) return;
+      const now = Date.now();
+      const e = estimateSlideshowEta({
+        stage: live.stage,
+        stageElapsedSec: (now - live.since) / 1000,
+        doneAtSec: live.doneAt ? (live.doneAt - live.since) / 1000 : 0,
+        progress: live.progress,
+        slides: live.slides,
+        profile: live.profile,
+      });
+      setPvElapsed(Math.floor((now - live.startedAt) / 1000));
+      setPvEta((prev) => ({
+        percent: Math.max(prev?.percent || 0, e.percent),
+        remainingSec: smoothRemaining(prev?.remainingSec, e.remainingSec),
+      }));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [pv.busy]);
   // 4) Post to
   const [toYoutube, setToYoutube] = useState(d.toYoutube !== false);
   const [toFacebook, setToFacebook] = useState(!!d.toFacebook);
@@ -3047,6 +3072,13 @@ function FullQuizVideoForm({ st, onStatus }) {
   const previewVideo = async () => {
     if (!hasSource) { setPv((p) => ({ ...p, error: "Pick the topic / quiz first." })); return; }
     setPv({ busy: true, stage: "PENDING", progress: null, url: "", error: "", info: "" });
+    const startedAt = Date.now();
+    // 3 questions → question + answer slides, plus the intro and end slides.
+    const slides = 3 * 2 + 2;
+    const marks = [{ stage: "PENDING", at: startedAt }];
+    pvLive.current = { stage: "PENDING", since: startedAt, startedAt, doneAt: 0, progress: null, slides, profile: loadSlideshowProfile() };
+    setPvElapsed(0);
+    setPvEta(estimateSlideshowEta({ stage: "PENDING", slides, profile: pvLive.current.profile }));
     try {
       const startRes = await facebookService.testSlideshow({
         landscape: true, source, order, start: nStart, useTemplates,
@@ -3065,10 +3097,26 @@ function FullQuizVideoForm({ st, onStatus }) {
         try { r = await facebookService.testSlideshowStatus(startRes.jobId); errors = 0; }
         catch (e) { if ((e?.status >= 400 && e?.status < 500) || ++errors >= 8) throw e; continue; }
         if (r?.status === "done" && r?.videoUrl) {
+          const live = pvLive.current;
+          if (live) saveSlideshowProfile(learnSlideshowProfile(live.profile, marks, Date.now(), live.progress?.total || live.slides));
           setPv({ busy: false, stage: "", progress: null, url: r.videoUrl, error: "", info: `${r.questions || ""} question${r.questions === 1 ? "" : "s"} · ${r.duration || 0}s · ${r.voice || ""}${r.ttsNote ? ` · ${r.ttsNote}` : ""}` });
           return;
         }
         if (r?.status === "failed") throw new Error(r?.message || "The preview could not be made.");
+        // Keep the estimator's view of the job current (stage start, slide counter).
+        const live = pvLive.current;
+        if (live) {
+          const now = Date.now();
+          const stage = String(r?.stage || live.stage).toUpperCase();
+          const prog = r?.progress?.total ? r.progress : null;
+          if (stage !== live.stage) {
+            marks.push({ stage, at: now });
+            Object.assign(live, { stage, since: now, doneAt: 0, progress: prog });
+          } else {
+            if (prog && prog.done !== live.progress?.done) live.doneAt = now;
+            live.progress = prog;
+          }
+        }
         setPv((p) => ({ ...p, stage: r?.stage || p.stage, progress: r?.progress?.total ? r.progress : null }));
         if (Date.now() > deadline) throw new Error("The preview is taking too long — please try again.");
       }
@@ -3414,11 +3462,29 @@ function FullQuizVideoForm({ st, onStatus }) {
         </button>
       </div>
       {msg && <p className={`mt-2 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.text}</p>}
-      <p className="mt-1 text-xs text-slate-400">
-        {pv.busy
-          ? `Preview: ${PV_STAGE[pv.stage] || "Working"}${pv.progress ? ` · ${pv.progress.done}/${pv.progress.total}` : ""}… (about 1–3 minutes)`
-          : "Preview makes a short test with the first 3 questions and the settings above — nothing is posted. Save settings only keeps these settings for next time."}
-      </p>
+      {pv.busy ? (
+        <div className="mt-2 max-w-md">
+          <div className="flex items-center justify-between gap-2 text-xs">
+            <span className="font-semibold tabular-nums text-brand-600">{pvEta?.percent ?? 0}% done</span>
+            <span className="font-medium tabular-nums text-slate-600 dark:text-slate-300">
+              {pvEta && pvEta.remainingSec > 0 ? `about ${fmtDuration(pvEta.remainingSec)} left` : "Almost done…"}
+            </span>
+          </div>
+          <div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700"
+            role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pvEta?.percent ?? 0}>
+            <div className="h-full rounded-full bg-brand-600 transition-all duration-700 ease-linear" style={{ width: `${pvEta?.percent ?? 0}%` }} />
+          </div>
+          <p className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+            <span className="inline-flex items-center gap-1 tabular-nums"><Clock className="h-3 w-3" /> {fmtDuration(pvElapsed)} elapsed</span>
+            <span>·</span>
+            <span>Preview: {PV_STAGE[String(pv.stage).toUpperCase()] || "Working"}{pv.progress ? ` · ${pv.progress.done}/${pv.progress.total}` : ""}…</span>
+          </p>
+        </div>
+      ) : (
+        <p className="mt-1 text-xs text-slate-400">
+          Preview makes a short test with the first 3 questions and the settings above — nothing is posted. Save settings only keeps these settings for next time.
+        </p>
+      )}
       {pv.error && <p className="mt-2 text-sm font-medium text-rose-600">{pv.error}</p>}
       {pv.url && (
         <div className="mt-3">
