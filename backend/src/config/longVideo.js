@@ -42,6 +42,7 @@ const STAGE_LABEL = {
   uploading_facebook: "Uploading to Facebook",
   short: "Uploading the Short",
   uploading_preview: "Saving the preview videos",
+  making_vertical: "Making the Short vertical (9:16)",
   finishing: "Setting thumbnail & playlist",
   done: "Done",
   failed: "Failed",
@@ -451,7 +452,7 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
           });
           shortSourcePath = shortRender.filePath;
           const { makeVerticalShort } = await import("./verticalShort.js");
-          shortPath = await makeVerticalShort(shortSourcePath);
+          shortPath = await makeVerticalShort(shortSourcePath, { durationSec: shortRender.duration });
           const shortDesc = buildYtLongDescription({
             intro: `${teaserQs.length} sample question${teaserQs.length === 1 ? "" : "s"}${breadcrumb ? ` — ${breadcrumb}` : ""}. Watch the full quiz here: ${job.url}`,
             hashtags: tags,
@@ -537,8 +538,8 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
 // one-at-a-time chain as real videos (it is just as heavy).
 
 // Overall % of a preview: the full render is the big part, then the Short.
-//   phase "full"  0–70 · "short" 70–93 · "thumb"/"upload" 93–99
-const PREVIEW_PHASE = { picking: [0, 2], full: [2, 68], short: [70, 23], upload: [93, 4], thumb: [97, 2] };
+//   phase "full" 0–70 · "short" 70–86 · "vertical" (9:16 copy) 86–93 · "upload"/"thumb" 93–99
+const PREVIEW_PHASE = { picking: [0, 2], full: [2, 68], short: [70, 16], vertical: [86, 7], upload: [93, 4], thumb: [97, 2] };
 const RENDER_STAGE = { pending: [0, 0.02], generating_slides: [0.02, 0.55], generating_audio: [0.57, 0.2], rendering_video: [0.77, 0.2], ready: [0.97, 0.03] };
 export function previewPercent(j) {
   if (!j) return 0;
@@ -546,7 +547,9 @@ export function previewPercent(j) {
   if (j.status === "queued") return 0;
   const [base, span] = PREVIEW_PHASE[j.phase] || [0, 0];
   let frac = 0;
-  if (j.phase === "full" || j.phase === "short") {
+  if (j.phase === "vertical") {
+    frac = j.progress && j.progress.total > 0 ? Math.max(0, Math.min(1, j.progress.done / j.progress.total)) : 0;
+  } else if (j.phase === "full" || j.phase === "short") {
     const [sb, ss] = RENDER_STAGE[j.stage] || [0, 0];
     const within = j.progress && j.progress.total > 0 ? Math.max(0, Math.min(1, j.progress.done / j.progress.total)) : 0;
     frac = sb + ss * within;
@@ -652,9 +655,14 @@ async function runPreview(job, { source, cfg, site, titleTemplate, opts }) {
     const teaserQs = questions.slice(0, 3);
     const shortRender = await generateSlideshow(teaserQs, { ...slideBase, intro, outro: "short", ...track("short") });
     if (shortRender.filePath) temp.push(shortRender.filePath);
-    job.stage = "rendering_video";
+    job.phase = "vertical";
+    job.stage = "making_vertical";
+    job.progress = { done: 0, total: 100 };
     const { makeVerticalShort } = await import("./verticalShort.js");
-    const shortPath = await makeVerticalShort(shortRender.filePath);
+    const shortPath = await makeVerticalShort(shortRender.filePath, {
+      durationSec: shortRender.duration,
+      onProgress: (done, total) => { job.progress = { done, total }; },
+    });
     temp.push(shortPath);
     job.shortQuestions = teaserQs.length;
     job.shortDuration = shortRender.duration;

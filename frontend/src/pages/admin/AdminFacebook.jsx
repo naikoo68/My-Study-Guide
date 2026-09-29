@@ -3073,7 +3073,7 @@ function FullQuizVideoForm({ st, onStatus }) {
     }
   };
   const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.max(0, s) % 60).padStart(2, "0")}`;
-  const PV_PHASE = { picking: "Loading questions", full: "Full video", short: "Short", upload: "Saving", thumb: "Thumbnail" };
+  const PV_PHASE = { picking: "Loading questions", full: "Full video", short: "Short", vertical: "Short", upload: "Saving", thumb: "Thumbnail" };
 
   const step = (n, text) => <p className="mb-1 mt-5 text-sm font-semibold">{n}. {text}</p>;
   const secInput = (value, set, lo, hi, def) => (

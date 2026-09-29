@@ -22,12 +22,17 @@ export function ffmpegPath() {
 }
 
 // Run ffmpeg with `args`; resolves with its stderr text (ffmpeg logs there).
-export function runFfmpeg(args, { timeoutMs = 180000 } = {}) {
+// onTimeSec(sec) — optional: called as ffmpeg encodes, with the output time
+// reached so far (ffmpeg's `-progress pipe:1`, read from stdout, so it works
+// even with -loglevel error). Lets slow encodes show real progress.
+export function runFfmpeg(args, { timeoutMs = 180000, onTimeSec } = {}) {
   return new Promise((resolve, reject) => {
     let stderr = "";
     let child;
+    const wantProgress = typeof onTimeSec === "function";
+    const fullArgs = wantProgress ? ["-progress", "pipe:1", "-nostats", ...args] : args;
     try {
-      child = spawn(ffmpegPath(), args, { stdio: ["ignore", "ignore", "pipe"] });
+      child = spawn(ffmpegPath(), fullArgs, { stdio: ["ignore", wantProgress ? "pipe" : "ignore", "pipe"] });
     } catch (e) {
       return reject(e);
     }
@@ -35,6 +40,18 @@ export function runFfmpeg(args, { timeoutMs = 180000 } = {}) {
       try { child.kill("SIGKILL"); } catch { /* ignore */ }
       reject(new Error("ffmpeg timed out while rendering the slideshow."));
     }, timeoutMs);
+    if (wantProgress && child.stdout) {
+      let buf = "";
+      child.stdout.on("data", (d) => {
+        buf += d.toString();
+        const lines = buf.split("\n");
+        buf = lines.pop();
+        for (const line of lines) {
+          const m = /^out_time_(?:us|ms)=(\d+)/.exec(line.trim());
+          if (m) { try { onTimeSec(Number(m[1]) / 1e6); } catch { /* ignore */ } }
+        }
+      });
+    }
     child.stderr.on("data", (d) => {
       stderr += d.toString();
       if (stderr.length > 20000) stderr = stderr.slice(-20000); // keep the tail only
