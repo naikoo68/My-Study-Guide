@@ -87,6 +87,9 @@ export function normalizeSlidesMode(v) {
   return String(v || "").trim().toLowerCase() === "question" ? "question" : "both";
 }
 
+// A 1×1 fully transparent PNG — the "no text" layer over a template.
+const TRANSPARENT_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=", "base64");
+
 // The reveal slide IS the question slide (just recoloured) → same template.
 const templateRole = (role) => (role === "reveal" ? "question" : role);
 
@@ -229,15 +232,20 @@ export async function generateSlideshow(question, opts = {}) {
   if (!plan.length) throw new Error("Could not build any slides for this question.");
 
   // Optional opening title slide and closing call-to-action slide.
+  const slideText = opts.slideText || {};
   if (opts.intro) {
     const io = typeof opts.intro === "object" ? opts.intro : {};
-    plan.unshift(introSlidePlan({ subject: io.subject, topic: io.topic, siteName: brandOpts.siteName }));
+    plan.unshift(introSlidePlan({ subject: io.subject, topic: io.topic, siteName: brandOpts.siteName, narration: slideText.intro?.narration }));
     planQuestions.unshift(null);
   }
   if (opts.outro) {
-    plan.push(outroSlidePlan(opts.outro === "short" ? "short" : "full", { siteName: brandOpts.siteName }));
+    const kind = opts.outro === "short" ? "short" : "full";
+    plan.push(outroSlidePlan(kind, { siteName: brandOpts.siteName, narration: slideText[kind === "short" ? "shortoutro" : "outro"]?.narration }));
     planQuestions.push(null);
   }
+  // Intro / end slides: on-screen time = the admin's seconds, or (0 = auto)
+  // just the narration — never the question time.
+  const ioSeconds = (role) => Math.max(1, Math.min(60, Math.round(Number(slideText[role]?.seconds)) || 1));
 
   const workDir = await fs.mkdtemp(path.join(os.tmpdir(), "msg-slideshow-"));
   try {
@@ -296,6 +304,14 @@ export async function generateSlideshow(question, opts = {}) {
       for (let i = 0; i < plan.length; i++) {
         const s = plan[i];
         const cfg = ["intro", "outro", "shortoutro"].includes(s.role) ? opts.slideText[s.role] : null;
+        // "Write the text on it" OFF → show the uploaded template ALONE (a
+        // transparent layer on top) — no card, heading or caption.
+        if (cfg && cfg.showText === false && templatePaths[templateRole(s.role)]) {
+          const fp = path.join(workDir, `slideblank${String(i).padStart(2, "0")}.png`);
+          await fs.writeFile(fp, TRANSPARENT_PNG);
+          preRendered[i] = fp;
+          continue;
+        }
         // Only the movable-box mode renders here; "fixed" slides fall through to
         // the built-in centred layout (screenshot) on their template.
         if (!cfg?.templateUrl || cfg.showText === false || !cfg.useBox) continue;
@@ -373,7 +389,10 @@ export async function generateSlideshow(question, opts = {}) {
       slides: plan.map((s, i) => ({
         imagePath: imagePaths[i],
         audioPath: audioPaths[i],
-        minSec: s.role === "reveal" ? s.minSec : s.role === "answer" ? answerSec : questionSec,
+        minSec: s.role === "reveal" ? s.minSec
+          : s.role === "answer" ? answerSec
+          : ["intro", "outro", "shortoutro"].includes(s.role) ? ioSeconds(s.role)
+          : questionSec,
         pauseSec: s.pauseSec || 0,
         bgPath: templatePaths[templateRole(s.role)] || null,
       })),

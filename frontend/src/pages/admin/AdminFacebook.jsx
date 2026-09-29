@@ -2349,7 +2349,13 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
     accentColor: t.accentColor || "#2563eb", badgeTextColor: t.badgeTextColor || "#ffffff",
     strokeColor: t.strokeColor || "#000000", strokeWidth: t.strokeWidth ?? 0, shadow: t.shadow !== false,
     panelColor: t.panelColor || "", panelOpacity: t.panelOpacity ?? 0, panelRadius: t.panelRadius ?? 24,
+    narration: t.narration || "", seconds: t.seconds ?? 0,
   }));
+  const defaultNarration = {
+    intro: "“<Subject — Topic>. Let's begin the quiz.”",
+    outro: "Thanks for watching! Subscribe, like and share for more.",
+    shortoutro: "Thanks for watching! Subscribe, like and share for more. Watch the full quiz, visit the channel.",
+  }[role];
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState("");
   const [autoBusy, setAutoBusy] = useState(false);
@@ -2479,8 +2485,8 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
                   <div onPointerDown={onPointerDown("move")} className="absolute inset-0 touch-none cursor-move" />
                   {!showExact && (
                     <div className="pointer-events-none flex h-full w-full flex-col items-center justify-center gap-0.5 overflow-hidden p-1 text-center text-[9px] font-black" style={{ color: draft.textColor }}>
-                      <div style={{ fontSize: 12 }}>{role === "intro" ? "Topic" : role === "outro" ? "Thanks for watching!" : "Watch the full quiz"}</div>
-                      <div style={{ display: "inline-block", background: draft.accentColor, color: draft.badgeTextColor, borderRadius: 3, padding: "0 4px" }}>{role === "intro" ? "Let's begin!" : "Subscribe!"}</div>
+                      <div style={{ fontSize: 12 }}>{role === "intro" ? "Topic" : "Thanks for watching!"}</div>
+                      <div style={{ display: "inline-block", background: draft.accentColor, color: draft.badgeTextColor, borderRadius: 3, padding: "0 4px" }}>{role === "intro" ? "Let's begin!" : role === "outro" ? "Subscribe · Like · Share" : "Watch the full quiz"}</div>
                     </div>
                   )}
                   <span onPointerDown={onPointerDown("move")} title="Move" className="absolute left-1/2 top-1/2 flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 touch-none cursor-move items-center justify-center rounded-full border-2 border-white bg-black/45 text-white"><Move className="h-3.5 w-3.5" /></span>
@@ -2561,10 +2567,21 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
               </>
             )}
             {draft.showText && !draft.useBox && <p className="text-xs text-slate-400">The subject / topic / closing text is centred on your template automatically.</p>}
-            <span className="block text-xs text-slate-400">Changes save automatically.</span>
-            {msg && <p className={`text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.text}</p>}
+            {!draft.showText && <p className="text-xs text-slate-400">Only your template is shown — no text is drawn on it.</p>}
           </div>
         )}
+      </div>
+      <div className="mt-3 space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+        <label className="block text-sm">
+          <span className="mb-1 block font-medium">Narrator says</span>
+          <textarea rows={2} maxLength={400} className="input w-full text-sm" placeholder={defaultNarration}
+            value={draft.narration} onChange={(e) => set("narration", e.target.value, { later: true })} />
+          <span className="text-[11px] text-slate-400">Empty = the default line shown above. Match it to the text on your template.</span>
+        </label>
+        {stepRow("Show for", "seconds", 0, 60, 1, { fmt: (v) => (v ? `${v}s` : "auto") })}
+        <p className="text-[11px] text-slate-400">auto = the slide ends as soon as the narrator finishes. A set time keeps the slide up at least that long (the voice is never cut off).</p>
+        <span className="block text-xs text-slate-400">Changes save automatically.</span>
+        {msg && <p className={`text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.text}</p>}
       </div>
     </div>
   );
@@ -3248,9 +3265,9 @@ function FullQuizVideoForm({ st, onStatus }) {
         <div className="mt-3 space-y-3">
           <SlideTextEditor role="intro" title="Intro slide" note="Opening title (subject / topic · “Let's begin”)."
             settingKey="longVideoIntroText" templateKey="longVideoIntroTemplateUrl" initial={st.introText} onSaved={onStatus} />
-          <SlideTextEditor role="outro" title="End slide (full video)" note="Closing “Thanks for watching · like &amp; subscribe”."
+          <SlideTextEditor role="outro" title="End slide (full video)" note="Closing “Thanks for watching · subscribe, like &amp; share for more”."
             settingKey="longVideoOutroText" templateKey="longVideoOutroTemplateUrl" initial={st.outroText} onSaved={onStatus} />
-          <SlideTextEditor role="shortoutro" title="End slide (Short)" note="Short's closing “Watch the full quiz · subscribe”."
+          <SlideTextEditor role="shortoutro" title="End slide (Short)" note="Short's closing “Thanks for watching · subscribe, like &amp; share · watch the full quiz on the channel”."
             settingKey="longVideoShortOutroText" templateKey="longVideoShortOutroTemplateUrl" initial={st.shortOutroText} onSaved={onStatus} />
         </div>
       )}

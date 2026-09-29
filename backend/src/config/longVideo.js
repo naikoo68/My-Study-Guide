@@ -326,11 +326,12 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
       outroTemplateUrl: opts.useTemplates ? site?.longVideoOutroTemplateUrl || "" : "",
       shortOutroTemplateUrl: opts.useTemplates ? site?.longVideoShortOutroTemplateUrl || "" : "",
       // Intro / end / Short-end text boxes (same styling engine as the thumbnail).
-      slideText: opts.useTemplates ? {
-        intro: slideTextConfigFromSite(site, "intro"),
-        outro: slideTextConfigFromSite(site, "outro"),
-        shortoutro: slideTextConfigFromSite(site, "shortoutro"),
-      } : undefined,
+      // Narration + on-screen seconds apply always; the template only when
+      // templates are on.
+      slideText: Object.fromEntries(["intro", "outro", "shortoutro"].map((r) => {
+        const c = slideTextConfigFromSite(site, r);
+        return [r, opts.useTemplates ? c : { ...c, templateUrl: "" }];
+      })),
       site: opts.engine ? { ...site, ttsProvider: opts.engine } : site,
       brandColor: site?.brandColor || site?.primaryColor || "#2563eb",
       siteName: site?.siteName || "My Study Guide",
