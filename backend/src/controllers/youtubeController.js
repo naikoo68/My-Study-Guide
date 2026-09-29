@@ -16,6 +16,7 @@ import { isSafePublicUrl } from "../utils/urlGuard.js";
 import { getFacebookConfig, getFacebookSiteForConfig, completeQuestionsForSource, isFacebookConfigured } from "../config/facebook.js";
 import {
   queueFullQuizVideo, normalizeLongVideoOptions, listLongVideoJobs, getLongVideoJob, publicJob, tenantKeyNow, MAX_LONG_VIDEO_QUESTIONS,
+  queueLongVideoPreview, getLongVideoPreview, publicPreviewJob,
 } from "../config/longVideo.js";
 
 function statusOf(site, req) {
@@ -255,6 +256,44 @@ export async function startLongVideo(req, res) {
   } catch (e) {
     res.status(400).json({ message: e.message });
   }
+}
+
+// POST /api/youtube/long-video/preview { source, title?, useThumbnail?, options }
+// → { job } — makes the FULL video (all chosen questions, intro + end slides),
+// the Short teaser and the thumbnail exactly as a real run would, but posts
+// nothing. Poll GET …/preview/:id.
+export async function startLongVideoPreview(req, res) {
+  const b = req.body || {};
+  const src = b.source || {};
+  const source = {
+    subject: oid(src.subject), session: oid(src.session), quiz: oid(src.quiz), testSeries: oid(src.testSeries),
+    label: String(src.label || "").trim().slice(0, 300),
+  };
+  if (!source.subject && !source.session && !source.quiz && !source.testSeries) {
+    return res.status(400).json({ message: "Pick the content (a subject, topic session, quiz or My Quiz) first." });
+  }
+  const cfg = await getFacebookConfig();
+  const site = await getFacebookSiteForConfig(cfg);
+  try {
+    const job = queueLongVideoPreview({
+      source, cfg, site,
+      titleTemplate: String(b.title || "").replace(/[<>]/g, "").trim().slice(0, 100),
+      useThumbnail: b.useThumbnail !== false,
+      options: b.options && typeof b.options === "object" ? b.options : {},
+      ownerId: req.user?._id,
+    });
+    res.status(202).json({ job });
+  } catch (e) {
+    res.status(400).json({ message: e.message });
+  }
+}
+
+// GET /api/youtube/long-video/preview/:id → { job }
+export function longVideoPreviewStatus(req, res) {
+  const j = getLongVideoPreview(req.params.id, tenantKeyNow(), req.user?._id);
+  if (!j) return res.status(404).json({ message: "Preview not found (it may have expired or the server restarted) — try again." });
+  res.set("Cache-Control", "no-store");
+  res.json({ job: publicPreviewJob(j) });
 }
 
 // POST /api/youtube/long-video/count { source } → { total, max, facebookReady, youtubeReady }

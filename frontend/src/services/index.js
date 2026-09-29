@@ -355,6 +355,9 @@ export const youtubeService = {
   longVideoCount: (data) => api.post("/youtube/long-video/count", data), // { source } → { total, max }
   saveLongVideoDefaults: (data) => api.put("/youtube/long-video/defaults", data), // { options } → status
   longVideoStatus: (id) => api.get(`/youtube/long-video/${id}`), // → { job }
+  // Preview: full video + Short + thumbnail, nothing posted → { job }; poll the status.
+  longVideoPreview: (data) => api.post("/youtube/long-video/preview", data, { timeout: 60000 }),
+  longVideoPreviewStatus: (id) => api.get(`/youtube/long-video/preview/${id}`, { timeout: 30000 }), // → { job }
   // Short-lived token so the browser can upload a video file straight to YouTube.
   uploadToken: () => api.post("/youtube/upload-token"),
   // Playlists ("folders") on the connected channel.

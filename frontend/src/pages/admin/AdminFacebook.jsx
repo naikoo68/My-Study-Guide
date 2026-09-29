@@ -2918,8 +2918,10 @@ function FullQuizVideoForm({ st, onStatus }) {
   const [captions, setCaptions] = useState(has("autoCaptions") ? d.autoCaptions !== false : settings?.slideshowAutoCaptions !== false);
   const [readOpts, setReadOpts] = useState(() => (d.read ? { ...readOptsFrom({}), ...d.read } : readOptsFrom(settings)));
   const [savingDefaults, setSavingDefaults] = useState(false);
-  // Preview: a short 16:9 test video (first 3 questions) — never posted.
-  const [pv, setPv] = useState({ busy: false, stage: "", progress: null, url: "", error: "", info: "" });
+  // Preview: the FULL video + the Short + the thumbnail, exactly as a real run
+  // would make them — never posted.
+  const PV_EMPTY = { busy: false, job: null, error: "" };
+  const [pv, setPv] = useState(PV_EMPTY);
   // 4) Post to
   const [toYoutube, setToYoutube] = useState(d.toYoutube !== false);
   const [toFacebook, setToFacebook] = useState(!!d.toFacebook);
@@ -2950,10 +2952,10 @@ function FullQuizVideoForm({ st, onStatus }) {
   // smoothly between the 5-second status polls — like the AI Slideshow test.
   const [clock, setClock] = useState(Date.now());
   useEffect(() => {
-    if (!active) return undefined;
+    if (!active && !pv.busy) return undefined;
     const t = setInterval(() => setClock(Date.now()), 1000);
     return () => clearInterval(t);
-  }, [active]);
+  }, [active, pv.busy]);
   useEffect(() => {
     if (!active) return undefined;
     const t = setInterval(load, 5000);
@@ -3043,39 +3045,35 @@ function FullQuizVideoForm({ st, onStatus }) {
     } catch (e) { setMsg({ ok: false, text: e.message }); } finally { setBusy(false); }
   };
 
-  const PV_STAGE = { PENDING: "Starting", GENERATING_SLIDES: "Drawing slides", GENERATING_AUDIO: "Recording narration", RENDERING_VIDEO: "Rendering video", READY: "Finishing" };
   const previewVideo = async () => {
-    if (!hasSource) { setPv((p) => ({ ...p, error: "Pick the topic / quiz first." })); return; }
-    setPv({ busy: true, stage: "PENDING", progress: null, url: "", error: "", info: "" });
+    if (!hasSource) { setPv({ ...PV_EMPTY, error: "Pick the topic / quiz first." }); return; }
+    if (planned && planned.n === 0) { setPv({ ...PV_EMPTY, error: `This content has only ${total} questions — lower "Start from".` }); return; }
+    setPv({ busy: true, job: { status: "queued", percent: 0, createdAt: Date.now() }, error: "" });
+    setClock(Date.now());
     try {
-      const startRes = await facebookService.testSlideshow({
-        landscape: true, source, order, start: nStart, useTemplates,
-        slideshowQuestions: 3,
-        ttsVoice: voiceValue, autoCaptions: captions, slidesMode, read: readOpts,
-        engine: { ttsProvider: provider },
-        reveal: { pauseSec: clamp(reveal.pauseSec, 3, 0, 15), showSec: clamp(reveal.showSec, 3, 1, 15), say: reveal.say },
-        questionSec: clamp(questionSec, 10, 3, 40), answerSec: clamp(answerSec, 8, 3, 40),
-      });
-      if (!startRes?.jobId) throw new Error(startRes?.message || "Could not start the preview.");
-      const deadline = Date.now() + 30 * 60 * 1000;
+      const startRes = await youtubeService.longVideoPreview({ source, title: title.trim(), useThumbnail: useThumb, options: buildOptions() });
+      const id = startRes?.job?.id;
+      if (!id) throw new Error(startRes?.message || "Could not start the preview.");
+      setPv({ busy: true, job: startRes.job, error: "" });
+      const deadline = Date.now() + 90 * 60 * 1000;
       let errors = 0;
       for (;;) {
-        await new Promise((r) => setTimeout(r, 2500));
-        let r;
-        try { r = await facebookService.testSlideshowStatus(startRes.jobId); errors = 0; }
+        await new Promise((r) => setTimeout(r, 3000));
+        let j;
+        try { j = (await youtubeService.longVideoPreviewStatus(id))?.job; errors = 0; }
         catch (e) { if ((e?.status >= 400 && e?.status < 500) || ++errors >= 8) throw e; continue; }
-        if (r?.status === "done" && r?.videoUrl) {
-          setPv({ busy: false, stage: "", progress: null, url: r.videoUrl, error: "", info: `${r.questions || ""} question${r.questions === 1 ? "" : "s"} · ${r.duration || 0}s · ${r.voice || ""}${r.ttsNote ? ` · ${r.ttsNote}` : ""}` });
-          return;
-        }
-        if (r?.status === "failed") throw new Error(r?.message || "The preview could not be made.");
-        setPv((p) => ({ ...p, stage: r?.stage || p.stage, progress: r?.progress?.total ? r.progress : null }));
+        if (!j) continue;
+        if (j.status === "done") { setPv({ busy: false, job: j, error: "" }); return; }
+        if (j.status === "failed") throw new Error(j.error || "The preview could not be made.");
+        setPv({ busy: true, job: j, error: "" });
         if (Date.now() > deadline) throw new Error("The preview is taking too long — please try again.");
       }
     } catch (e) {
-      setPv({ busy: false, stage: "", progress: null, url: "", error: e?.message || "The preview could not be made.", info: "" });
+      setPv({ busy: false, job: null, error: e?.message || "The preview could not be made." });
     }
   };
+  const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.max(0, s) % 60).padStart(2, "0")}`;
+  const PV_PHASE = { picking: "Loading questions", full: "Full video", short: "Short", upload: "Saving", thumb: "Thumbnail" };
 
   const step = (n, text) => <p className="mb-1 mt-5 text-sm font-semibold">{n}. {text}</p>;
   const secInput = (value, set, lo, hi, def) => (
@@ -3414,18 +3412,61 @@ function FullQuizVideoForm({ st, onStatus }) {
         </button>
       </div>
       {msg && <p className={`mt-2 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.text}</p>}
-      <p className="mt-1 text-xs text-slate-400">
-        {pv.busy
-          ? `Preview: ${PV_STAGE[pv.stage] || "Working"}${pv.progress ? ` · ${pv.progress.done}/${pv.progress.total}` : ""}… (about 1–3 minutes)`
-          : "Preview makes a short test with the first 3 questions and the settings above — nothing is posted. Save settings only keeps these settings for next time."}
-      </p>
-      {pv.error && <p className="mt-2 text-sm font-medium text-rose-600">{pv.error}</p>}
-      {pv.url && (
-        <div className="mt-3">
-          <video src={pv.url} controls playsInline className="aspect-video w-full max-w-xl rounded-lg bg-black" />
-          {pv.info && <p className="mt-1 text-xs text-slate-500">{pv.info}</p>}
-        </div>
+      {pv.busy && pv.job && (() => {
+        const j = pv.job;
+        // Time from when THIS preview started rendering (not while it waited in line).
+        const since = j.startedAt || j.createdAt || clock;
+        const elapsed = Math.max(0, Math.floor((clock - since) / 1000));
+        const pct = Number.isFinite(j.percent) ? j.percent : 0;
+        const remain = j.status === "running" && pct > 2 ? Math.round((elapsed * (100 - pct)) / pct) : null;
+        const stepText = j.status === "queued" ? "Waiting for another video to finish"
+          : `${PV_PHASE[j.phase] || "Working"} — ${j.stageLabel || "working"}${j.progress?.total ? ` ${j.progress.done}/${j.progress.total}` : ""}`;
+        return (
+          <div className="mt-2 max-w-xl">
+            <div className="h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+              <div className="h-full rounded-full bg-[#FF0000] transition-all" style={{ width: `${Math.max(2, pct)}%` }} />
+            </div>
+            <p className="mt-1 text-xs text-slate-500">
+              Preview: <b>{pct}%</b> · {stepText} · {mmss(elapsed)} elapsed{remain != null ? <> · about <b>{mmss(remain)}</b> left</> : " · estimating time left…"}
+            </p>
+          </div>
+        );
+      })()}
+      {!pv.busy && (
+        <p className="mt-1 text-xs text-slate-400">
+          Preview makes the <b>full video</b>{planned?.n ? <> ({planned.n} questions, with intro &amp; end slides)</> : " (with intro & end slides)"}, the <b>Short</b> (first 3 questions) and the <b>thumbnail</b> — exactly as they'd be posted, but nothing is posted. It takes about as long as a real video. Save settings only keeps these settings for next time.
+        </p>
       )}
+      {pv.error && <p className="mt-2 text-sm font-medium text-rose-600">{pv.error}</p>}
+      {!pv.busy && pv.job?.status === "done" && (() => {
+        const j = pv.job;
+        return (
+          <div className="mt-3 space-y-4">
+            {j.title && <p className="text-sm">Title: <b>{j.title}</b></p>}
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto]">
+              <div>
+                <p className="mb-1 text-sm font-semibold">Full video <span className="font-normal text-slate-400">(YouTube / Facebook)</span></p>
+                <video src={j.videoUrl} poster={j.thumbnailUrl || undefined} controls playsInline preload="metadata" className="aspect-video w-full max-w-xl rounded-lg bg-black" />
+                <p className="mt-1 text-xs text-slate-500">
+                  {j.questions} question{j.questions === 1 ? "" : "s"}{j.range ? ` (Q${j.range})` : ""} · {mmss(j.duration || 0)} · intro + end slide{j.voice ? ` · ${j.voice}` : ""}
+                </p>
+              </div>
+              <div>
+                <p className="mb-1 text-sm font-semibold">Short <span className="font-normal text-slate-400">(YouTube Shorts)</span></p>
+                <video src={j.shortUrl} controls playsInline preload="metadata" className="aspect-[9/16] w-56 rounded-lg bg-black" />
+                <p className="mt-1 text-xs text-slate-500">{j.shortQuestions} question{j.shortQuestions === 1 ? "" : "s"} · {mmss(j.shortDuration || 0)} · intro + Short end slide</p>
+              </div>
+            </div>
+            {j.thumbnailUrl && (
+              <div>
+                <p className="mb-1 text-sm font-semibold">Thumbnail</p>
+                <img src={j.thumbnailUrl} alt="Video thumbnail" className="aspect-video w-full max-w-sm rounded-lg border border-slate-200 object-cover dark:border-slate-700" />
+              </div>
+            )}
+            {j.notes?.length > 0 && <p className="text-xs text-amber-600 dark:text-amber-400">{j.notes.join(" · ")}</p>}
+          </div>
+        );
+      })()}
 
       {jobs.length > 0 && (
         <div className="mt-4 space-y-2">
