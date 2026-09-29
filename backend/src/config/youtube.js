@@ -116,11 +116,14 @@ export function youtubeConfigFromSite(site) {
 // The thumbnail template settings (long videos) as a plain object.
 // Clean a free-form text-box config (stored as one JSON object) — the SAME
 // box + styling the thumbnail uses, for the intro / end / Short-end slides.
-export function normalizeTextBox(o = {}) {
+export function normalizeTextBox(o = {}, { defaultUseBox = false } = {}) {
   const col = (v, d) => (/^#[0-9a-f]{6}$/i.test(String(v || "")) ? v : d);
   const int = (v, d, lo, hi) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
   const c = o && typeof o === "object" ? o : {};
   return {
+    // OFF → the text is centred on the template (built-in layout); ON → the
+    // draggable text box + styling below is used.
+    useBox: c.useBox !== undefined ? !!c.useBox : defaultUseBox,
     showText: c.showText !== false,
     box: cleanThumbBox(c.box),
     align: ["left", "center", "right"].includes(c.align) ? c.align : "center",
@@ -149,8 +152,10 @@ const SLIDE_ROLE_FIELD = { intro: "Intro", outro: "Outro", shortoutro: "ShortOut
 export function slideTextConfigFromSite(site, role) {
   const F = SLIDE_ROLE_FIELD[role];
   if (!F) return null;
+  // The movable box defaults ON for the intro (opening title), OFF for the end
+  // slides — those stay centred on the template unless the admin turns it on.
   return {
-    ...normalizeTextBox(site?.[`longVideo${F}Text`] || {}),
+    ...normalizeTextBox(site?.[`longVideo${F}Text`] || {}, { defaultUseBox: role === "intro" }),
     templateUrl: String(site?.[`longVideo${F}TemplateUrl`] || "").trim(),
   };
 }
