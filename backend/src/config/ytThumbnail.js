@@ -30,6 +30,11 @@ const BUNDLED_FONTS = {
   oswald: { file: "Oswald-VF.ttf", weight: 700, label: "Oswald (condensed)" },
   montserrat: { file: "Montserrat-VF.ttf", weight: 800, label: "Montserrat (modern)" },
 };
+// Path of a bundled font file (for the admin editor's instant preview), or "".
+export function bundledFontPath(key) {
+  const f = Object.prototype.hasOwnProperty.call(BUNDLED_FONTS, key) ? BUNDLED_FONTS[key] : null;
+  return f ? path.join(FONT_DIR, f.file) : "";
+}
 const _fontCache = new Map(); // key → base64 data URI ("" when the file is missing)
 function fontDataUri(key) {
   if (_fontCache.has(key)) return _fontCache.get(key);

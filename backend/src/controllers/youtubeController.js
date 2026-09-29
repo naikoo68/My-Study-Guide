@@ -496,6 +496,19 @@ export async function youtubeNarrationPreview(req, res) {
   }
 }
 
+// GET /api/youtube/fonts/:key — the bundled thumbnail / slide fonts (OFL), so
+// the editor's instant preview draws with the same font as the server. Public,
+// static, cached; only the fixed font keys are served.
+export async function youtubeFontFile(req, res) {
+  const { bundledFontPath } = await import("../config/ytThumbnail.js");
+  const file = bundledFontPath(String(req.params.key || ""));
+  if (!file) return res.status(404).end();
+  res.set("Cache-Control", "public, max-age=2592000, immutable");
+  res.set("Access-Control-Allow-Origin", "*");
+  res.type("font/ttf");
+  res.sendFile(file, (err) => { if (err && !res.headersSent) res.status(404).end(); });
+}
+
 // POST /api/youtube/videos/:videoId/finish { title?, useThumbnail?, playlist?:{id,title} }
 // After a browser upload (your own video): set the template thumbnail and/or
 // add it to a playlist. → { notes:[…] }
