@@ -8,6 +8,8 @@
 // is emailed on success/failure, and can simply start it again).
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
+import path from "node:path";
+import os from "node:os";
 import { tenantStore, getCurrentTenantId } from "../utils/tenantContext.js";
 import { generateSlideshow } from "./slideshow.js";
 import {
@@ -39,6 +41,7 @@ const STAGE_LABEL = {
   uploading: "Uploading to YouTube",
   uploading_facebook: "Uploading to Facebook",
   short: "Uploading the Short",
+  uploading_preview: "Saving the preview videos",
   finishing: "Setting thumbnail & playlist",
   done: "Done",
   failed: "Failed",
@@ -108,7 +111,7 @@ export function getLongVideoJob(id, tenantKey) {
 
 export function listLongVideoJobs(tenantKey, limit = 10) {
   cleanup();
-  return [...jobs.values()].filter((j) => j.tenantKey === tenantKey)
+  return [...jobs.values()].filter((j) => j.tenantKey === tenantKey && !j.preview)
     .sort((a, b) => b.createdAt - a.createdAt).slice(0, limit).map(publicJob);
 }
 
@@ -259,6 +262,108 @@ async function reportToSchedule(job, ok) {
   await sch.save().catch(() => {});
 }
 
+// Everything a long video needs BEFORE rendering: the questions, its title and
+// the shared slideshow options (intro / end slides, templates, narration).
+// Used by the real job AND the preview, so the preview is the same video.
+// Fills job.questions / job.range / job.title / job.notes.
+async function planLongVideo(job, { source, cfg, site, titleTemplate, opts }) {
+  const all = await completeQuestionsForSource(source);
+  const max = opts.count || MAX_LONG_VIDEO_QUESTIONS;
+  const questions = source?.question
+    ? await pickAllQuestionsForSource(source, { max: 1 })
+    : await pickAllQuestionsForSource(source, { max, start: opts.start, order: opts.order });
+  if (!questions.length) {
+    throw new Error(opts.start > 1 && all.length
+      ? `This content has only ${all.length} complete questions — "start from question ${opts.start}" is past the end.`
+      : "No complete questions found in this source.");
+  }
+  job.questions = questions.length;
+  const first = opts.order === "random" ? 1 : opts.start;
+  const last = first + questions.length - 1;
+  // Only part of the topic (not every question) → say which part.
+  const partial = opts.order !== "random" && (first > 1 || last < all.length);
+  job.range = partial ? `${first}–${last}` : "";
+  if (!opts.count && all.length > MAX_LONG_VIDEO_QUESTIONS && opts.order !== "random") {
+    job.notes.push(`This content has ${all.length} questions — the video has questions ${first}–${last} (max ${MAX_LONG_VIDEO_QUESTIONS} per video; use "Start from" for the next part)`);
+  }
+
+  const names = await titlePartsForQuestion(questions[0]);
+  const breadcrumb = await breadcrumbForQuestion(questions[0]);
+  // Part number of THIS video within the quiz/source. For a repeating
+  // schedule it's opts.part; for a one-off chunk (Choose how many + Start
+  // from), derive it from where it starts. A 100-question quiz at 25/video →
+  // Part 1 (Q1–25), Part 2 (Q26–50) … all keep the same quiz name.
+  let partNum = Number(opts.part) || 0;
+  if (!partNum && partial && opts.order !== "random") {
+    partNum = Math.floor((first - 1) / Math.max(1, questions.length)) + 1;
+  }
+  const isPart = partNum > 0 || partial;
+  const tpl = (titleTemplate || (isPart ? DEFAULT_YT_SERIES_TITLE : DEFAULT_YT_LONG_TITLE))
+    .replace(/\{range\}/gi, job.range || `1–${questions.length}`)
+    .replace(/\{part\}/gi, String(partNum || 1));
+  job.title = buildYtTitle(tpl, {
+    subject: names.subject || names.quiz || source?.label || "",
+    topic: names.topic,
+    quiz: names.quiz,
+    count: questions.length,
+  }, source?.label || "Full Quiz");
+
+  const siteUrl = (cfg.siteUrl || "https://www.mystudyguide.in").replace(/\/+$/, "");
+  // Shared slideshow options — an opening title slide and a closing
+  // "thanks for watching" slide wrap every long video.
+  const slideBase = {
+    orientation: "landscape",
+    keepFile: true,
+    voice: opts.voice || site?.slideshowVoice,
+    autoCaptions: opts.autoCaptions,
+    questionSec: opts.questionSec,
+    answerSec: opts.answerSec,
+    slidesMode: opts.slidesMode,
+    reveal: opts.reveal,
+    read: opts.read,
+    questionTemplateUrl: opts.useTemplates ? site?.longVideoQuestionTemplateUrl || "" : "",
+    answerTemplateUrl: opts.useTemplates ? site?.longVideoAnswerTemplateUrl || "" : "",
+    introTemplateUrl: opts.useTemplates ? site?.longVideoIntroTemplateUrl || "" : "",
+    outroTemplateUrl: opts.useTemplates ? site?.longVideoOutroTemplateUrl || "" : "",
+    shortOutroTemplateUrl: opts.useTemplates ? site?.longVideoShortOutroTemplateUrl || "" : "",
+    // Intro / end / Short-end text boxes (same styling engine as the thumbnail).
+    // Narration + on-screen seconds apply always; the template only when
+    // templates are on.
+    slideText: Object.fromEntries(["intro", "outro", "shortoutro"].map((r) => {
+      const c = slideTextConfigFromSite(site, r);
+      return [r, opts.useTemplates ? c : { ...c, templateUrl: "" }];
+    })),
+    site: opts.engine ? { ...site, ttsProvider: opts.engine } : site,
+    brandColor: site?.brandColor || site?.primaryColor || "#2563eb",
+    siteName: site?.siteName || "My Study Guide",
+    siteUrl: siteUrl.replace(/^https?:\/\//, ""),
+    subjectName: breadcrumb || "",
+  };
+  const intro = { subject: names.subject || names.quiz || source?.label || "", topic: names.topic };
+  return { questions, names, breadcrumb, first, siteUrl, slideBase, intro };
+}
+
+// The template thumbnail for a video (or null + a note when it fails).
+async function drawLongVideoThumbnail(job, { source, cfg, site, names, questions }) {
+  const { renderYoutubeThumbnail } = await import("./ytThumbnail.js");
+  const r = await renderYoutubeThumbnail({
+    ...cfg.ytThumb,
+    // Subject | Topic | Quiz of THIS video. The quiz name only when one quiz
+    // (or My Quiz) was picked — a whole topic mixes several quizzes.
+    lines: thumbnailLines({
+      subject: names.subject || source?.label || "",
+      topic: names.topic,
+      quiz: source?.quiz || source?.testSeries ? names.quiz : "",
+      count: questions.length,
+      range: job.range,
+    }),
+    brandColor: site?.brandColor || site?.primaryColor,
+  });
+  if (r.image) return r;
+  job.notes.push(`Thumbnail ✗ (${r.error})`);
+  return null;
+}
+
 async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts }) {
   job.status = "running";
   job.stage = "picking";
@@ -266,83 +371,12 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
   let shortPath = ""; // the vertical Short copy (deleted at the end)
   let shortSourcePath = ""; // the landscape short render before padding
   try {
-    const all = await completeQuestionsForSource(source);
-    const max = opts.count || MAX_LONG_VIDEO_QUESTIONS;
-    const questions = source?.question
-      ? await pickAllQuestionsForSource(source, { max: 1 })
-      : await pickAllQuestionsForSource(source, { max, start: opts.start, order: opts.order });
-    if (!questions.length) {
-      throw new Error(opts.start > 1 && all.length
-        ? `This content has only ${all.length} complete questions — "start from question ${opts.start}" is past the end.`
-        : "No complete questions found in this source.");
-    }
-    job.questions = questions.length;
-    const first = opts.order === "random" ? 1 : opts.start;
-    const last = first + questions.length - 1;
-    // Only part of the topic (not every question) → say which part.
-    const partial = opts.order !== "random" && (first > 1 || last < all.length);
-    job.range = partial ? `${first}–${last}` : "";
-    if (!opts.count && all.length > MAX_LONG_VIDEO_QUESTIONS && opts.order !== "random") {
-      job.notes.push(`This content has ${all.length} questions — the video has questions ${first}–${last} (max ${MAX_LONG_VIDEO_QUESTIONS} per video; use "Start from" for the next part)`);
-    }
-
-    const names = await titlePartsForQuestion(questions[0]);
-    const breadcrumb = await breadcrumbForQuestion(questions[0]);
-    // Part number of THIS video within the quiz/source. For a repeating
-    // schedule it's opts.part; for a one-off chunk (Choose how many + Start
-    // from), derive it from where it starts. A 100-question quiz at 25/video →
-    // Part 1 (Q1–25), Part 2 (Q26–50) … all keep the same quiz name.
-    let partNum = Number(opts.part) || 0;
-    if (!partNum && partial && opts.order !== "random") {
-      partNum = Math.floor((first - 1) / Math.max(1, questions.length)) + 1;
-    }
-    const isPart = partNum > 0 || partial;
-    const tpl = (titleTemplate || (isPart ? DEFAULT_YT_SERIES_TITLE : DEFAULT_YT_LONG_TITLE))
-      .replace(/\{range\}/gi, job.range || `1–${questions.length}`)
-      .replace(/\{part\}/gi, String(partNum || 1));
-    job.title = buildYtTitle(tpl, {
-      subject: names.subject || names.quiz || source?.label || "",
-      topic: names.topic,
-      quiz: names.quiz,
-      count: questions.length,
-    }, source?.label || "Full Quiz");
-
-    const siteUrl = (cfg.siteUrl || "https://www.mystudyguide.in").replace(/\/+$/, "");
-    // Shared slideshow options — an opening title slide and a closing
-    // "thanks for watching" slide wrap every long video.
-    const slideBase = {
-      orientation: "landscape",
-      keepFile: true,
-      voice: opts.voice || site?.slideshowVoice,
-      autoCaptions: opts.autoCaptions,
-      questionSec: opts.questionSec,
-      answerSec: opts.answerSec,
-      slidesMode: opts.slidesMode,
-      reveal: opts.reveal,
-      read: opts.read,
-      questionTemplateUrl: opts.useTemplates ? site?.longVideoQuestionTemplateUrl || "" : "",
-      answerTemplateUrl: opts.useTemplates ? site?.longVideoAnswerTemplateUrl || "" : "",
-      introTemplateUrl: opts.useTemplates ? site?.longVideoIntroTemplateUrl || "" : "",
-      outroTemplateUrl: opts.useTemplates ? site?.longVideoOutroTemplateUrl || "" : "",
-      shortOutroTemplateUrl: opts.useTemplates ? site?.longVideoShortOutroTemplateUrl || "" : "",
-      // Intro / end / Short-end text boxes (same styling engine as the thumbnail).
-      // Narration + on-screen seconds apply always; the template only when
-      // templates are on.
-      slideText: Object.fromEntries(["intro", "outro", "shortoutro"].map((r) => {
-        const c = slideTextConfigFromSite(site, r);
-        return [r, opts.useTemplates ? c : { ...c, templateUrl: "" }];
-      })),
-      site: opts.engine ? { ...site, ttsProvider: opts.engine } : site,
-      brandColor: site?.brandColor || site?.primaryColor || "#2563eb",
-      siteName: site?.siteName || "My Study Guide",
-      siteUrl: siteUrl.replace(/^https?:\/\//, ""),
-      subjectName: breadcrumb || "",
-    };
+    const { questions, names, breadcrumb, first, siteUrl, slideBase, intro } = await planLongVideo(job, { source, cfg, site, titleTemplate, opts });
     const onStatus = (st) => { job.stage = String(st || "").toLowerCase(); };
     const onProgress = (stage, done, total) => { job.stage = String(stage || "").toLowerCase(); job.progress = { done, total }; };
     const result = await generateSlideshow(questions, {
       ...slideBase,
-      intro: { subject: names.subject || names.quiz || source?.label || "", topic: names.topic },
+      intro,
       outro: "full",
       onStatus,
       onProgress,
@@ -365,22 +399,7 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
     let thumbnail = null;
     if (job.useThumbnail) {
       job.stage = "finishing";
-      const { renderYoutubeThumbnail } = await import("./ytThumbnail.js");
-      const r = await renderYoutubeThumbnail({
-        ...cfg.ytThumb,
-        // Subject | Topic | Quiz of THIS video. The quiz name only when one quiz
-        // (or My Quiz) was picked — a whole topic mixes several quizzes.
-        lines: thumbnailLines({
-          subject: names.subject || source?.label || "",
-          topic: names.topic,
-          quiz: source?.quiz || source?.testSeries ? names.quiz : "",
-          count: questions.length,
-          range: job.range,
-        }),
-        brandColor: site?.brandColor || site?.primaryColor,
-      });
-      if (r.image) thumbnail = r;
-      else job.notes.push(`Thumbnail ✗ (${r.error})`);
+      thumbnail = await drawLongVideoThumbnail(job, { source, cfg, site, names, questions });
     }
 
     const errors = [];
@@ -427,7 +446,7 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
           const teaserQs = questions.slice(0, 3);
           const shortRender = await generateSlideshow(teaserQs, {
             ...slideBase,
-            intro: { subject: names.subject || names.quiz || source?.label || "", topic: names.topic },
+            intro,
             outro: "short",
           });
           shortSourcePath = shortRender.filePath;
@@ -505,6 +524,180 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
     if (filePath) await fs.rm(filePath, { force: true }).catch(() => {});
     if (shortPath) await fs.rm(shortPath, { force: true }).catch(() => {});
     if (shortSourcePath) await fs.rm(shortSourcePath, { force: true }).catch(() => {});
+  }
+}
+
+
+// ---- Preview (nothing is posted) ----
+//
+// Makes EXACTLY what a real run would: the full landscape video (every chosen
+// question, intro + end slides), the template thumbnail and — always — the
+// vertical Short teaser (intro + first 3 questions + Short end slide). The
+// files go to Cloudinary so the browser can play them. Runs on the same
+// one-at-a-time chain as real videos (it is just as heavy).
+
+// Overall % of a preview: the full render is the big part, then the Short.
+//   phase "full"  0–70 · "short" 70–93 · "thumb"/"upload" 93–99
+const PREVIEW_PHASE = { picking: [0, 2], full: [2, 68], short: [70, 23], upload: [93, 4], thumb: [97, 2] };
+const RENDER_STAGE = { pending: [0, 0.02], generating_slides: [0.02, 0.55], generating_audio: [0.57, 0.2], rendering_video: [0.77, 0.2], ready: [0.97, 0.03] };
+export function previewPercent(j) {
+  if (!j) return 0;
+  if (j.status === "done") return 100;
+  if (j.status === "queued") return 0;
+  const [base, span] = PREVIEW_PHASE[j.phase] || [0, 0];
+  let frac = 0;
+  if (j.phase === "full" || j.phase === "short") {
+    const [sb, ss] = RENDER_STAGE[j.stage] || [0, 0];
+    const within = j.progress && j.progress.total > 0 ? Math.max(0, Math.min(1, j.progress.done / j.progress.total)) : 0;
+    frac = sb + ss * within;
+  }
+  return Math.max(0, Math.min(99, Math.round(base + span * frac)));
+}
+
+export function publicPreviewJob(j) {
+  if (!j) return null;
+  return {
+    id: j.id,
+    status: j.status,
+    phase: j.phase,
+    stage: j.stage,
+    stageLabel: j.status === "queued" ? STAGE_LABEL.queued : STAGE_LABEL[j.stage] || j.stage,
+    progress: j.progress,
+    percent: previewPercent(j),
+    title: j.title,
+    questions: j.questions,
+    range: j.range || "",
+    duration: j.duration,
+    videoUrl: j.videoUrl || "",
+    shortUrl: j.shortUrl || "",
+    shortQuestions: j.shortQuestions || 0,
+    shortDuration: j.shortDuration || 0,
+    thumbnailUrl: j.thumbnailUrl || "",
+    voice: j.voice || "",
+    notes: j.notes || [],
+    error: j.error,
+    createdAt: j.createdAt,
+    startedAt: j.startedAt || null,
+    finishedAt: j.finishedAt,
+  };
+}
+
+export function queueLongVideoPreview({ source, cfg, site, titleTemplate = "", useThumbnail = true, options = {}, ownerId = "" }) {
+  cleanup();
+  const opts = normalizeLongVideoOptions(options, site);
+  const job = {
+    id: randomUUID(),
+    tenantKey: tenantKeyNow(),
+    preview: true,
+    owner: ownerId ? String(ownerId) : "",
+    status: "queued",
+    phase: "picking",
+    stage: "queued",
+    progress: null,
+    label: source?.label || "",
+    title: "",
+    questions: 0,
+    range: "",
+    duration: 0,
+    videoUrl: "",
+    shortUrl: "",
+    thumbnailUrl: "",
+    error: "",
+    notes: [],
+    useThumbnail: useThumbnail !== false && thumbTemplateActive(cfg.ytThumb),
+    createdAt: Date.now(),
+    startedAt: null,
+    finishedAt: null,
+  };
+  jobs.set(job.id, job);
+  const store = tenantStore.getStore();
+  const args = { source, cfg, site, titleTemplate, opts };
+  const run = () => (store ? tenantStore.run(store, () => runPreview(job, args)) : runPreview(job, args));
+  chain = chain.then(run, run).catch(() => {});
+  return publicPreviewJob(job);
+}
+
+export function getLongVideoPreview(id, tenantKey, ownerId) {
+  const j = jobs.get(String(id));
+  if (!j || !j.preview || j.tenantKey !== tenantKey) return null;
+  if (j.owner && ownerId && j.owner !== String(ownerId)) return null;
+  return j;
+}
+
+async function runPreview(job, { source, cfg, site, titleTemplate, opts }) {
+  job.status = "running";
+  job.startedAt = Date.now();
+  job.stage = "picking";
+  const temp = [];
+  try {
+    const { isCloudinaryConfigured, uploadFileToCloudinary } = await import("./cloudinary.js");
+    if (!isCloudinaryConfigured()) throw new Error("Media storage isn't set up (Cloudinary keys missing), so the preview can't be played.");
+    const { questions, names, slideBase, intro } = await planLongVideo(job, { source, cfg, site, titleTemplate, opts });
+    const track = (phase) => ({
+      onStatus: (st) => { job.phase = phase; job.stage = String(st || "").toLowerCase(); job.progress = null; },
+      onProgress: (st, done, total) => { job.phase = phase; job.stage = String(st || "").toLowerCase(); job.progress = { done, total }; },
+    });
+
+    // 1) The FULL video — every chosen question, intro + end slide.
+    job.phase = "full";
+    const full = await generateSlideshow(questions, { ...slideBase, intro, outro: "full", ...track("full") });
+    if (!full.filePath) throw new Error("The video file was not produced.");
+    temp.push(full.filePath);
+    job.duration = full.duration;
+    job.voice = full.voice || "";
+    if (full.ttsNote) job.notes.push(full.ttsNote);
+
+    // 2) The SHORT — intro + first 3 questions + Short end slide, made vertical.
+    job.phase = "short";
+    const teaserQs = questions.slice(0, 3);
+    const shortRender = await generateSlideshow(teaserQs, { ...slideBase, intro, outro: "short", ...track("short") });
+    if (shortRender.filePath) temp.push(shortRender.filePath);
+    job.stage = "rendering_video";
+    const { makeVerticalShort } = await import("./verticalShort.js");
+    const shortPath = await makeVerticalShort(shortRender.filePath);
+    temp.push(shortPath);
+    job.shortQuestions = teaserQs.length;
+    job.shortDuration = shortRender.duration;
+
+    // 3) Upload both so the browser can play them.
+    job.phase = "upload";
+    job.stage = "uploading_preview";
+    job.progress = null;
+    const folder = "mystudyguide/longvideo/preview";
+    const [upFull, upShort] = await Promise.all([
+      uploadFileToCloudinary(full.filePath, { resourceType: "video", folder }),
+      uploadFileToCloudinary(shortPath, { resourceType: "video", folder }),
+    ]);
+    job.videoUrl = upFull.secure_url;
+    job.shortUrl = upShort.secure_url;
+
+    // 4) The thumbnail YouTube / Facebook would get.
+    job.phase = "thumb";
+    job.stage = "finishing";
+    if (job.useThumbnail) {
+      const t = await drawLongVideoThumbnail(job, { source, cfg, site, names, questions });
+      if (t?.image) {
+        const ext = /png/i.test(t.mime || "") ? "png" : "jpg";
+        const p = path.join(os.tmpdir(), `msg-thumb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`);
+        await fs.writeFile(p, t.image);
+        temp.push(p);
+        const up = await uploadFileToCloudinary(p, { resourceType: "image", folder }).catch((e) => { job.notes.push(`Thumbnail ✗ (${e?.message || e})`); return null; });
+        if (up?.secure_url) job.thumbnailUrl = up.secure_url;
+      }
+    } else {
+      job.notes.push("No thumbnail — upload/enable a thumbnail template in the YouTube card (or tick “Use thumbnail”).");
+    }
+
+    job.status = "done";
+    job.stage = "done";
+    job.finishedAt = Date.now();
+  } catch (e) {
+    job.status = "failed";
+    job.stage = "failed";
+    job.error = String(e?.message || e).slice(0, 500);
+    job.finishedAt = Date.now();
+  } finally {
+    await Promise.all(temp.map((p) => fs.rm(p, { force: true }).catch(() => {})));
   }
 }
 
