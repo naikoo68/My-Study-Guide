@@ -379,7 +379,8 @@ export function buildSlidePlan(q, opts = {}) {
 
 // ---- Intro / outro slides (title + closing call-to-action). Pure. ----------
 // An opening title slide for the video: subject / topic, "Let's begin".
-export function introSlidePlan({ subject = "", topic = "", siteName = "" } = {}) {
+// `narration` (optional) replaces the spoken line.
+export function introSlidePlan({ subject = "", topic = "", siteName = "", narration = "" } = {}) {
   const title = [asText(subject), asText(topic)].filter(Boolean).join(" — ");
   const heading = title || "Quiz Time";
   return {
@@ -390,23 +391,30 @@ export function introSlidePlan({ subject = "", topic = "", siteName = "" } = {})
     heading,
     lines: ["Let's begin!"],
     body: [{ text: "Let's begin!", emphasis: true }],
-    narration: `${title ? `${said(title)} ` : ""}Let's begin the quiz.`,
+    narration: asText(narration) || `${title ? `${said(title)} ` : ""}Let's begin the quiz.`,
   };
 }
 
-// A closing slide. kind "short" → "watch the full quiz on the channel";
-// otherwise the normal "thanks for watching, like/share/subscribe".
-export function outroSlidePlan(kind = "full", { siteName = "" } = {}) {
+// Default spoken lines for the end slides (they match the end-slide templates).
+export const DEFAULT_OUTRO_NARRATION = {
+  full: "Thanks for watching! Subscribe, like and share for more.",
+  short: "Thanks for watching! Subscribe, like and share for more. Watch the full quiz, visit the channel.",
+};
+
+// A closing slide. kind "short" → thanks + "watch the full quiz, visit the
+// channel"; otherwise the normal "thanks for watching, subscribe/like/share".
+// `narration` (optional) replaces the spoken line.
+export function outroSlidePlan(kind = "full", { siteName = "", narration = "" } = {}) {
   if (kind === "short") {
     return {
       id: "outro",
       role: "shortoutro",
       tag: siteName ? asText(siteName) : "",
       accent: "brand",
-      heading: "Watch the full quiz",
-      lines: ["on our channel", "Subscribe for more!"],
-      body: [{ text: "on our channel", emphasis: true }, { text: "Subscribe for more!" }],
-      narration: "Want all the questions? Watch the full quiz on our channel. Subscribe for more!",
+      heading: "Thanks for watching!",
+      lines: ["Subscribe · Like · Share for more", "Watch the full quiz — visit the channel"],
+      body: [{ text: "Subscribe · Like · Share for more", emphasis: true }, { text: "Watch the full quiz — visit the channel" }],
+      narration: asText(narration) || DEFAULT_OUTRO_NARRATION.short,
     };
   }
   return {
@@ -415,8 +423,8 @@ export function outroSlidePlan(kind = "full", { siteName = "" } = {}) {
     tag: siteName ? asText(siteName) : "",
     accent: "brand",
     heading: "Thanks for watching!",
-    lines: ["Like, share & subscribe", "for more quizzes"],
-    body: [{ text: "Like, share & subscribe", emphasis: true }, { text: "for more quizzes" }],
-    narration: "Thanks for watching! Please like, share and subscribe for more quizzes.",
+    lines: ["Subscribe · Like · Share", "for more"],
+    body: [{ text: "Subscribe · Like · Share", emphasis: true }, { text: "for more" }],
+    narration: asText(narration) || DEFAULT_OUTRO_NARRATION.full,
   };
 }

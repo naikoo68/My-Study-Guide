@@ -145,6 +145,11 @@ export function normalizeTextBox(o = {}, { defaultUseBox = false } = {}) {
     panelColor: col(c.panelColor, ""),
     panelOpacity: int(c.panelOpacity, 0, 0, 100),
     panelRadius: int(c.panelRadius, 24, 0, 80),
+    // What the narrator says on this slide ("" = the built-in default line).
+    narration: String(c.narration ?? "").replace(/\s+/g, " ").trim().slice(0, 400),
+    // On-screen time in seconds. 0 = auto: the slide ends right after the
+    // narration. A longer narration is never cut off.
+    seconds: int(c.seconds, 0, 0, 60),
   };
 }
 // The saved text-box + template for a long-video slide role.

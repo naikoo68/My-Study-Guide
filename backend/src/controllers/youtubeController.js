@@ -411,8 +411,8 @@ export async function youtubeSlideTextPreview(req, res) {
   if (!templateUrl) return res.status(400).json({ message: "Upload a slide template first." });
   const SAMPLE = {
     intro: { headline: "Subject — Topic", badge: "Let's begin!" },
-    outro: { headline: "Thanks for watching!", badge: "Like · Share · Subscribe" },
-    shortoutro: { headline: "Watch the full quiz", badge: "Subscribe for more!" },
+    outro: { headline: "Thanks for watching!", badge: "Subscribe · Like · Share for more" },
+    shortoutro: { headline: "Thanks for watching!", badge: "Watch the full quiz — visit the channel" },
   }[role];
   const { renderYoutubeThumbnail } = await import("../config/ytThumbnail.js");
   const r = await renderYoutubeThumbnail({
