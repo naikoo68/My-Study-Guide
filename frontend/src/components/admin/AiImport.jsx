@@ -75,6 +75,7 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
   const [stopping, setStopping] = useState(false); // user asked to stop the current generation
   const stopRef = useRef(false); // set when the user clicks Stop — breaks the wave/poll loop
   const jobIdRef = useRef(null); // id of the running background job (so Stop can cancel it)
+  const wakeRef = useRef(null); // ends the current poll wait early (Stop → check now)
   const runProducedRef = useRef(0); // how many questions the LAST runGenerate produced (for per-subtopic tally)
   const [detected, setDetected] = useState(0); // how many questions the source appears to contain
   const [busy, setBusy] = useState(false);
@@ -287,10 +288,10 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
       if (questionsDetected) setDetected(questionsDetected);
       if (questionsDetected && !append) setMsg(`Found ~${questionsDetected} question(s) — extracting…`);
 
-      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const sleep = (ms) => new Promise((r) => { const t = setTimeout(r, ms); wakeRef.current = () => { clearTimeout(t); r(); }; });
       let done = false;
       for (let i = 0; i < 240 && !done; i++) {
-        await sleep(2000);
+        await sleep(stopRef.current ? 300 : 2000); // after Stop, check quickly
         let s;
         try { s = await aiService.job(jobId); } catch { continue; }
         if (s.status === "done") {
@@ -417,7 +418,7 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
     // REMAINING buckets (keeps the grid's distribution instead of regenerating
     // the whole plan every wave).
     const producedByBucket = {};
-    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const sleep = (ms) => new Promise((r) => { const t = setTimeout(r, ms); wakeRef.current = () => { clearTimeout(t); r(); }; });
     // Accumulate the avoid-list LOCALLY across waves (React state is async, so
     // relying on avoidStems would let the next wave repeat this wave's questions).
     let avoidLocal = Array.from(new Set([...(avoidStems || [])]));
@@ -449,7 +450,7 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
       if (requested && !isAppend && priorTotal === 0) setDetected(target);
       let done = false, result = { produced: 0, timedOut: true };
       for (let i = 0; i < 300 && !done; i++) {
-        await sleep(2000);
+        await sleep(stopRef.current ? 300 : 2000); // after Stop, check quickly
         let s;
         try { s = await aiService.job(jobId); } catch { continue; }
         // Live per-type × per-difficulty progress WHILE the batch generates.
@@ -577,7 +578,8 @@ export default function AiImport({ open, onClose, onUpload, title = "Import Ques
   const stop = () => {
     stopRef.current = true;
     setStopping(true);
-    if (jobIdRef.current) aiService.cancelJob(jobIdRef.current).catch(() => {});
+    if (jobIdRef.current) aiService.cancelJob(jobIdRef.current).catch(() => {}).finally(() => wakeRef.current?.());
+    else wakeRef.current?.();
   };
 
   // Build the onUpload options. When "New {leaf}" is chosen we send newTarget so
