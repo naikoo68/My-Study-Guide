@@ -2365,6 +2365,18 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
   const [autoBusy, setAutoBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const [showStyle, setShowStyle] = useState(false);
+  // "Narrator says": insert a pause mark at the cursor.
+  const narrRef = useRef(null);
+  const insertPause = (mark) => {
+    const el = narrRef.current;
+    const cur = String(draft.narration || "");
+    const at = el && Number.isInteger(el.selectionStart) ? el.selectionStart : cur.length;
+    const before = cur.slice(0, at).replace(/\s+$/, "");
+    const after = cur.slice(at).replace(/^\s+/, "");
+    const next = `${before}${before ? " " : ""}${mark}${after ? " " : ""}${after}`.slice(0, 400);
+    set("narration", next, { later: true });
+    requestAnimationFrame(() => { if (el) { const pos = Math.min(next.length, (before ? before.length + 1 : 0) + mark.length + 1); el.focus(); el.setSelectionRange(pos, pos); } });
+  };
 
   const saveCfg = (patch) => { const next = { ...draft, ...patch }; return youtubeService.save({ [settingKey]: next }); };
   const persist = async (patch) => {
@@ -2603,9 +2615,18 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
       <div className="mt-3 space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
         <label className="block text-sm">
           <span className="mb-1 block font-medium">Narrator says</span>
-          <textarea rows={2} maxLength={400} className="input w-full text-sm" placeholder={defaultNarration}
+          <textarea ref={narrRef} rows={2} maxLength={400} className="input w-full text-sm" placeholder={defaultNarration}
             value={draft.narration} onChange={(e) => set("narration", e.target.value, { later: true })} />
-          <span className="text-[11px] text-slate-400">Empty = the default line shown above. Match it to the text on your template.</span>
+          <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
+            Add a pause:
+            {[["[pause]", "1 s"], ["[pause 2]", "2 s"], ["[pause 0.5]", "½ s"]].map(([mark, l]) => (
+              <button key={mark} type="button" onClick={() => insertPause(mark)}
+                className="rounded border border-slate-200 px-1.5 py-0.5 font-medium text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300">+ {l}</button>
+            ))}
+          </span>
+          <span className="block text-[11px] text-slate-400">
+            Type <b>[pause]</b> (1 second) or <b>[pause 2]</b> (2 seconds, up to 10) where the narrator should stop, e.g. “Thanks for watching! [pause] Subscribe, like and share. [pause 2] See you next time.” Viewers never see the marks. Commas and full stops also give short natural pauses. Empty = the default line shown above.
+          </span>
         </label>
         {stepRow("Show for", "seconds", 0, 60, 1, { fmt: (v) => (v ? `${v}s` : "auto") })}
         <p className="text-[11px] text-slate-400">auto = the slide ends as soon as the narrator finishes. A set time keeps the slide up at least that long (the voice is never cut off).</p>

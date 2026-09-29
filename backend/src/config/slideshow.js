@@ -24,7 +24,8 @@ import { buildSlidePlan, normalizeReadOptions, readOptionsFromSettings, introSli
 import { chunkForGoogle } from "./googleTts.js";
 import { renderSlideImage } from "./slideRender.js";
 import { renderSlideCardShots } from "./cardShot.js";
-import { composeSlideshowMp4, isFfmpegAvailable, probeImageSize } from "./videoCompose.js";
+import { composeSlideshowMp4, isFfmpegAvailable, probeImageSize, runFfmpeg } from "./videoCompose.js";
+import { splitNarrationPauses, hasNarrationPauses, stripNarrationPauses } from "../utils/narrationPauses.js";
 import { normalizeVoiceForProvider, voiceForFallback } from "../utils/ttsVoices.js";
 
 // Job-status states (mirrored onto the schedule's slideshowStatus for the UI).
@@ -79,6 +80,33 @@ async function synthesizeLongSpeech({ text, voice, cfg }) {
     usedVoice = r.voice || usedVoice;
   }
   return { buffer: Buffer.concat(buffers), voice: usedVoice };
+}
+
+// Narration with pause marks ("Thanks for watching! [pause 2] Subscribe…"):
+// each text part is spoken separately and REAL silence is put between them, so
+// it works the same on every voice engine. Writes one audio file → its path.
+async function synthesizeWithPauses({ text, voice, cfg, workDir, name }) {
+  const parts = splitNarrationPauses(text);
+  const inputs = []; // ffmpeg input args
+  const labels = [];
+  let n = 0;
+  for (const part of parts) {
+    if (part.text) {
+      const r = await synthesizeLongSpeech({ text: part.text, voice, cfg });
+      const fp = path.join(workDir, `${name}-part${n}.mp3`);
+      await fs.writeFile(fp, r.buffer);
+      inputs.push("-i", fp);
+    } else {
+      inputs.push("-f", "lavfi", "-t", String(part.pause), "-i", "anullsrc=r=24000:cl=mono");
+    }
+    labels.push(`[${n}:a]aresample=24000,aformat=sample_fmts=fltp:channel_layouts=mono[a${n}]`);
+    n++;
+  }
+  if (!n) return null;
+  const outPath = path.join(workDir, `${name}.m4a`);
+  const filter = `${labels.join(";")};${labels.map((_, i) => `[a${i}]`).join("")}concat=n=${n}:v=0:a=1[out]`;
+  await runFfmpeg(["-hide_banner", "-loglevel", "error", "-y", ...inputs, "-filter_complex", filter, "-map", "[out]", "-c:a", "aac", "-b:a", "128k", outPath], { timeoutMs: 120000 });
+  return outPath;
 }
 
 // "both" = question + answer slide per question (default); "question" = only
@@ -282,7 +310,7 @@ export async function generateSlideshow(question, opts = {}) {
         heading: s.heading || "",
         lines: s.lines || [],
         tag: s.tag,
-        caption: brandOpts.autoCaptions ? (s.caption || s.narration) : "",
+        caption: brandOpts.autoCaptions ? (s.caption || (IO_ROLES.includes(s.role) ? stripNarrationPauses(s.narration) : s.narration)) : "",
         template: !!templatePaths[templateRole(s.role)],
         templateSize: templateSizes[templateRole(s.role)] || null,
         templateInset,
@@ -366,6 +394,18 @@ export async function generateSlideshow(question, opts = {}) {
       // the composer fills its time with silence.
       if (!String(plan[i].narration || "").trim()) {
         audioPaths.push(null);
+        onProgress(SLIDESHOW_STATUS.GENERATING_AUDIO, i + 1, plan.length);
+        continue;
+      }
+      // Intro / end slides may carry pause marks ("[pause]", "[pause 2]") →
+      // real silences between the words (only there — question text is never
+      // scanned, so a "[2]" in a question is read as written).
+      if (IO_ROLES.includes(plan[i].role) && hasNarrationPauses(plan[i].narration)) {
+        try {
+          audioPaths.push(await synthesizeWithPauses({ text: plan[i].narration, voice, cfg: ttsCfg, workDir, name: `audio${String(i).padStart(2, "0")}` }));
+        } catch (e) {
+          throw new Error(`Narration failed on slide ${i + 1} (${ttsCfg.provider}): ${e?.message || e}`);
+        }
         onProgress(SLIDESHOW_STATUS.GENERATING_AUDIO, i + 1, plan.length);
         continue;
       }
