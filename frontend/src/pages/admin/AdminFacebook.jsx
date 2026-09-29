@@ -2346,6 +2346,8 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
   const [draft, setDraft] = useState(() => ({
     useBox: t.useBox !== undefined ? !!t.useBox : isIntroRole,
     showText: t.showText !== false,
+    showSubject: t.showSubject !== false, // intro slides: show (and say) the subject…
+    showTopic: t.showTopic !== false,     // …and/or the topic
     box: t.box || DEF_BOX, align: t.align || "center", vAlign: t.vAlign || "center",
     font: t.font || "sans", uppercase: !!t.uppercase,
     headlineSize: t.headlineSize ?? 84, kickerSize: t.kickerSize ?? 44, badgeSize: t.badgeSize ?? 46,
@@ -2356,9 +2358,11 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
     panelColor: t.panelColor || "", panelOpacity: t.panelOpacity ?? 0, panelRadius: t.panelRadius ?? 24,
     narration: t.narration || "", seconds: t.seconds ?? 0,
   }));
+  // Intro sample text + default narration follow the Subject / Topic switches.
+  const introHead = [draft.showSubject !== false && "Subject", draft.showTopic !== false && "Topic"].filter(Boolean).join(" — ") || "Quiz Time";
   const defaultNarration = {
-    intro: "“<Subject — Topic>. Let's begin the quiz.”",
-    shortintro: "“<Subject — Topic>. Let's begin the quiz.”",
+    intro: `“${introHead === "Quiz Time" ? "" : `<${introHead}>. `}Let's begin the quiz.”`,
+    shortintro: `“${introHead === "Quiz Time" ? "" : `<${introHead}>. `}Let's begin the quiz.”`,
     outro: "Thanks for watching! Subscribe, like and share for more.",
     shortoutro: "Thanks for watching! Subscribe, like and share for more. Watch the full quiz, visit the channel.",
   }[role];
@@ -2422,8 +2426,8 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
   const SLIDE_W = vertical ? 1080 : 1920, SLIDE_H = vertical ? 1920 : 1080;
   const frameW = useElementWidth(frameRef);
   const sampleLines = {
-    intro: { headline: "Subject — Topic", badge: "Let's begin!" },
-    shortintro: { headline: "Subject — Topic", badge: "Let's begin!" },
+    intro: { headline: introHead, badge: "Let's begin!" },
+    shortintro: { headline: introHead, badge: "Let's begin!" },
     outro: { headline: "Thanks for watching!", badge: "Subscribe · Like · Share for more" },
     shortoutro: { headline: "Thanks for watching!", badge: "Watch the full quiz — visit the channel" },
   }[role];
@@ -2629,6 +2633,28 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
           </div>
         )}
       </div>
+        {isIntroRole && (
+          <div className="mt-3 rounded-lg border border-slate-200 p-2.5 dark:border-slate-700">
+            <p className="mb-1.5 text-sm font-medium">Show on the intro</p>
+            <div className="flex flex-wrap gap-2">
+              {[["showSubject", "Subject", "e.g. Economics"], ["showTopic", "Topic", "e.g. Characteristics and Problems of Developing Economy"]].map(([k, label, eg]) => {
+                const on = draft[k] !== false;
+                return (
+                  <button key={k} type="button" role="switch" aria-checked={on} title={eg} onClick={() => set(k, !on)}
+                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium transition ${on ? "border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300" : "border-slate-300 text-slate-500 dark:border-slate-600 dark:text-slate-400"}`}>
+                    <span className={`relative inline-block h-4 w-7 rounded-full transition ${on ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-600"}`}>
+                      <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all ${on ? "left-3.5" : "left-0.5"}`} />
+                    </span>
+                    {label} {on ? "on" : "off"}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-1.5 text-[11px] text-slate-400">
+              {draft.showSubject !== false && draft.showTopic !== false ? "Shows “Subject — Topic”." : draft.showSubject !== false ? "Shows only the subject." : draft.showTopic !== false ? "Shows only the topic." : "Shows “Quiz Time” (no names)."} The narrator says the same (unless you typed your own line below).
+            </p>
+          </div>
+        )}
       <div className="mt-3 space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
         <label className="block text-sm">
           <span className="mb-1 block font-medium">Narrator says</span>

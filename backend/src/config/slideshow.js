@@ -310,7 +310,8 @@ export async function generateSlideshow(question, opts = {}) {
     const io = typeof opts.intro === "object" ? opts.intro : {};
     // The Short's intro is its own (9:16) slide: role "shortintro", own template + text.
     const introRole = io.role === "shortintro" ? "shortintro" : "intro";
-    const introPlan = introSlidePlan({ subject: io.subject, topic: io.topic, siteName: brandOpts.siteName, narration: slideText[introRole]?.narration });
+    const ic = slideText[introRole] || {};
+    const introPlan = introSlidePlan({ subject: io.subject, topic: io.topic, siteName: brandOpts.siteName, narration: ic.narration, showSubject: ic.showSubject, showTopic: ic.showTopic });
     plan.unshift(introRole === "shortintro" ? { ...introPlan, role: "shortintro" } : introPlan);
     planQuestions.unshift(null);
   }
