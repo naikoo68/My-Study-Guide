@@ -14,7 +14,7 @@ import { tenantStore, getCurrentTenantId } from "../utils/tenantContext.js";
 import { generateSlideshow } from "./slideshow.js";
 import {
   uploadVideoFileToYoutube, buildYtTitle, buildYtLongDescription, buildYtTags,
-  isYoutubeConfigured, DEFAULT_YT_LONG_TITLE, applyYtExtras, thumbnailLines, thumbTemplateActive, setYtThumbnail, slideTextConfigFromSite,
+  isYoutubeConfigured, DEFAULT_YT_LONG_TITLE, DEFAULT_YT_LONG_TITLE_NOQUIZ, applyYtExtras, thumbnailLines, thumbTemplateActive, setYtThumbnail, slideTextConfigFromSite,
 } from "./youtube.js";
 import { postLongVideoToFacebookPage } from "./fbLongVideo.js";
 import { TTS_PROVIDERS } from "../utils/ttsVoices.js";
@@ -221,7 +221,23 @@ export const DEFAULT_YT_PART_TITLE = "{subject} | {topic} | Questions {range}";
 // a one-off chunk). Keeps the quiz name and adds the part, e.g.
 // "Accountancy | Basic Terms | Quiz 1 | Part 2". {quiz} drops out if the source
 // is a whole topic with no single quiz name.
-export const DEFAULT_YT_SERIES_TITLE = "{subject} | {topic} | {quiz} | Part {part}";
+// "Economics | Characteristics and Problems of Developing Economy | Quiz 1 (Part 1) (25 Questions)"
+export const DEFAULT_YT_SERIES_TITLE = "{subject} | {topic} | {quiz} (Part {part}) ({count} Questions)";
+export const DEFAULT_YT_SERIES_TITLE_NOQUIZ = "{subject} | {topic} (Part {part}) ({count} Questions)";
+
+// Default title template for a video (pure, tested):
+//   the WHOLE quiz            → "… | Quiz 1 (25 Questions)"
+//   PART of it (e.g. 25 of 50) → "… | Quiz 1 (Part 1) (25 Questions)"
+// A whole topic (no quiz name) drops the quiz: "… | Topic (Part 2) (25 Questions)".
+export function defaultLongVideoTitle({ isPart = false, hasQuiz = true } = {}) {
+  if (isPart) return hasQuiz ? DEFAULT_YT_SERIES_TITLE : DEFAULT_YT_SERIES_TITLE_NOQUIZ;
+  return hasQuiz ? DEFAULT_YT_LONG_TITLE : DEFAULT_YT_LONG_TITLE_NOQUIZ;
+}
+// Which part a chunk is: with 25 per video, questions 1–25 → Part 1, 26–50 →
+// Part 2, even when the LAST part is shorter (41–50 at 20 per video → Part 3).
+export function partNumberFor(first, perVideo) {
+  return Math.floor((Math.max(1, Number(first) || 1) - 1) / Math.max(1, Number(perVideo) || 1)) + 1;
+}
 
 // A short teaser's title (kept within YouTube's 100 chars).
 function shortTitle(title) {
@@ -400,18 +416,25 @@ async function planLongVideo(job, { source, cfg, site, titleTemplate, opts }) {
   // Part 1 (Q1–25), Part 2 (Q26–50) … all keep the same quiz name.
   let partNum = Number(opts.part) || 0;
   if (!partNum && partial && opts.order !== "random") {
-    partNum = Math.floor((first - 1) / Math.max(1, questions.length)) + 1;
+    // Use the chosen questions-per-video, not this video's count, so a shorter
+    // LAST part still gets the right number.
+    partNum = partNumberFor(first, opts.count || questions.length);
   }
-  const isPart = partNum > 0 || partial;
-  const tpl = (titleTemplate || (isPart ? DEFAULT_YT_SERIES_TITLE : DEFAULT_YT_LONG_TITLE))
+  // A part only when the video does NOT hold the whole quiz/topic (a quiz of
+  // exactly 25 questions in one video is just "Quiz 1 (25 Questions)").
+  const isPart = partial;
+  // The quiz name only when ONE quiz (or My Quiz) was picked — a whole topic
+  // mixes several quizzes, so "Quiz 1" (the first question's quiz) would be wrong.
+  const quizName = source?.quiz || source?.testSeries ? names.quiz : "";
+  const tpl = (titleTemplate || defaultLongVideoTitle({ isPart, hasQuiz: !!quizName }))
     .replace(/\{range\}/gi, job.range || `1–${questions.length}`)
     .replace(/\{part\}/gi, String(partNum || 1));
   job.title = buildYtTitle(tpl, {
     subject: names.subject || names.quiz || displayTrail(source?.label),
     topic: names.topic,
-    quiz: names.quiz,
+    quiz: quizName,
     count: questions.length,
-  }, displayTrail(source?.label) || "Full Quiz");
+  }, displayTrail(source?.label) || "Quiz");
 
   const siteUrl = (cfg.siteUrl || "https://www.mystudyguide.in").replace(/\/+$/, "");
   // Shared slideshow options — an opening title slide and a closing
@@ -537,7 +560,8 @@ async function uploadRendered(job, { cfg, opts, filePath, description, tags, thu
         const short = await getShort();
         const shortPath = short.path;
         const shortDesc = buildYtLongDescription({
-          intro: `${short.count} sample question${short.count === 1 ? "" : "s"}${breadcrumb ? ` — ${breadcrumb}` : ""}. Watch the full quiz here: ${job.url}`,
+          title: job.title,
+          intro: `${short.count} sample question${short.count === 1 ? "" : "s"}${breadcrumb ? ` — ${breadcrumb}` : ""}. Watch the full video here: ${job.url}`,
           hashtags: tags,
           shorts: true,
         });
@@ -602,6 +626,7 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
     const tags = await hashtagsForQuestion(questions[0], site, hashtags);
     const offset = opts.order === "random" ? 0 : first - 1;
     const description = buildYtLongDescription({
+      title: job.title, // the description starts with the title
       intro: `${questions.length} questions with answers${job.range ? ` (questions ${job.range})` : ""}${breadcrumb ? ` — ${breadcrumb}` : ""}.`,
       chapters: (result.chapters || []).map((c) => ({ ...c, label: `Question ${offset + c.question}` })),
       hashtags: tags,
@@ -920,6 +945,7 @@ async function runPublish(job, { preview, cfg, site, hashtags, opts }) {
     temp.push(filePath);
     const tags = await hashtagsForQuestion(d.firstQuestion, site, hashtags);
     const description = buildYtLongDescription({
+      title: job.title,
       intro: `${job.questions} questions with answers${job.range ? ` (questions ${job.range})` : ""}${d.breadcrumb ? ` — ${d.breadcrumb}` : ""}.`,
       chapters: (d.chapters || []).map((c) => ({ ...c, label: `Question ${d.offset + c.question}` })),
       hashtags: tags,

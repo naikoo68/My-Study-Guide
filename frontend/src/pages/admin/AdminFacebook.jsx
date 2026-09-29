@@ -3436,7 +3436,9 @@ function FullQuizVideoForm({ st, onStatus }) {
         <div className="sm:col-span-2">
           <label className="mb-1 block text-sm font-medium">Title <span className="font-normal text-slate-400">(optional — used on YouTube and Facebook)</span></label>
           <input className="input" maxLength={100} value={title} onChange={(e) => setTitle(e.target.value)}
-            placeholder={planned && !planned.random && (planned.from > 1 || planned.to < total) ? `Automatic: Subject | Topic | Questions ${planned.from}–${planned.to}` : "Automatic: Subject | Topic | Full Quiz (25 Questions)"} />
+            placeholder={planned && !planned.random && (planned.from > 1 || planned.to < total)
+              ? `Automatic: Subject | Topic | Quiz 1 (Part ${Math.floor((planned.from - 1) / Math.max(1, qMode === "all" ? maxQ : nCount)) + 1}) (${planned.n} Questions)`
+              : `Automatic: Subject | Topic | Quiz 1 (${planned?.n || 25} Questions)`} />
         </div>
         {toYoutube && (
           <>
@@ -3528,7 +3530,7 @@ function FullQuizVideoForm({ st, onStatus }) {
               </p>
             );
           })()}
-          <p className="mt-1 text-xs text-slate-400">Each video is posted as soon as it's ready (a few minutes after its time). Title: <b>Subject | Topic | Part 1 (Questions 1–25)</b> unless you type one. It appears under <b>Scheduled posts</b>, where you can pause, run now or delete it.</p>
+          <p className="mt-1 text-xs text-slate-400">Each video is posted as soon as it's ready (a few minutes after its time). Title: <b>Subject | Topic | Quiz 1 (Part 1) (25 Questions)</b> — or <b>Quiz 1 (25 Questions)</b> when one video holds the whole quiz — unless you type one. The description starts with the title. It appears under <b>Scheduled posts</b>, where you can pause, run now or delete it.</p>
         </div>
       )}
 
@@ -4440,7 +4442,7 @@ export default function AdminFacebook() {
                 {form.kind !== "custom" && (
                   <label className="mt-2 flex items-start gap-2 text-sm">
                     <input type="checkbox" className="mt-0.5 h-4 w-4 accent-[#FF0000]" checked={!!form.ytFullVideo} onChange={(e) => setForm((f) => ({ ...f, ytFullVideo: e.target.checked }))} />
-                    <span>Also make <b>one full video</b> of the whole topic when the last Short is posted <span className="text-slate-400">(landscape, all questions + answers, e.g. “Subject | Topic | Full Quiz (25 Questions)”). Needs “Stop when all posted”.</span></span>
+                    <span>Also make <b>one full video</b> of the whole topic when the last Short is posted <span className="text-slate-400">(landscape, all questions + answers, e.g. “Subject | Topic | Quiz 1 (25 Questions)”). Needs “Stop when all posted”.</span></span>
                   </label>
                 )}
                 {!scheduleHasVideo(form) && (
