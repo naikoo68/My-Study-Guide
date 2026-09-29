@@ -2455,10 +2455,14 @@ async function runTenantSchedules(tid, stats = null) {
       const r = await runScheduleOnce(sch, cfg, { notify: true });
       if (stats && r?.ok) stats.posted += 1;
       else if (stats && r && !r.ok && !r.exhausted) stats.lastError = r.error || "post failed";
-      // Disappear-on-success: a ONE-TIME post, OR a recurring schedule that just
-      // finished its whole pool (the final question posted), is deleted so it's
-      // gone from the list. A failed post is kept (with its error) for retry.
-      if (r?.ok && (sch.mode === "once" || r.completed)) await FbSchedule.deleteOne({ _id: sch._id });
+      // Disappear-on-success: a ONE-TIME post, OR a recurring question/slideshow
+      // schedule that just finished its whole pool (the final question posted),
+      // is deleted so it's gone from the list. A failed post is kept (with its
+      // error) for retry. A completed LONG-VIDEO schedule is NEVER deleted — it
+      // stays in the list marked "Completed" (paused), like the exhausted
+      // question path; deleting it made a repeating schedule vanish after one
+      // run and lost the row reportToSchedule updates once the video posts.
+      if (r?.ok && (sch.mode === "once" || (r.completed && sch.kind !== "longvideo"))) await FbSchedule.deleteOne({ _id: sch._id });
       else await sch.save();
     } catch (e) {
       sch.lastResult = `Error: ${e.message}`;

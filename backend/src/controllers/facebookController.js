@@ -751,10 +751,12 @@ export async function postScheduleNow(req, res) {
     return res.status(400).json({ ok: false, error: sch.toYoutube ? "Connect Facebook or YouTube first." : "Connect Facebook first (Page ID + token) and enable posting." });
   }
   const result = await runScheduleOnce(sch, cfg);
-  // Disappear-on-success: remove a one-time post, or a recurring schedule that
-  // just finished its whole pool, once it has published successfully. Failures
-  // are kept so the admin can retry.
-  if (result.ok && (sch.mode === "once" || result.completed)) {
+  // Disappear-on-success: remove a one-time post, or a recurring
+  // question/slideshow schedule that just finished its whole pool, once it has
+  // published successfully. Failures are kept so the admin can retry. A
+  // completed LONG-VIDEO schedule is KEPT (marked "Completed", paused) so it
+  // stays visible and reportToSchedule can still update it when the video posts.
+  if (result.ok && (sch.mode === "once" || (result.completed && sch.kind !== "longvideo"))) {
     await FbSchedule.deleteOne({ _id: sch._id }).catch(() => {});
   } else {
     await sch.save().catch(() => {});
