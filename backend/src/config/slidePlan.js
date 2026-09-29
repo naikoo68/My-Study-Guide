@@ -376,3 +376,47 @@ export function buildSlidePlan(q, opts = {}) {
 
   return slides;
 }
+
+// ---- Intro / outro slides (title + closing call-to-action). Pure. ----------
+// An opening title slide for the video: subject / topic, "Let's begin".
+export function introSlidePlan({ subject = "", topic = "", siteName = "" } = {}) {
+  const title = [asText(subject), asText(topic)].filter(Boolean).join(" — ");
+  const heading = title || "Quiz Time";
+  return {
+    id: "intro",
+    role: "intro",
+    tag: siteName ? asText(siteName) : "QUIZ",
+    accent: "brand",
+    heading,
+    lines: ["Let's begin!"],
+    body: [{ text: "Let's begin!", emphasis: true }],
+    narration: `${title ? `${said(title)} ` : ""}Let's begin the quiz.`,
+  };
+}
+
+// A closing slide. kind "short" → "watch the full quiz on the channel";
+// otherwise the normal "thanks for watching, like/share/subscribe".
+export function outroSlidePlan(kind = "full", { siteName = "" } = {}) {
+  if (kind === "short") {
+    return {
+      id: "outro",
+      role: "outro",
+      tag: siteName ? asText(siteName) : "",
+      accent: "brand",
+      heading: "Watch the full quiz",
+      lines: ["on our channel", "Subscribe for more!"],
+      body: [{ text: "on our channel", emphasis: true }, { text: "Subscribe for more!" }],
+      narration: "Want all the questions? Watch the full quiz on our channel. Subscribe for more!",
+    };
+  }
+  return {
+    id: "outro",
+    role: "outro",
+    tag: siteName ? asText(siteName) : "",
+    accent: "brand",
+    heading: "Thanks for watching!",
+    lines: ["Like, share & subscribe", "for more quizzes"],
+    body: [{ text: "Like, share & subscribe", emphasis: true }, { text: "for more quizzes" }],
+    narration: "Thanks for watching! Please like, share and subscribe for more quizzes.",
+  };
+}

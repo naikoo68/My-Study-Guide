@@ -166,11 +166,49 @@ function AnswerSlide({ q, tag }) {
   );
 }
 
+// Opening / closing slide: a big centred heading + a couple of lines, on the
+// same branded card as the question slides. No question is fetched.
+function IntroOutroSlide({ heading, lines, tag, site, landscape, templateMode, tplW, tplH, ready, onReady }) {
+  useEffect(() => { onReady?.(); }, [onReady]);
+  const W = landscape ? LAND_W : SLIDE_W;
+  const H = landscape ? LAND_H : SLIDE_H;
+  const card = templateMode
+    ? (landscape ? landTemplateCard(tplW, tplH, 0.03) : templateCard(tplW, tplH))
+    : (landscape ? LAND_CARD : BUILTIN_CARD);
+  const pad = landscape ? 48 : CARD_PAD;
+  return (
+    <div data-card-el data-card-ready={ready ? "1" : "0"}
+      style={{ position: "relative", width: W, height: H, overflow: "hidden",
+        background: templateMode ? "transparent" : "linear-gradient(135deg,#eef2ff 0%,#ffffff 50%,#ecfdf5 100%)" }}>
+      {!templateMode && (
+        <div style={{ position: "absolute", left: card.left, right: card.left, top: 36, height: 80 }} className="flex items-center gap-3">
+          <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-600 text-white"><GraduationCap className="h-9 w-9" /></span>
+          <span className="text-5xl font-extrabold leading-none"><span className="text-slate-900">My</span><span className="text-brand-600">Study</span><span className="text-slate-900">Guide</span></span>
+        </div>
+      )}
+      <div style={{ position: "absolute", left: card.left, top: card.top, width: card.width, height: card.height,
+        padding: pad, borderRadius: 36, background: templateMode ? "rgba(255,255,255,0.94)" : "#ffffff",
+        boxShadow: "0 12px 40px rgba(15,23,42,0.10)", boxSizing: "border-box",
+        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", gap: 28 }}>
+        {tag && <span className="rounded-full bg-brand-50 px-6 py-2 text-3xl font-bold uppercase tracking-wide text-brand-700">{tag}</span>}
+        <h1 className="font-black leading-tight text-slate-900" style={{ fontSize: landscape ? 84 : 76 }}>{heading}</h1>
+        {(lines || []).map((l, i) => (
+          <div key={i} className={`font-bold ${i === 0 ? "text-brand-600" : "text-slate-600"}`} style={{ fontSize: landscape ? 52 : 46, lineHeight: 1.2 }}>{l}</div>
+        ))}
+      </div>
+      {!templateMode && site && (
+        <div style={{ position: "absolute", left: 0, right: 0, bottom: 60 }} className="text-center text-3xl font-semibold text-slate-500">{site}</div>
+      )}
+    </div>
+  );
+}
+
 export default function SlideCardImage() {
   const { id } = useParams();
   const [sp] = useSearchParams();
   const roleParam = sp.get("role");
-  const role = roleParam === "answer" ? "answer" : roleParam === "reveal" ? "reveal" : "question";
+  const role = roleParam === "answer" ? "answer" : roleParam === "reveal" ? "reveal"
+    : roleParam === "intro" ? "intro" : roleParam === "outro" ? "outro" : "question";
   const tag = (sp.get("tag") || "").trim();
   const caption = (sp.get("cap") || "").trim();
   const templateMode = sp.get("tpl") === "1";
@@ -208,22 +246,32 @@ export default function SlideCardImage() {
     return () => style.remove();
   }, [templateMode]);
 
+  const isIntroOutro = role === "intro" || role === "outro";
+  const heading = (sp.get("h") || "").trim();
+  const subLines = (sp.get("sub") || "").split("||").map((x) => x.trim()).filter(Boolean);
+
   useEffect(() => {
+    if (isIntroOutro) return undefined; // no question to fetch for intro/outro
     let alive = true;
     contentService.cardQuestion(id, { answer: true })
       .then((data) => { if (alive) setQ(data); })
       .catch((e) => { if (alive) setError(e.message || "Question not found"); });
     return () => { alive = false; };
-  }, [id]);
+  }, [id, isIntroOutro]);
 
   useEffect(() => {
-    if (!q) return undefined;
+    if (!q && !isIntroOutro) return undefined;
     let alive = true;
     const done = () => { if (alive) requestAnimationFrame(() => requestAnimationFrame(() => alive && setFontsReady(true))); };
     if (document.fonts?.ready) document.fonts.ready.then(done).catch(done);
     else done();
     return () => { alive = false; };
-  }, [q]);
+  }, [q, isIntroOutro]);
+
+  if (isIntroOutro) {
+    return <IntroOutroSlide heading={heading} lines={subLines} tag={tag} site={site} landscape={landscape}
+      templateMode={templateMode} tplW={tplW} tplH={tplH} ready={fontsReady} onReady={() => setFitted(true)} />;
+  }
 
   if (error) return <div data-card-error="1" style={{ padding: 24, fontFamily: "sans-serif" }}>{error}</div>;
   if (!q) return <div style={{ padding: 24, fontFamily: "sans-serif" }}>Loading…</div>;
