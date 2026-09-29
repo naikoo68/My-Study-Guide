@@ -2130,6 +2130,26 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
     </label>
   );
 
+  // A labelled slider with − / + buttons for fine control. `fmt` formats the
+  // shown value; `round` keeps decimals (e.g. line spacing) tidy.
+  const stepRow = (label, key, lo, hi, step = 1, { fmt, round = 0, icon = null, extra = null } = {}) => {
+    const cur = Number(draft[key]);
+    const clampV = (v) => Math.max(lo, Math.min(hi, round ? Number(v.toFixed(round)) : Math.round(v)));
+    const nudge = (d) => set(key, clampV(cur + d * step), { later: true });
+    return (
+      <label className="flex items-center justify-between gap-2 text-sm">
+        <span className="flex items-center gap-1">{icon}{label}</span>
+        <span className="flex items-center gap-1.5">
+          <button type="button" onClick={() => nudge(-1)} className="flex h-6 w-6 items-center justify-center rounded border border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">−</button>
+          <input type="range" min={lo} max={hi} step={step} value={cur} onChange={(e) => set(key, Number(e.target.value), { later: true })} className="w-24 accent-[#FF0000]" />
+          <button type="button" onClick={() => nudge(1)} className="flex h-6 w-6 items-center justify-center rounded border border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">+</button>
+          <span className="w-9 text-right text-xs text-slate-400">{fmt ? fmt(cur) : cur}</span>
+          {extra}
+        </span>
+      </label>
+    );
+  };
+
   // Sample text drawn in the box, styled to APPROXIMATE the server output, so
   // dragging/styling gives instant feedback (the Preview button is exact).
   const sampleStyle = {
@@ -2257,35 +2277,15 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
                 </div>
                 <div className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
                   <p className="text-xs font-semibold text-slate-500">Text size &amp; spacing</p>
-                  {[
-                    ["Topic size", "thumbHeadlineSize", 24, 200, 104],
-                    ["Subject size", "thumbKickerSize", 12, 120, 44],
-                    ["Quiz badge size", "thumbBadgeSize", 12, 120, 46],
-                  ].map(([label, key, lo, hi]) => (
-                    <label key={key} className="flex items-center justify-between gap-2 text-sm">
-                      <span>{label}</span>
-                      <span className="flex items-center gap-2">
-                        <input type="range" min={lo} max={hi} value={draft[key]} onChange={(e) => set(key, Number(e.target.value), { later: true })} className="w-28 accent-[#FF0000]" />
-                        <span className="w-8 text-right text-xs text-slate-400">{draft[key]}</span>
-                      </span>
-                    </label>
-                  ))}
-                  <label className="flex items-center justify-between gap-2 text-sm">
-                    <span>Line spacing</span>
-                    <span className="flex items-center gap-2">
-                      <input type="range" min={0.8} max={2} step={0.05} value={draft.thumbLineHeight} onChange={(e) => set("thumbLineHeight", Number(e.target.value), { later: true })} className="w-28 accent-[#FF0000]" />
-                      <span className="w-8 text-right text-xs text-slate-400">{Number(draft.thumbLineHeight).toFixed(2)}</span>
-                    </span>
-                  </label>
-                  <label className="flex items-center justify-between gap-2 text-sm">
-                    <span className="flex items-center gap-1"><RotateCw className="h-3.5 w-3.5 text-slate-400" /> Rotate</span>
-                    <span className="flex items-center gap-2">
-                      <input type="range" min={-180} max={180} value={rot} onChange={(e) => set("thumbRotate", Number(e.target.value), { later: true })} className="w-28 accent-[#FF0000]" />
-                      <span className="w-9 text-right text-xs text-slate-400">{rot}°</span>
-                      {rot !== 0 && <button type="button" onClick={() => set("thumbRotate", 0)} className="text-xs text-brand-600 hover:underline">reset</button>}
-                    </span>
-                  </label>
-                  <p className="text-[11px] text-slate-400">Drag the box to move, the red corner to resize (zoom), the blue knob on top to rotate. The topic shrinks automatically only if it doesn't fit the box.</p>
+                  {stepRow("Topic size", "thumbHeadlineSize", 24, 200, 2)}
+                  {stepRow("Subject size", "thumbKickerSize", 12, 120, 2)}
+                  {stepRow("Quiz badge size", "thumbBadgeSize", 12, 120, 2)}
+                  {stepRow("Line spacing", "thumbLineHeight", 0.8, 2, 0.05, { round: 2, fmt: (v) => v.toFixed(2) })}
+                  {stepRow("Rotate", "thumbRotate", -180, 180, 1, {
+                    icon: <RotateCw className="h-3.5 w-3.5 text-slate-400" />, fmt: (v) => `${v}°`,
+                    extra: rot !== 0 ? <button type="button" onClick={() => set("thumbRotate", 0)} className="text-xs text-brand-600 hover:underline">reset</button> : null,
+                  })}
+                  <p className="text-[11px] text-slate-400">Use − / + or drag the sliders. Drag the box to move, the red corner to resize (zoom), the blue knob on top to rotate. The topic shrinks automatically only if it doesn't fit the box.</p>
                 </div>
                 <button type="button" onClick={() => setShowStyle((v) => !v)} className="flex items-center gap-1 text-xs font-semibold text-brand-600">
                   <ChevronDown className={`h-4 w-4 transition ${showStyle ? "rotate-180" : ""}`} /> Outline, shadow &amp; shade
@@ -2294,10 +2294,7 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
                   <div className="space-y-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
                     <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                       {colorInput("Outline colour", "thumbStrokeColor", "#000000")}
-                      <label className="flex items-center justify-between gap-2 text-sm">
-                        <span>Outline</span>
-                        <input type="range" min={0} max={12} value={draft.thumbStrokeWidth} onChange={(e) => set("thumbStrokeWidth", Number(e.target.value), { later: true })} className="w-24 accent-[#FF0000]" />
-                      </label>
+                      {stepRow("Outline", "thumbStrokeWidth", 0, 12, 1)}
                     </div>
                     <label className="flex items-center gap-2 text-sm">
                       <input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={draft.thumbShadow} onChange={(e) => set("thumbShadow", e.target.checked)} /> Drop shadow
@@ -2309,14 +2306,8 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
                       <p className="mb-1 text-xs font-semibold text-slate-500">Shade behind text <span className="font-normal text-slate-400">(for busy backgrounds)</span></p>
                       <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                         {colorInput("Shade colour", "thumbPanelColor", "#000000")}
-                        <label className="flex items-center justify-between gap-2 text-sm">
-                          <span>Opacity</span>
-                          <input type="range" min={0} max={100} value={draft.thumbPanelOpacity} onChange={(e) => set("thumbPanelOpacity", Number(e.target.value), { later: true })} className="w-24 accent-[#FF0000]" />
-                        </label>
-                        <label className="flex items-center justify-between gap-2 text-sm">
-                          <span>Corners</span>
-                          <input type="range" min={0} max={60} value={draft.thumbPanelRadius} onChange={(e) => set("thumbPanelRadius", Number(e.target.value), { later: true })} className="w-24 accent-[#FF0000]" />
-                        </label>
+                        {stepRow("Opacity", "thumbPanelOpacity", 0, 100, 5)}
+                        {stepRow("Corners", "thumbPanelRadius", 0, 60, 2)}
                       </div>
                     </div>
                   </div>

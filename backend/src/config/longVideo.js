@@ -116,8 +116,11 @@ export const tenantKeyNow = () => String(getCurrentTenantId() || "");
 
 // Default title when only PART of a topic is in the video ("Questions 26–50").
 export const DEFAULT_YT_PART_TITLE = "{subject} | {topic} | Questions {range}";
-// Default title for each video of a repeating long-video schedule.
-export const DEFAULT_YT_SERIES_TITLE = "{subject} | {topic} | Part {part} (Questions {range})";
+// Default title for a video that is one PART of a quiz (repeating schedule, or
+// a one-off chunk). Keeps the quiz name and adds the part, e.g.
+// "Accountancy | Basic Terms | Quiz 1 | Part 2". {quiz} drops out if the source
+// is a whole topic with no single quiz name.
+export const DEFAULT_YT_SERIES_TITLE = "{subject} | {topic} | {quiz} | Part {part}";
 
 // A short teaser's title (kept within YouTube's 100 chars).
 function shortTitle(title) {
@@ -285,9 +288,18 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
 
     const names = await titlePartsForQuestion(questions[0]);
     const breadcrumb = await breadcrumbForQuestion(questions[0]);
-    const tpl = (titleTemplate || (opts.part ? DEFAULT_YT_SERIES_TITLE : partial ? DEFAULT_YT_PART_TITLE : DEFAULT_YT_LONG_TITLE))
+    // Part number of THIS video within the quiz/source. For a repeating
+    // schedule it's opts.part; for a one-off chunk (Choose how many + Start
+    // from), derive it from where it starts. A 100-question quiz at 25/video →
+    // Part 1 (Q1–25), Part 2 (Q26–50) … all keep the same quiz name.
+    let partNum = Number(opts.part) || 0;
+    if (!partNum && partial && opts.order !== "random") {
+      partNum = Math.floor((first - 1) / Math.max(1, questions.length)) + 1;
+    }
+    const isPart = partNum > 0 || partial;
+    const tpl = (titleTemplate || (isPart ? DEFAULT_YT_SERIES_TITLE : DEFAULT_YT_LONG_TITLE))
       .replace(/\{range\}/gi, job.range || `1–${questions.length}`)
-      .replace(/\{part\}/gi, String(opts.part || 1));
+      .replace(/\{part\}/gi, String(partNum || 1));
     job.title = buildYtTitle(tpl, {
       subject: names.subject || names.quiz || source?.label || "",
       topic: names.topic,
