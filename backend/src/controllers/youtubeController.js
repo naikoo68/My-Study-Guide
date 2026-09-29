@@ -43,6 +43,7 @@ function statusOf(site, req) {
     introText: slideTextConfigFromSite(site, "intro"),
     outroText: slideTextConfigFromSite(site, "outro"),
     shortOutroText: slideTextConfigFromSite(site, "shortoutro"),
+    shortIntroText: slideTextConfigFromSite(site, "shortintro"),
     // Saved long-video form settings (null = never saved → the form uses the AI Slideshow ones).
     longVideoDefaults: site?.longVideoDefaults || null,
   };
@@ -119,14 +120,14 @@ export async function saveYoutubeSettings(req, res) {
   if ("longPlaylist" in b) { const p = playlistFields(b.longPlaylist); site.ytLongPlaylistId = p.id; site.ytLongPlaylistTitle = p.title; }
   applyThumbFields(site, b);
   // Intro / end / Short-end slide text boxes (Mixed) — same shape as the thumbnail.
-  for (const k of ["longVideoIntroText", "longVideoOutroText", "longVideoShortOutroText"]) {
+  for (const k of ["longVideoIntroText", "longVideoOutroText", "longVideoShortOutroText", "longVideoShortIntroText"]) {
     if (k in b) {
       site[k] = b[k] && typeof b[k] === "object" ? normalizeTextBox(b[k]) : null;
       site.markModified(k);
     }
   }
   // Slide template backgrounds — only safe public http(s) image URLs; "" clears.
-  for (const k of ["longVideoIntroTemplateUrl", "longVideoOutroTemplateUrl", "longVideoShortOutroTemplateUrl", "longVideoQuestionTemplateUrl", "longVideoAnswerTemplateUrl"]) {
+  for (const k of ["longVideoIntroTemplateUrl", "longVideoOutroTemplateUrl", "longVideoShortOutroTemplateUrl", "longVideoShortIntroTemplateUrl", "longVideoQuestionTemplateUrl", "longVideoAnswerTemplateUrl"]) {
     if (k in b) {
       const u = String(b[k] || "").trim();
       site[k] = u && /^https?:\/\//i.test(u) && isSafePublicUrl(u) ? u : "";
@@ -443,7 +444,8 @@ export async function youtubeThumbnailPreview(req, res) {
 // of an intro / end / Short-end slide with its text box + styling and sample text.
 export async function youtubeSlideTextPreview(req, res) {
   const site = await getOrCreateOwn();
-  const role = ["intro", "outro", "shortoutro"].includes(req.body?.role) ? req.body.role : "intro";
+  const role = ["intro", "outro", "shortintro", "shortoutro"].includes(req.body?.role) ? req.body.role : "intro";
+  const vertical = role === "shortintro" || role === "shortoutro"; // the Short's slides are 9:16
   const saved = slideTextConfigFromSite(site, role) || {};
   const cfg = { ...saved, ...normalizeTextBox({ ...saved, ...(req.body?.config || {}) }) };
   const templateUrl = String(req.body?.templateUrl || saved.templateUrl || "").trim();
@@ -451,11 +453,12 @@ export async function youtubeSlideTextPreview(req, res) {
   const SAMPLE = {
     intro: { headline: "Subject — Topic", badge: "Let's begin!" },
     outro: { headline: "Thanks for watching!", badge: "Subscribe · Like · Share for more" },
+    shortintro: { headline: "Subject — Topic", badge: "Let's begin!" },
     shortoutro: { headline: "Thanks for watching!", badge: "Watch the full quiz — visit the channel" },
   }[role];
   const { renderYoutubeThumbnail } = await import("../config/ytThumbnail.js");
   const r = await renderYoutubeThumbnail({
-    ...cfg, templateUrl, width: 1920, height: 1080,
+    ...cfg, templateUrl, width: vertical ? 1080 : 1920, height: vertical ? 1920 : 1080,
     lines: { kicker: "", headline: SAMPLE.headline, badge: SAMPLE.badge },
     brandColor: site.brandColor || site.primaryColor,
   });

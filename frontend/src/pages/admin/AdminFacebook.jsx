@@ -2329,6 +2329,9 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
 // `settingKey`; the background image under `templateKey`. Sample text is shown
 // in the preview; each real video fills in its own.
 function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, onSaved }) {
+  // The Short's intro / end slides are VERTICAL (9:16, 1080×1920); the full video's are 16:9.
+  const vertical = role === "shortintro" || role === "shortoutro";
+  const isIntroRole = role === "intro" || role === "shortintro";
   const DEF_BOX = { x: 0.08, y: 0.3, w: 0.84, h: 0.4 };
   const t = initial || {};
   const fileRef = useRef(null);
@@ -2339,7 +2342,7 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
   const previewReq = useRef(0);
   const [templateUrl, setTemplateUrl] = useState(t.templateUrl || "");
   const [draft, setDraft] = useState(() => ({
-    useBox: t.useBox !== undefined ? !!t.useBox : role === "intro",
+    useBox: t.useBox !== undefined ? !!t.useBox : isIntroRole,
     showText: t.showText !== false,
     box: t.box || DEF_BOX, align: t.align || "center", vAlign: t.vAlign || "center",
     font: t.font || "sans", uppercase: !!t.uppercase,
@@ -2353,6 +2356,7 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
   }));
   const defaultNarration = {
     intro: "“<Subject — Topic>. Let's begin the quiz.”",
+    shortintro: "“<Subject — Topic>. Let's begin the quiz.”",
     outro: "Thanks for watching! Subscribe, like and share for more.",
     shortoutro: "Thanks for watching! Subscribe, like and share for more. Watch the full quiz, visit the channel.",
   }[role];
@@ -2403,7 +2407,7 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
     try {
       const r = await uploadService.imageDirect(file);
       if (!r?.url) throw new Error("Upload failed.");
-      const first = !templateUrl && role !== "intro"; // end slides only — the intro keeps its text
+      const first = !templateUrl && !isIntroRole; // end slides only — the intro keeps its text
       setTemplateUrl(r.url); setPreview("");
       if (first) {
         // A new template usually carries its own design — show it as is (text
@@ -2488,11 +2492,11 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
   return (
     <div className="mt-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
       <p className="text-sm font-semibold">{title}</p>
-      <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{note} Upload a 1920×1080 background, then drag the box onto its empty area — the slide's text fills it with the styling below.</p>
+      <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{note} Upload a <b>{vertical ? "1080×1920 (vertical 9:16)" : "1920×1080 (16:9)"}</b> background, then drag the box onto its empty area — the slide's text fills it with the styling below.</p>
       <div className="mt-3 flex flex-wrap items-start gap-4">
         <div className="flex w-full flex-col items-center gap-2 sm:w-auto">
           {templateUrl ? (
-            <div ref={frameRef} className="relative aspect-video w-full max-w-[20rem] select-none overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700"
+            <div ref={frameRef} className={`relative ${vertical ? "aspect-[9/16] w-44 sm:w-48" : "aspect-video w-full max-w-[20rem]"} select-none overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700`}
               onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerLeave={onPointerUp}>
               <img src={showExact ? preview : templateUrl} alt="" className="pointer-events-none absolute inset-0 h-full w-full object-cover" draggable={false} />
               {draft.showText && draft.useBox && (
@@ -2501,8 +2505,8 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
                   <div onPointerDown={onPointerDown("move")} className="absolute inset-0 touch-none cursor-move" />
                   {!showExact && (
                     <div className="pointer-events-none flex h-full w-full flex-col items-center justify-center gap-0.5 overflow-hidden p-1 text-center text-[9px] font-black" style={{ color: draft.textColor }}>
-                      <div style={{ fontSize: 12 }}>{role === "intro" ? "Topic" : "Thanks for watching!"}</div>
-                      <div style={{ display: "inline-block", background: draft.accentColor, color: draft.badgeTextColor, borderRadius: 3, padding: "0 4px" }}>{role === "intro" ? "Let's begin!" : role === "outro" ? "Subscribe · Like · Share" : "Watch the full quiz"}</div>
+                      <div style={{ fontSize: 12 }}>{isIntroRole ? "Topic" : "Thanks for watching!"}</div>
+                      <div style={{ display: "inline-block", background: draft.accentColor, color: draft.badgeTextColor, borderRadius: 3, padding: "0 4px" }}>{isIntroRole ? "Let's begin!" : role === "outro" ? "Subscribe · Like · Share" : "Watch the full quiz"}</div>
                     </div>
                   )}
                   <span onPointerDown={onPointerDown("move")} title="Move" className="absolute left-1/2 top-1/2 flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 touch-none cursor-move items-center justify-center rounded-full border-2 border-white bg-black/45 text-white"><Move className="h-3.5 w-3.5" /></span>
@@ -2515,7 +2519,7 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
               <button type="button" onClick={removeTpl} title="Remove" className="absolute -right-2 -top-2 z-10 rounded-full bg-rose-100 p-1.5 text-rose-600 shadow hover:bg-rose-200 dark:bg-rose-900/40"><Trash2 className="h-4 w-4" /></button>
             </div>
           ) : (
-            <div className="flex aspect-video w-80 items-center justify-center rounded-lg border-2 border-dashed border-slate-300 text-slate-300 dark:border-slate-600"><ImagePlus className="h-8 w-8" /></div>
+            <div className={`flex ${vertical ? "aspect-[9/16] w-44 sm:w-48" : "aspect-video w-80"} items-center justify-center rounded-lg border-2 border-dashed border-slate-300 text-slate-300 dark:border-slate-600`}><ImagePlus className="h-8 w-8" /></div>
           )}
           <label className={`btn-outline cursor-pointer text-sm ${uploading ? "pointer-events-none opacity-60" : ""}`}>
             {uploading ? <><Loader2 className="h-4 w-4 animate-spin" /> Uploading…</> : <><Upload className="h-4 w-4" /> {templateUrl ? "Replace" : "Upload template"}</>}
@@ -2532,7 +2536,7 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
                   ["hide", "Hide text — show only my template", "Viewers see just your template. The narrator still reads the line below."],
                   ["centred", "White card in the middle", "The built-in text card is drawn centred on your template."],
                   ["box", "Movable text box", "Drag / resize / rotate the text and style it below."],
-                ].filter(([m]) => m !== "hide" || role !== "intro" || !draft.showText).map(([m, label, hint]) => {
+                ].filter(([m]) => m !== "hide" || !isIntroRole || !draft.showText).map(([m, label, hint]) => {
                   const cur = !draft.showText ? "hide" : draft.useBox ? "box" : "centred";
                   return (
                     <label key={m} className={`flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 text-sm ${cur === m ? "border-[#FF0000] bg-red-50/50 dark:bg-red-900/10" : "border-slate-200 dark:border-slate-700"}`}>
@@ -3316,11 +3320,15 @@ function FullQuizVideoForm({ st, onStatus }) {
             settingKey="longVideoIntroText" templateKey="longVideoIntroTemplateUrl" initial={st.introText} onSaved={onStatus} />
           <SlideTextEditor role="outro" title="End slide (full video)" note="Closing “Thanks for watching · subscribe, like &amp; share for more”."
             settingKey="longVideoOutroText" templateKey="longVideoOutroTemplateUrl" initial={st.outroText} onSaved={onStatus} />
+          <p className="pt-2 text-sm font-semibold">Short slides <span className="font-normal text-slate-400">(vertical 9:16 — the Short is made vertical from the start)</span></p>
+          <p className="text-xs text-slate-400">The Short's question / answer slides use the <b>9:16 Reel templates</b> from the AI Slideshow card.</p>
+          <SlideTextEditor role="shortintro" title="Intro slide (Short)" note="The Short's opening title (subject / topic · “Let's begin”)."
+            settingKey="longVideoShortIntroText" templateKey="longVideoShortIntroTemplateUrl" initial={st.shortIntroText} onSaved={onStatus} />
           <SlideTextEditor role="shortoutro" title="End slide (Short)" note="Short's closing “Thanks for watching · subscribe, like &amp; share · watch the full quiz on the channel”."
             settingKey="longVideoShortOutroText" templateKey="longVideoShortOutroTemplateUrl" initial={st.shortOutroText} onSaved={onStatus} />
         </div>
       )}
-      {(settings?.longVideoQuestionTemplateUrl || (withAnswer && settings?.longVideoAnswerTemplateUrl) || st?.introText?.templateUrl || st?.outroText?.templateUrl || st?.shortOutroText?.templateUrl) && (
+      {(settings?.longVideoQuestionTemplateUrl || (withAnswer && settings?.longVideoAnswerTemplateUrl) || st?.introText?.templateUrl || st?.outroText?.templateUrl || st?.shortOutroText?.templateUrl || st?.shortIntroText?.templateUrl || settings?.slideshowQuestionTemplateUrl) && (
         <label className="mt-2 flex items-center gap-2 text-sm">
           <input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={useTemplates} onChange={(e) => setUseTemplates(e.target.checked)} />
           Use my slide templates for this video

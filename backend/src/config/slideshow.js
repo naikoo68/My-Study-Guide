@@ -92,6 +92,8 @@ const TRANSPARENT_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcS
 
 // The reveal slide IS the question slide (just recoloured) → same template.
 const templateRole = (role) => (role === "reveal" ? "question" : role);
+// Title / closing slides (no question): the full video's and the Short's.
+const IO_ROLES = ["intro", "outro", "shortintro", "shortoutro"];
 
 // Question-only mode's answer reveal (all in seconds):
 //   pauseSec — silent thinking time after the question is read (0–15, default 3)
@@ -203,6 +205,7 @@ export async function generateSlideshow(question, opts = {}) {
     intro: String(opts.introTemplateUrl || "").trim(),
     outro: String(opts.outroTemplateUrl || "").trim(),
     shortoutro: String(opts.shortOutroTemplateUrl || "").trim(),
+    shortintro: String(opts.shortIntroTemplateUrl || "").trim(),
   };
 
   // 1) Plan two slides per question (question → answer; adapts to the type).
@@ -235,7 +238,10 @@ export async function generateSlideshow(question, opts = {}) {
   const slideText = opts.slideText || {};
   if (opts.intro) {
     const io = typeof opts.intro === "object" ? opts.intro : {};
-    plan.unshift(introSlidePlan({ subject: io.subject, topic: io.topic, siteName: brandOpts.siteName, narration: slideText.intro?.narration }));
+    // The Short's intro is its own (9:16) slide: role "shortintro", own template + text.
+    const introRole = io.role === "shortintro" ? "shortintro" : "intro";
+    const introPlan = introSlidePlan({ subject: io.subject, topic: io.topic, siteName: brandOpts.siteName, narration: slideText[introRole]?.narration });
+    plan.unshift(introRole === "shortintro" ? { ...introPlan, role: "shortintro" } : introPlan);
     planQuestions.unshift(null);
   }
   if (opts.outro) {
@@ -256,7 +262,7 @@ export async function generateSlideshow(question, opts = {}) {
     // Download each template once (if set). A template that can't be fetched
     // is skipped — that slide type falls back to the built-in design.
     const templatePaths = {};
-    for (const role of ["question", "answer", "intro", "outro", "shortoutro"]) {
+    for (const role of ["question", "answer", "intro", "outro", "shortintro", "shortoutro"]) {
       if (!templates[role]) continue;
       const p = path.join(workDir, `template-${role}`);
       try { await downloadTo(templates[role], p); templatePaths[role] = p; } catch { /* use built-in design */ }
@@ -271,7 +277,7 @@ export async function generateSlideshow(question, opts = {}) {
     const shotPaths = plan.map((_, i) => path.join(workDir, `shot${String(i).padStart(2, "0")}.png`));
     const shots = await renderSlideCardShots(
       plan.map((s, i) => ({
-        questionId: planQuestions[i]?._id ? String(planQuestions[i]._id) : (s.role === "intro" || s.role === "outro" ? s.role : ""),
+        questionId: planQuestions[i]?._id ? String(planQuestions[i]._id) : (IO_ROLES.includes(s.role) ? s.role : ""),
         role: s.role,
         heading: s.heading || "",
         lines: s.lines || [],
@@ -303,7 +309,7 @@ export async function generateSlideshow(question, opts = {}) {
     if (opts.slideText) {
       for (let i = 0; i < plan.length; i++) {
         const s = plan[i];
-        const cfg = ["intro", "outro", "shortoutro"].includes(s.role) ? opts.slideText[s.role] : null;
+        const cfg = IO_ROLES.includes(s.role) ? opts.slideText[s.role] : null;
         // "Write the text on it" OFF → show the uploaded template ALONE (a
         // transparent layer on top) — no card, heading or caption.
         if (cfg && cfg.showText === false && templatePaths[templateRole(s.role)]) {
@@ -382,6 +388,8 @@ export async function generateSlideshow(question, opts = {}) {
     const outPath = path.join(workDir, "slideshow.mp4");
     const { duration, segmentDurations = [] } = await composeSlideshowMp4({
       ...(landscape ? { width: 1920, height: 1080, maxTotalSec: Infinity } : {}),
+      // A vertical YouTube Short may run up to 3 min (not the 90 s Reel limit).
+      ...(!landscape && Number(opts.maxTotalSec) > 0 ? { maxTotalSec: Number(opts.maxTotalSec) } : {}),
       // Slide 1 stays up for the question time, slide 2 for the answer time —
       // or longer when the narration needs it (the voice is never cut off).
       // The reveal slide shows for its own time; the question slide before it
@@ -391,7 +399,7 @@ export async function generateSlideshow(question, opts = {}) {
         audioPath: audioPaths[i],
         minSec: s.role === "reveal" ? s.minSec
           : s.role === "answer" ? answerSec
-          : ["intro", "outro", "shortoutro"].includes(s.role) ? ioSeconds(s.role)
+          : IO_ROLES.includes(s.role) ? ioSeconds(s.role)
           : questionSec,
         pauseSec: s.pauseSec || 0,
         bgPath: templatePaths[templateRole(s.role)] || null,

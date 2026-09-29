@@ -43,7 +43,6 @@ const STAGE_LABEL = {
   uploading_facebook: "Uploading to Facebook",
   short: "Uploading the Short",
   uploading_preview: "Saving the preview videos",
-  making_vertical: "Making the Short vertical (9:16)",
   finishing: "Setting thumbnail & playlist",
   done: "Done",
   failed: "Failed",
@@ -331,7 +330,7 @@ async function planLongVideo(job, { source, cfg, site, titleTemplate, opts }) {
     // Intro / end / Short-end text boxes (same styling engine as the thumbnail).
     // Narration + on-screen seconds apply always; the template only when
     // templates are on.
-    slideText: Object.fromEntries(["intro", "outro", "shortoutro"].map((r) => {
+    slideText: Object.fromEntries(["intro", "outro", "shortintro", "shortoutro"].map((r) => {
       const c = slideTextConfigFromSite(site, r);
       return [r, opts.useTemplates ? c : { ...c, templateUrl: "" }];
     })),
@@ -342,7 +341,24 @@ async function planLongVideo(job, { source, cfg, site, titleTemplate, opts }) {
     subjectName: breadcrumb || "",
   };
   const intro = { subject: names.subject || names.quiz || displayTrail(source?.label), topic: names.topic };
-  return { questions, names, breadcrumb, first, siteUrl, slideBase, intro };
+  // The Short is rendered VERTICAL (1080×1920) from the start: its own 9:16
+  // intro + end templates, the 9:16 Reel question / answer templates (AI
+  // Slideshow card), and up to 3 min long (YouTube Shorts limit) — no
+  // landscape video squeezed onto a blurred background.
+  const shortBase = {
+    ...slideBase,
+    orientation: "portrait",
+    questionTemplateUrl: opts.useTemplates ? site?.slideshowQuestionTemplateUrl || "" : "",
+    answerTemplateUrl: opts.useTemplates ? site?.slideshowAnswerTemplateUrl || "" : "",
+    introTemplateUrl: "",
+    outroTemplateUrl: "",
+    shortIntroTemplateUrl: opts.useTemplates ? site?.longVideoShortIntroTemplateUrl || "" : "",
+    shortOutroTemplateUrl: opts.useTemplates ? site?.longVideoShortOutroTemplateUrl || "" : "",
+    maxTotalSec: 175,
+    intro: { ...intro, role: "shortintro" },
+    outro: "short",
+  };
+  return { questions, names, breadcrumb, first, siteUrl, slideBase, intro, shortBase };
 }
 
 // The template thumbnail for a video (or null + a note when it fails).
@@ -371,9 +387,8 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
   job.stage = "picking";
   let filePath = "";
   let shortPath = ""; // the vertical Short copy (deleted at the end)
-  let shortSourcePath = ""; // the landscape short render before padding
   try {
-    const { questions, names, breadcrumb, first, siteUrl, slideBase, intro } = await planLongVideo(job, { source, cfg, site, titleTemplate, opts });
+    const { questions, names, breadcrumb, first, siteUrl, slideBase, intro, shortBase } = await planLongVideo(job, { source, cfg, site, titleTemplate, opts });
     const onStatus = (st) => { job.stage = String(st || "").toLowerCase(); };
     const onProgress = (stage, done, total) => { job.stage = String(stage || "").toLowerCase(); job.progress = { done, total }; };
     const result = await generateSlideshow(questions, {
@@ -443,17 +458,11 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
       if (opts.asShort && up.ok) {
         job.stage = "short";
         try {
-          // Render a SEPARATE short: intro + the first 3 questions + a closing
-          // "watch the full quiz on our channel" slide — then make it vertical.
+          // Render a SEPARATE vertical (9:16) short: Short intro + the first 3
+          // questions + a closing "watch the full quiz on our channel" slide.
           const teaserQs = questions.slice(0, 3);
-          const shortRender = await generateSlideshow(teaserQs, {
-            ...slideBase,
-            intro,
-            outro: "short",
-          });
-          shortSourcePath = shortRender.filePath;
-          const { makeVerticalShort } = await import("./verticalShort.js");
-          shortPath = await makeVerticalShort(shortSourcePath, { durationSec: shortRender.duration });
+          const shortRender = await generateSlideshow(teaserQs, shortBase);
+          shortPath = shortRender.filePath;
           const shortDesc = buildYtLongDescription({
             intro: `${teaserQs.length} sample question${teaserQs.length === 1 ? "" : "s"}${breadcrumb ? ` — ${breadcrumb}` : ""}. Watch the full quiz here: ${job.url}`,
             hashtags: tags,
@@ -525,7 +534,6 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
   } finally {
     if (filePath) await fs.rm(filePath, { force: true }).catch(() => {});
     if (shortPath) await fs.rm(shortPath, { force: true }).catch(() => {});
-    if (shortSourcePath) await fs.rm(shortSourcePath, { force: true }).catch(() => {});
   }
 }
 
@@ -539,8 +547,8 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
 // one-at-a-time chain as real videos (it is just as heavy).
 
 // Overall % of a preview: the full render is the big part, then the Short.
-//   phase "full" 0–70 · "short" 70–86 · "vertical" (9:16 copy) 86–93 · "upload"/"thumb" 93–99
-const PREVIEW_PHASE = { picking: [0, 2], full: [2, 68], short: [70, 16], vertical: [86, 7], upload: [93, 4], thumb: [97, 2] };
+//   phase "full" 0–70 · "short" (rendered 9:16) 70–93 · "upload"/"thumb" 93–99
+const PREVIEW_PHASE = { picking: [0, 2], full: [2, 68], short: [70, 23], upload: [93, 4], thumb: [97, 2] };
 const RENDER_STAGE = { pending: [0, 0.02], generating_slides: [0.02, 0.55], generating_audio: [0.57, 0.2], rendering_video: [0.77, 0.2], ready: [0.97, 0.03] };
 export function previewPercent(j) {
   if (!j) return 0;
@@ -548,9 +556,7 @@ export function previewPercent(j) {
   if (j.status === "queued") return 0;
   const [base, span] = PREVIEW_PHASE[j.phase] || [0, 0];
   let frac = 0;
-  if (j.phase === "vertical") {
-    frac = j.progress && j.progress.total > 0 ? Math.max(0, Math.min(1, j.progress.done / j.progress.total)) : 0;
-  } else if (j.phase === "full" || j.phase === "short") {
+  if (j.phase === "full" || j.phase === "short") {
     const [sb, ss] = RENDER_STAGE[j.stage] || [0, 0];
     const within = j.progress && j.progress.total > 0 ? Math.max(0, Math.min(1, j.progress.done / j.progress.total)) : 0;
     frac = sb + ss * within;
@@ -636,7 +642,7 @@ async function runPreview(job, { source, cfg, site, titleTemplate, opts }) {
   try {
     const { isCloudinaryConfigured, uploadFileToCloudinary } = await import("./cloudinary.js");
     if (!isCloudinaryConfigured()) throw new Error("Media storage isn't set up (Cloudinary keys missing), so the preview can't be played.");
-    const { questions, names, slideBase, intro } = await planLongVideo(job, { source, cfg, site, titleTemplate, opts });
+    const { questions, names, slideBase, intro, shortBase } = await planLongVideo(job, { source, cfg, site, titleTemplate, opts });
     const track = (phase) => ({
       onStatus: (st) => { job.phase = phase; job.stage = String(st || "").toLowerCase(); job.progress = null; },
       onProgress: (st, done, total) => { job.phase = phase; job.stage = String(st || "").toLowerCase(); job.progress = { done, total }; },
@@ -651,19 +657,12 @@ async function runPreview(job, { source, cfg, site, titleTemplate, opts }) {
     job.voice = full.voice || "";
     if (full.ttsNote) job.notes.push(full.ttsNote);
 
-    // 2) The SHORT — intro + first 3 questions + Short end slide, made vertical.
+    // 2) The SHORT — rendered vertical (9:16): Short intro + first 3 questions + Short end slide.
     job.phase = "short";
     const teaserQs = questions.slice(0, 3);
-    const shortRender = await generateSlideshow(teaserQs, { ...slideBase, intro, outro: "short", ...track("short") });
-    if (shortRender.filePath) temp.push(shortRender.filePath);
-    job.phase = "vertical";
-    job.stage = "making_vertical";
-    job.progress = { done: 0, total: 100 };
-    const { makeVerticalShort } = await import("./verticalShort.js");
-    const shortPath = await makeVerticalShort(shortRender.filePath, {
-      durationSec: shortRender.duration,
-      onProgress: (done, total) => { job.progress = { done, total }; },
-    });
+    const shortRender = await generateSlideshow(teaserQs, { ...shortBase, ...track("short") });
+    if (!shortRender.filePath) throw new Error("The Short video file was not produced.");
+    const shortPath = shortRender.filePath;
     temp.push(shortPath);
     job.shortQuestions = teaserQs.length;
     job.shortDuration = shortRender.duration;

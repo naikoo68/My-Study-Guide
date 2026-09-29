@@ -153,14 +153,17 @@ export function normalizeTextBox(o = {}, { defaultUseBox = false } = {}) {
   };
 }
 // The saved text-box + template for a long-video slide role.
-const SLIDE_ROLE_FIELD = { intro: "Intro", outro: "Outro", shortoutro: "ShortOutro" };
+// intro / outro are 16:9 (full video); shortintro / shortoutro are 9:16 (the Short).
+const SLIDE_ROLE_FIELD = { intro: "Intro", outro: "Outro", shortintro: "ShortIntro", shortoutro: "ShortOutro" };
+export const SLIDE_TEXT_ROLES = Object.keys(SLIDE_ROLE_FIELD);
+export const isVerticalSlideRole = (role) => role === "shortintro" || role === "shortoutro";
 export function slideTextConfigFromSite(site, role) {
   const F = SLIDE_ROLE_FIELD[role];
   if (!F) return null;
   // The movable box defaults ON for the intro (opening title), OFF for the end
   // slides — those stay centred on the template unless the admin turns it on.
   return {
-    ...normalizeTextBox(site?.[`longVideo${F}Text`] || {}, { defaultUseBox: role === "intro" }),
+    ...normalizeTextBox(site?.[`longVideo${F}Text`] || {}, { defaultUseBox: role === "intro" || role === "shortintro" }),
     templateUrl: String(site?.[`longVideo${F}TemplateUrl`] || "").trim(),
   };
 }
