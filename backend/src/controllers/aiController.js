@@ -10,6 +10,7 @@ import { getShareAiKeys } from "../utils/tenantContext.js";
 import { softDeletePatch } from "../utils/softDelete.js";
 import { getClientPlans, findSiteSettings } from "../utils/plans.js";
 import { webResearch } from "../utils/webResearch.js";
+import { glossCleaned, glossReplacements, applyGlossReplacements } from "../utils/glossEdit.js";
 import { splitIntoStems, contentOfBlock, questionLocation } from "./contentController.js";
 import Subject from "../models/Subject.js";
 import { uploadImage, isCloudinaryConfigured } from "../config/cloudinary.js";
@@ -3841,6 +3842,14 @@ export async function visualizeSpec(req, res) {
    test — without changing the question, options or correct answer. Runs as a
    background job (reuses genJobs/jobStatus) so big quizzes don't time out. */
 
+// NO HINDI / VERNACULAR GLOSSES — shared by Generate, Extend and Regenerate.
+// Ordinary terms must NOT carry a Hindi/transliterated translation in brackets
+// ("Insurance Expense (bima vyay)", "Amortization (aplekhit mulya; 'amurt
+// sampatti hras')"). Such glosses are REMOVED from the stem, options and
+// explanations. The ONLY Indian-language terms kept (or added) are ones that are
+// HISTORICALLY important in their own right.
+const NO_GLOSS_RULE = `NO HINDI / VERNACULAR GLOSSES (strict): do NOT add a Hindi, Urdu, Sanskrit or other Indian-language translation or transliteration of an ordinary term in brackets — write "Insurance Expense", NOT "Insurance Expense (bima vyay)"; "Finance Cost", NOT "Finance Cost (vittiya lagat)"; "Amortization", NOT "Amortization (aplekhit mulya; 'amurt sampatti hras')"; "Bad Debts", NOT "Bad Debts (asodhya rin; 'dubat khata')"; "Non-Operating Income (income from secondary activities)", NOT "... ; 'gair-sanchalan aay')". If the EXISTING question, options or explanation contain such glosses, REMOVE them (keep everything else exactly as it is; if a bracket also holds an English explanation, keep just the English part). KEEP or ADD an Indian-language term ONLY when that term is HISTORICALLY important in its own right — a traditional/indigenous institution, system, practice, text, title or movement that is known and studied by that name (e.g. "Bahi-Khata", "Hundi", "Munim", "Mahajan", "Zamindari", "Ryotwari", "Mahalwari", "Arthashastra", "Swadeshi", "Satyagraha", "Panchayati Raj"), or a genuine former/official name (e.g. "Mumbai (formerly Bombay)"). When in doubt, leave it out.`;
+
 const EXTEND_SYSTEM_PROMPT = `You are an expert exam teacher. You are given ONE existing exam question (its stem, options, the CORRECT option, its type, and any columns/assertion/reason). Your ONLY job is to write a richer, clearer EXPLANATION and per-option notes for it.
 
 CRITICAL — you MUST ALWAYS respond, for EVERY question, with ONE single valid JSON object and NOTHING else: no markdown, no code fences, no text before or after. The exact shape is:
@@ -3856,7 +3865,9 @@ JSON VALIDITY RULES (follow exactly or the answer is discarded):
 Content rules:
 - "explanation": a THOROUGH, self-contained explanation of the correct answer (3-6 sentences). Include EVERY relevant supporting fact — exact dates/years, historical background, definitions, full formulas WITH the actual calculation, laws/theorems/principles by name, and cause-and-effect reasoning. Teach the concept as if to someone seeing it for the first time; never just restate the option. Put each sentence or distinct point on its OWN line (a real line break between points), not one long paragraph. SCOPE BY TYPE: for a plain "mcq", explain ONLY the correct option — do NOT mention or justify the incorrect options in the explanation. For every OTHER type (matching, statement, pair, pairselect, assertion, table), the explanation MUST go through each pairing / statement / sub-option and the assertion–reason relationship (correct and incorrect) in detail.
 - LAWS / BILLS / ACTS / AMENDMENTS & DATES: when the question or its answer concerns a law/bill/act/amendment/ordinance/scheme/treaty/appointment/report/event, the explanation MUST use its EXACT date (day, month and year of introduction/passage/enactment/coming into force) — NOT the year alone — and state only facts about the REAL, verifiable item. If the exact date or provisions of a very recent item are not reliably known, do NOT fabricate a date/number/provision; explain the established, verifiable facts instead.
-- LOCAL / ALTERNATIVE NAMES: whenever a term/place/concept/person/disease/chemical/unit/law has a common local or vernacular (Hindi/regional) name, synonym, abbreviation's full form or old name, add it in brackets right after it.
+- ALTERNATIVE NAMES: add a genuine FORMER/official (renamed) name in brackets only where one exists (e.g. "Chennai (formerly Madras)"), and an abbreviation's full form only where it truly helps.
+- ${NO_GLOSS_RULE}
+- REMOVING GLOSSES FROM THE QUESTION ITSELF: if the stem or any option contains a non-historical Hindi/vernacular gloss, ALSO return "text" (the stem) and "options" (all 4, same order) with ONLY those glosses removed — every other word, the order and the correct answer stay EXACTLY the same. Omit "text"/"options" when there is nothing to remove.
 - "optionExplanations": a real JSON array of EXACTLY 4 SEPARATE strings, in the same order as the options (entry 0 = option A, 1 = B, 2 = C, 3 = D). For EACH option state clearly whether it is correct or incorrect and WHY (for a wrong numeric option, show what mistake produces that value). This applies to EVERY type INCLUDING plain "mcq" — for an mcq each incorrect option MUST still get its own note here even though the "explanation" box stays focused only on the correct option. Keep each to 1-2 short sentences; do NOT prefix an entry with a label such as "A)", "(A)", "A." or "Option A", and do NOT put more than one option's note inside a single entry; leave the truly-CORRECT option's entry an empty string "".
 - CALCULATION-BASED questions: if the question is answered by CALCULATION (arithmetic, applying a formula, or solving an equation), ALSO include "numerical":true and leave ALL FOUR "optionExplanations" as empty strings "" — the step-by-step working in "explanation" is the full justification, so do NOT write any per-option "why it's wrong" notes.
 - "keyPoints": a real JSON array of 3 to 5 SHORT strings — the crisp, exam-ready takeaways for this question's concept (each a compact phrase or one short sentence, NOT a paragraph): the decisive fact behind the correct answer plus the facts that distinguish the other options. No leading bullets/numbers, no markdown; wrap any math/number in $...$.
@@ -3899,7 +3910,7 @@ OPTIONS — MANDATORY, this is the main task:
 - After your fix, ALL FOUR options must be plausible members of the one category. NEVER leave an off-category, unrelated or joke option, and never make a distractor an obvious give-away.
 - "correct": the 0-based index (0-3) of the correct option in the "options" array you return (it must still point to the original correct answer's text).
 
-EXPLANATION — "explanation": thorough and self-contained; since this prompt is only for plain MCQs, the explanation box must teach ONLY the correct option and NOT discuss the incorrect options; put each point on its OWN line; add local/alternative names in brackets. "optionExplanations": a real JSON array of EXACTLY 4 SEPARATE notes, one per option in order (0=A,1=B,2=C,3=D) — for each WRONG option say why it is incorrect (name the misconception); do NOT prefix entries with labels like "A)"/"Option A" and do NOT pack multiple options into one entry; leave the correct option's entry "". For CALCULATION-based questions ALSO include "numerical":true and leave ALL FOUR "optionExplanations" empty "" (the working in "explanation" is enough). MATH: wrap any math/number in $...$ (never \\( \\) or \\[ \\]); NEVER use "$" for money. No markdown, no trailing commas. Return ONLY the JSON object.`;
+EXPLANATION — "explanation": thorough and self-contained; since this prompt is only for plain MCQs, the explanation box must teach ONLY the correct option and NOT discuss the incorrect options; put each point on its OWN line; ${NO_GLOSS_RULE} "optionExplanations": a real JSON array of EXACTLY 4 SEPARATE notes, one per option in order (0=A,1=B,2=C,3=D) — for each WRONG option say why it is incorrect (name the misconception); do NOT prefix entries with labels like "A)"/"Option A" and do NOT pack multiple options into one entry; leave the correct option's entry "". For CALCULATION-based questions ALSO include "numerical":true and leave ALL FOUR "optionExplanations" empty "" (the working in "explanation" is enough). MATH: wrap any math/number in $...$ (never \\( \\) or \\[ \\]); NEVER use "$" for money. No markdown, no trailing commas. Return ONLY the JSON object.`;
 
 const EXT_LETTERS = ["A", "B", "C", "D"];
 const toRomanLite = (n) => { const m = [["X", 10], ["IX", 9], ["V", 5], ["IV", 4], ["I", 1]]; let r = ""; for (const [s, v] of m) while (n >= v) { r += s; n -= v; } return r; };
@@ -4206,6 +4217,38 @@ function applyOptionShuffle(set, q) {
 // only together with a corrected index (so options and answer stay in sync).
 // When `shuffleOptions` is set, the final options are also reordered (answer
 // position changes, correctness preserved) as the LAST step.
+// Remove Hindi/vernacular glosses from a question during Extend / Regenerate:
+// take the AI's cleaned stem / options ONLY when brackets were all it dropped
+// (see utils/glossEdit.js — wording, numbers and answers can't change this way),
+// then drop the SAME glosses wherever they repeat in the explanation, the
+// option notes and the flashcard extras (in case the AI missed one). Mutates
+// `set`. `lockText` / `lockOptions` = those were already rewritten by an allowed
+// path (extend-stem / fix-options) and must be left alone here.
+function applyGlossCleanup(set, q, parsed, { lockText = false, lockOptions = false } = {}) {
+  const reps = [];
+  // A stem the model already rewrote (Regenerate) — if that rewrite only dropped
+  // glosses, remember them so the explanation loses them too.
+  if (lockText && typeof set.text === "string" && q.text) reps.push(...glossReplacements(q.text, set.text));
+  const stemNow = typeof set.text === "string" ? set.text : q.text;
+  if (!lockText && typeof parsed?.text === "string") {
+    const c = glossCleaned(stemNow, parsed.text);
+    if (c) { reps.push(...glossReplacements(stemNow, c)); set.text = c; }
+  }
+  const optsNow = Array.isArray(set.options) ? set.options : Array.isArray(q.options) ? q.options : null;
+  if (!lockOptions && optsNow && Array.isArray(parsed?.options) && parsed.options.length === optsNow.length) {
+    const cleaned = optsNow.map((o, i) => glossCleaned(o, parsed.options[i]));
+    if (cleaned.some(Boolean)) {
+      set.options = optsNow.map((o, i) => cleaned[i] || o);
+      optsNow.forEach((o, i) => { if (cleaned[i]) reps.push(...glossReplacements(o, cleaned[i])); });
+    }
+  }
+  if (!reps.length) return;
+  if (typeof set.explanation === "string") set.explanation = applyGlossReplacements(set.explanation, reps);
+  if (Array.isArray(set.optionExplanations)) set.optionExplanations = set.optionExplanations.map((x) => applyGlossReplacements(x, reps));
+  if (Array.isArray(set.keyPoints)) set.keyPoints = set.keyPoints.map((x) => applyGlossReplacements(x, reps));
+  if (typeof set.quickRecall === "string") set.quickRecall = applyGlossReplacements(set.quickRecall, reps);
+}
+
 function buildExtendSet(q, parsed, extendQuestion = false, shuffleOptions = false) {
   const set = { explanation: parsed.explanation };
   // Flashcard extras — persist when the AI returned them (additive; a flow that
@@ -4256,6 +4299,8 @@ function buildExtendSet(q, parsed, extendQuestion = false, shuffleOptions = fals
   // step-by-step working in the explanation is enough). Clears any existing
   // notes too, so re-extending a calc question also removes them.
   if (parsed?.numerical) set.optionExplanations = ["", "", "", ""];
+  // Drop Hindi/vernacular glosses from the stem / options (gloss-only edits).
+  applyGlossCleanup(set, q, parsed, { lockText: !!set.text, lockOptions: !!set.options });
   // LAST: optionally reorder the (possibly just-fixed) options, keeping the same
   // correct answer — so the answer's position is shuffled without breaking it.
   if (shuffleOptions) applyOptionShuffle(set, q);
@@ -4932,6 +4977,7 @@ RULES:
 - LAWS / BILLS / ACTS / AMENDMENTS & DATES: when the question or its answer concerns a law/bill/act/amendment/ordinance/scheme/treaty/appointment/report/event, use its EXACT date (day, month and year) in the explanation — NOT the year alone — and state only facts about the REAL, verifiable item; if the exact date/provisions of a very recent item are not reliably known, do NOT fabricate them.
 - EXPLANATION SCOPE BY TYPE: for a plain "mcq", the "explanation" box must teach ONLY the correct option (do NOT mention or justify the incorrect options in it) — but STILL fill each of the 4 "optionExplanations" with why that option is right or wrong (leaving the correct option's entry ""). For every OTHER type (matching, statement, pair, pairselect, assertion, table, journal), the "explanation" must go through each pairing / statement / sub-option / journal entry in detail (for journal: name the accounts debited & credited, their classification, the rule applied, and confirm debit total = credit total), AND each of the 4 "optionExplanations" must explain why that option is right or wrong (leaving the correct option's entry ""). EXCEPTION — for CALCULATION-based questions, leave ALL FOUR "optionExplanations" empty "" (the working in "explanation" is enough).
 - "explanation": thorough, self-contained, each point/step on its own line. Write math as inline LaTeX between $...$ (never \\( \\) or \\[ \\]); NEVER use "$" for money. No trailing commas.
+- ${NO_GLOSS_RULE} This applies to the returned "text", "options", "columnA"/"columnB", "explanation" and "optionExplanations" — remove every non-historical gloss that is already there.
 Return ONLY the JSON object.`;
 
 function buildRegenPrompt(q, notes, { fixOptions = true, extendQuestion = false } = {}) {
@@ -5269,6 +5315,10 @@ function buildRegenSet(q, parsed, { fixOptions = true, extendQuestion = false, s
   // the explanation is enough). Clears existing ones too. (Pair/matching types
   // below are never numerical, so this won't clash with their rebuilt notes.)
   if (parsed.numerical) set.optionExplanations = ["", "", "", ""];
+  // Options kept as-is ("fix options" off, or the model's set wasn't usable):
+  // still drop Hindi/vernacular glosses from them (gloss-only edits). The stem
+  // is already the model's cleaned version on Regenerate.
+  applyGlossCleanup(set, q, parsed, { lockText: true, lockOptions: !!set.options });
   // PAIR / MATCHING: reshuffle Column B deterministically and set the answer to
   // match exactly — fixes "shows the old answer after the columns are reshuffled".
   // The pair/matching/pairselect reshuffles are STRUCTURAL — they build the
@@ -6337,4 +6387,9 @@ export {
   isDailyQuotaLimit,
   quota429Message,
   pickPreferredModel,
+  // Extend / Regenerate result builders (tested: gloss clean-up).
+  buildExtendSet,
+  buildRegenSet,
+  EXTEND_SYSTEM_PROMPT,
+  REGEN_SYSTEM_PROMPT,
 };
