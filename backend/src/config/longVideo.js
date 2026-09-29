@@ -562,6 +562,9 @@ export async function runLongVideoSchedule(sch, cfg, site) {
   sch.lastRunAt = new Date();
   if (next.done) {
     sch.lastResult = total ? `Completed — every part of the ${total} questions has been made.` : "No complete questions in this content.";
+    // Every part is already made — mark it Completed and pause it (keep it in
+    // the list) rather than letting it fire again / be deleted.
+    if (total) { sch.completedAt = sch.completedAt || new Date(); sch.enabled = false; }
     return { ok: !!total, completed: !!total, exhausted: true, error: total ? undefined : sch.lastResult };
   }
   const playlist = lv.playlist === "__none__" ? null : lv.playlist?.id ? lv.playlist : undefined;
@@ -596,5 +599,12 @@ export async function runLongVideoSchedule(sch, cfg, site) {
   sch.markModified?.("longVideo");
   const range = o.order === "random" ? `${next.count} random questions` : `questions ${next.start}–${next.start + next.count - 1} of ${total}`;
   sch.lastResult = `${o.order === "random" ? "Video" : `Part ${next.part}`} (${range}) is being made — you'll get an email when it's posted.${next.wrapped ? " (started again from question 1)" : ""}${skipped.length ? ` ${skipped.join(" and ")} skipped (not connected).` : ""}`;
-  return { ok: true, completed: stop && next.last && o.order !== "random" };
+  // This was the final part (the whole topic fits in / has reached this video):
+  // mark the schedule Completed and pause it, but KEEP it in the list. It is NOT
+  // deleted — deleting a repeating schedule on completion made it vanish after a
+  // single run (confusing) and, because the video is only just now being made,
+  // also lost the row that reportToSchedule updates when the video posts.
+  const finished = stop && next.last && o.order !== "random";
+  if (finished) { sch.completedAt = sch.completedAt || new Date(); sch.enabled = false; }
+  return { ok: true, completed: finished };
 }
