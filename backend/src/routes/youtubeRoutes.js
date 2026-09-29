@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { youtubeStatus, saveYoutubeSettings, youtubeConnect, youtubeCallback, youtubeDisconnect, youtubeTest, startLongVideo, listLongVideos, longVideoStatus, youtubeUploadToken, youtubePlaylists, youtubeCreatePlaylist, youtubeThumbnailPreview, youtubeFinishUpload, longVideoQuestionCount, saveLongVideoDefaults, youtubeSlideTextPreview, startLongVideoPreview, longVideoPreviewStatus, youtubeNarrationPreview, youtubeFontFile, publishLongVideoPreview } from "../controllers/youtubeController.js";
+import { youtubeStatus, saveYoutubeSettings, youtubeConnect, youtubeCallback, youtubeDisconnect, youtubeTest, startLongVideo, listLongVideos, longVideoStatus, youtubeUploadToken, youtubePlaylists, youtubeCreatePlaylist, youtubeThumbnailPreview, youtubeFinishUpload, longVideoQuestionCount, saveLongVideoDefaults, youtubeSlideTextPreview, startLongVideoPreview, longVideoPreviewStatus, youtubeNarrationPreview, youtubeFontFile, publishLongVideoPreview, retryLongVideo } from "../controllers/youtubeController.js";
 import { protect, authorize } from "../middleware/auth.js";
 
 // YouTube auto-post connection (admin). Posting itself happens through the
@@ -21,6 +21,7 @@ router.post("/long-video/preview/:id/publish", ...admin, publishLongVideoPreview
 router.post("/long-video", ...admin, startLongVideo);
 router.get("/long-video", ...admin, listLongVideos);
 router.get("/long-video/:id", ...admin, longVideoStatus);
+router.post("/long-video/:id/retry", ...admin, retryLongVideo);
 // … and your own video files, uploaded from the browser straight to YouTube.
 router.post("/upload-token", ...admin, youtubeUploadToken);
 // Playlists ("folders") and the long-video thumbnail template.
