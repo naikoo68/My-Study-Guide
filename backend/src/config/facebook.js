@@ -1,6 +1,7 @@
 // Facebook / Instagram Graph API helper — verifies page credentials and publishes
 // auto-posts to a connected Facebook page / Instagram account.
 
+import { displayName } from "../utils/displayName.js";
 import Settings from "../models/Settings.js";
 import User from "../models/User.js";
 import { sendMail } from "./mailer.js";
@@ -1137,9 +1138,10 @@ export async function hashtagsForQuestion(q, site, extra = "") {
       }
     }
     if (!topicName && q.topic) topicName = q.topic;
-    push(toTagWords(subjectName));
-    push(toTagWords(topicName));
-    push(toTagWords(q.section));
+    // "A) Basic Terminologies" → #BasicTerminologies (the order prefix is dropped).
+    push(toTagWords(displayName(subjectName)));
+    push(toTagWords(displayName(topicName)));
+    push(toTagWords(displayName(q.section)));
   }
   // Cap the number of hashtags. A huge wall of tags is treated as spam by
   // Facebook (which then stops turning the extras into blue links) and exceeds
@@ -1216,7 +1218,8 @@ export async function breadcrumbForQuestion(q) {
   }
   if (!topicName && q.section) topicName = q.section;
 
-  return [streamName, subjectName, topicName, quizTitle].filter(Boolean).join(" › ");
+  // Order prefixes ("A) JKSSB", "B) Basic Terms") are for sorting only — drop them.
+  return [streamName, subjectName, topicName, quizTitle].map(displayName).filter(Boolean).join(" › ");
 }
 
 // Subject / topic / quiz names for a question, used for YouTube titles
@@ -1263,7 +1266,9 @@ export async function titlePartsForQuestion(q) {
   }
   if (!out.topic && q.topic) out.topic = String(q.topic);
   if (!out.topic && q.section) out.topic = String(q.section);
-  return out;
+  // Order prefixes ("A) Basic Terminologies") are for sorting only — viewers
+  // see / hear just the name in titles, thumbnails, slides and narration.
+  return { subject: displayName(out.subject), topic: displayName(out.topic), quiz: displayName(out.quiz) };
 }
 
 // Which "quiz" of the source this video is: with 5 questions per video, the

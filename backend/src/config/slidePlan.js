@@ -1,3 +1,4 @@
+import { displayName, displayTrail } from "../utils/displayName.js";
 // Build the SLIDE PLAN (what each slide shows + what the narrator says) for one
 // question. Every question becomes exactly TWO slides — the question, then the
 // answer reveal — and it adapts to the question TYPE (it never assumes a plain
@@ -250,7 +251,8 @@ function correctInfo(q) {
 
 // Human topic label for the intro slide ("Subject — Topic" style).
 function topicLabel(q, opts = {}) {
-  const bits = [asText(opts.subjectName), asText(q.section), asText(q.topic)].filter(Boolean);
+  // Order prefixes ("A) Basic Terms") are dropped — only the name is shown / read.
+  const bits = [displayTrail(asText(opts.subjectName)), displayName(asText(q.section)), displayName(asText(q.topic))].filter(Boolean);
   // Dedupe while keeping order (subject/topic can repeat).
   const seen = new Set();
   const uniq = bits.filter((b) => (seen.has(b.toLowerCase()) ? false : seen.add(b.toLowerCase())));

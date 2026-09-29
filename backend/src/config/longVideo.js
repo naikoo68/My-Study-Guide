@@ -18,6 +18,7 @@ import {
 } from "./youtube.js";
 import { postLongVideoToFacebookPage } from "./fbLongVideo.js";
 import { TTS_PROVIDERS } from "../utils/ttsVoices.js";
+import { displayTrail } from "../utils/displayName.js";
 import { normalizeReadOptions, readOptionsFromSettings } from "./slidePlan.js";
 import {
   pickAllQuestionsForSource, completeQuestionsForSource, titlePartsForQuestion, breadcrumbForQuestion,
@@ -303,11 +304,11 @@ async function planLongVideo(job, { source, cfg, site, titleTemplate, opts }) {
     .replace(/\{range\}/gi, job.range || `1–${questions.length}`)
     .replace(/\{part\}/gi, String(partNum || 1));
   job.title = buildYtTitle(tpl, {
-    subject: names.subject || names.quiz || source?.label || "",
+    subject: names.subject || names.quiz || displayTrail(source?.label),
     topic: names.topic,
     quiz: names.quiz,
     count: questions.length,
-  }, source?.label || "Full Quiz");
+  }, displayTrail(source?.label) || "Full Quiz");
 
   const siteUrl = (cfg.siteUrl || "https://www.mystudyguide.in").replace(/\/+$/, "");
   // Shared slideshow options — an opening title slide and a closing
@@ -340,7 +341,7 @@ async function planLongVideo(job, { source, cfg, site, titleTemplate, opts }) {
     siteUrl: siteUrl.replace(/^https?:\/\//, ""),
     subjectName: breadcrumb || "",
   };
-  const intro = { subject: names.subject || names.quiz || source?.label || "", topic: names.topic };
+  const intro = { subject: names.subject || names.quiz || displayTrail(source?.label), topic: names.topic };
   return { questions, names, breadcrumb, first, siteUrl, slideBase, intro };
 }
 
@@ -352,7 +353,7 @@ async function drawLongVideoThumbnail(job, { source, cfg, site, names, questions
     // Subject | Topic | Quiz of THIS video. The quiz name only when one quiz
     // (or My Quiz) was picked — a whole topic mixes several quizzes.
     lines: thumbnailLines({
-      subject: names.subject || source?.label || "",
+      subject: names.subject || displayTrail(source?.label),
       topic: names.topic,
       quiz: source?.quiz || source?.testSeries ? names.quiz : "",
       count: questions.length,
