@@ -3005,6 +3005,12 @@ function FullQuizVideoForm({ st, onStatus }) {
           <SlideTemplateUploader landscape label="Answer slide template" hint="Background for the answer + explanation slide"
             settingKey="longVideoAnswerTemplateUrl" settings={settings} saveSettings={saveSettings} />
         )}
+        <SlideTemplateUploader landscape label="Intro slide template" hint="Opening title slide (subject / topic · “Let's begin”)"
+          settingKey="longVideoIntroTemplateUrl" settings={settings} saveSettings={saveSettings} />
+        <SlideTemplateUploader landscape label="End slide template (full video)" hint="Closing “Thanks for watching · like &amp; subscribe” slide"
+          settingKey="longVideoOutroTemplateUrl" settings={settings} saveSettings={saveSettings} />
+        <SlideTemplateUploader landscape label="End slide template (Short)" hint="Short's closing “Watch the full quiz · subscribe” slide"
+          settingKey="longVideoShortOutroTemplateUrl" settings={settings} saveSettings={saveSettings} />
       </div>
       {(settings?.longVideoQuestionTemplateUrl || (withAnswer && settings?.longVideoAnswerTemplateUrl)) && (
         <label className="mt-2 flex items-center gap-2 text-sm">
