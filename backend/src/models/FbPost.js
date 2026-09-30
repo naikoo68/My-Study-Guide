@@ -11,6 +11,8 @@ const fbPostSchema = new mongoose.Schema(
     facebookPostId: { type: String, required: true }, // Meta's post/photo id (the source of truth)
     pageId: { type: String, default: "" },            // the Page it was published to
     pageLabel: { type: String, default: "" },         // human label of an extra Page ("" = the main Page)
+    // Cross-posting user it was posted for ("" / missing = the main account).
+    profileId: { type: String, default: "" },
     // The schedule that produced it (may be deleted later — the snapshot fields
     // below keep the history meaningful even after the schedule is gone).
     schedule: { type: mongoose.Schema.Types.ObjectId, ref: "FbSchedule", default: null },

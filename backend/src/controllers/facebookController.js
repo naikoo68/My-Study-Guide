@@ -543,7 +543,7 @@ export async function facebookStats(req, res) {
   const tenantId = getCurrentTenantId();
   const [lifetime, recent] = await Promise.all([
     countFacebookPosts(tenantId, pageId),
-    FbPost.find(pageId ? { pageId } : {}).sort({ createdAt: -1 }).limit(5).lean(),
+    FbPost.find({ ...scheduleProfileFilter(), ...(pageId ? { pageId } : {}) }).sort({ createdAt: -1 }).limit(5).lean(),
   ]);
   res.json({
     lifetime,
@@ -747,7 +747,7 @@ async function rebuildPracticeLabel(source = {}) {
 // Idempotent: only rows whose label actually changed are written. Quiz-Bank,
 // custom and single-question schedules are left untouched.
 export async function backfillScheduleLabels(req, res) {
-  const schedules = await FbSchedule.find({}).select("source kind").lean();
+  const schedules = await FbSchedule.find({ ...scheduleProfileFilter() }).select("source kind").lean();
   let updated = 0;
   for (const s of schedules) {
     if (s.kind === "custom" || !s.source?.testSeries || s.source?.question) continue;
