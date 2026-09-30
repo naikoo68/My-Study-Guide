@@ -10,7 +10,7 @@ import {
   ImagePlus, FileText, Wand2, RefreshCw, Film, Music, Camera, ChevronDown, MessageCircle,
   Sparkles, Volume2, PlayCircle, Link2, Unplug, Clapperboard, Move, RotateCw, Share2,
 } from "lucide-react";
-import { Facebook, Instagram, Youtube } from "../../components/ui/SocialIcons";
+import { Facebook, Instagram, Youtube, SOCIAL_PLATFORMS } from "../../components/ui/SocialIcons";
 import { settingsService, facebookService, youtubeService, uploadVideoFileToYoutube, contentService, practiceService, uploadService } from "../../services";
 import { useSettings } from "../../context/SettingsContext";
 import { Loading, ErrorState } from "../../components/ui/AsyncState";
@@ -2733,6 +2733,62 @@ function YtDefaultPlaylists({ st, onSaved }) {
 // YouTube (Shorts) connection card: Google OAuth app credentials, the
 // Connect/Disconnect flow, default privacy and a connection test. Uploading
 // itself happens from each schedule's "YouTube" checkbox.
+// Social links (the same list as the site footer — Customization) added
+// automatically to every YouTube description and as a comment on Facebook /
+// Instagram posts.
+function SocialLinksSection({ settings, saveSettings }) {
+  const init = () => (Array.isArray(settings?.socialLinks) && settings.socialLinks.length ? settings.socialLinks : [{ platform: "youtube", url: "" }, { platform: "facebook", url: "" }, { platform: "instagram", url: "" }, { platform: "telegram", url: "" }, { platform: "whatsapp", url: "" }]).map((l) => ({ platform: l.platform || "website", url: l.url || "" }));
+  const [links, setLinks] = useState(init);
+  const [onYt, setOnYt] = useState(settings?.socialLinksOnYoutube !== false);
+  const [comment, setComment] = useState(settings?.socialLinksComment !== false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const setLink = (i, k, v) => setLinks((ls) => ls.map((l, j) => (j === i ? { ...l, [k]: v } : l)));
+  const save = async () => {
+    setBusy(true); setMsg(null);
+    try {
+      await saveSettings({ socialLinks: links.filter((l) => l.url.trim()), socialLinksOnYoutube: onYt, socialLinksComment: comment });
+      setMsg({ ok: true, text: "Saved — they're also shown in your site footer." });
+    } catch (e) { setMsg({ ok: false, text: e.message }); } finally { setBusy(false); }
+  };
+  const filled = links.filter((l) => /^https?:\/\/|\./.test(l.url.trim()));
+  const sample = ["📌 Follow us & practise more:", ...filled.map((l) => `${l.platform}: ${l.url.trim()}`)].join("\n");
+  const toggle = (on, set, label, hint) => (
+    <label className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
+      <span className="text-sm"><span className="font-medium">{label}</span><span className="block text-xs text-slate-400">{hint}</span></span>
+      <button type="button" onClick={() => set(!on)} className={`relative mt-0.5 h-6 w-11 flex-shrink-0 rounded-full transition ${on ? "bg-brand-600" : "bg-slate-300 dark:bg-slate-600"}`}>
+        <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${on ? "left-6" : "left-1"}`} />
+      </button>
+    </label>
+  );
+  return (
+    <CollapsibleCard title="Social links" icon={Link2} iconClass="h-4 w-4 text-brand-600">
+      <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">Add your links once — they're added <b>automatically</b> to every YouTube video &amp; Short description, and as a comment on Facebook / Instagram posts and Reels. (Same list as your site footer.)</p>
+      <div className="mt-4 space-y-2">
+        {links.map((l, i) => (
+          <div key={i} className="flex gap-2">
+            <select value={l.platform} onChange={(e) => setLink(i, "platform", e.target.value)} className="input w-32 flex-shrink-0 capitalize">
+              {SOCIAL_PLATFORMS.map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
+            <input className="input" value={l.url} onChange={(e) => setLink(i, "url", e.target.value)} placeholder={l.platform === "youtube" ? "https://youtube.com/@yourchannel" : l.platform === "telegram" ? "https://t.me/yourchannel" : l.platform === "whatsapp" ? "https://whatsapp.com/channel/…" : `https://${l.platform}.com/…`} />
+            <button type="button" onClick={() => setLinks((ls) => ls.filter((_, j) => j !== i))} title="Remove" className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30"><Trash2 className="h-4 w-4" /></button>
+          </div>
+        ))}
+        <button type="button" onClick={() => setLinks((ls) => [...ls, { platform: "website", url: "" }])} className="btn-outline !py-1.5 !text-xs"><Plus className="h-3.5 w-3.5" /> Add link</button>
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        {toggle(onYt, setOnYt, "Add to YouTube descriptions", "Long videos, their Shorts and schedule Shorts (the YouTube link itself is left out).")}
+        {toggle(comment, setComment, "Comment on Facebook & Instagram", "Posts, Reels and long videos. The APIs can't pin — tap ⋮ → Pin once on the comment.")}
+      </div>
+      {filled.length > 0 && <pre className="mt-3 whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-xs text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">{sample}</pre>}
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button type="button" onClick={save} disabled={busy} className="btn-primary">{busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> Save links</>}</button>
+        {msg && <span className={`inline-flex items-center gap-1 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {msg.text}</span>}
+      </div>
+    </CollapsibleCard>
+  );
+}
+
 // Telegram connection: the site's bot (token from @BotFather) posts to a
 // channel / group where it's an admin.
 function TelegramConnection({ settings, saveSettings }) {
@@ -4401,6 +4457,9 @@ export default function AdminFacebook() {
           {connTab === "telegram" && <TelegramConnection settings={settings} saveSettings={saveSettings} />}
         </div>
       </CollapsibleCard>
+
+      {/* Social links → YouTube descriptions + a comment on Facebook / Instagram posts */}
+      <SocialLinksSection settings={settings} saveSettings={saveSettings} />
 
       {/* Hashtags */}
       <CollapsibleCard title="Hashtags" icon={ListChecks} iconClass="h-4 w-4 text-[#1877F2]">
