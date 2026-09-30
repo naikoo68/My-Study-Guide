@@ -69,7 +69,7 @@ export default function ScheduleQuestionModal({ open, question, onClose }) {
       const payload = { questionId: question._id, ...opts, imageUrl: "", label: (question.text || "").slice(0, 80) };
       if (scheduled) {
         await facebookService.scheduleQuestion({ ...payload, runAt: new Date(when).toISOString() });
-        setMsg({ ok: true, text: `Scheduled for ${new Date(when).toLocaleString()}. See it under Facebook Auto-Post.` });
+        setMsg({ ok: true, text: `Scheduled for ${new Date(when).toLocaleString()}. See it under Social Media Auto Posting.` });
       } else {
         const r = await facebookService.postQuestion(payload);
         setMsg({ ok: true, text: r?.lastResult || "Posted." });

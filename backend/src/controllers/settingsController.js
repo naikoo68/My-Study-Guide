@@ -1,4 +1,5 @@
 import Settings from "../models/Settings.js";
+import { cleanTgChat, verifyTelegram, sendTelegramMessage } from "../config/telegram.js";
 import Tenant from "../models/Tenant.js";
 import { getCurrentTenantId, runUnscoped } from "../utils/tenantContext.js";
 import { postToFacebookPage, verifyFacebook, getFacebookConfig, getInstagramUserId, postToInstagram, invalidateTokenScopeCache } from "../config/facebook.js";
@@ -104,6 +105,8 @@ function safeSettings(s) {
   const obj = s && s.toObject ? s.toObject() : { ...(s || {}) };
   obj.fbTokenSet = !!obj.fbPageAccessToken;
   delete obj.fbPageAccessToken;
+  obj.tgBotTokenSet = !!obj.tgBotToken;
+  delete obj.tgBotToken;
   // TTS narration API key (AI Slideshow) — never send the raw key to the
   // browser; expose a boolean so the UI can show "key saved".
   // Same for every paid engine's key (ttsApiKey → ttsApiKeySet, …).
@@ -237,6 +240,7 @@ export async function updateSettings(req, res) {
     "aboutHeading", "aboutIntro", "aboutValues", "aboutStats", "testimonials", "faqs",
     "aiMaxPerBatch", "clientPlans", "studentPlans", "tenantPlans",
     "fbEnabled", "fbPageId", "fbAutoOnNotice", "fbGraphVersion", "fbPageAccessToken",
+    "tgEnabled", "tgBotToken", "tgChatId",
     "fbDefaultHashtags", "fbAutoHashtags", "fbExtraTargets",
     "fbSelfieWatermarkUrl", "fbSelfieWatermarkEnabled", "fbSelfieWatermarkPosition", "fbSelfieWatermarkSize", "fbSelfieWatermarkOpacity", "fbSelfieWatermarkShape",
     "fbTextWatermarkEnabled", "fbTextWatermarkText", "fbTextWatermarkSize", "fbTextWatermarkOpacity",
@@ -278,6 +282,12 @@ export async function updateSettings(req, res) {
   // value is provided (the admin UI submits it blank to keep the saved one).
   // Also drop the granted-scope cache so a freshly authorised token isn't
   // held back by the previous token's "missing scope" verdict.
+  // Telegram: a blank token keeps the saved one; the chat is normalised (@name / -100…).
+  if ("tgBotToken" in update) {
+    const t = String(update.tgBotToken || "").trim();
+    if (t) update.tgBotToken = t; else delete update.tgBotToken;
+  }
+  if ("tgChatId" in update) update.tgChatId = cleanTgChat(update.tgChatId) || String(update.tgChatId || "").trim().slice(0, 100);
   if ("fbPageAccessToken" in update) {
     const tok = String(update.fbPageAccessToken || "").trim();
     if (tok) { update.fbPageAccessToken = tok; invalidateTokenScopeCache(); } else delete update.fbPageAccessToken;
@@ -584,6 +594,21 @@ export async function testFacebookPost(req, res) {
     `✅ Test post from ${site.siteName || "My Study Guide"} — Facebook auto-posting is connected.`;
   const result = await postToFacebookPage({ message, link: req.body?.link }, cfg);
   return res.status(result.ok ? 200 : 502).json(result);
+}
+
+// POST /api/settings/telegram/test { verifyOnly?, message? } — admin: check the
+// bot + channel, and (unless verifyOnly) send a test message to the channel.
+// Unsaved values in the body (tgBotToken / tgChatId) are tried first.
+export async function testTelegramPost(req, res) {
+  const site = await getOrCreate();
+  const b = req.body || {};
+  const cfg = { tgBotToken: String(b.tgBotToken || "").trim() || site.tgBotToken, tgChatId: String(b.tgChatId || "").trim() || site.tgChatId };
+  if (!cfg.tgBotToken || !cfg.tgChatId) return res.status(400).json({ ok: false, error: "Enter the bot token and the channel, then try again." });
+  const v = await verifyTelegram(cfg);
+  if (!v.ok || b.verifyOnly) return res.status(v.ok ? 200 : 400).json(v);
+  const text = String(b.message || "").trim() || `✅ Test post from ${site.siteName || "My Study Guide"} — Telegram auto-posting is connected.`;
+  const r = await sendTelegramMessage({ text }, cfg);
+  return res.status(r.ok ? 200 : 400).json({ ...v, ...r });
 }
 
 // POST /api/settings/instagram/test — admin: verify the linked IG account and

@@ -68,7 +68,7 @@ const GROUPS = [
       { key: "reviews", label: "Reviews", icon: Star, desc: "Student/client reviews (submit & approve)." },
       { key: "messages", label: "Messages", icon: Mail, desc: "Contact-form inbox." },
       { key: "notices", label: "Notice Board", icon: Megaphone, desc: "Scrolling public notice board." },
-      { key: "facebook", label: "Facebook Auto-Post", icon: FacebookIcon, desc: "Scheduled Facebook/Instagram posting." },
+      { key: "facebook", label: "Social Media Auto Posting", icon: FacebookIcon, desc: "Scheduled posting to Facebook, Instagram, YouTube and Telegram." },
       { key: "aiGenerator", label: "AI Generator", icon: Sparkles, desc: "AI question generator studio." },
       { key: "visualize", label: "Visualization Studio", icon: LayoutGrid, desc: "Turn questions into visual layouts." },
     ],
