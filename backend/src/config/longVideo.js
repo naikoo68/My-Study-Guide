@@ -701,6 +701,11 @@ async function postShortReelsAndLinks(job, { cfg, opts, tags, getShort, schedule
     const c = await commentOnYoutubeVideo({ videoId: job.shortId, text: shortComment }, cfg);
     job.notes.push(c.ok ? "Short link comment ✓ (pin it in YouTube)" : `Short link comment ✗ (${c.error})`);
   }
+  // The ONLY tappable link on a Short is its "Related video", and the YouTube
+  // API can't set it — so hand the admin the exact Studio page to set it once.
+  if (job.shortId && job.url && !scheduled) {
+    job.notes.push(`Make the Short's link tappable: open https://studio.youtube.com/video/${job.shortId}/edit → Related video → pick the full video`);
+  }
   if (!wantReels) return;
   job.stage = "reels";
   job.progress = null;
