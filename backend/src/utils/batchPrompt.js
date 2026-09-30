@@ -2,18 +2,24 @@
 // work like question GENERATION: several questions per AI call and the long
 // rule text sent ONCE per call instead of once per question. Pure — unit-tested.
 
-// Questions per call. Generation spreads the work so every key gets about one
-// big request (ceil(total / keys), up to 12). A rewrite needs more output per
-// question (full explanation + 4 notes + key points), so the cap is lower.
-export const REWRITE_MIN_CHUNK = 2;
-export const REWRITE_MAX_CHUNK = 6;
-export function rewriteChunkSize(total, keyCount) {
+// Questions per call — two modes, chosen in the Extend / Regenerate dialog:
+//  "max" (default) — fill each request up to 12: 26 questions → 12 + 12 + 2,
+//                     sent to 3 fresh keys at the same time. A key that hits a
+//                     rate limit hands its questions to another fresh key.
+//  "spread"        — ceil(total / keys), 1 to 12 per call, so every key gets
+//                     a small share (26 questions on 29 keys → 1 each).
+export const REWRITE_MAX_CHUNK = 12;
+export const BATCH_MODES = ["spread", "max"];
+export function rewriteChunkSize(total, keyCount, mode = "max") {
+  if (mode === "max") return REWRITE_MAX_CHUNK;
   const n = Math.ceil(Math.max(1, Number(total) || 1) / Math.max(1, Number(keyCount) || 1));
-  return Math.max(REWRITE_MIN_CHUNK, Math.min(REWRITE_MAX_CHUNK, n));
+  return Math.max(1, Math.min(REWRITE_MAX_CHUNK, n));
 }
 
 // Output budget for one call: about 2.4k tokens per question (a detailed
-// explanation plus notes is typically 0.8–2k), capped at 16k. The old fixed
+// explanation plus notes is typically 0.8–2k), capped at 16k like generation
+// (so a 12-question call gets ~1.2k each; any item a truncated reply misses is
+// salvaged / re-queued by the job). The old fixed
 // 7k per question reserved far more than a reply ever uses, and big
 // reservations get rate-limited sooner on the gateway.
 export const REWRITE_TOKENS_PER_QUESTION = 2400;

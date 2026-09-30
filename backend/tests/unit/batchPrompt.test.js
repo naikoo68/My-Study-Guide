@@ -6,11 +6,12 @@ const RULE = `Write a THOROUGH explanation ${"x".repeat(200)}`;
 const prompt = (q) => [`Question type: mcq`, `Question: ${q.text}`, `Options:\nA) True\nB) False`, RULE].join("\n");
 
 describe("bulk rewrite batching (like generation)", () => {
-  it("spreads the questions over the keys, 2–6 per call", () => {
-    expect(rewriteChunkSize(42, 29)).toBe(2);
-    expect(rewriteChunkSize(300, 29)).toBe(6);
-    expect(rewriteChunkSize(20, 5)).toBe(4);
-    expect(rewriteChunkSize(50, 1)).toBe(6);
+  it("'max' (default) fills requests up to 12; 'spread' shares 1–12 over all keys", () => {
+    expect(rewriteChunkSize(26, 29)).toBe(12); // default: 26 → 12 + 12 + 2
+    expect(rewriteChunkSize(26, 29, "spread")).toBe(1);
+    expect(rewriteChunkSize(42, 29, "spread")).toBe(2);
+    expect(rewriteChunkSize(300, 29, "spread")).toBe(11);
+    expect(rewriteChunkSize(400, 29, "spread")).toBe(12);
     expect(rewriteMaxTokens(2)).toBe(6300);
     expect(rewriteMaxTokens(6)).toBe(15900);
   });
@@ -47,5 +48,34 @@ describe("429 wait — same rule as question generation", () => {
     expect(quotaWaitMs('{"retryDelay":"7s"}')).toBe(7000);
     expect(quotaWaitMs('{"retryDelay":"45s"}')).toBe(20000);
     expect(quotaWaitMs("rate limited")).toBe(30000);
+  });
+});
+
+describe("26 questions, up to 12 per request, 29 fresh keys", () => {
+  it("sends 12 + 12 + 2 at once, and a rate-limited key's questions go to a fresh key", async () => {
+    const { runKeyLanes } = await import("../../src/utils/keyLanes.js");
+    const queue = Array.from({ length: 26 }, (_, i) => ({ id: i }));
+    const lanes = Array.from({ length: 29 }, (_, i) => ({ key: `k${i + 1}` }));
+    const calls = [];
+    let inFlight = 0, peak = 0;
+    await runKeyLanes({
+      lanes, laneLabel: (ep) => ep.key, queue, chunkSize: 12, itemId: (q) => String(q.id), requeue: () => {},
+      isStopped: () => false, timeLeftMs: () => 60000, sleep: (ms) => new Promise((r) => setTimeout(r, Math.min(ms, 5))),
+      runChunk: async (chunk, ep) => {
+        calls.push({ key: ep.key, n: chunk.length });
+        inFlight += 1; peak = Math.max(peak, inFlight);
+        await new Promise((r) => setTimeout(r, 20));
+        inFlight -= 1;
+        if (ep.key === "k1") return { outcome: "limited", filled: new Set(), retryMs: 60000 };
+        return { outcome: "ok", filled: new Set(chunk.map((q) => String(q.id))) };
+      },
+      maxQuotaWaits: 0,
+    });
+    expect(calls.slice(0, 3).map((c) => c.n)).toEqual([12, 12, 2]);
+    expect(peak).toBe(3); // the three requests run at the same time
+    const retry = calls.find((c, i) => i >= 3);
+    expect(retry.n).toBe(12);            // k1's 12 questions…
+    expect(retry.key).not.toBe("k1");    // …went to a fresh key
+    expect(calls.filter((c) => c.key !== "k1").reduce((a, c) => a + c.n, 0)).toBe(26);
   });
 });
