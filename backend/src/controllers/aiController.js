@@ -2308,6 +2308,7 @@ export function jobStatus(req, res) {
     cancelled: !!job.cancelled,
     keyStats: job.keyStats || {}, // live per-key activity this run
     perRequest: job.perRequest || null, // bulk Extend / Regenerate: questions per AI request
+    lastLimitDetail: job.lastLimitDetail || null, // the provider's last rate-limit message
     waitUntil: job.waitUntil || null, // epoch ms until the next API-key retry (server clock)
     // The same, RELATIVE — the UI counts down from this, so a phone whose clock
     // is a few seconds off still shows the right time.
@@ -4513,7 +4514,14 @@ async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = n
   // (buildBatchRewritePrompt) and the output budget is sized to real replies.
   const keyCount = new Set((endpoints || []).filter(Boolean).map((ep) => ep.key)).size || 1;
   const CHUNK = rewriteChunkSize(total, keyCount, batchMode);
-  job.perRequest = CHUNK; // shown in the dialog ("N questions per request")
+  // Requests start at CHUNK questions. If the provider refuses a big request
+  // with a rate limit, the size is HALVED for the rest of the run (12 → 6 → 3
+  // → 2): a request larger than a key's per-minute token allowance can never
+  // succeed, however long we wait — which is how a 12-question run could end
+  // with every key "limited" and 0 updated, while 2-question runs went through.
+  const MIN_CHUNK = Math.min(2, CHUNK);
+  let chunkNow = CHUNK;
+  job.perRequest = chunkNow; // shown in the dialog ("N questions per request")
   const sysPrompt = String(systemPrompt || "") + BATCH_REWRITE_SUFFIX;
   const queue = [...questions];
   const itemTries = new Map();
@@ -4577,6 +4585,12 @@ async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = n
     lastError = r;
     if (r.status === 429) {
       ks.limited += 1;
+      if (chunk.length > MIN_CHUNK && chunk.length <= chunkNow) {
+        chunkNow = Math.max(MIN_CHUNK, Math.ceil(chunk.length / 2));
+        job.perRequest = chunkNow;
+      }
+      // The provider's own words, so the dialog can show WHY keys are limited.
+      job.lastLimitDetail = String(r.detail || "").replace(/\s+/g, " ").slice(0, 300);
       save({});
       return {
         outcome: isDailyQuotaLimit(r.detail) ? "exhausted" : "limited",
@@ -4606,7 +4620,7 @@ async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = n
   if (rewriteLaneCursor > 1e9) rewriteLaneCursor = 0;
   const runLanes = () => runKeyLanes({
     lanes: bulkWorkerLanes(laneEndpoints, Math.ceil(total / CHUNK)),
-    laneLabel, queue, chunkSize: CHUNK, itemId: (q) => String(q._id), requeue,
+    laneLabel, queue, chunkSize: () => chunkNow, itemId: (q) => String(q._id), requeue,
     runChunk: (chunk, ep) => runChunkOnKey(chunk, ep, statsFor(ep)),
     isStopped: () => Date.now() >= deadline || !!job.cancelled,
     timeLeftMs: () => deadline - Date.now(),

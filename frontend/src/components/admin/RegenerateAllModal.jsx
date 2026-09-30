@@ -53,6 +53,7 @@ export default function RegenerateAllModal({ open, target, title, onClose, onDon
   const [shuffleOptions, setShuffleOptions] = useState(true);
   const [batchMode, setBatchMode] = useState(loadBatchMode); // questions per AI request (see BatchModePicker)
   const [perRequest, setPerRequest] = useState(null);
+  const [limitDetail, setLimitDetail] = useState(""); // provider's last rate-limit message
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(null); // { done, total }
   const [msg, setMsg] = useState("");
@@ -137,6 +138,7 @@ export default function RegenerateAllModal({ open, target, title, onClose, onDon
         try { s = await aiService.job(jobId); } catch { continue; }
         if (s.keyStats && Object.keys(s.keyStats).length) setKeyStats(s.keyStats);
         if (s.perRequest) setPerRequest(s.perRequest);
+        setLimitDetail(s.lastLimitDetail || "");
         const total = s.requested || requested;
         lastCount = s.count ?? lastCount;
         if (s.status !== "pending") setLive(null);
@@ -331,6 +333,11 @@ export default function RegenerateAllModal({ open, target, title, onClose, onDon
                 </div>
               ))}
             </div>
+            {limitDetail && (
+              <p className="mt-2 break-words text-[11px] text-amber-700 dark:text-amber-400">
+                <b>Last rate-limit message from the AI provider:</b> {limitDetail}
+              </p>
+            )}
           </div>
         )}
 
