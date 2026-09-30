@@ -19,6 +19,9 @@ const fbScheduleSchema = new mongoose.Schema(
     // Cross-posting user this schedule posts for (Settings _id of their
     // profile, see utils/socialProfile.js). "" / missing = the main account.
     profileId: { type: String, default: "", index: true },
+    // For a schedule copied from the main account: the original schedule id
+    // (so copying again doesn't make duplicates).
+    copiedFrom: { type: String, default: "" },
     // kind "longvideo": a REPEATING long (16:9) video schedule — each due time
     // makes the next part of the topic as one video (YouTube and/or Facebook).
     // { options, title, privacy, playlist, useThumbnail, nextStart, part } —

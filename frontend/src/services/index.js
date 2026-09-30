@@ -456,6 +456,8 @@ export const socialProfileService = {
   create: (name) => api.post("/social-profiles", { name }),
   rename: (id, name) => api.put(`/social-profiles/${id}`, { name }),
   remove: (id) => api.del(`/social-profiles/${id}`),
+  // Copy everything from your own Social Media Auto Posting (not their account connections).
+  copyFromMain: (id, { schedules = false } = {}) => api.post(`/social-profiles/${id}/copy-from-main`, { schedules }, { timeout: 120000 }),
 };
 
 export const facebookService = {

@@ -96,3 +96,41 @@ describe("cross-posting users", () => {
     });
   });
 });
+
+describe("copy everything from the main account", () => {
+  it("copies all settings except the user's own connections, and schedules fresh (no duplicates)", async () => {
+    const { copyFromMain } = await import("../src/controllers/socialProfileController.js");
+    await asAdmin(() => Settings.updateOne({ key: "site" }, { $set: { ytThumbTemplateUrl: "https://x/t.png", fbDefaultHashtags: "#GK", tgBotToken: "MAIN_TG", ytClientId: "CID", ytRefreshToken: "MAIN_RT", ytChannelId: "MAIN_CH" } }));
+    const c = mkRes();
+    await asAdmin(() => createProfile({ body: { name: "Asha" } }, c));
+    const pid = c.body.profile.id;
+    await asAdmin(() => FbSchedule.updateOne({ title: "main-sch" }, { $set: { postCount: 7, lastResult: "posted", postedQuestionIds: ["b".repeat(24)] } }));
+
+    const r = mkRes();
+    await asAdmin(() => copyFromMain({ params: { id: pid }, body: { schedules: true } }, r));
+    expect(r.body.schedulesCopied).toBe(1);
+    const again = mkRes();
+    await asAdmin(() => copyFromMain({ params: { id: pid }, body: { schedules: true } }, again));
+    expect(again.body.schedulesCopied).toBe(0);
+    expect(again.body.schedulesSkipped).toBe(1);
+
+    await asAdmin(async () => {
+      const p = await Settings.findById(pid).lean();
+      expect(p.fbAutoComments).toEqual(["main comment"]);
+      expect(p.ytThumbTemplateUrl).toBe("https://x/t.png");
+      expect(p.fbDefaultHashtags).toBe("#GK");
+      expect(p.ytClientId).toBe("CID");           // your Google app — shared
+      expect(p.fbPageId).toBe("");                 // their own accounts — never copied
+      expect(p.fbPageAccessToken).toBe("");
+      expect(p.tgBotToken).toBe("");
+      expect(p.ytRefreshToken).toBe("");
+      expect(p.ytChannelId).toBe("");
+      expect(p.socialProfile).toBe(true);
+      expect(p.profileName).toBe("Asha");
+      const sch = await FbSchedule.find({ profileId: pid }).lean();
+      expect(sch.map((s) => [s.title, s.postCount, s.lastResult, s.postedQuestionIds.length])).toEqual([["main-sch", 0, "", 0]]);
+      const main = await Settings.findOne({ key: "site" }).lean();
+      expect(main.fbPageId).toBe("MAIN_PAGE"); // main untouched
+    });
+  });
+});
