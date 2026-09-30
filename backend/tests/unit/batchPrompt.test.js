@@ -102,3 +102,33 @@ describe("a request too big for the key's limit shrinks instead of failing forev
     expect(done.size).toBe(22);
   });
 });
+
+describe("idle keys help a slow request (work stealing)", () => {
+  it("finishes 25 questions while one 12-question request is still stuck", async () => {
+    const { runKeyLanes } = await import("../../src/utils/keyLanes.js");
+    const queue = Array.from({ length: 25 }, (_, i) => ({ id: i }));
+    const lanes = Array.from({ length: 29 }, (_, i) => ({ key: `k${i + 1}` }));
+    const done = new Set();
+    const helped = [];
+    let release;
+    const stuck = new Promise((r) => { release = r; });
+    const t0 = Date.now();
+    await runKeyLanes({
+      lanes, laneLabel: (ep) => ep.key, queue, chunkSize: 12, itemId: (q) => String(q.id), requeue: (q) => queue.push(q),
+      isStopped: () => false, timeLeftMs: () => 60000,
+      isDone: (q) => done.has(String(q.id)), isComplete: () => done.size >= 25, stealAfterMs: 30, stealSize: 2, idlePollMs: 5,
+      runChunk: async (chunk, ep) => {
+        if (ep.key === "k1") { await stuck; return { outcome: "ok", filled: new Set() }; } // the slow one
+        if (chunk.length <= 2) helped.push(ep.key);
+        await new Promise((r) => setTimeout(r, 5));
+        const filled = new Set();
+        chunk.forEach((q) => { if (!done.has(String(q.id))) { done.add(String(q.id)); filled.add(String(q.id)); } });
+        return { outcome: "ok", filled };
+      },
+    });
+    expect(done.size).toBe(25);
+    expect(new Set(helped).size).toBeGreaterThanOrEqual(5); // several fresh keys shared the stuck 12
+    expect(Date.now() - t0).toBeLessThan(2000);            // didn't wait for the stuck request
+    release();
+  });
+});
