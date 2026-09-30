@@ -79,3 +79,26 @@ describe("26 questions, up to 12 per request, 29 fresh keys", () => {
     expect(calls.filter((c) => c.key !== "k1").reduce((a, c) => a + c.n, 0)).toBe(26);
   });
 });
+
+describe("a request too big for the key's limit shrinks instead of failing forever", () => {
+  it("halves the batch after a 429 (12 → 6 → 3 → 2) until requests go through", async () => {
+    const { runKeyLanes } = await import("../../src/utils/keyLanes.js");
+    const queue = Array.from({ length: 22 }, (_, i) => ({ id: i }));
+    const lanes = Array.from({ length: 29 }, (_, i) => ({ key: `k${i + 1}` }));
+    let size = 12;
+    const done = new Set();
+    await runKeyLanes({
+      lanes, laneLabel: (ep) => ep.key, queue, chunkSize: () => size, itemId: (q) => String(q.id), requeue: (q) => queue.push(q),
+      isStopped: () => false, timeLeftMs: () => 60000, sleep: (ms) => new Promise((r) => setTimeout(r, Math.min(ms, 5))),
+      runChunk: async (chunk) => {
+        await new Promise((r) => setTimeout(r, 5));
+        if (chunk.length > 2) { if (chunk.length <= size) size = Math.max(2, Math.ceil(chunk.length / 2)); return { outcome: "limited", filled: new Set(), retryMs: 60000 }; }
+        chunk.forEach((q) => done.add(q.id));
+        return { outcome: "ok", filled: new Set(chunk.map((q) => String(q.id))) };
+      },
+      maxQuotaWaits: 0,
+    });
+    expect(size).toBe(2);
+    expect(done.size).toBe(22);
+  });
+});

@@ -28,7 +28,7 @@ export function bulkRetryMs(detail, fallbackMs = 30000) {
 // lanes      — array of endpoints (the same endpoint may appear more than once)
 // laneLabel  — (ep) => a stable key label (lanes sharing a key share its wait)
 // queue      — the shared array of items (mutated)
-// chunkSize  — items per call
+// chunkSize  — items per call (a number, or () => number so the caller can shrink it mid-run)
 // runChunk   — async (chunk, ep) => { outcome: "ok"|"soft"|"limited"|"exhausted"|"dead", filled:Set<id>, retryMs? }
 // itemId     — (item) => string id
 // requeue    — (item) => void — bounded re-queue for "soft" misses (caller counts tries)
@@ -73,7 +73,8 @@ export async function runKeyLanes({
       // This key is cooling down (another of its lanes got a 429): wait with it.
       const until = waitingUntil.get(key) || 0;
       if (until > now()) { if (finished()) return; await nap(Math.min(until - now(), 60000)); continue; }
-      const chunk = queue.length ? queue.splice(0, chunkSize) : null; // atomic: no await in between
+      const size = Math.max(1, Math.floor(typeof chunkSize === "function" ? chunkSize() : chunkSize) || 1);
+      const chunk = queue.length ? queue.splice(0, size) : null; // atomic: no await in between
       if (!chunk) {
         // Nothing to take right now — but a request in flight may hand work back
         // (429 / skipped items). Retire only when nothing is in flight.
