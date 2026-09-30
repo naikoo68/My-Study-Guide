@@ -18,6 +18,7 @@ import {
   Ticket,
   ArrowRightLeft,
   Share2,
+  Send,
   MonitorCheck,
   SearchCheck,
   BookOpen,
@@ -43,7 +44,6 @@ import { useSettings } from "../../context/SettingsContext";
 import { messageService } from "../../services";
 import OnboardingWizard from "../../components/admin/OnboardingWizard";
 import GlobalSearch from "../../components/ui/GlobalSearch";
-import { Facebook as FacebookIcon } from "../../components/ui/SocialIcons";
 import Avatar from "../../components/ui/Avatar";
 
 // `superOnly: true` items are visible only to the platform super-admin (role
@@ -77,7 +77,7 @@ const nav = [
   { to: "/admin/reviews", label: "Reviews", icon: Star, feature: "reviews" },
   { to: "/admin/messages", label: "Messages", icon: Mail, feature: "messages" },
   { to: "/admin/notices", label: "Notice Board", icon: Megaphone, feature: "notices" },
-  { to: "/admin/facebook", label: "Social Media Auto Posting", icon: FacebookIcon, feature: "facebook" },
+  { to: "/admin/facebook", label: "Social Media Auto Posting", icon: Send, feature: "facebook" },
   { to: "/admin/ai-generator", label: "AI Generator", icon: Sparkles, feature: "aiGenerator" },
   { to: "/admin/visualize", label: "Visualization Studio", icon: LayoutGrid, feature: "visualize" },
   { to: "/admin/ai-keys", label: "AI Keys (APIs)", icon: KeyRound, feature: "aiKeys" }, // institute admins manage their OWN keys (tenant-scoped); super-admin manages platform keys

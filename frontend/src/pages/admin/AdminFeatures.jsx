@@ -7,6 +7,7 @@ import {
   Files,
   SearchCheck,
   Share2,
+  Send,
   MonitorCheck,
   ArrowRightLeft,
   Ticket,
@@ -25,7 +26,6 @@ import {
   Loader2,
   ShieldCheck,
 } from "lucide-react";
-import { Facebook as FacebookIcon } from "../../components/ui/SocialIcons";
 import { useSettings } from "../../context/SettingsContext";
 
 // Admin → Features. Turn admin-panel sections ON or OFF. A feature that's OFF
@@ -68,7 +68,7 @@ const GROUPS = [
       { key: "reviews", label: "Reviews", icon: Star, desc: "Student/client reviews (submit & approve)." },
       { key: "messages", label: "Messages", icon: Mail, desc: "Contact-form inbox." },
       { key: "notices", label: "Notice Board", icon: Megaphone, desc: "Scrolling public notice board." },
-      { key: "facebook", label: "Social Media Auto Posting", icon: FacebookIcon, desc: "Scheduled posting to Facebook, Instagram, YouTube and Telegram." },
+      { key: "facebook", label: "Social Media Auto Posting", icon: Send, desc: "Scheduled posting to Facebook, Instagram, YouTube and Telegram." },
       { key: "aiGenerator", label: "AI Generator", icon: Sparkles, desc: "AI question generator studio." },
       { key: "visualize", label: "Visualization Studio", icon: LayoutGrid, desc: "Turn questions into visual layouts." },
     ],
