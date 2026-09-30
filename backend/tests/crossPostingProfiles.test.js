@@ -134,3 +134,33 @@ describe("copy everything from the main account", () => {
     });
   });
 });
+
+describe("each account has its own history and personal details", () => {
+  it("Facebook publications are per account, and personal details are not copied", async () => {
+    const { recordFbPublications } = await import("../src/config/facebook.js");
+    const { facebookStats } = await import("../src/controllers/facebookController.js");
+    const { copyFromMain } = await import("../src/controllers/socialProfileController.js");
+    await asAdmin(() => Settings.updateOne({ key: "site" }, { $set: { socialLinks: [{ platform: "youtube", url: "https://youtube.com/@main" }], fbAutoCommentMentions: ["@main"], fbNotifyEmail: "me@example.com", fbPostSerialFacebook: 1074 } }));
+    const c = mkRes();
+    await asAdmin(() => createProfile({ body: { name: "Neha" } }, c));
+    const pid = c.body.profile.id;
+    await asAdmin(() => recordFbPublications([{ id: "MAIN_POST_1", pageId: "MAIN_PAGE" }], { kind: "question" }));
+
+    const empty = mkRes();
+    await asAdmin(() => facebookStats({}, empty), pid);
+    expect(empty.body.lifetime).toBe(0);
+    expect(empty.body.recent).toEqual([]);
+
+    await asAdmin(() => copyFromMain({ params: { id: pid }, body: {} }, mkRes()));
+    await asAdmin(async () => {
+      const p = await Settings.findById(pid).lean();
+      expect(p.socialLinks).toEqual([]);
+      expect(p.fbAutoCommentMentions).toEqual([]);
+      expect(p.fbNotifyEmail).toBe("");
+      expect(p.fbPostSerialFacebook).toBe(0);
+    });
+    const main = mkRes();
+    await asAdmin(() => facebookStats({}, main));
+    expect(main.body.recent.map((r) => r.facebookPostId)).toContain("MAIN_POST_1");
+  });
+});

@@ -1093,6 +1093,7 @@ export async function recordFbPublications(pubs, ctx = {}) {
             facebookPostId: id,
             pageId: String(p.pageId || ""),
             pageLabel: String(p.pageLabel || ""),
+            profileId: activeSocialProfileId(), // each account keeps its OWN history
             schedule: ctx.schedule?._id || null,
             scheduleTitle: String(ctx.scheduleTitle || ctx.schedule?.title || "").slice(0, 200),
             sourceLabel: String(ctx.sourceLabel || "").slice(0, 300),
@@ -1145,7 +1146,8 @@ export function collectFacebookPublications(attempts) {
 //     caller), we leave tenant scoping to the plugin/ambient context exactly as
 //     before — so behaviour is unchanged for single-tenant deployments.
 export async function countFacebookPosts(tenantId, pageId) {
-  const filter = {};
+  // Only THIS account's posts (the main account or one cross-posting user).
+  const filter = { ...scheduleProfileFilter() };
   if (pageId) filter.pageId = String(pageId);
   if (tenantId !== undefined && tenantId !== null) {
     filter.tenantId = { $in: [tenantId, null] };
