@@ -12,7 +12,7 @@ import { getClientPlans, findSiteSettings } from "../utils/plans.js";
 import { webResearch } from "../utils/webResearch.js";
 import { glossCleaned, glossReplacements, applyGlossReplacements } from "../utils/glossEdit.js";
 import { rewriteChunkSize, rewriteMaxTokens, buildBatchRewritePrompt } from "../utils/batchPrompt.js";
-import { runKeyLanes, bulkRetryMs } from "../utils/keyLanes.js";
+import { runKeyLanes } from "../utils/keyLanes.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { splitIntoStems, contentOfBlock, questionLocation } from "./contentController.js";
 import Subject from "../models/Subject.js";
@@ -173,9 +173,8 @@ export async function callWithFallback({ endpoints, model, userPrompt, maxTokens
       // (Gemini returns e.g. "retryDelay":"27s"), so bulk jobs stop sending it
       // requests while it's limited but keep hammering every other key.
       if (cooldown) {
-        const m = /"retryDelay"\s*:\s*"?(\d+)\s*s/i.exec(r.detail || "");
-        const ms = m ? Math.min(Math.max(parseInt(m[1], 10) * 1000 + 1000, 5000), 60000) : 60000;
-        cooldown.set(ep.key, Date.now() + ms);
+        // Same wait rule as question generation (see quotaWaitMs).
+        cooldown.set(ep.key, Date.now() + quotaWaitMs(r.detail));
       }
     }
     last = r;
@@ -1496,6 +1495,14 @@ function retryWaitMs(headers, body) {
   return 0;
 }
 
+// The wait after a 429 — the SAME rule question generation uses: the
+// provider's retry hint capped at 20 s (retryWaitMs), else 30 s, never above
+// QUOTA_WAIT_CAP_MS. Shared by generation and the bulk Extend / Regenerate /
+// Flashcard jobs so all of them ride out rate limits identically.
+export function quotaWaitMs(detail) {
+  return Math.min(retryWaitMs(null, detail) || 30000, QUOTA_WAIT_CAP_MS);
+}
+
 // Free-tier daily quota errors cannot recover during a short retry countdown.
 // Detect them separately so bulk workers retire that key immediately instead of
 // showing the user several countdowns that can never succeed.
@@ -1989,7 +1996,7 @@ async function runGenerationJob(id, ctx) {
         // per-minute window and retry the SAME model until the batch is done.
         if (await rotateModel(ep)) continue; // (rotation disabled → always false)
         if (quotaWaits >= MAX_QUOTA_WAITS) break;
-        const waitMs = Math.min(retryWaitMs(null, r.detail) || 30000, QUOTA_WAIT_CAP_MS);
+        const waitMs = quotaWaitMs(r.detail);
         if (Date.now() + waitMs >= deadline) break;
         quotaWaits += 1;
         // Surface the wait as a live countdown in the UI (jobStatus → waitUntil).
@@ -4491,7 +4498,8 @@ async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = n
   let updated = 0;
   let lastError = null;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const MAX_QUOTA_WAITS = 6;
+  // 429 patience: the module-level MAX_QUOTA_WAITS (default 8, env
+  // AI_MAX_QUOTA_WAITS) — the same as question generation.
   const MAX_ITEM_RETRIES = 4; // per question: soft failures before we give up on that one
   // Batch like question GENERATION: spread the questions so each key gets about
   // one bigger request (2–6 questions) instead of a fixed 2. With the old fixed
@@ -4568,7 +4576,7 @@ async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = n
       return {
         outcome: isDailyQuotaLimit(r.detail) ? "exhausted" : "limited",
         filled,
-        retryMs: bulkRetryMs(r.detail), // the provider's retryDelay (+1 s) — never earlier
+        retryMs: quotaWaitMs(r.detail), // same wait rule as question generation
       };
     }
     if ([401, 403, 404].includes(r.status)) { ks.error += 1; save({}); return { outcome: "dead", filled }; }
@@ -4839,7 +4847,8 @@ async function runFlashcardJob(id, { endpoints, model, questions, owner = null }
   let updated = 0;
   let lastError = null;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const MAX_QUOTA_WAITS = 6;
+  // 429 patience: the module-level MAX_QUOTA_WAITS (default 8, env
+  // AI_MAX_QUOTA_WAITS) — the same as question generation.
   const MAX_ITEM_RETRIES = 4; // per question: soft failures before we give up on that one
   const CHUNK = 4;            // small chunks → the reply always fits the token budget (no truncation)
 
@@ -4898,7 +4907,7 @@ async function runFlashcardJob(id, { endpoints, model, questions, owner = null }
       return { outcome: filled.size ? "ok" : "soft", filled };
     }
     lastError = r;
-    if (r.status === 429) { ks.limited += 1; save({}); return { outcome: isDailyQuotaLimit(r.detail) ? "exhausted" : "limited", filled, retryMs: bulkRetryMs(r.detail) }; }
+    if (r.status === 429) { ks.limited += 1; save({}); return { outcome: isDailyQuotaLimit(r.detail) ? "exhausted" : "limited", filled, retryMs: quotaWaitMs(r.detail) }; }
     if ([401, 403, 404].includes(r.status)) { ks.error += 1; save({}); return { outcome: "dead", filled }; }
     ks.error += 1; save({});
     return { outcome: "soft", filled };

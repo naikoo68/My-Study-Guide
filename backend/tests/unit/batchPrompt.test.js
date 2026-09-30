@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { rewriteChunkSize, rewriteMaxTokens, splitSharedRules, buildBatchRewritePrompt } from "../../src/utils/batchPrompt.js";
-import { rotateEndpoints } from "../../src/controllers/aiController.js";
+import { rotateEndpoints, quotaWaitMs } from "../../src/controllers/aiController.js";
 
 const RULE = `Write a THOROUGH explanation ${"x".repeat(200)}`;
 const prompt = (q) => [`Question type: mcq`, `Question: ${q.text}`, `Options:\nA) True\nB) False`, RULE].join("\n");
@@ -39,5 +39,13 @@ describe("single Extend / Regenerate key rotation", () => {
     expect(rotateEndpoints(eps, "m", 0).map((e) => e.key)).toEqual(["k1", "k2", "k3", "k4"]);
     expect(rotateEndpoints(eps, "m", 1).map((e) => e.key)).toEqual(["k2", "k3", "k1", "k4"]);
     expect(rotateEndpoints(eps, "m", 5).map((e) => e.key)).toEqual(["k3", "k1", "k2", "k4"]);
+  });
+});
+
+describe("429 wait — same rule as question generation", () => {
+  it("uses the provider's retryDelay capped at 20 s, else 30 s", () => {
+    expect(quotaWaitMs('{"retryDelay":"7s"}')).toBe(7000);
+    expect(quotaWaitMs('{"retryDelay":"45s"}')).toBe(20000);
+    expect(quotaWaitMs("rate limited")).toBe(30000);
   });
 });
