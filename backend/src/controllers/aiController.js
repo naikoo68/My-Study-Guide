@@ -11,6 +11,7 @@ import { softDeletePatch } from "../utils/softDelete.js";
 import { getClientPlans, findSiteSettings } from "../utils/plans.js";
 import { webResearch } from "../utils/webResearch.js";
 import { glossCleaned, glossReplacements, applyGlossReplacements } from "../utils/glossEdit.js";
+import { rewriteChunkSize, rewriteMaxTokens, buildBatchRewritePrompt } from "../utils/batchPrompt.js";
 import { runKeyLanes, bulkRetryMs } from "../utils/keyLanes.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { splitIntoStems, contentOfBlock, questionLocation } from "./contentController.js";
@@ -198,6 +199,32 @@ export async function callWithFallback({ endpoints, model, userPrompt, maxTokens
     return { ...last, status: 429 };
   }
   return last;
+}
+
+// Single-question Extend / Regenerate used to try the keys in the SAME order
+// every time (key 1, then 2, …) and forgot which ones were rate limited, so
+// after a bulk run each click walked through a row of 429s before a free key
+// answered. Like the bulk jobs, spread these calls over the keys (a rotating
+// start) and remember a key's 429 cooldown between calls. Only the keys on the
+// chosen model rotate; fallback keys on other models stay last.
+const singleCallCooldown = new Map(); // key → epoch ms it is rate limited until
+let singleCallCursor = 0;
+export function rotateEndpoints(endpoints, model, start) {
+  const eps = (endpoints || []).filter(Boolean);
+  const primary = eps.filter((ep) => !ep.model || ep.model === model);
+  const rest = eps.filter((ep) => !primary.includes(ep));
+  if (primary.length < 2) return [...primary, ...rest];
+  const i = ((start % primary.length) + primary.length) % primary.length;
+  return [...primary.slice(i), ...primary.slice(0, i), ...rest];
+}
+async function callSingleQuestion(opts) {
+  const endpoints = rotateEndpoints(opts.endpoints, opts.model, singleCallCursor++);
+  if (singleCallCursor > 1e9) singleCallCursor = 0;
+  const r = await callWithFallback({ ...opts, endpoints, cooldown: singleCallCooldown });
+  // Every key is still inside a remembered cooldown: try them anyway rather
+  // than failing without asking (the remembered wait may be longer than needed).
+  if (!r.ok && r.status === 429 && /cooling down/i.test(r.detail || "")) return callWithFallback({ ...opts, endpoints });
+  return r;
 }
 
 const TYPES = ["mcq", "numericalmcq", "matching", "statement", "pair", "pairselect", "assertion", "table", "journal", "ledger", "rearrange", "diagram"];
@@ -4392,27 +4419,15 @@ function buildExtendSet(q, parsed, extendQuestion = false, shuffleOptions = fals
 const BATCH_REWRITE_SUFFIX = `
 
 === BATCH MODE — READ CAREFULLY ===
-You are being given SEVERAL questions at once, each under a header "### QUESTION <n>". Each block repeats the single-question rules and may tell you to return "ONE JSON object" — in BATCH MODE you MUST IGNORE that "one object" wording. Apply each block's rules to ITS OWN question, doing the SAME rigorous verification for each as if it were the only one.
+You are being given SEVERAL questions at once, each under a header "### QUESTION <n>". Rules that apply to every question are listed ONCE under "RULES FOR EVERY QUESTION BELOW"; a block may add rules of its own. Any wording that says to return "ONE JSON object" must be IGNORED in BATCH MODE. Apply all the rules to EACH question separately, doing the SAME rigorous verification for each as if it were the only one.
 Then respond with ONE single valid JSON object and NOTHING else (no markdown, no code fences), of EXACTLY this shape:
 {"items":[{"i":<n>, <all the JSON fields that question's block asks for>}, ...]}
 - Include EXACTLY one entry per question and set "i" to that question's <n> from its header.
 - Each entry must be a COMPLETE result obeying every rule in that question's block (its explanation, optionExplanations, and any correct/options/text/columnA/columnB/assertion/reason/keyPoints/quickRecall exactly as specified).
 - Do NOT skip any question, do NOT merge answers, and keep all the JSON validity/math/currency rules.`;
 
-// Concatenate each question's normal single-question prompt under a numbered
-// header, so every per-type / toggle instruction is preserved verbatim.
-function buildBatchRewritePrompt(chunk, perQuestionPrompt) {
-  const out = [
-    'You are given MULTIPLE exam questions below, each under a header "### QUESTION <n>". Treat each COMPLETELY INDEPENDENTLY and apply that block\'s instructions to it, then return the single {"items":[...]} object described in the system message.',
-    "",
-  ];
-  chunk.forEach((q, i) => {
-    out.push(`### QUESTION ${i + 1}`);
-    out.push(perQuestionPrompt(q));
-    out.push("");
-  });
-  return out.join("\n");
-}
+// buildBatchRewritePrompt lives in utils/batchPrompt.js: each question's data
+// block, with the rule text shared by all of them sent ONCE per call.
 
 // Pull the results array out of a batch reply (tolerates code fences, stray
 // text, single-backslash LaTeX and a TRUNCATED tail — salvaging the complete
@@ -4478,14 +4493,14 @@ async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = n
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const MAX_QUOTA_WAITS = 6;
   const MAX_ITEM_RETRIES = 4; // per question: soft failures before we give up on that one
-  // Only 2 questions per AI call. Bulk used to pack 4 per call sharing one token
-  // budget (~3.2k tokens/question), which forced the model to compress every
-  // explanation and truncate long ones — so "Extend/Regenerate all" came out far
-  // thinner than the single-question action (8k tokens/question). With CHUNK=2
-  // and the budget below, each question gets the SAME ~8k-token allowance as the
-  // single path, so bulk output is just as detailed. Multiple API keys still run
-  // in parallel, so throughput stays high.
-  const CHUNK = 2;
+  // Batch like question GENERATION: spread the questions so each key gets about
+  // one bigger request (2–6 questions) instead of a fixed 2. With the old fixed
+  // 2 (plus the full rules repeated per question and a 7k-token reservation per
+  // question), every key hit its rate limit after its first call, so a 42-question
+  // quiz crawled through 429 waits. Rules are now sent once per call
+  // (buildBatchRewritePrompt) and the output budget is sized to real replies.
+  const keyCount = new Set((endpoints || []).filter(Boolean).map((ep) => ep.key)).size || 1;
+  const CHUNK = rewriteChunkSize(total, keyCount);
   const sysPrompt = String(systemPrompt || "") + BATCH_REWRITE_SUFFIX;
   const queue = [...questions];
   const itemTries = new Map();
@@ -4500,11 +4515,9 @@ async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = n
   // the worker can re-queue whatever the reply skipped or truncated.
   const runChunkOnKey = async (chunk, ep, ks) => {
     ks.requests += 1; save({});
-    // Give EACH question in the chunk roughly the same output budget the
-    // single-question path uses (8k tokens), so rich explanations are never
-    // squeezed or truncated mid-JSON. Capped at 16k to stay within provider
-    // output limits (with CHUNK=2 that's a full ~8k per question).
-    const maxTokens = Math.min(16000, 2000 + chunk.length * 7000);
+    // ~2.4k output tokens per question (capped at 16k). A truncated reply is
+    // still salvaged item by item and anything missing is re-queued.
+    const maxTokens = rewriteMaxTokens(chunk.length);
     const filled = new Set();
     const r = await callProvider({
       key: ep.key,
@@ -4718,7 +4731,7 @@ export async function extendOneExplanation(req, res) {
   let lastError = null;
   // A few attempts so a bad/truncated JSON reply is retried, not lost.
   for (let attempt = 0; attempt < 3 && !parsed; attempt++) {
-    const r = await callWithFallback({
+    const r = await callSingleQuestion({
       endpoints: chosen.endpoints,
       model: chosen.model,
       systemPrompt: req.body?.fixOptions ? EXTEND_FIXOPTS_SYSTEM_PROMPT : EXTEND_SYSTEM_PROMPT,
@@ -5473,7 +5486,7 @@ export async function regenerateQuestion(req, res) {
   let parsed = null;
   let lastError = null;
   for (let attempt = 0; attempt < 3 && !parsed; attempt++) {
-    const r = await callWithFallback({
+    const r = await callSingleQuestion({
       endpoints: chosen.endpoints,
       model: chosen.model,
       systemPrompt: REGEN_SYSTEM_PROMPT,
