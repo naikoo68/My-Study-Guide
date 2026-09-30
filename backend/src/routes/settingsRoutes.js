@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getSettings, getLogo, updateSettings, testFacebookPost, testInstagramPost, testTelegramPost, uploadSelfieWatermark, deleteSelfieWatermark } from "../controllers/settingsController.js";
+import { getSettings, getLogo, updateSettings, testFacebookPost, testInstagramPost, testTelegramPost, findTelegramChatsRoute, uploadSelfieWatermark, deleteSelfieWatermark } from "../controllers/settingsController.js";
 import { protect, authorize, optionalAuth } from "../middleware/auth.js";
 import multer from "multer";
 
@@ -22,6 +22,7 @@ router.put("/", protect, authorize("admin"), updateSettings);
 router.post("/facebook/test", protect, authorize("admin"), testFacebookPost);
 router.post("/instagram/test", protect, authorize("admin"), testInstagramPost);
 router.post("/telegram/test", protect, authorize("admin"), testTelegramPost);
+router.post("/telegram/find-chats", protect, authorize("admin"), findTelegramChatsRoute);
 router.post("/selfie-watermark", protect, authorize("admin"), upload.single("image"), uploadSelfieWatermark);
 router.delete("/selfie-watermark", protect, authorize("admin"), deleteSelfieWatermark);
 

@@ -16,6 +16,9 @@ export function cleanTgChat(c) {
   return "";
 }
 export const telegramConfigured = (cfg) => !!(cfg?.tgBotToken && cfg?.tgChatId);
+// A private INVITE link (t.me/+abc…, t.me/joinchat/…) — bots can't post with it.
+export const isTgInviteLink = (c) => /t(?:elegram)?\.me\/(\+|joinchat\/)/i.test(String(c || ""));
+export const TG_INVITE_HELP = "That's a private invite link — a bot can't use it. Add the bot to the channel as an admin, then tap “Find my channel” to fill in its id (-100…).";
 
 async function call(token, method, body, timeoutMs = 60000) {
   if (!/^\d+:[A-Za-z0-9_-]{20,}$/.test(token)) return { ok: false, error: "The bot token doesn't look right (it's like 123456789:AAE…, from @BotFather)." };
@@ -43,11 +46,30 @@ export async function verifyTelegram({ tgBotToken, tgChatId }) {
   const token = cleanTgToken(tgBotToken);
   const me = await call(token, "getMe", {}, 20000);
   if (!me.ok) return me;
+  if (isTgInviteLink(tgChatId)) return { ok: false, error: TG_INVITE_HELP };
   const chatId = cleanTgChat(tgChatId);
   if (!chatId) return { ok: false, error: "Enter the channel @username (or the -100… id)." };
   const chat = await call(token, "getChat", { chat_id: chatId }, 20000);
   if (!chat.ok) return chat;
   return { ok: true, bot: `@${me.result.username}`, chat: chat.result.title || chat.result.username || chatId };
+}
+
+// Channels / groups the bot was recently added to or saw a post in (from
+// getUpdates) — so a PRIVATE channel's id can be picked without knowing it.
+// → { ok, chats:[{ id, title, type }] }
+export async function findTelegramChats(tgBotToken) {
+  const token = cleanTgToken(tgBotToken);
+  const r = await call(token, "getUpdates", { allowed_updates: ["my_chat_member", "channel_post", "message", "chat_member"], limit: 100 }, 20000);
+  if (!r.ok) {
+    return /webhook/i.test(r.error || "") ? { ok: false, error: "This bot has a webhook set, so its updates can't be read — use a new bot, or type the -100… id." } : r;
+  }
+  const seen = new Map();
+  for (const u of r.result || []) {
+    const c = (u.my_chat_member || u.chat_member || u.channel_post || u.message || {}).chat;
+    if (!c || c.type === "private") continue;
+    seen.set(String(c.id), { id: String(c.id), title: c.title || c.username || String(c.id), type: c.type, username: c.username || "" });
+  }
+  return { ok: true, chats: [...seen.values()] };
 }
 
 export async function sendTelegramMessage({ text, disablePreview = false } = {}, cfg) {

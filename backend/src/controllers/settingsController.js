@@ -1,5 +1,5 @@
 import Settings from "../models/Settings.js";
-import { cleanTgChat, verifyTelegram, sendTelegramMessage } from "../config/telegram.js";
+import { cleanTgChat, verifyTelegram, sendTelegramMessage, findTelegramChats, isTgInviteLink, TG_INVITE_HELP } from "../config/telegram.js";
 import Tenant from "../models/Tenant.js";
 import { getCurrentTenantId, runUnscoped } from "../utils/tenantContext.js";
 import { postToFacebookPage, verifyFacebook, getFacebookConfig, getInstagramUserId, postToInstagram, invalidateTokenScopeCache } from "../config/facebook.js";
@@ -287,7 +287,12 @@ export async function updateSettings(req, res) {
     const t = String(update.tgBotToken || "").trim();
     if (t) update.tgBotToken = t; else delete update.tgBotToken;
   }
-  if ("tgChatId" in update) update.tgChatId = cleanTgChat(update.tgChatId) || String(update.tgChatId || "").trim().slice(0, 100);
+  if ("tgChatId" in update) {
+    if (isTgInviteLink(update.tgChatId)) {
+      const e = new Error(TG_INVITE_HELP); e.status = 400; throw e;
+    }
+    update.tgChatId = cleanTgChat(update.tgChatId) || String(update.tgChatId || "").trim().slice(0, 100);
+  }
   if ("fbPageAccessToken" in update) {
     const tok = String(update.fbPageAccessToken || "").trim();
     if (tok) { update.fbPageAccessToken = tok; invalidateTokenScopeCache(); } else delete update.fbPageAccessToken;
@@ -603,12 +608,26 @@ export async function testTelegramPost(req, res) {
   const site = await getOrCreate();
   const b = req.body || {};
   const cfg = { tgBotToken: String(b.tgBotToken || "").trim() || site.tgBotToken, tgChatId: String(b.tgChatId || "").trim() || site.tgChatId };
-  if (!cfg.tgBotToken || !cfg.tgChatId) return res.status(400).json({ ok: false, error: "Enter the bot token and the channel, then try again." });
+  // `message` too — the admin UI shows err.message (it showed only "Request failed (400)").
+  const fail = (error) => res.status(400).json({ ok: false, error, message: error });
+  if (!cfg.tgBotToken || !cfg.tgChatId) return fail("Enter the bot token and the channel, then try again.");
   const v = await verifyTelegram(cfg);
-  if (!v.ok || b.verifyOnly) return res.status(v.ok ? 200 : 400).json(v);
+  if (!v.ok) return fail(v.error);
+  if (b.verifyOnly) return res.json(v);
   const text = String(b.message || "").trim() || `✅ Test post from ${site.siteName || "My Study Guide"} — Telegram auto-posting is connected.`;
   const r = await sendTelegramMessage({ text }, cfg);
-  return res.status(r.ok ? 200 : 400).json({ ...v, ...r });
+  return r.ok ? res.json({ ...v, ...r }) : fail(r.error);
+}
+
+// POST /api/settings/telegram/find-chats { tgBotToken? } → { chats:[{ id, title, type }] }
+// The channels / groups the bot was added to — pick one to fill in its id.
+export async function findTelegramChatsRoute(req, res) {
+  const site = await getOrCreate();
+  const token = String(req.body?.tgBotToken || "").trim() || site.tgBotToken;
+  if (!token) return res.status(400).json({ message: "Enter the bot token first." });
+  const r = await findTelegramChats(token);
+  if (!r.ok) return res.status(400).json({ message: r.error });
+  res.json({ chats: r.chats });
 }
 
 // POST /api/settings/instagram/test — admin: verify the linked IG account and
