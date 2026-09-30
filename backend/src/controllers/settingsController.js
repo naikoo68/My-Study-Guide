@@ -249,6 +249,7 @@ export async function updateSettings(req, res) {
     "fbAutoCommentEnabled", "fbAutoComment",
     "fbNotifyEmail", "fbNotifyOnPost", "fbNotifyOnError", "fbNotifyOnComplete",
     "fbAutoComments", "fbAutoCommentMode", "fbAutoCommentToFacebook", "fbAutoCommentToInstagram",
+    "igAutoComments", "linkInBioText",
     "igEnabled", "igUserId",
     "ttsProvider", "ttsApiKey", "ttsModel",
     "ttsElevenLabsKey", "ttsElevenLabsModel", "ttsGoogleCloudKey", "ttsAzureKey", "ttsAzureRegion",
@@ -405,6 +406,14 @@ export async function updateSettings(req, res) {
       .filter(Boolean)
       .slice(0, 50);
   }
+  if ("igAutoComments" in update) {
+    const arr = Array.isArray(update.igAutoComments) ? update.igAutoComments : [];
+    update.igAutoComments = arr
+      .map((c) => String(c || "").trim().slice(0, 2200))
+      .filter(Boolean)
+      .slice(0, 50);
+  }
+  if ("linkInBioText" in update) update.linkInBioText = String(update.linkInBioText ?? "").trim().slice(0, 100);
   // Mentions: a list of @-handles (or Facebook `@[page-id]` tokens) appended
   // to every auto-comment. Trim, dedupe, cap 30 entries. Add a leading `@` if
   // the admin forgot it (so `mystudyguide_` becomes `@mystudyguide_`); leave

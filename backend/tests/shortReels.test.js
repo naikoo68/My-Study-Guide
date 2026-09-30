@@ -41,9 +41,12 @@ describe("the Short also as Facebook + Instagram Reels, with the full video's li
     expect(calls.igReel[0].videoUrl).toBe("https://res.cloudinary.com/x/short.mp4");
     expect(calls.fbReel[0].description).toContain("https://youtu.be/vid1");
     const link = "▶ Watch the full video (all questions with answers): https://youtu.be/vid1";
-    expect(calls.ytComment[0]).toEqual({ videoId: "vid2", text: link }); // on the Short
-    expect(calls.fbComment[0]).toEqual({ postId: "fbreel1", message: link });
-    expect(calls.igComment[0]).toEqual({ mediaId: "igreel1", message: link });
+    const title = "Economics | Topic | Quiz 1 (25 Questions)";
+    // Links aren't tappable in Shorts comments / on Instagram → a no-link pointer there.
+    expect(calls.ytComment[0]).toEqual({ videoId: "vid2", text: `▶ Watch the full video (all questions with answers): tap our channel name → Videos\n🔎 Search: "${title}"` });
+    expect(calls.fbComment[0]).toEqual({ postId: "fbreel1", message: link }); // Facebook links work
+    expect(calls.igComment[0]).toEqual({ mediaId: "igreel1", message: `▶ Watch the full video (all questions with answers) on our YouTube channel\n🔎 Search: "${title}"\n🔗 Link in bio` });
+    expect(calls.igReel[0].caption).not.toMatch(/https?:\/\//);
     expect(done.notes.join(" ")).toMatch(/Facebook Reel ✓.*Instagram Reel ✓/);
   });
 
