@@ -4524,6 +4524,11 @@ async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = n
   job.perRequest = chunkNow; // shown in the dialog ("N questions per request")
   const sysPrompt = String(systemPrompt || "") + BATCH_REWRITE_SUFFIX;
   const queue = [...questions];
+  // Saved question ids — shared by every request, so when an idle key helps a
+  // slow request (work stealing, below) each question is written and counted
+  // only once, whichever reply lands first.
+  const doneIds = new Set();
+  let lanesOver = false; // set when the run ends; a late reply then changes nothing
   const itemTries = new Map();
   const requeue = (q) => {
     const k = String(q._id);
@@ -4548,6 +4553,10 @@ async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = n
       userPrompt: buildBatchRewritePrompt(chunk, perQuestionPrompt),
       maxTokens,
       failOnEmpty: true,
+      // A 12-question reply takes much longer than a 2-question one; with the
+      // flat 60 s limit it timed out and was retried on the SAME key (the run
+      // sat at e.g. 13/25 while 26 keys were idle).
+      timeoutMs: Math.min(180000, 40000 + chunk.length * 9000),
     });
     if (r.ok) {
       const items = parseBatchItems(r.content);
@@ -4555,7 +4564,7 @@ async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = n
       for (const it of items) {
         const idx = Number(it.i) - 1;
         const q = chunk[idx];
-        if (!q || filled.has(String(q._id))) continue;
+        if (!q || filled.has(String(q._id)) || doneIds.has(String(q._id)) || lanesOver) continue;
         // Reuse the EXACT single-question normalizer + set-builder so quality is
         // identical to the one-at-a-time path.
         const parsed = parseExplanationJson(JSON.stringify(it));
@@ -4573,6 +4582,8 @@ async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = n
         // the exact resume list truthful when an individual update fails.
         if (!writeResult?.acknowledged || writeResult.matchedCount !== 1) continue;
         const questionId = String(q._id);
+        if (doneIds.has(questionId) || lanesOver) continue; // another key's reply saved it a moment earlier
+        doneIds.add(questionId);
         updated += 1;
         filled.add(questionId);
         job.questions.push(1); // progress = questions filled (jobStatus reports count)
@@ -4627,10 +4638,18 @@ async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = n
     maxQuotaWaits: MAX_QUOTA_WAITS,
     onState: (st) => save(st),
     sleep: (ms) => jobSleep(ms), // wakes at once on Cancel
+    // Work stealing: when nothing is left in the queue, an idle key takes 2
+    // unfinished questions from any request that has been out for 25 s, so
+    // every key helps finish instead of waiting on one slow reply.
+    isDone: (q) => doneIds.has(String(q._id)),
+    isComplete: () => doneIds.size >= total,
+    stealAfterMs: 25000,
+    stealSize: 2,
   });
 
   try {
     await runLanes();
+    lanesOver = true;
     if (job.cancelled) {
       save({ status: "done", cancelled: true, updatedCount: updated, requested: total, remaining: total - updated, waitUntil: null, waitingKeys: 0, workingKeys: 0 });
     } else if (updated === 0) {
