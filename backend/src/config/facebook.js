@@ -1474,9 +1474,21 @@ function tzParts(date, timeZone) {
 // it, within a grace window (so a brief downtime still posts, but stale slots
 // from hours ago are skipped). lastSlot prevents re-firing the same slot.
 const GRACE_MIN = 180;
-function dueSlot(sch, now) {
-  // A start date & time that hasn't come yet → nothing is due.
-  if (sch.startAt && new Date(sch.startAt).getTime() > now.getTime()) return null;
+// A repeating schedule with a START date & time makes its FIRST video at
+// exactly that moment (slot "start …"), whatever the daily times are — then
+// continues at its times. A daily time on the start day that is at/before the
+// start is skipped (the start already covered it), so nothing doubles up and
+// today is never skipped. Pure (exported for tests).
+export function dueSlot(sch, now) {
+  const startMs = sch.startAt ? new Date(sch.startAt).getTime() : 0;
+  if (startMs && startMs > now.getTime()) return null; // not started yet
+  if (startMs) {
+    const sp = tzParts(new Date(startMs), sch.timezone);
+    const startKey = `start ${sp.dateStr} ${String(sp.hh).padStart(2, "0")}:${String(sp.mm).padStart(2, "0")}`;
+    // Never fired yet → the first video is due now (within the grace window).
+    if (!sch.lastSlot && now.getTime() - startMs <= GRACE_MIN * 60000) return startKey;
+    var startDay = sp.dateStr, startMin = sp.hh * 60 + sp.mm; // eslint-disable-line no-var
+  }
   const { dateStr, hh, mm, dow } = tzParts(now, sch.timezone);
   if (Array.isArray(sch.days) && sch.days.length && !sch.days.includes(dow)) return null;
   const cur = hh * 60 + mm;
@@ -1485,6 +1497,7 @@ function dueSlot(sch, now) {
     const m = /^(\d{1,2}):(\d{2})$/.exec(String(t).trim());
     if (!m) continue;
     const tmin = parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+    if (startMs && dateStr === startDay && tmin <= startMin) continue; // covered by the start video
     if (cur >= tmin && cur - tmin <= GRACE_MIN) {
       const key = `${dateStr} ${String(m[1]).padStart(2, "0")}:${m[2]}`;
       if (!best || tmin > best.tmin) best = { key, tmin };
