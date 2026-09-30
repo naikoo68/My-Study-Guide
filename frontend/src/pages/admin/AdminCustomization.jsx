@@ -524,9 +524,8 @@ export default function AdminCustomization() {
               </select>
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-medium">Default page zoom: <span className="font-mono text-brand-600">{form.defaultZoom}%</span></label>
-              <input type="range" min="50" max="200" step="5" value={form.defaultZoom} onChange={(e) => set("defaultZoom", Number(e.target.value))} className="w-full accent-brand-600" />
-              <p className="mt-1 text-xs text-slate-400">Zoom new visitors start at (they can still change it themselves).</p>
+              <label className="mb-1.5 block text-sm font-medium">Default page zoom: <span className="font-mono text-brand-600">80%</span></label>
+              <p className="text-xs text-slate-400">Every new visitor starts at 80% on all devices and browsers. They can still change it themselves with the − / + buttons.</p>
             </div>
           </div>
 
