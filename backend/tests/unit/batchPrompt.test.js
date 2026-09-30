@@ -6,11 +6,13 @@ const RULE = `Write a THOROUGH explanation ${"x".repeat(200)}`;
 const prompt = (q) => [`Question type: mcq`, `Question: ${q.text}`, `Options:\nA) True\nB) False`, RULE].join("\n");
 
 describe("bulk rewrite batching (like generation)", () => {
-  it("spreads the questions over the keys, 2–6 per call", () => {
+  it("'spread' works like generation (1–12 per call over all keys); 'max' is always 12", () => {
+    expect(rewriteChunkSize(26, 29)).toBe(1);   // small quiz → every key gets one
     expect(rewriteChunkSize(42, 29)).toBe(2);
-    expect(rewriteChunkSize(300, 29)).toBe(6);
-    expect(rewriteChunkSize(20, 5)).toBe(4);
-    expect(rewriteChunkSize(50, 1)).toBe(6);
+    expect(rewriteChunkSize(300, 29)).toBe(11);
+    expect(rewriteChunkSize(400, 29)).toBe(12);
+    expect(rewriteChunkSize(50, 1)).toBe(12);
+    expect(rewriteChunkSize(26, 29, "max")).toBe(12);
     expect(rewriteMaxTokens(2)).toBe(6300);
     expect(rewriteMaxTokens(6)).toBe(15900);
   });

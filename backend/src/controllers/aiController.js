@@ -11,7 +11,8 @@ import { softDeletePatch } from "../utils/softDelete.js";
 import { getClientPlans, findSiteSettings } from "../utils/plans.js";
 import { webResearch } from "../utils/webResearch.js";
 import { glossCleaned, glossReplacements, applyGlossReplacements } from "../utils/glossEdit.js";
-import { rewriteChunkSize, rewriteMaxTokens, buildBatchRewritePrompt } from "../utils/batchPrompt.js";
+import { rewriteChunkSize, rewriteMaxTokens, buildBatchRewritePrompt, BATCH_MODES } from "../utils/batchPrompt.js";
+const pickBatchMode = (m) => (BATCH_MODES.includes(m) ? m : "spread");
 import { runKeyLanes } from "../utils/keyLanes.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { splitIntoStems, contentOfBlock, questionLocation } from "./contentController.js";
@@ -2306,6 +2307,7 @@ export function jobStatus(req, res) {
     warning: job.warning || null, // weak-model heads-up (persists across polls)
     cancelled: !!job.cancelled,
     keyStats: job.keyStats || {}, // live per-key activity this run
+    perRequest: job.perRequest || null, // bulk Extend / Regenerate: questions per AI request
     waitUntil: job.waitUntil || null, // epoch ms until the next API-key retry (server clock)
     // The same, RELATIVE — the UI counts down from this, so a phone whose clock
     // is a few seconds off still shows the right time.
@@ -4488,7 +4490,7 @@ function bulkWorkerLanes(endpoints, jobChunks) {
 //   perQuestionPrompt — (q) => the normal single-question user prompt for q
 //   buildSet          — (q, parsed) => the $set object to persist (buildExtendSet / buildRegenSet)
 //   isUsable          — (parsed) => whether the parsed result is good enough to apply
-async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = null, systemPrompt, perQuestionPrompt, buildSet, isUsable, failLabel = "updated" }) {
+async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = null, systemPrompt, perQuestionPrompt, buildSet, isUsable, failLabel = "updated", batchMode = "spread" }) {
   const job = genJobs.get(id);
   job.rewrite = true; // cancel finalizes it immediately (see cancelJob)
   const deadline = Date.now() + 12 * 60 * 1000;
@@ -4508,7 +4510,8 @@ async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = n
   // quiz crawled through 429 waits. Rules are now sent once per call
   // (buildBatchRewritePrompt) and the output budget is sized to real replies.
   const keyCount = new Set((endpoints || []).filter(Boolean).map((ep) => ep.key)).size || 1;
-  const CHUNK = rewriteChunkSize(total, keyCount);
+  const CHUNK = rewriteChunkSize(total, keyCount, batchMode);
+  job.perRequest = CHUNK; // shown in the dialog ("N questions per request")
   const sysPrompt = String(systemPrompt || "") + BATCH_REWRITE_SUFFIX;
   const queue = [...questions];
   const itemTries = new Map();
@@ -4635,9 +4638,9 @@ async function runBatchedRewriteJob(id, { endpoints, model, questions, owner = n
 // Extend explanations for a whole quiz/test — now runs as a FAST batched job
 // (several questions per AI call across all keys), reusing the same per-question
 // prompt + set-builder so results match the single-question "Extend" exactly.
-async function runExtendJob(id, { endpoints, model, questions, owner = null, notes = "", fixOptions = false, extendQuestion = false, shuffleOptions = false }) {
+async function runExtendJob(id, { endpoints, model, questions, owner = null, notes = "", fixOptions = false, extendQuestion = false, shuffleOptions = false, batchMode = "spread" }) {
   return runBatchedRewriteJob(id, {
-    endpoints, model, questions, owner,
+    endpoints, model, questions, owner, batchMode,
     systemPrompt: fixOptions ? EXTEND_FIXOPTS_SYSTEM_PROMPT : EXTEND_SYSTEM_PROMPT,
     perQuestionPrompt: (q) => buildExtendPrompt(q, notes, fixOptions, extendQuestion),
     buildSet: (q, parsed) => buildExtendSet(q, parsed, extendQuestion, shuffleOptions),
@@ -4707,7 +4710,7 @@ export async function extendExplanations(req, res) {
     model: chosen.model,
     updatedAt: Date.now(),
   });
-  startJob(id, () => runExtendJob(id, { endpoints: chosen.endpoints, model: chosen.model, questions, owner: scope.owner, notes, fixOptions: !!req.body?.fixOptions, extendQuestion: !!req.body?.extendQuestion, shuffleOptions: !!req.body?.shuffleOptions }));
+  startJob(id, () => runExtendJob(id, { endpoints: chosen.endpoints, model: chosen.model, questions, owner: scope.owner, notes, fixOptions: !!req.body?.fixOptions, extendQuestion: !!req.body?.extendQuestion, shuffleOptions: !!req.body?.shuffleOptions, batchMode: pickBatchMode(req.body?.batchMode) }));
   res.json({ jobId: id, requested: questions.length, model: chosen.model });
 }
 
@@ -5390,9 +5393,9 @@ function buildRegenSet(q, parsed, { fixOptions = true, extendQuestion = false, s
 // Regenerate a whole quiz/test — now a FAST batched job (several questions per
 // AI call across all keys), reusing the same per-question prompt + set-builder
 // (incl. the pair/matching reshuffle) so results match single "Regenerate".
-async function runRegenAllJob(id, { endpoints, model, questions, owner = null, notes = "", fixOptions = true, extendQuestion = false, shuffleOptions = true }) {
+async function runRegenAllJob(id, { endpoints, model, questions, owner = null, notes = "", fixOptions = true, extendQuestion = false, shuffleOptions = true, batchMode = "spread" }) {
   return runBatchedRewriteJob(id, {
-    endpoints, model, questions, owner,
+    endpoints, model, questions, owner, batchMode,
     systemPrompt: REGEN_SYSTEM_PROMPT,
     perQuestionPrompt: (q) => buildRegenPrompt(q, notes, { fixOptions, extendQuestion }),
     buildSet: (q, parsed) => buildRegenSet(q, parsed, { fixOptions, extendQuestion, shuffleOptions }),
@@ -5456,7 +5459,7 @@ export async function regenerateAll(req, res) {
   cleanupJobs();
   const id = newJobId();
   genJobs.set(id, { status: "pending", questions: [], requested: questions.length, error: null, model: chosen.model, updatedAt: Date.now() });
-  startJob(id, () => runRegenAllJob(id, { endpoints: chosen.endpoints, model: chosen.model, questions, owner: scope.owner, notes, fixOptions, extendQuestion, shuffleOptions }));
+  startJob(id, () => runRegenAllJob(id, { endpoints: chosen.endpoints, model: chosen.model, questions, owner: scope.owner, notes, fixOptions, extendQuestion, shuffleOptions, batchMode: pickBatchMode(req.body?.batchMode) }));
   res.json({ jobId: id, requested: questions.length, model: chosen.model });
 }
 

@@ -3,6 +3,8 @@ import { X, RefreshCw, Loader2, CheckCircle2, AlertTriangle, Server, KeyRound } 
 import { aiService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
 import { waitFromStatus, useSecondsLeft, bulkWaitText } from "./bulkWait";
+import BatchModePicker from "./BatchModePicker";
+import { loadBatchMode } from "./batchMode";
 
 // Which question types the bulk action can be limited to. "all" = every type.
 const Q_TYPE_OPTIONS = [
@@ -49,6 +51,8 @@ export default function RegenerateAllModal({ open, target, title, onClose, onDon
   const [fixOptions, setFixOptions] = useState(true);
   const [extendQuestion, setExtendQuestion] = useState(false);
   const [shuffleOptions, setShuffleOptions] = useState(true);
+  const [batchMode, setBatchMode] = useState(loadBatchMode); // questions per AI request (see BatchModePicker)
+  const [perRequest, setPerRequest] = useState(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(null); // { done, total }
   const [msg, setMsg] = useState("");
@@ -110,6 +114,7 @@ export default function RegenerateAllModal({ open, target, title, onClose, onDon
         fixOptions,
         extendQuestion,
         shuffleOptions,
+        batchMode,
       });
       if (!jobId) throw new Error("Could not start.");
       jobRef.current = jobId;
@@ -131,6 +136,7 @@ export default function RegenerateAllModal({ open, target, title, onClose, onDon
         let s;
         try { s = await aiService.job(jobId); } catch { continue; }
         if (s.keyStats && Object.keys(s.keyStats).length) setKeyStats(s.keyStats);
+        if (s.perRequest) setPerRequest(s.perRequest);
         const total = s.requested || requested;
         lastCount = s.count ?? lastCount;
         if (s.status !== "pending") setLive(null);
@@ -270,6 +276,8 @@ export default function RegenerateAllModal({ open, target, title, onClose, onDon
                   in the same place. The same option stays correct (assertion questions are left as-is).
                 </span>
               </label>
+              <BatchModePicker value={batchMode} onChange={setBatchMode} disabled={busy} keys={status?.keys || 0}
+                total={questionIds?.length || progress?.total || 0} />
             </div>
 
             {progress && (
@@ -308,7 +316,7 @@ export default function RegenerateAllModal({ open, target, title, onClose, onDon
         {keyStats && Object.keys(keyStats).length > 0 && (
           <div className="mt-3 rounded-xl border border-slate-200 p-3 dark:border-slate-700">
             <p className="mb-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
-              Keys working this run ({Object.keys(keyStats).length}) · {Object.values(keyStats).reduce((a, s) => a + (s.requests || 0), 0)} requests · {Object.values(keyStats).reduce((a, s) => a + (s.questions || 0), 0)} done
+              Keys working this run ({Object.keys(keyStats).length}) · {Object.values(keyStats).reduce((a, s) => a + (s.requests || 0), 0)} requests · {Object.values(keyStats).reduce((a, s) => a + (s.questions || 0), 0)} done{perRequest ? ` · ${perRequest} per request` : ""}
             </p>
             <div className="max-h-40 space-y-1 overflow-y-auto">
               {Object.entries(keyStats).sort((a, b) => (b[1].requests || 0) - (a[1].requests || 0)).map(([label, s]) => (

@@ -3,6 +3,8 @@ import { X, Wand2, Loader2, CheckCircle2, AlertTriangle, Server, KeyRound } from
 import { aiService } from "../../services";
 import { useAuth } from "../../context/AuthContext";
 import { waitFromStatus, useSecondsLeft, bulkWaitText } from "./bulkWait";
+import BatchModePicker from "./BatchModePicker";
+import { loadBatchMode } from "./batchMode";
 
 // Which question types the bulk action can be limited to. "all" = every type.
 const Q_TYPE_OPTIONS = [
@@ -45,6 +47,8 @@ export default function ExtendExplanationsModal({ open, target, title, onClose, 
   const [extendQuestion, setExtendQuestion] = useState(false); // also make the question stem longer/more detailed
   const [shuffleOptions, setShuffleOptions] = useState(false); // also reorder options (answer position changes, stays correct)
   const [qType, setQType] = useState("all"); // limit to one question type, or "all"
+  const [batchMode, setBatchMode] = useState(loadBatchMode); // questions per AI request (see BatchModePicker)
+  const [perRequest, setPerRequest] = useState(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(null); // { done, total, remainingRun }
   const [remainingQuestionIds, setRemainingQuestionIds] = useState(null); // exact unfinished ids after a partial run
@@ -113,6 +117,7 @@ export default function ExtendExplanationsModal({ open, target, title, onClose, 
         fixOptions: fixOptions || undefined,
         extendQuestion: extendQuestion || undefined,
         shuffleOptions: shuffleOptions || undefined,
+        batchMode,
         // On a partial run, submit the exact unfinished ids returned by the job.
         // Otherwise a selection overrides the type filter.
         type: (!runWasResume && !scoped && qType !== "all") ? qType : undefined,
@@ -129,6 +134,7 @@ export default function ExtendExplanationsModal({ open, target, title, onClose, 
         let s;
         try { s = await aiService.job(jobId); } catch { continue; }
         if (s.keyStats && Object.keys(s.keyStats).length) setKeyStats(s.keyStats);
+        if (s.perRequest) setPerRequest(s.perRequest);
         const total = s.requested || requested;
         const doneCount = s.count ?? lastCount;
         lastCount = doneCount;
@@ -282,6 +288,9 @@ export default function ExtendExplanationsModal({ open, target, title, onClose, 
               <span>Also <b>reshuffle the options</b> — move each answer to a new position so it isn't always in the same place. The <b>same</b> option stays correct (assertion questions are left as-is).</span>
             </label>
 
+            <BatchModePicker value={batchMode} onChange={setBatchMode} disabled={busy} keys={status?.keys || 0}
+              total={remainingQuestionIds?.length || questionIds?.length || progress?.total || 0} />
+
             {progress && (
               <div className="mt-4">
                 <div className="mb-1 flex items-center justify-between text-xs font-medium text-slate-500 dark:text-slate-400">
@@ -324,7 +333,7 @@ export default function ExtendExplanationsModal({ open, target, title, onClose, 
         {keyStats && Object.keys(keyStats).length > 0 && (
           <div className="mt-3 rounded-xl border border-slate-200 p-3 dark:border-slate-700">
             <p className="mb-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
-              Keys working this run ({Object.keys(keyStats).length}) · {Object.values(keyStats).reduce((a, s) => a + (s.requests || 0), 0)} requests · {Object.values(keyStats).reduce((a, s) => a + (s.questions || 0), 0)} updated
+              Keys working this run ({Object.keys(keyStats).length}) · {Object.values(keyStats).reduce((a, s) => a + (s.requests || 0), 0)} requests · {Object.values(keyStats).reduce((a, s) => a + (s.questions || 0), 0)} updated{perRequest ? ` · ${perRequest} per request` : ""}
             </p>
             <div className="max-h-40 space-y-1 overflow-y-auto">
               {Object.entries(keyStats).sort((a, b) => (b[1].requests || 0) - (a[1].requests || 0)).map(([label, s]) => (
