@@ -31,6 +31,12 @@ export default {
           900: "rgb(var(--accent-900) / <alpha-value>)",
         },
       },
+      // Full-screen heights that stay full-screen under the site zoom (CSS zoom
+      // also scales 100vh, so divide it back — see lib/pageZoom.js).
+      height: { screen: "calc(100vh * var(--unzoom, 1))" },
+      minHeight: { screen: "calc(100vh * var(--unzoom, 1))", "screen-nav": "calc(100vh * var(--unzoom, 1) - 4rem)" },
+      maxHeight: { screen: "calc(100vh * var(--unzoom, 1))", "screen-nav": "calc(100vh * var(--unzoom, 1) - 4rem)" },
+      width: { screen: "calc(100vw * var(--unzoom, 1))" },
       fontFamily: {
         sans: ["var(--app-font)", "Inter", "ui-sans-serif", "system-ui", "sans-serif"],
       },
