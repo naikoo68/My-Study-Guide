@@ -1961,6 +1961,146 @@ function AutoCommentSection({ settings, saveSettings }) {
   );
 }
 
+// Where a long-video schedule posts — read from its saved options so the list
+// shows every destination (the row used to show only "YouTube").
+function longVideoTargets(s) {
+  const o = s?.longVideo?.options || {};
+  const out = [];
+  if (o.toYoutube !== false) out.push({ key: "yt", label: "YouTube long", cls: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300", Icon: Youtube });
+  if (o.toYoutube !== false && o.asShort) out.push({ key: "short", label: "YouTube Short", cls: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300", Icon: Youtube });
+  if (o.toFacebook) out.push({ key: "fb", label: "Facebook video", cls: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300", Icon: Facebook });
+  if (o.asShort && o.shortToFacebook) out.push({ key: "fbreel", label: "Facebook Reel", cls: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300", Icon: Facebook });
+  if (o.asShort && o.shortToInstagram) out.push({ key: "igreel", label: "Instagram Reel", cls: "bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-300", Icon: Instagram });
+  if (o.toTelegram) out.push({ key: "tg", label: "Telegram", cls: "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300", Icon: Send });
+  return out;
+}
+
+// Edit a long-video schedule: name, times, days, destinations, video title,
+// privacy and hashtags. Everything else (questions, voice, slides, progress —
+// which part / question comes next) is kept exactly as saved.
+function LongVideoScheduleEditModal({ schedule, onClose, onSaved }) {
+  const lv = schedule?.longVideo || {};
+  const o0 = lv.options || {};
+  const [title, setTitle] = useState(schedule?.title || "");
+  const [times, setTimes] = useState(Array.isArray(schedule?.times) && schedule.times.length ? schedule.times : ["09:00"]);
+  const [days, setDays] = useState(Array.isArray(schedule?.days) ? schedule.days : []);
+  const [videoTitle, setVideoTitle] = useState(lv.title || "");
+  const [privacy, setPrivacy] = useState(lv.privacy || "public");
+  const [hashtags, setHashtags] = useState(schedule?.hashtags || "");
+  const [opt, setOpt] = useState({
+    toYoutube: o0.toYoutube !== false, asShort: !!o0.asShort, toFacebook: !!o0.toFacebook,
+    shortToFacebook: !!o0.shortToFacebook, shortToInstagram: !!o0.shortToInstagram,
+    toTelegram: !!o0.toTelegram, linkComment: o0.linkComment !== false,
+  });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const flip = (k) => setOpt((o) => ({ ...o, [k]: !o[k] }));
+
+  const save = async () => {
+    const cleanTimes = times.map((t) => String(t || "").trim()).filter(Boolean);
+    if (!cleanTimes.length) { setErr("Add at least one time."); return; }
+    if (!opt.toYoutube && !opt.toFacebook) { setErr("Choose YouTube and/or Facebook for the long video."); return; }
+    setBusy(true); setErr("");
+    try {
+      await facebookService.update(schedule._id, {
+        ...schedule,
+        title: title.trim(), times: cleanTimes, days, hashtags: hashtags.trim(),
+        longVideo: {
+          ...lv, title: videoTitle.trim(), privacy,
+          options: {
+            ...o0, ...opt,
+            // A Reel is made from the Short, so it needs the Short (and YouTube) on.
+            asShort: opt.toYoutube && opt.asShort,
+            shortToFacebook: opt.toYoutube && opt.asShort && opt.shortToFacebook,
+            shortToInstagram: opt.toYoutube && opt.asShort && opt.shortToInstagram,
+          },
+        },
+      });
+      onSaved?.();
+    } catch (e) { setErr(e.message || "Could not save."); } finally { setBusy(false); }
+  };
+
+  const box = (k, label, disabled = false) => (
+    <label className={`flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 ${disabled ? "opacity-50" : ""}`}>
+      <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={!!opt[k] && !disabled} disabled={disabled || busy} onChange={() => flip(k)} />
+      {label}
+    </label>
+  );
+  const shortOff = !opt.toYoutube || !opt.asShort;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-5 shadow-xl dark:bg-slate-900" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="flex items-center gap-2 text-lg font-bold"><Pencil className="h-5 w-5 text-brand-600" /> Edit long-video schedule</h3>
+          <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Close"><X className="h-5 w-5" /></button>
+        </div>
+        <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">{schedule?.source?.label || ""} — the questions, voice, slides and progress (which video comes next) stay as they are.</p>
+
+        <label className="mb-1 block text-sm font-medium">Schedule name</label>
+        <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={schedule?.source?.label || "Long video schedule"} />
+
+        <label className="mb-1 mt-3 block text-sm font-medium">Times (Asia/Kolkata)</label>
+        <div className="space-y-2">
+          {times.map((t, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <input type="time" className="input" value={t} onChange={(e) => setTimes((ts) => ts.map((x, j) => (j === i ? e.target.value : x)))} />
+              {times.length > 1 && <button type="button" onClick={() => setTimes((ts) => ts.filter((_, j) => j !== i))} className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30" title="Remove"><Trash2 className="h-4 w-4" /></button>}
+            </div>
+          ))}
+          <button type="button" onClick={() => setTimes((ts) => [...ts, "09:00"])} className="btn-outline !py-1 !text-xs"><Plus className="h-3.5 w-3.5" /> Add time</button>
+        </div>
+
+        <label className="mb-1 mt-3 block text-sm font-medium">Days <span className="font-normal text-slate-400">(none ticked = every day)</span></label>
+        <div className="flex flex-wrap gap-1.5">
+          {WEEKDAYS.map((w) => (
+            <button key={w.v} type="button" onClick={() => setDays((d) => (d.includes(w.v) ? d.filter((x) => x !== w.v) : [...d, w.v]))}
+              className={`rounded-lg border px-2.5 py-1 text-xs font-semibold ${days.includes(w.v) ? "border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-900/30 dark:text-brand-300" : "border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300"}`}>{w.l}</button>
+          ))}
+        </div>
+
+        <p className="mb-1 mt-3 text-sm font-medium">Post to</p>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {box("toYoutube", "YouTube (long video)")}
+          {box("asShort", "YouTube Short", !opt.toYoutube)}
+          {box("toFacebook", "Facebook (long video)")}
+          {box("shortToFacebook", "Facebook Reel (from the Short)", shortOff)}
+          {box("shortToInstagram", "Instagram Reel (from the Short)", shortOff)}
+          {box("toTelegram", "Telegram (link)")}
+        </div>
+        <div className="mt-2">{box("linkComment", "Comment the full video under the Short & Reels")}</div>
+        {shortOff && <p className="mt-1 text-xs text-slate-400">Reels are made from the Short — turn on YouTube Short to post Reels.</p>}
+
+        <label className="mb-1 mt-3 block text-sm font-medium">Video title <span className="font-normal text-slate-400">(blank = the default)</span></label>
+        <input className="input" value={videoTitle} maxLength={100} onChange={(e) => setVideoTitle(e.target.value)} />
+
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-sm font-medium">YouTube privacy</label>
+            <select className="input" value={privacy} onChange={(e) => setPrivacy(e.target.value)}>
+              <option value="public">Public</option>
+              <option value="unlisted">Unlisted</option>
+              <option value="private">Private</option>
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium">Hashtags</label>
+            <input className="input" value={hashtags} onChange={(e) => setHashtags(e.target.value)} placeholder="#JKSSB #Quiz" />
+          </div>
+        </div>
+
+        {err && <p className="mt-3 flex items-center gap-1 text-sm text-rose-600"><AlertTriangle className="h-4 w-4" /> {err}</p>}
+        <div className="mt-4 flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="btn-outline" disabled={busy}>Cancel</button>
+          <button type="button" onClick={save} className="btn-primary" disabled={busy}>
+            {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> Save changes</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Does this schedule produce a VIDEO each run? (YouTube only accepts videos.)
 function scheduleHasVideo(f) {
   if (f.kind === "slideshow" || f.asSlideshow) return true;
@@ -4318,6 +4458,7 @@ export default function AdminFacebook() {
     } catch (e) { setError(e.message); } finally { setSaving(false); }
   };
 
+  const [lvEdit, setLvEdit] = useState(null); // the long-video schedule being edited
   const toggleEnabled = async (s) => {
     setBusyId(s._id);
     try { await facebookService.update(s._id, { ...s, enabled: !s.enabled }); load(); }
@@ -4984,12 +5125,17 @@ export default function AdminFacebook() {
                             <Film className="h-3 w-3" /> Reel
                           </span>
                         )}
-                        {s.toTelegram && (
+                        {s.kind === "longvideo" && longVideoTargets(s).map(({ key, label, cls, Icon }) => (
+                          <span key={key} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${cls}`}>
+                            <Icon className="h-3 w-3" /> {label}
+                          </span>
+                        ))}
+                        {s.kind !== "longvideo" && s.toTelegram && (
                           <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">
                             <Send className="h-3 w-3" /> Telegram
                           </span>
                         )}
-                        {s.toYoutube && (
+                        {s.kind !== "longvideo" && s.toYoutube && (
                           <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-700 dark:bg-red-900/40 dark:text-red-300">
                             <Youtube className="h-3 w-3" /> YouTube
                           </span>
@@ -5030,7 +5176,7 @@ export default function AdminFacebook() {
                     <div className="flex flex-shrink-0 items-center gap-1">
                       <button onClick={() => postNow(s)} disabled={busyId === s._id} title="Post one now" className="rounded-lg p-2 text-[#1877F2] hover:bg-blue-50 disabled:opacity-50 dark:hover:bg-blue-900/30">{busyId === s._id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</button>
                       <button onClick={() => toggleEnabled(s)} disabled={busyId === s._id} title={s.enabled ? "Pause" : "Enable"} className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-300 dark:hover:bg-slate-800"><Power className="h-4 w-4" /></button>
-                      {s.kind !== "longvideo" && <button onClick={() => openEdit(s)} title="Edit" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30"><Pencil className="h-4 w-4" /></button>}
+                      <button onClick={() => (s.kind === "longvideo" ? setLvEdit(s) : openEdit(s))} title="Edit" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30"><Pencil className="h-4 w-4" /></button>
                       <button onClick={() => del(s)} disabled={busyId === s._id} title="Delete" className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 disabled:opacity-50 dark:hover:bg-rose-900/20"><Trash2 className="h-4 w-4" /></button>
                     </div>
                   </div>
@@ -5053,6 +5199,7 @@ export default function AdminFacebook() {
           </div>
         )}
       </div>
+      {lvEdit && <LongVideoScheduleEditModal schedule={lvEdit} onClose={() => setLvEdit(null)} onSaved={() => { setLvEdit(null); load(); }} />}
     </div>
   );
 }
