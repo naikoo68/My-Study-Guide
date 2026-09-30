@@ -110,6 +110,7 @@ export function publicJob(j) {
     notes: j.notes || [],
     playlistTitle: j.playlist?.title || "",
     auto: j.auto,
+    scheduleId: j.scheduleId || "", // lets the Scheduled posts list show this video's progress on its row
     createdAt: j.createdAt,
     finishedAt: j.finishedAt,
   };
