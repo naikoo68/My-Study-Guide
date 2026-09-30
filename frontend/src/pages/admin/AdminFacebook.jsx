@@ -2017,6 +2017,7 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
     thumbStrokeColor: t.strokeColor || "#000000", thumbStrokeWidth: t.strokeWidth ?? 3, thumbShadow: t.shadow !== false,
     thumbPanelColor: t.panelColor || "", thumbPanelOpacity: t.panelOpacity ?? 0, thumbPanelRadius: t.panelRadius ?? 24,
     thumbHeadlineSize: t.headlineSize ?? 104, thumbKickerSize: t.kickerSize ?? 44, thumbBadgeSize: t.badgeSize ?? 46, thumbLineHeight: t.lineHeight ?? 1.05,
+    thumbRotate: Number(t.rotate) || 0, // was missing → the Rotate row showed "NaN°"
   }));
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState("");
@@ -3593,8 +3594,18 @@ function FullQuizVideoForm({ st, onStatus }) {
             ))}
           </div>
           <div className="mt-3">
-            <label className="mb-1 block text-sm font-medium">Start on <span className="font-normal text-slate-400">(optional — date &amp; time of the first video; empty = the next time above)</span></label>
+            <label className="mb-1 block text-sm font-medium">Start on <span className="font-normal text-slate-400">(optional — the FIRST video is made at exactly this date &amp; time, then at the times above)</span></label>
             <input type="datetime-local" className="input h-9 w-auto" value={firstRunAt} min={new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)} onChange={(e) => setFirstRunAt(e.target.value)} />
+            {firstRunAt && (() => {
+              const d = new Date(firstRunAt);
+              const t = times.filter(Boolean).sort();
+              return (
+                <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-400">
+                  First video: <b>{d.toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</b>
+                  {t.length ? <> · then {days.length ? "on the chosen days" : "every day"} at <b>{t.join(", ")}</b></> : null}.
+                </p>
+              );
+            })()}
           </div>
           {isTopicSource && (
             <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 dark:border-emerald-900/50 dark:bg-emerald-900/10">
