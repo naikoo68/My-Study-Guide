@@ -177,7 +177,7 @@ export async function recoverInterruptedLongVideoJobs() {
     await M.updateOne({ jobId: r.jobId }, { $set: { status: "failed", view } }).catch(() => {});
     const req = r.request || {};
     if (req.scheduleId && !partlyPosted) {
-      await reportToSchedule({ scheduleId: req.scheduleId, part: req.part || 0, startUsed: req.startUsed, error: "server restarted — this part will be made again", notes: [] }, false).catch(() => {});
+      await reportToSchedule({ scheduleId: req.scheduleId, part: req.part || 0, startUsed: req.startUsed, request: req, error: "server restarted — this part will be made again", notes: [] }, false).catch(() => {});
     }
   }
   if (stuck?.length) console.log(`[longVideo] marked ${stuck.length} interrupted long-video job(s) as failed (server restart).`);
@@ -373,7 +373,8 @@ async function reportToSchedule(job, ok) {
   const FbSchedule = (await import("../models/FbSchedule.js")).default;
   const sch = await FbSchedule.findById(job.scheduleId).catch(() => null);
   if (!sch) return;
-  const label = job.part ? `Part ${job.part}` : "Video";
+  const quizName = job.request?.source?.label ? String(job.request.source.label).split(" › ").pop() : "";
+  const label = sch.longVideo?.byQuiz && quizName ? `${quizName}${job.part ? ` (Part ${job.part})` : ""}` : job.part ? `Part ${job.part}` : "Video";
   const lv = sch.longVideo || {};
   if (ok) {
     const links = [job.url, job.shortUrl, job.fbUrl].filter(Boolean).join(" · ");
@@ -382,8 +383,13 @@ async function reportToSchedule(job, ok) {
     sch.longVideo = { ...lv, postedCount: (Number(lv.postedCount) || 0) + 1 };
   } else {
     sch.lastResult = `${label} failed: ${job.error}`;
-    // Retry this part next run (only for in-order schedules).
-    if (Number.isInteger(job.startUsed) && job.startUsed > 0) {
+    const src = job.request?.source || {};
+    if (lv.byQuiz && (src.quiz || src.testSeries)) {
+      // Quiz by quiz: make THIS quiz / part again next run (and keep the
+      // schedule going if it had just been marked finished).
+      sch.longVideo = { ...lv, quizId: String(src.quiz || src.testSeries), nextStart: job.startUsed || 1, part: Math.max(0, (job.part || 1) - 1) };
+      if (sch.completedAt) { sch.completedAt = null; sch.enabled = true; }
+    } else if (Number.isInteger(job.startUsed) && job.startUsed > 0) {
       sch.longVideo = { ...lv, nextStart: job.startUsed, part: Math.max(0, (job.part || 1) - 1) };
     }
   }
@@ -1097,7 +1103,134 @@ export function pickLongVideoScheduleFields(body = {}, prev = null) {
     useThumbnail: lv.useThumbnail !== false,
     nextStart: clampInt(lv.nextStart ?? prev?.nextStart, 1, 1, 1000000),
     part: clampInt(lv.part ?? prev?.part, 0, 0, 100000),
+    // "Quiz by quiz" through a whole topic: start at quizStartId; quizId /
+    // quizIdx = the quiz the NEXT run makes (nextStart = its next question).
+    byQuiz: !!lv.byQuiz,
+    quizStartId: /^[a-f0-9]{24}$/i.test(String(lv.quizStartId || "")) ? String(lv.quizStartId) : "",
+    quizId: /^([a-f0-9]{24}|__end__)$/i.test(String(lv.quizId ?? prev?.quizId ?? "")) ? String(lv.quizId ?? prev?.quizId) : "",
+    quizIdx: clampInt(lv.quizIdx ?? prev?.quizIdx, 0, 0, 100000),
+    postedCount: clampInt(lv.postedCount ?? prev?.postedCount, 0, 0, 1000000),
   };
+}
+
+// ---- "Quiz by quiz" through a whole topic ----
+
+// The quizzes of a topic, in the admin list's order (natural: Quiz 1, 2 … 10),
+// skipping disabled / deleted ones. Hidden quizzes are included.
+// source: { topic } (Quiz Bank: every quiz of the topic's sessions), { session },
+// or { practiceTopic } (My Quiz items). → [{ kind: "quiz"|"testSeries", id, name }]
+export async function topicQuizList(source = {}) {
+  const { naturalCompare } = await import("../utils/naturalSort.js");
+  const live = { deleted: { $ne: true }, disabled: { $ne: true } };
+  if (source.practiceTopic) {
+    const TestSeries = (await import("../models/TestSeries.js")).default;
+    const items = await TestSeries.find({ practice: true, practiceTopic: source.practiceTopic, ...live }).select("name").lean();
+    return items.sort((a, b) => naturalCompare(a.name, b.name)).map((t) => ({ kind: "testSeries", id: String(t._id), name: t.name || "" }));
+  }
+  const Quiz = (await import("../models/Quiz.js")).default;
+  let sessions = [];
+  if (source.session) sessions = [{ _id: source.session, title: "" }];
+  else if (source.topic) {
+    const Session = (await import("../models/Session.js")).default;
+    sessions = (await Session.find({ topic: source.topic, deleted: { $ne: true } }).select("title").lean()).sort((a, b) => naturalCompare(a.title, b.title));
+  } else return [];
+  const out = [];
+  for (const se of sessions) {
+    const qs = await Quiz.find({ session: se._id, ...live }).select("title").lean();
+    qs.sort((a, b) => naturalCompare(a.title, b.title)).forEach((q) => out.push({ kind: "quiz", id: String(q._id), name: q.title || "" }));
+  }
+  return out;
+}
+const quizSource = (item, label) => ({ [item.kind]: item.id, label: [label, item.name].filter(Boolean).join(" › ") });
+
+// Which video the next run makes (pure, tested). list = topicQuizList, counts =
+// complete questions per quiz id (a function), per = questions per video.
+// → { done:true } | { idx, item, start, count, part, total, nextIdx, nextStart, last, wrapped }
+export function nextQuizVideo({ list = [], countOf, quizId = "", quizIdx = 0, quizStartId = "", nextStart = 1, per = 25, stopWhenExhausted = true } = {}) {
+  if (!list.length) return { done: true };
+  const P = Math.max(1, Math.min(MAX_LONG_VIDEO_QUESTIONS, Number(per) || MAX_LONG_VIDEO_QUESTIONS));
+  const startIdx = Math.max(0, list.findIndex((q) => q.id === quizStartId));
+  let idx = quizId ? list.findIndex((q) => q.id === quizId) : -1;
+  if (idx < 0) idx = quizId ? Math.min(Math.max(startIdx, Number(quizIdx) || 0), list.length) : startIdx; // quiz removed → same position
+  let start = quizId && list[idx]?.id === quizId ? Math.max(1, Number(nextStart) || 1) : 1;
+  let wrapped = false;
+  for (let guard = 0; guard <= list.length * 2; guard++) {
+    if (idx >= list.length) {
+      if (stopWhenExhausted || wrapped) return { done: true };
+      idx = startIdx; start = 1; wrapped = true; // repeat from the start quiz
+    }
+    const total = Number(countOf(list[idx])) || 0;
+    if (total > 0 && start <= total) {
+      const count = Math.min(P, total - start + 1);
+      const end = start + count - 1;
+      const part = total > P ? partNumberFor(start, P) : 0;
+      const moveOn = end >= total;
+      return {
+        idx, item: list[idx], start, count, part, total,
+        nextIdx: moveOn ? idx + 1 : idx, nextStart: moveOn ? 1 : end + 1,
+        last: moveOn && idx + 1 >= list.length, wrapped,
+      };
+    }
+    idx += 1; start = 1; // empty quiz / nothing left in it → next quiz
+  }
+  return { done: true };
+}
+
+async function runByQuizSchedule(sch, cfg, site) {
+  const lv = sch.longVideo || {};
+  const o = lv.options || {};
+  const list = await topicQuizList(sch.source || {});
+  const counts = new Map();
+  const countOf = (item) => counts.get(item.id) ?? 0;
+  // Count questions lazily from the current quiz on (only what's needed).
+  const startIdx = Math.max(0, list.findIndex((q) => q.id === lv.quizStartId));
+  let from = lv.quizId ? list.findIndex((q) => q.id === lv.quizId) : startIdx;
+  if (from < 0) from = Math.min(Math.max(startIdx, Number(lv.quizIdx) || 0), list.length);
+  for (let i = from; i < list.length; i++) {
+    const n = (await completeQuestionsForSource({ [list[i].kind]: list[i].id }).catch(() => [])).length;
+    counts.set(list[i].id, n);
+    if (n > 0 && (i > from || (Number(lv.nextStart) || 1) <= n)) break;
+  }
+  if (sch.stopWhenExhausted === false) {
+    for (let i = startIdx; i < from; i++) if (!counts.has(list[i].id)) {
+      const n = (await completeQuestionsForSource({ [list[i].kind]: list[i].id }).catch(() => [])).length;
+      counts.set(list[i].id, n); if (n > 0) break;
+    }
+  }
+  const stop = sch.stopWhenExhausted !== false;
+  const next = nextQuizVideo({ list, countOf, quizId: lv.quizId, quizIdx: lv.quizIdx, quizStartId: lv.quizStartId, nextStart: lv.nextStart, per: o.count, stopWhenExhausted: stop });
+  sch.lastRunAt = new Date();
+  const totalQuizzes = Math.max(0, list.length - startIdx);
+  if (next.done) {
+    sch.lastResult = list.length ? `Completed — every quiz from ${list[startIdx]?.name || "the start"} to ${list[list.length - 1].name} has been made.` : "No quizzes in this topic.";
+    if (list.length) { sch.completedAt = sch.completedAt || new Date(); sch.enabled = false; }
+    return { ok: !!list.length, completed: !!list.length, exhausted: true, error: list.length ? undefined : sch.lastResult };
+  }
+  const playlist = lv.playlist === "__none__" ? null : lv.playlist?.id ? lv.playlist : undefined;
+  const ytOk = !!o.toYoutube && isYoutubeConfigured(cfg);
+  const fbOk = !!o.toFacebook && isFacebookConfigured(cfg);
+  const skipped = [o.toYoutube && !ytOk && "YouTube", o.toFacebook && !fbOk && "Facebook"].filter(Boolean);
+  if (!ytOk && !fbOk) { sch.lastResult = `Error: ${skipped.join(" and ") || "No network"} not connected.`; return { ok: false, error: sch.lastResult }; }
+  try {
+    queueFullQuizVideo({
+      source: quizSource(next.item, sch.source?.label || ""),
+      cfg, site, titleTemplate: lv.title || "", privacy: lv.privacy, hashtags: sch.hashtags || "",
+      auto: true, scheduleTitle: sch.title || "", playlist, useThumbnail: lv.useThumbnail !== false,
+      options: { ...o, order: "sequential", toYoutube: ytOk, toFacebook: fbOk, start: next.start, count: next.count, part: next.part },
+      scheduleId: sch._id,
+    });
+  } catch (e) {
+    sch.lastResult = `Error: ${e?.message || e}`;
+    return { ok: false, error: sch.lastResult };
+  }
+  const nextItem = list[next.nextIdx];
+  sch.longVideo = { ...lv, quizId: nextItem ? nextItem.id : "__end__", quizIdx: next.nextIdx, nextStart: next.nextStart, part: next.part };
+  sch.markModified?.("longVideo");
+  const which = `${next.item.name}${next.part ? ` (Part ${next.part})` : ""}`;
+  sch.lastResult = `${which} — quiz ${next.idx - startIdx + 1} of ${totalQuizzes}, questions ${next.start}–${next.start + next.count - 1} of ${next.total} — is being made; you'll get an email when it's posted.${next.wrapped ? " (started again from the first quiz)" : ""}${skipped.length ? ` ${skipped.join(" and ")} skipped (not connected).` : ""}`;
+  const finished = stop && next.last;
+  if (finished) { sch.completedAt = sch.completedAt || new Date(); sch.enabled = false; }
+  return { ok: true, completed: finished };
 }
 
 // Which questions the NEXT run of a schedule covers (pure, tested).
@@ -1120,6 +1253,7 @@ export function nextLongVideoPart({ nextStart = 1, part = 0, perVideo = 0, total
 // background). Mutates `sch` bookkeeping (the caller saves it).
 // Returns { ok, error?, completed? } like runScheduleOnce.
 export async function runLongVideoSchedule(sch, cfg, site) {
+  if (sch.longVideo?.byQuiz) return runByQuizSchedule(sch, cfg, site);
   const lv = sch.longVideo || {};
   const o = lv.options || {};
   const total = (await completeQuestionsForSource(sch.source || {}).catch(() => [])).length;

@@ -227,10 +227,10 @@ export async function startLongVideo(req, res) {
   const b = req.body || {};
   const src = b.source || {};
   const source = {
-    subject: oid(src.subject), session: oid(src.session), quiz: oid(src.quiz), testSeries: oid(src.testSeries),
+    subject: oid(src.subject), session: oid(src.session), quiz: oid(src.quiz), testSeries: oid(src.testSeries), topic: oid(src.topic), practiceTopic: oid(src.practiceTopic),
     label: String(src.label || "").trim().slice(0, 300),
   };
-  if (!source.subject && !source.session && !source.quiz && !source.testSeries) {
+  if (!source.subject && !source.session && !source.quiz && !source.testSeries && !source.topic && !source.practiceTopic) {
     return res.status(400).json({ message: "Pick the content (a subject, topic session, quiz or My Quiz) first." });
   }
   // A publish time that was sent but can't be used is an error — never
@@ -267,10 +267,10 @@ export async function startLongVideoPreview(req, res) {
   const b = req.body || {};
   const src = b.source || {};
   const source = {
-    subject: oid(src.subject), session: oid(src.session), quiz: oid(src.quiz), testSeries: oid(src.testSeries),
+    subject: oid(src.subject), session: oid(src.session), quiz: oid(src.quiz), testSeries: oid(src.testSeries), topic: oid(src.topic), practiceTopic: oid(src.practiceTopic),
     label: String(src.label || "").trim().slice(0, 300),
   };
-  if (!source.subject && !source.session && !source.quiz && !source.testSeries) {
+  if (!source.subject && !source.session && !source.quiz && !source.testSeries && !source.topic && !source.practiceTopic) {
     return res.status(400).json({ message: "Pick the content (a subject, topic session, quiz or My Quiz) first." });
   }
   const cfg = await getFacebookConfig();
@@ -324,14 +324,32 @@ export async function publishLongVideoPreview(req, res) {
   }
 }
 
+// POST /api/youtube/long-video/topic-quizzes { source:{topic|session|practiceTopic}, per? }
+// → { quizzes:[{ id, name, questions, videos }] } — the topic's quizzes in order
+// (for "Quiz by quiz": pick where to start). videos = parts at `per` per video.
+export async function longVideoTopicQuizzes(req, res) {
+  const src = req.body?.source || {};
+  const source = { topic: oid(src.topic), session: oid(src.session), practiceTopic: oid(src.practiceTopic) };
+  if (!source.topic && !source.session && !source.practiceTopic) return res.json({ quizzes: [] });
+  const per = Math.max(1, Math.min(MAX_LONG_VIDEO_QUESTIONS, Number(req.body?.per) || MAX_LONG_VIDEO_QUESTIONS));
+  const { topicQuizList } = await import("../config/longVideo.js");
+  const list = await topicQuizList(source).catch(() => []);
+  const quizzes = [];
+  for (const q of list.slice(0, 300)) {
+    const n = (await completeQuestionsForSource({ [q.kind]: q.id }).catch(() => [])).length;
+    quizzes.push({ id: q.id, name: q.name, questions: n, videos: n ? Math.ceil(n / per) : 0 });
+  }
+  res.json({ quizzes });
+}
+
 // POST /api/youtube/long-video/count { source } → { total, max, facebookReady, youtubeReady }
 // How many complete questions the picked content has (for "how many questions").
 export async function longVideoQuestionCount(req, res) {
   const src = req.body?.source || {};
-  const source = { subject: oid(src.subject), session: oid(src.session), quiz: oid(src.quiz), testSeries: oid(src.testSeries) };
+  const source = { subject: oid(src.subject), session: oid(src.session), quiz: oid(src.quiz), testSeries: oid(src.testSeries), topic: oid(src.topic), practiceTopic: oid(src.practiceTopic) };
   const cfg = await getFacebookConfig();
   const ready = { max: MAX_LONG_VIDEO_QUESTIONS, youtubeReady: isYoutubeConfigured(cfg), facebookReady: isFacebookConfigured(cfg) };
-  if (!source.subject && !source.session && !source.quiz && !source.testSeries) return res.json({ total: 0, ...ready });
+  if (!source.subject && !source.session && !source.quiz && !source.testSeries && !source.topic && !source.practiceTopic) return res.json({ total: 0, ...ready });
   const all = await completeQuestionsForSource(source).catch(() => []);
   res.json({ total: all.length, ...ready });
 }
