@@ -79,3 +79,16 @@ describe("playlists", () => {
     expect(ids).not.toContain("vid2"); // vid2 = the Short
   });
 });
+
+describe("live progress for a schedule's video", () => {
+  it("finds the video a schedule is making by schedule id (whatever tenant key it has)", async () => {
+    const { queueFullQuizVideo, activeJobsForSchedules } = await import("../src/config/longVideo.js");
+    const sid = "a".repeat(24);
+    queueFullQuizVideo({ source: { quiz: "q1", label: "Env" }, cfg: {}, site: {}, options: { toYoutube: true }, scheduleId: sid, auto: true });
+    const live = activeJobsForSchedules([sid, "b".repeat(24)]);
+    expect(Object.keys(live)).toEqual([sid]);
+    expect(live[sid].scheduleId).toBe(sid);
+    expect(["queued", "running"]).toContain(live[sid].status);
+    expect(activeJobsForSchedules(["c".repeat(24)])).toEqual({});
+  });
+});

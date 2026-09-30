@@ -463,6 +463,8 @@ export const facebookService = {
     return api.get(`/facebook/schedules${s ? `?${s}` : ""}`);
   },
   create: (data) => api.post("/facebook/schedules", data),
+  // Live % / step of the long videos these schedules are making now → { jobs: { [id]: job } }
+  liveProgress: (ids = []) => api.get(`/facebook/schedules/live?ids=${encodeURIComponent(ids.join(","))}`),
   update: (id, data) => api.put(`/facebook/schedules/${id}`, data),
   remove: (id) => api.del(`/facebook/schedules/${id}`),
   // Bulk pause / resume / delete → { matched, affected }. Pass { action, ids } for

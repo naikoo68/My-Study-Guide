@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { listSchedules, createSchedule, updateSchedule, deleteSchedule, bulkSchedules, postScheduleNow, postQuestionNow, scheduleQuestion, previewQuestionImage, suggestTags, backfillScheduleLabels, facebookStats, reconcileFacebook, composeReel, testSlideshow, testSlideshowStatus, ttsVoices } from "../controllers/facebookController.js";
+import { listSchedules, liveScheduleProgress, createSchedule, updateSchedule, deleteSchedule, bulkSchedules, postScheduleNow, postQuestionNow, scheduleQuestion, previewQuestionImage, suggestTags, backfillScheduleLabels, facebookStats, reconcileFacebook, composeReel, testSlideshow, testSlideshowStatus, ttsVoices } from "../controllers/facebookController.js";
 import { protect, authorize } from "../middleware/auth.js";
 
 const router = Router();
@@ -20,6 +20,7 @@ router.post("/schedules", ...admin, createSchedule);
 router.post("/schedules/backfill-labels", ...admin, backfillScheduleLabels);
 // Bulk pause / resume / delete — the ticked schedules, or ALL matching ones.
 router.post("/schedules/bulk", ...admin, bulkSchedules);
+router.get("/schedules/live", ...admin, liveScheduleProgress); // before "/schedules/:id"
 router.put("/schedules/:id", ...admin, updateSchedule);
 router.delete("/schedules/:id", ...admin, deleteSchedule);
 router.post("/schedules/:id/post-now", ...admin, postScheduleNow);

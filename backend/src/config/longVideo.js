@@ -116,6 +116,24 @@ export function publicJob(j) {
   };
 }
 
+// The video a schedule is making RIGHT NOW (queued / running), for the live
+// progress box on its row. Looked up by schedule id — NOT by tenant key: the
+// scheduler stamps jobs with the schedule's own tenant id (null or the default
+// tenant for the platform), which can differ from the admin request's, so a
+// tenant-key filter hid scheduled videos. The caller only passes ids of
+// schedules the admin can already see (tenant-scoped query), so this is safe.
+export function activeJobsForSchedules(scheduleIds = []) {
+  const want = new Set((scheduleIds || []).map(String));
+  const out = {};
+  for (const j of jobs.values()) {
+    if (j.preview || !j.scheduleId || !want.has(String(j.scheduleId))) continue;
+    if (j.status !== "queued" && j.status !== "running") continue;
+    const prev = out[j.scheduleId];
+    if (!prev || (j.createdAt || 0) > (prev.createdAt || 0)) out[j.scheduleId] = publicJob(j);
+  }
+  return out;
+}
+
 export function getLongVideoJob(id, tenantKey) {
   const j = jobs.get(String(id));
   if (!j || j.tenantKey !== tenantKey) return null;

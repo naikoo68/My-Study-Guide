@@ -4476,11 +4476,12 @@ export default function AdminFacebook() {
   };
 
   const [lvEdit, setLvEdit] = useState(null); // the long-video schedule being edited
-  // Live progress of long videos being made by a schedule: scheduleId → job
-  // (from the same "Recent long videos" feed). Polled every 5 s while one is
-  // being made, every 30 s otherwise; when one finishes the list reloads so the
-  // row shows the result.
-  const hasLongVideoRows = schedules.some((s) => s.kind === "longvideo");
+  // Live progress of long videos being made by a schedule: scheduleId → job,
+  // from GET /facebook/schedules/live (looked up by schedule id, so scheduled
+  // videos always show). When one finishes the list reloads to show the result.
+  const lvIds = schedules.filter((s) => s.kind === "longvideo").map((s) => String(s._id));
+  const lvIdsKey = lvIds.join(",");
+  const hasLongVideoRows = lvIds.length > 0;
   const [lvJobs, setLvJobs] = useState({});
   const [lvClock, setLvClock] = useState(Date.now());
   const lvActiveRef = useRef(new Set());
@@ -4491,11 +4492,8 @@ export default function AdminFacebook() {
     const tick = async () => {
       let busy = false;
       try {
-        const r = await youtubeService.longVideos();
-        const map = {};
-        for (const j of r?.jobs || []) {
-          if (j.scheduleId && (j.status === "running" || j.status === "queued") && !map[j.scheduleId]) map[j.scheduleId] = j;
-        }
+        const r = await facebookService.liveProgress(lvIdsKey.split(","));
+        const map = r?.jobs && typeof r.jobs === "object" ? r.jobs : {};
         if (stop) return;
         const now = new Set(Object.keys(map));
         const finished = [...lvActiveRef.current].some((id) => !now.has(id));
@@ -4504,12 +4502,14 @@ export default function AdminFacebook() {
         if (finished) load();
         busy = now.size > 0;
       } catch { /* keep the list usable if the feed fails */ }
-      if (!stop) t = setTimeout(tick, busy ? 5000 : 30000);
+      // 3 s while a video is being made (live %), else 15 s so a schedule that
+      // just started shows its box quickly.
+      if (!stop) t = setTimeout(tick, busy ? 3000 : 15000);
     };
     tick();
     return () => { stop = true; clearTimeout(t); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasLongVideoRows]);
+  }, [hasLongVideoRows, lvIdsKey]);
   const lvBusy = Object.keys(lvJobs).length > 0;
   useEffect(() => {
     if (!lvBusy) return undefined;
@@ -5202,7 +5202,7 @@ export default function AdminFacebook() {
                             <Camera className="h-3 w-3" /> Story
                           </span>
                         )}
-                        {s.completedAt && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">Completed</span>}
+                        {s.completedAt && <span title={s.kind === "longvideo" ? "Every quiz / question in this source has been made into a video, so the schedule stopped. Edit it or pick a new source to continue." : "Every question in this source has been posted, so the schedule stopped."} className="cursor-help rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">Completed</span>}
                         {!s.enabled && !s.completedAt && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">Paused</span>}
                       </p>
                       <div className="mt-0.5 flex items-center gap-2">

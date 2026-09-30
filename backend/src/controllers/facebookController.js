@@ -13,7 +13,7 @@ import PracticeSubject from "../models/PracticeSubject.js";
 import PracticeTopic from "../models/PracticeTopic.js";
 import { isSafePublicUrl } from "../utils/urlGuard.js";
 import { isYoutubeConfigured, cleanYtPlaylistId } from "../config/youtube.js";
-import { pickLongVideoScheduleFields } from "../config/longVideo.js";
+import { pickLongVideoScheduleFields, activeJobsForSchedules } from "../config/longVideo.js";
 import { isQuestionComplete } from "../utils/questionComplete.js";
 import { composeImageAudioToVideo, isCloudinaryConfigured } from "../config/cloudinary.js";
 import { generateSlideshow, isSlideshowConfigured } from "../config/slideshow.js";
@@ -635,6 +635,16 @@ export async function updateSchedule(req, res) {
   const sch = await FbSchedule.findByIdAndUpdate(req.params.id, data, { new: true });
   if (!sch) return res.status(404).json({ message: "Schedule not found." });
   res.json(sch);
+}
+
+// GET /api/facebook/schedules/live?ids=a,b,c → { jobs: { [scheduleId]: job } }
+// Live progress (%, step, start time) of the long videos these schedules are
+// making now. Only ids the admin can see count (normal tenant-scoped query).
+export async function liveScheduleProgress(req, res) {
+  const ids = String(req.query.ids || "").split(",").map((s) => s.trim()).filter((s) => /^[a-f0-9]{24}$/i.test(s)).slice(0, 100);
+  if (!ids.length) return res.json({ jobs: {} });
+  const visible = await FbSchedule.find({ _id: { $in: ids } }).select("_id").lean();
+  res.json({ jobs: activeJobsForSchedules(visible.map((s) => String(s._id))) });
 }
 
 // DELETE /api/facebook/schedules/:id — delete (admin)
