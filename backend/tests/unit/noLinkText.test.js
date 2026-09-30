@@ -7,6 +7,12 @@ describe("no-link text (Instagram / YouTube Shorts)", () => {
     expect(t).toBe(`Support us!\nExplore: mystudyguide.in and t.me/msg.\n${DEFAULT_LINK_IN_BIO}`);
   });
 
+  it("drops share tracking codes and stops @handles in links becoming Instagram mentions", () => {
+    const t = toNoLinkText("▶️ YouTube: https://youtube.com/@mystudyguide786?si=oHqPl5jJOgj6vtYc\n📘 Facebook: https://facebook.com/share/1FsxpPXUcs/?mibextid=wwXIfr\n▶ https://www.youtube.com/watch?v=abc&si=x&t=30", { cta: "" });
+    expect(t).toBe("▶️ YouTube: youtube.com/@\u200Bmystudyguide786\n📘 Facebook: facebook.com/share/1FsxpPXUcs\n▶ youtube.com/watch?v=abc&t=30");
+    expect(t).not.toMatch(/@mystudyguide786/); // Instagram would link this to an Instagram account
+  });
+
   it("leaves text without links untouched", () => {
     expect(toNoLinkText("Link in bio 🔗")).toBe("Link in bio 🔗");
     expect(toNoLinkText("Practice daily #GK")).toBe("Practice daily #GK");

@@ -31,11 +31,28 @@ export function isNotifyAllOnly(text) {
 // "https://www.mystudyguide.in/" → "mystudyguide.in". Trailing sentence
 // punctuation stays outside the URL ("…mystudyguide.in." keeps its full stop).
 const URL_RE = /\bhttps?:\/\/[^\s<>"')\]]+/gi;
+// Share-button tracking codes (YouTube ?si=, Facebook ?mibextid=, utm_…) —
+// they only make an untappable line long and messy, so they're dropped.
+const TRACKING_PARAM = /^(?:si|feature|mibextid|fbclid|igshid|igsh|gclid|ref_src|rdid|share_id|utm_[a-z_]+)$/i;
+function dropTracking(core) {
+  const q = core.indexOf("?");
+  if (q === -1) return core;
+  const [query, hash = ""] = core.slice(q + 1).split("#");
+  const kept = query.split("&").filter((kv) => kv && !TRACKING_PARAM.test(kv.split("=")[0]));
+  return core.slice(0, q) + (kept.length ? `?${kept.join("&")}` : "") + (hash ? `#${hash}` : "");
+}
+// Instagram turns any "@name" into a mention of an INSTAGRAM account — so
+// "youtube.com/@mystudyguide786" linked to whoever owns that name on Instagram.
+// A zero-width space after "@" keeps it looking the same but not a mention.
+const NO_MENTION = "@\u200B";
 function bareUrl(url) {
   const m = String(url).match(/^(.*?)([.,;:!?]*)$/);
   const core = m ? m[1] : String(url);
   const tail = m ? m[2] : "";
-  const bare = core.replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/+$/, "");
+  const bare = dropTracking(core)
+    .replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/^m\./i, "")
+    .replace(/\/+(?=$|\?|#)/, "")
+    .replace(/@/g, NO_MENTION);
   return bare + tail;
 }
 
