@@ -356,6 +356,8 @@ export function pickScheduleFields(body = {}) {
       session: cleanId(src.session),
       quiz: cleanId(src.quiz),
       testSeries: cleanId(src.testSeries),
+      topic: cleanId(src.topic),
+      practiceTopic: cleanId(src.practiceTopic),
     },
     customText: String(body.customText || "").trim().slice(0, 5000),
     customMedia,
@@ -363,6 +365,8 @@ export function pickScheduleFields(body = {}) {
     mode,
     // One-off run time (only meaningful when mode === "once").
     runAt: mode === "once" && body.runAt && !isNaN(new Date(body.runAt).getTime()) ? new Date(body.runAt) : null,
+    // Repeating schedule: first fire no earlier than this (null = right away).
+    startAt: mode === "recurring" && body.startAt && !isNaN(new Date(body.startAt).getTime()) ? new Date(body.startAt) : null,
     times: Array.isArray(body.times)
       ? body.times.map((t) => String(t).trim()).filter((t) => /^\d{1,2}:\d{2}$/.test(t)).slice(0, 20)
       : [],
@@ -423,11 +427,14 @@ export function validateScheduleData(data) {
     if (!data.customText && !data.customMedia.length && !data.customVideo) {
       return "Add some text, upload an image, or add a video (Reel) for the custom post.";
     }
-  } else if (!data.source.subject && !data.source.session && !data.source.quiz && !data.source.testSeries) {
+  } else if (!data.source.subject && !data.source.session && !data.source.quiz && !data.source.testSeries && !data.source.topic && !data.source.practiceTopic) {
     return "Pick a source (a subject, session, quiz or test) to draw questions from.";
   }
   if (data.kind === "longvideo" && !data.longVideo?.options?.toYoutube && !data.longVideo?.options?.toFacebook) {
     return "Choose where to post the long videos (YouTube and/or Facebook).";
+  }
+  if (data.kind === "longvideo" && data.longVideo?.byQuiz && (data.source.quiz || data.source.testSeries)) {
+    return "“Quiz by quiz” goes through a whole topic — pick the topic, not a single quiz.";
   }
   // NOTE: Reel mode (asReel) no longer requires per-schedule audio — the music
   // comes from the SHARED library on site settings (fbReelAudios). The admin UI

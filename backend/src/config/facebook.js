@@ -1327,6 +1327,20 @@ function scopeFilter(source = {}) {
 // stay "published" but are hidden from students with it. Exclude them too, so
 // a schedule never posts a question the public site doesn't show.
 async function liveScopeFilter(source = {}) {
+  // A whole TOPIC (no session / quiz / test picked): every live quiz / My Quiz
+  // item inside it.
+  if (!source.quiz && !source.testSeries && !source.session && !source.question) {
+    const base = { status: "published", deleted: { $ne: true } };
+    if (source.practiceTopic) {
+      const ids = await TestSeries.find({ practice: true, practiceTopic: source.practiceTopic, deleted: { $ne: true } }).distinct("_id").catch(() => []);
+      return { ...base, testSeries: { $in: ids } };
+    }
+    if (source.topic) {
+      const sess = await Session.find({ topic: source.topic, deleted: { $ne: true } }).distinct("_id").catch(() => []);
+      const dead = await Quiz.find({ session: { $in: sess }, deleted: true }).distinct("_id").catch(() => []);
+      return { ...base, session: { $in: sess }, ...(dead.length ? { quiz: { $nin: dead } } : {}) };
+    }
+  }
   const filter = scopeFilter(source);
   if (!filter || source.quiz || source.testSeries) return filter; // a single quiz / test: nothing above it to hide
   const within = source.session ? { session: source.session } : { subject: source.subject };
@@ -1461,6 +1475,8 @@ function tzParts(date, timeZone) {
 // from hours ago are skipped). lastSlot prevents re-firing the same slot.
 const GRACE_MIN = 180;
 function dueSlot(sch, now) {
+  // A start date & time that hasn't come yet → nothing is due.
+  if (sch.startAt && new Date(sch.startAt).getTime() > now.getTime()) return null;
   const { dateStr, hh, mm, dow } = tzParts(now, sch.timezone);
   if (Array.isArray(sch.days) && sch.days.length && !sch.days.includes(dow)) return null;
   const cur = hh * 60 + mm;

@@ -353,6 +353,7 @@ export const youtubeService = {
   longVideo: (data) => api.post("/youtube/long-video", data), // → { job }
   longVideos: () => api.get("/youtube/long-video"), // → { jobs, maxQuestions, youtubeReady, facebookReady }
   longVideoCount: (data) => api.post("/youtube/long-video/count", data), // { source } → { total, max }
+  longVideoTopicQuizzes: (data) => api.post("/youtube/long-video/topic-quizzes", data), // { source, per } → { quizzes:[{id,name,questions,videos}] }
   saveLongVideoDefaults: (data) => api.put("/youtube/long-video/defaults", data), // { options } → status
   retryLongVideo: (id) => api.post(`/youtube/long-video/${id}/retry`, {}), // → { job } — same settings again
   longVideoStatus: (id) => api.get(`/youtube/long-video/${id}`), // → { job }

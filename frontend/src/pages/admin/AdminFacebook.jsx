@@ -143,6 +143,7 @@ function SourcePicker({ onPick }) {
         session: next.session?._id || null,
         quiz: next.quiz?._id || null,
         testSeries: null,
+        topic: next.topic?._id || null, // a whole topic (for "quiz by quiz")
         label,
       });
     } else {
@@ -155,6 +156,7 @@ function SourcePicker({ onPick }) {
         session: null,
         quiz: null,
         testSeries: next.quiz?._id || null,
+        practiceTopic: next.quiz ? null : next.topic?._id || null, // a whole My Quiz topic
         label,
       });
     }
@@ -3005,7 +3007,9 @@ function FullQuizVideoForm({ st, onStatus }) {
   const [jobs, setJobs] = useState([]);
   const [maxQ, setMaxQ] = useState(50);
   const [ready, setReady] = useState({ youtube: true, facebook: true });
-  const hasSource = !!(source.subject || source.session || source.quiz || source.testSeries);
+  const hasSource = !!(source.subject || source.session || source.quiz || source.testSeries || source.topic || source.practiceTopic);
+  // A whole topic / session is picked (not one quiz) → "Quiz by quiz" is possible.
+  const isTopicSource = !!((source.topic || source.session || source.practiceTopic) && !source.quiz && !source.testSeries);
 
   // Saved long-video settings ("Save settings only"), else the AI Slideshow ones.
   const d = st?.longVideoDefaults || {};
@@ -3018,6 +3022,12 @@ function FullQuizVideoForm({ st, onStatus }) {
   const [order, setOrder] = useState(d.order === "random" ? "random" : "sequential");
   // When: one video (now / at a time), or REPEAT — a new part at set times.
   const [when, setWhen] = useState("once"); // "once" | "repeat"
+  // Repeat "quiz by quiz": one quiz (or one part of a big quiz) per time slot,
+  // from the chosen start quiz to the last quiz of the topic.
+  const [byQuiz, setByQuiz] = useState(true);
+  const [topicQuizzes, setTopicQuizzes] = useState(null); // [{ id, name, questions, videos }]
+  const [quizStartId, setQuizStartId] = useState("");
+  const [firstRunAt, setFirstRunAt] = useState(""); // local "YYYY-MM-DDTHH:MM" — first run not before this
   const [times, setTimes] = useState(["09:00"]);
   const [days, setDays] = useState([]);
   const [stopWhenExhausted, setStopWhenExhausted] = useState(true);
@@ -3068,6 +3078,24 @@ function FullQuizVideoForm({ st, onStatus }) {
     youtubeService.longVideoCount({ source }).then((r) => { if (live) setTotal(Number(r?.total) || 0); }).catch(() => { if (live) setTotal(null); });
     return () => { live = false; };
   }, [source.subject, source.session, source.quiz, source.testSeries]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The topic's quizzes (for "Start from quiz"), re-counted per video size.
+  const perVideo = qMode === "all" ? maxQ : Math.max(1, Math.min(maxQ, parseInt(count, 10) || 25));
+  useEffect(() => {
+    if (!isTopicSource || when !== "repeat") return undefined; // the list is only shown for a topic + Repeat
+    let live = true;
+    youtubeService.longVideoTopicQuizzes({ source, per: perVideo })
+      .then((r) => { if (live) { setTopicQuizzes(r?.quizzes || []); setQuizStartId((cur) => (r?.quizzes || []).some((q) => q.id === cur) ? cur : (r?.quizzes?.[0]?.id || "")); } })
+      .catch(() => { if (live) setTopicQuizzes([]); });
+    return () => { live = false; };
+  }, [source.topic, source.session, source.practiceTopic, source.quiz, source.testSeries, when, perVideo]); // eslint-disable-line react-hooks/exhaustive-deps
+  const useByQuiz = when === "repeat" && isTopicSource && byQuiz;
+  const quizPlan = (() => {
+    if (!useByQuiz || !topicQuizzes) return null;
+    const from = Math.max(0, topicQuizzes.findIndex((q) => q.id === quizStartId));
+    const rest = topicQuizzes.slice(from).filter((q) => q.questions > 0);
+    return { from, skipped: from, quizzes: rest.length, videos: rest.reduce((n, q) => n + q.videos, 0), first: topicQuizzes[from], last: rest[rest.length - 1], empty: topicQuizzes.slice(from).length - rest.length };
+  })();
+
   // Poll while any job is still working.
   const active = jobs.some((j) => j.status === "queued" || j.status === "running");
   // A 1-second clock (only while a job is working) so the % and time-left tick
@@ -3124,23 +3152,29 @@ function FullQuizVideoForm({ st, onStatus }) {
     if (!hasSource) { setMsg({ ok: false, text: "Pick the topic / quiz first." }); return; }
     if (!cleanTimes.length) { setMsg({ ok: false, text: "Add at least one time." }); return; }
     if (!toYoutube && !toFacebook) { setMsg({ ok: false, text: "Choose YouTube and/or Facebook." }); return; }
+    if (useByQuiz && !quizPlan?.quizzes) { setMsg({ ok: false, text: "This topic has no quizzes with questions from the chosen start quiz." }); return; }
+    if (firstRunAt && new Date(firstRunAt).getTime() < Date.now() - 60000) { setMsg({ ok: false, text: "The start date & time is in the past." }); return; }
     setBusy(true); setMsg(null);
     try {
       const pl = playlistChoice(playlist.id, playlist.title);
       await facebookService.create({
         kind: "longvideo", enabled: true, mode: "recurring",
         title: schTitle.trim(), source, times: cleanTimes, days, timezone: "Asia/Kolkata",
-        order, stopWhenExhausted, hashtags: hashtags.trim(),
+        order: useByQuiz ? "sequential" : order, stopWhenExhausted, hashtags: hashtags.trim(),
+        ...(firstRunAt ? { startAt: localToIso(firstRunAt) } : {}),
         longVideo: {
-          options: buildOptions(), title: title.trim(), privacy,
+          options: useByQuiz ? { ...buildOptions(), order: "sequential", start: 1 } : buildOptions(), title: title.trim(), privacy,
           playlist: pl === undefined ? "" : pl.id ? pl : "__none__",
           useThumbnail: useThumb,
-          nextStart: order === "random" ? 1 : nStart, part: 0,
+          nextStart: useByQuiz || order === "random" ? 1 : nStart, part: 0,
+          ...(useByQuiz ? { byQuiz: true, quizStartId, quizId: "", quizIdx: 0 } : {}),
         },
       });
-      setMsg({ ok: true, text: `Long-video schedule created for ${source.label || "the picked content"} — it's in Scheduled posts below. Each time makes the next ${qMode === "all" ? maxQ : nCount} questions as one video.` });
+      setMsg({ ok: true, text: useByQuiz
+        ? `Quiz-by-quiz schedule created — ${quizPlan.quizzes} quizzes (${quizPlan.first?.name} → ${quizPlan.last?.name}), ${quizPlan.videos} videos, one at each time${firstRunAt ? ` from ${new Date(firstRunAt).toLocaleString()}` : ""}. It's in Scheduled posts below.`
+        : `Long-video schedule created for ${source.label || "the picked content"} — it's in Scheduled posts below. Each time makes the next ${qMode === "all" ? maxQ : nCount} questions as one video.` });
       setSource({ subject: null, session: null, quiz: null, testSeries: null, label: "" }); setPickerKey((k) => k + 1); setTotal(null);
-      setSchTitle(""); setTimes(["09:00"]); setDays([]);
+      setSchTitle(""); setTimes(["09:00"]); setDays([]); setFirstRunAt(""); setTopicQuizzes(null);
     } catch (e) { setMsg({ ok: false, text: e.message }); } finally { setBusy(false); }
   };
 
@@ -3558,6 +3592,37 @@ function FullQuizVideoForm({ st, onStatus }) {
                 className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${days.includes(w.v) ? "bg-[#FF0000] text-white" : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"}`}>{w.l}</button>
             ))}
           </div>
+          <div className="mt-3">
+            <label className="mb-1 block text-sm font-medium">Start on <span className="font-normal text-slate-400">(optional — date &amp; time of the first video; empty = the next time above)</span></label>
+            <input type="datetime-local" className="input h-9 w-auto" value={firstRunAt} min={new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)} onChange={(e) => setFirstRunAt(e.target.value)} />
+          </div>
+          {isTopicSource && (
+            <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 dark:border-emerald-900/50 dark:bg-emerald-900/10">
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" className="mt-0.5 h-4 w-4 accent-emerald-600" checked={byQuiz} onChange={(e) => setByQuiz(e.target.checked)} />
+                <span><b>Quiz by quiz</b> <span className="text-slate-500 dark:text-slate-400">— one quiz per time, in order, through the whole topic. A quiz with more than {perVideo} questions is split: <b>Quiz 5 (Part 1)</b>, then <b>Quiz 5 (Part 2)</b>… then the next quiz.</span></span>
+              </label>
+              {byQuiz && (
+                topicQuizzes == null ? <p className="mt-2 text-xs text-slate-500"><Loader2 className="inline h-3.5 w-3.5 animate-spin" /> Loading the topic's quizzes…</p>
+                : !topicQuizzes.length ? <p className="mt-2 text-xs text-rose-600">This topic has no quizzes (disabled ones are skipped).</p>
+                : (
+                  <div className="mt-2">
+                    <label className="mb-1 block text-sm font-medium">Start from quiz</label>
+                    <select className="input h-9" value={quizStartId} onChange={(e) => setQuizStartId(e.target.value)}>
+                      {topicQuizzes.map((q) => <option key={q.id} value={q.id}>{q.name} — {q.questions} question{q.questions === 1 ? "" : "s"}{q.videos > 1 ? ` (${q.videos} parts)` : ""}</option>)}
+                    </select>
+                    {quizPlan && (
+                      <p className="mt-1.5 text-xs text-emerald-700 dark:text-emerald-400">
+                        {quizPlan.skipped > 0 && <>Skips {quizPlan.skipped} quiz{quizPlan.skipped === 1 ? "" : "zes"} before it. </>}
+                        Publishes <b>{quizPlan.quizzes}</b> quiz{quizPlan.quizzes === 1 ? "" : "zes"} ({quizPlan.first?.name} → {quizPlan.last?.name || "—"}) as <b>{quizPlan.videos}</b> video{quizPlan.videos === 1 ? "" : "s"} — one at each time{times.filter(Boolean).length > 1 ? `, ${times.filter(Boolean).length} a day` : ""}.
+                        {quizPlan.empty > 0 && <> {quizPlan.empty} empty quiz{quizPlan.empty === 1 ? " is" : "zes are"} skipped.</>}
+                      </p>
+                    )}
+                  </div>
+                )
+              )}
+            </div>
+          )}
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-sm font-medium">Schedule name <span className="font-normal text-slate-400">(optional, for the list)</span></label>

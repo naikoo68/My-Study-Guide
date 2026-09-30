@@ -90,6 +90,9 @@ const fbScheduleSchema = new mongoose.Schema(
       session: { type: mongoose.Schema.Types.ObjectId, ref: "Session", default: null },
       quiz: { type: mongoose.Schema.Types.ObjectId, ref: "Quiz", default: null },
       testSeries: { type: mongoose.Schema.Types.ObjectId, ref: "TestSeries", default: null },
+      // A whole TOPIC (no single quiz): Quiz Bank topic, or a My Quiz topic.
+      topic: { type: mongoose.Schema.Types.ObjectId, ref: "Topic", default: null },
+      practiceTopic: { type: mongoose.Schema.Types.ObjectId, ref: "PracticeTopic", default: null },
       // A single specific question (set from the question view). When present it
       // overrides the scope above — the schedule posts exactly this question.
       question: { type: mongoose.Schema.Types.ObjectId, ref: "Question", default: null },
@@ -136,6 +139,8 @@ const fbScheduleSchema = new mongoose.Schema(
 
     // Runtime bookkeeping.
     postedQuestionIds: { type: [mongoose.Schema.Types.ObjectId], default: [] }, // avoid repeats until exhausted
+    // Don't fire before this moment (a repeating schedule's start date & time).
+    startAt: { type: Date, default: null },
     lastSlot: { type: String, default: "" }, // "YYYY-MM-DD HH:MM" of the last fired slot (dedupe guard)
     lastRunAt: { type: Date, default: null },
     lastResult: { type: String, default: "" }, // last outcome (ok / error) for admin visibility
