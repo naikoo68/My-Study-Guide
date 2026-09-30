@@ -370,8 +370,9 @@ export function buildYtTitle(template, vars = {}, fallback = "Daily Quiz") {
 }
 
 // Description = the post caption + #Shorts. YouTube caps descriptions at 5000 bytes.
-export function buildYtDescription(caption) {
+export function buildYtDescription(caption, followLinks = "") {
   let d = clean(caption).trim();
+  if (followLinks) d = `${d}${d ? "\n\n" : ""}${clean(followLinks).trim()}`;
   if (!/#shorts\b/i.test(d)) d = `${d}${d ? "\n\n" : ""}#Shorts`;
   while (Buffer.byteLength(d, "utf8") > 5000) d = d.slice(0, -50);
   return d;
@@ -492,7 +493,8 @@ export function ytTimestamp(sec) {
 // A YouTube Short must be 3 minutes or less.
 export const YT_SHORT_MAX_SEC = 180;
 // `title` (optional) is the FIRST line — the video's title, then a blank line.
-export function buildYtLongDescription({ title = "", intro = "", chapters = [], hashtags = "", siteUrl = "", shorts = false } = {}) {
+// `followLinks` — the "Follow us" block (social links), placed before the hashtags.
+export function buildYtLongDescription({ title = "", intro = "", chapters = [], hashtags = "", siteUrl = "", shorts = false, followLinks = "" } = {}) {
   const lines = [];
   if (title) { lines.push(clean(title).trim()); if (intro) lines.push(""); }
   if (intro) lines.push(clean(intro).trim());
@@ -503,7 +505,8 @@ export function buildYtLongDescription({ title = "", intro = "", chapters = [], 
     lines.push("Chapters:");
     ch.forEach((c, i) => lines.push(`${ytTimestamp(i === 0 ? 0 : c.startSec)} ${clean(c.label || `Question ${c.question || i + 1}`)}`));
   }
-  if (siteUrl) { lines.push(""); lines.push(`Practice more quizzes: ${siteUrl}`); }
+  if (siteUrl && !followLinks) { lines.push(""); lines.push(`Practice more quizzes: ${siteUrl}`); }
+  if (followLinks) { lines.push(""); lines.push(clean(followLinks).trim()); }
   // #Shorts hint (only when the video qualifies — see YT_SHORT_MAX_SEC).
   const tagLine = [shorts ? "#Shorts" : "", clean(hashtags).trim()].filter(Boolean).join(" ");
   if (tagLine) { lines.push(""); lines.push(tagLine); }

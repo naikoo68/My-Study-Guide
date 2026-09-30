@@ -1,6 +1,7 @@
 // Facebook / Instagram Graph API helper — verifies page credentials and publishes
 // auto-posts to a connected Facebook page / Instagram account.
 
+import { formatSocialLinks } from "../utils/socialLinks.js";
 import { telegramConfigured, sendTelegramMedia, sendTelegramMessage } from "./telegram.js";
 import { displayName } from "../utils/displayName.js";
 import Settings from "../models/Settings.js";
@@ -87,7 +88,8 @@ async function publishScheduleToYoutube({ sch, cfg, videoUrl, caption, notes, ti
   const n = (Number(sch.ytPostCount) || 0) + 1;
   const vars = titleVars ? { ...titleVars, n: titleVars.n || n } : { n, subject: sch.title || "" };
   const title = buildYtTitle(sch.ytTitle, vars, sch.title || "Daily Quiz");
-  const description = buildYtDescription(caption);
+  const site = await getFacebookSiteForConfig(cfg).catch(() => null);
+  const description = buildYtDescription(caption, site?.socialLinksOnYoutube !== false ? formatSocialLinks(site?.socialLinks, { exclude: ["youtube"], siteUrl: cfg.siteUrl }) : "");
   const r = await uploadVideoToYoutube(
     { videoUrl, title, description, tags: buildYtTags(caption), privacy: cfg.ytPrivacy },
     cfg
@@ -898,6 +900,31 @@ export function buildMentionSuffix(rawMentions, platform) {
 // `notes`, advances + persists the rotation pointer, and NEVER throws (a comment
 // must never break a post). Stories are NOT handled here (the API can't comment
 // on a Story).
+// "Follow us" comment with the site's social links on a just-published
+// Facebook post and/or Instagram media (Settings.socialLinksComment, default
+// on). The APIs can't PIN a comment, so it goes in as a normal comment (the
+// first one) — pin it in the app. Best-effort; never throws.
+export async function postSocialLinksComment({ site, cfg, fbPostId = null, igMediaId = null, notes = [] } = {}) {
+  if (site?.socialLinksComment === false) return;
+  const siteUrl = String(cfg?.siteUrl || "").trim();
+  try {
+    if (fbPostId) {
+      const text = formatSocialLinks(site?.socialLinks, { exclude: ["facebook"], siteUrl });
+      if (text) {
+        const r = await commentOnFacebookPost({ postId: fbPostId, message: text }, cfg);
+        notes.push(r.ok ? "FB links comment ✓" : `FB links comment ✗ (${r.error})`);
+      }
+    }
+    if (igMediaId) {
+      const text = formatSocialLinks(site?.socialLinks, { exclude: ["instagram"], siteUrl });
+      if (text) {
+        const r = await commentOnInstagramMedia({ mediaId: igMediaId, message: text }, cfg);
+        notes.push(r.ok ? "IG links comment ✓" : `IG links comment ✗ (${r.error})`);
+      }
+    }
+  } catch { /* the post already succeeded */ }
+}
+
 export async function postAutoFirstComment({ site, cfg, fbAttempts = [], igMediaId = null, notes = [] } = {}) {
   if (!site?.fbAutoCommentEnabled) return;
   // Prefer the multi-comment list; fall back to the legacy single comment.
@@ -1752,6 +1779,7 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
   // Page post and the IG media (a pinned link / CTA / extra hashtags).
   // Best-effort — a comment failure never affects the post's success.
   await postAutoFirstComment({ site, cfg, fbAttempts, igMediaId, notes });
+  await postSocialLinksComment({ site, cfg, fbPostId: fbAttempts[0]?.ok ? fbAttempts[0].id : null, igMediaId, notes });
 
   sch.lastRunAt = new Date();
   // Published to at least one selected network (FB, IG, YouTube and Telegram tracked separately).
@@ -2306,6 +2334,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
 
   // Auto first-comment(s) on the just-published MAIN Page post + IG media.
   await postAutoFirstComment({ site, cfg, fbAttempts, igMediaId, notes });
+  await postSocialLinksComment({ site, cfg, fbPostId: fbAttempts[0]?.ok ? fbAttempts[0].id : null, igMediaId, notes });
 
   // A post counts as "made" (advance the pool / mark the question posted) when it
   // published to at least ONE selected network. FB and IG are tracked separately

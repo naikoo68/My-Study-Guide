@@ -6,6 +6,7 @@
 // ffmpeg), so jobs run in the BACKGROUND, ONE AT A TIME, and never inside the
 // scheduler tick. Status lives in memory (lost on a server restart — the admin
 // is emailed on success/failure, and can simply start it again).
+import { formatSocialLinks } from "../utils/socialLinks.js";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -532,7 +533,9 @@ async function drawLongVideoThumbnail(job, { source, cfg, site, names, questions
 // exact files that were previewed). getShort() → { path, count } makes / fetches
 // the Short only when it's needed. Returns the Short's local path (the caller
 // deletes it). Throws when nothing could be uploaded.
-async function uploadRendered(job, { cfg, opts, filePath, description, tags, thumbnail, breadcrumb, getShort: makeShort }) {
+async function uploadRendered(job, { cfg, opts, filePath, description, tags, thumbnail, breadcrumb, getShort: makeShort, site = null }) {
+  // The social links: under the Short on YouTube, and as a comment on Facebook / Instagram.
+  if (site?.socialLinksOnYoutube !== false) job.followLinks = formatSocialLinks(site?.socialLinks, { exclude: ["youtube"], siteUrl: cfg.siteUrl });
   const errors = [];
   let anyOk = false;
   // The Short is made / fetched ONCE, then used for YouTube, Facebook and Instagram.
@@ -585,6 +588,7 @@ async function uploadRendered(job, { cfg, opts, filePath, description, tags, thu
           intro: `${short.count} sample question${short.count === 1 ? "" : "s"}${breadcrumb ? ` — ${breadcrumb}` : ""}. Watch the full video here: ${job.url}`,
           hashtags: tags,
           shorts: true,
+          followLinks: job.followLinks || "",
         });
         const s = await uploadVideoFileToYoutube({
           filePath: shortPath,
@@ -615,6 +619,10 @@ async function uploadRendered(job, { cfg, opts, filePath, description, tags, thu
     if (fb.ok) {
       anyOk = true;
       job.fbUrl = fb.url;
+      if (!fb.scheduled && site) {
+        const { postSocialLinksComment } = await import("./facebook.js");
+        await postSocialLinksComment({ site, cfg, fbPostId: fb.id, notes: job.notes });
+      }
       job.notes.push(`Facebook ✓${fb.scheduled ? " (scheduled)" : ""}${fb.late ? " (scheduled time was too close — published right away)" : ""}`);
     } else {
       errors.push(`Facebook: ${fb.error}`);
@@ -626,7 +634,7 @@ async function uploadRendered(job, { cfg, opts, filePath, description, tags, thu
   // 3) The Short as a Facebook Reel / Instagram Reel, and 4) the full video's
   //    link as the first comment under the Short and each Reel. Best-effort —
   //    a failure here never fails the job (the full video is already up).
-  await postShortReelsAndLinks(job, { cfg, opts, tags, getShort, scheduled });
+  await postShortReelsAndLinks(job, { cfg, opts, tags, getShort, scheduled, site });
 }
 
 // "Watch the full video: <link>" — the link under the Short / Reels.
@@ -641,7 +649,7 @@ export function longVideoTelegramText(job, tags = "") {
   return [job.title, links.join("\n"), tags].filter(Boolean).join("\n\n");
 }
 
-async function postShortReelsAndLinks(job, { cfg, opts, tags, getShort, scheduled }) {
+async function postShortReelsAndLinks(job, { cfg, opts, tags, getShort, scheduled, site = null }) {
   const fullUrl = job.url || job.fbUrl || "";
   if (opts.toTelegram) {
     const { telegramReady } = await import("./facebook.js");
@@ -697,6 +705,7 @@ async function postShortReelsAndLinks(job, { cfg, opts, tags, getShort, schedule
         n += c.ok ? " · link comment ✓ (pin it on Facebook)" : ` · link comment ✗ (${c.error})`;
       }
       job.notes.push(n);
+      if (site) { const { postSocialLinksComment } = await import("./facebook.js"); await postSocialLinksComment({ site, cfg, fbPostId: r.id, notes: job.notes }); }
     } else job.notes.push(`Facebook Reel ✗ (${r.error})`);
   }
   if (opts.shortToInstagram) {
@@ -709,6 +718,7 @@ async function postShortReelsAndLinks(job, { cfg, opts, tags, getShort, schedule
         n += c.ok ? " · link comment ✓ (pin it on Instagram)" : ` · link comment ✗ (${c.error})`;
       }
       job.notes.push(n);
+      if (site) { const { postSocialLinksComment } = await import("./facebook.js"); await postSocialLinksComment({ site, cfg, igMediaId: r.id, notes: job.notes }); }
     } else job.notes.push(`Instagram Reel ✗ (${r.error})`);
   }
 }
@@ -738,6 +748,7 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
     const offset = opts.order === "random" ? 0 : first - 1;
     const description = buildYtLongDescription({
       title: job.title, // the description starts with the title
+      followLinks: site?.socialLinksOnYoutube !== false ? formatSocialLinks(site?.socialLinks, { exclude: ["youtube"], siteUrl }) : "",
       intro: `${questions.length} questions with answers${job.range ? ` (questions ${job.range})` : ""}${breadcrumb ? ` — ${breadcrumb}` : ""}.`,
       chapters: (result.chapters || []).map((c) => ({ ...c, label: `Question ${offset + c.question}` })),
       hashtags: tags,
@@ -752,7 +763,7 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
     }
 
     await uploadRendered(job, {
-      cfg, opts, filePath, description, tags, thumbnail, breadcrumb,
+      cfg, site, opts, filePath, description, tags, thumbnail, breadcrumb,
       // The Short is rendered only when it will be posted (deleted in finally).
       getShort: async () => {
         const teaserQs = questions.slice(0, 3);
@@ -1062,13 +1073,14 @@ async function runPublish(job, { preview, cfg, site, hashtags, opts }) {
     const tags = await hashtagsForQuestion(d.firstQuestion, site, hashtags);
     const description = buildYtLongDescription({
       title: job.title,
+      followLinks: site?.socialLinksOnYoutube !== false ? formatSocialLinks(site?.socialLinks, { exclude: ["youtube"], siteUrl: d.siteUrl }) : "",
       intro: `${job.questions} questions with answers${job.range ? ` (questions ${job.range})` : ""}${d.breadcrumb ? ` — ${d.breadcrumb}` : ""}.`,
       chapters: (d.chapters || []).map((c) => ({ ...c, label: `Question ${d.offset + c.question}` })),
       hashtags: tags,
       siteUrl: d.siteUrl,
     });
     await uploadRendered(job, {
-      cfg, opts, filePath, description, tags, breadcrumb: d.breadcrumb,
+      cfg, site, opts, filePath, description, tags, breadcrumb: d.breadcrumb,
       thumbnail: job.useThumbnail ? preview.thumb : null,
       getShort: async () => {
         if (!preview.shortUrl) throw new Error("the preview has no Short");

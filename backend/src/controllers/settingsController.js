@@ -240,7 +240,7 @@ export async function updateSettings(req, res) {
     "aboutHeading", "aboutIntro", "aboutValues", "aboutStats", "testimonials", "faqs",
     "aiMaxPerBatch", "clientPlans", "studentPlans", "tenantPlans",
     "fbEnabled", "fbPageId", "fbAutoOnNotice", "fbGraphVersion", "fbPageAccessToken",
-    "tgEnabled", "tgBotToken", "tgChatId",
+    "tgEnabled", "tgBotToken", "tgChatId", "socialLinksOnYoutube", "socialLinksComment",
     "fbDefaultHashtags", "fbAutoHashtags", "fbExtraTargets",
     "fbSelfieWatermarkUrl", "fbSelfieWatermarkEnabled", "fbSelfieWatermarkPosition", "fbSelfieWatermarkSize", "fbSelfieWatermarkOpacity", "fbSelfieWatermarkShape",
     "fbTextWatermarkEnabled", "fbTextWatermarkText", "fbTextWatermarkSize", "fbTextWatermarkOpacity",
