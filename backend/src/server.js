@@ -255,6 +255,7 @@ async function start() {
   // this timer sat AFTER those returns, so leaving a migration flag enabled
   // silently prevented the auto-poster from ever starting (only /api/health
   // pings could then trigger posts). Starting it here guarantees it always runs.
+  import("./utils/socialProfile.js").then((m) => m.ensureProfileIdBackfill()).catch(() => {}); // old rows → main account (all DB engines)
   setInterval(() => { runDueFbSchedules().catch(() => {}); }, 60 * 1000);
 
   // Long videos cut off by this restart (e.g. a deploy mid-render): mark them

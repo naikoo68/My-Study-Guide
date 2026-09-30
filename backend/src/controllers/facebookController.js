@@ -1,4 +1,4 @@
-import { socialSettingsFilter, scheduleProfileFilter, activeSocialProfileId } from "../utils/socialProfile.js";
+import { socialSettingsFilter, scheduleProfileFilter, activeSocialProfileId, ensureProfileIdBackfill } from "../utils/socialProfile.js";
 import FbSchedule from "../models/FbSchedule.js";
 import Question from "../models/Question.js";
 import Settings from "../models/Settings.js";
@@ -487,6 +487,7 @@ function scheduleFireMinutes(sch) {
 //              returns postsInRange = how many individual posts fall in it.
 //   sort     — "time" orders by earliest fire time of day; default is newest first.
 export async function listSchedules(req, res) {
+  await ensureProfileIdBackfill();
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const limit = Math.max(1, Math.min(100, parseInt(req.query.limit, 10) || 20));
   const q = String(req.query.q || "").trim();
@@ -534,6 +535,7 @@ export async function listSchedules(req, res) {
 // recent entries, read from the permanent ledger (FbPost). This survives schedule
 // deletion, unlike a schedule's own postCount.
 export async function facebookStats(req, res) {
+  await ensureProfileIdBackfill();
   // Scope to the tenant's CURRENTLY connected Page so one Page's (or tenant's)
   // posts never inflate another's count. Both "lifetime" here and the
   // reconciliation's applicationCount resolve through the SAME authoritative
