@@ -226,6 +226,10 @@ const settingsSchema = new mongoose.Schema(
     fbPageId: { type: String, default: "" }, // the Facebook Page's numeric ID
     fbPageAccessToken: { type: String, default: "" }, // SENSITIVE — long-lived Page access token; never sent to the browser
     fbAutoOnNotice: { type: Boolean, default: false }, // auto-post to the Page whenever a Notice is added
+    // Telegram (Bot API): the site's bot posts to this channel / group.
+    tgEnabled: { type: Boolean, default: false },
+    tgBotToken: { type: String, default: "" }, // SENSITIVE — never sent to the browser (tgBotTokenSet)
+    tgChatId: { type: String, default: "" }, // "@channel" or "-100…"
     fbGraphVersion: { type: String, default: "v21.0" }, // Graph API version
     // Hashtags: a global set appended to EVERY question post, plus auto tags
     // generated from each question's subject/topic/section.

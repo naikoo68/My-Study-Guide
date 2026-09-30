@@ -8,7 +8,7 @@ import {
   Send, Loader2, CheckCircle2, AlertTriangle, KeyRound, Plus, Trash2, Pencil, X,
   Clock, CalendarClock, ListChecks, Power, Save, Upload, UserCircle, Type, Search, Mail,
   ImagePlus, FileText, Wand2, RefreshCw, Film, Music, Camera, ChevronDown, MessageCircle,
-  Sparkles, Volume2, PlayCircle, Link2, Unplug, Clapperboard, Move, RotateCw,
+  Sparkles, Volume2, PlayCircle, Link2, Unplug, Clapperboard, Move, RotateCw, Share2,
 } from "lucide-react";
 import { Facebook, Instagram, Youtube } from "../../components/ui/SocialIcons";
 import { settingsService, facebookService, youtubeService, uploadVideoFileToYoutube, contentService, practiceService, uploadService } from "../../services";
@@ -2728,6 +2728,75 @@ function YtDefaultPlaylists({ st, onSaved }) {
 // YouTube (Shorts) connection card: Google OAuth app credentials, the
 // Connect/Disconnect flow, default privacy and a connection test. Uploading
 // itself happens from each schedule's "YouTube" checkbox.
+// Telegram connection: the site's bot (token from @BotFather) posts to a
+// channel / group where it's an admin.
+function TelegramConnection({ settings, saveSettings }) {
+  const [enabled, setEnabled] = useState(!!settings?.tgEnabled);
+  const [chat, setChat] = useState(settings?.tgChatId || "");
+  const [token, setToken] = useState("");
+  const [busy, setBusy] = useState("");
+  const [msg, setMsg] = useState(null);
+  const [steps, setSteps] = useState(!settings?.tgBotTokenSet);
+  const save = async () => {
+    setBusy("save"); setMsg(null);
+    try {
+      await saveSettings({ tgEnabled: enabled, tgChatId: chat.trim(), ...(token.trim() ? { tgBotToken: token.trim() } : {}) });
+      setToken(""); setMsg({ ok: true, text: "Saved." });
+    } catch (e) { setMsg({ ok: false, text: e.message }); } finally { setBusy(""); }
+  };
+  const test = async (verifyOnly) => {
+    setBusy(verifyOnly ? "check" : "test"); setMsg(null);
+    try {
+      const r = await settingsService.testTelegram({ verifyOnly, tgChatId: chat.trim(), ...(token.trim() ? { tgBotToken: token.trim() } : {}) });
+      setMsg({ ok: true, text: verifyOnly ? `Working — ${r.bot} can post in “${r.chat}”.` : `Sent to “${r.chat}”${r.url ? ` (${r.url})` : ""}. Check your channel.` });
+    } catch (e) { setMsg({ ok: false, text: e.message || "Telegram test failed." }); } finally { setBusy(""); }
+  };
+  const ready = (token.trim() || settings?.tgBotTokenSet) && chat.trim();
+  return (
+    <div>
+      <p className="flex items-center gap-1.5 font-semibold"><Send className="h-4 w-4 text-[#229ED9]" /> Telegram connection</p>
+      <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">Post to your Telegram <b>channel</b> or <b>group</b> through your own bot. The bot token is stored on the server and never shown in the browser.</p>
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
+          <span className="text-sm font-medium">Enable Telegram posting</span>
+          <button type="button" onClick={() => setEnabled((v) => !v)}
+            className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${enabled ? "bg-[#229ED9]" : "bg-slate-300 dark:bg-slate-600"}`}>
+            <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${enabled ? "left-6" : "left-1"}`} />
+          </button>
+        </label>
+        <div>
+          <label className="mb-1 block text-sm font-medium">Channel / group</label>
+          <input className="input" value={chat} onChange={(e) => setChat(e.target.value)} placeholder="@mystudyguide  or  -1001234567890" />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="mb-1 flex items-center gap-1.5 text-sm font-medium"><KeyRound className="h-4 w-4 text-slate-400" /> Bot token</label>
+          <input type="password" className="input" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off"
+            placeholder={settings?.tgBotTokenSet ? "•••••••• (saved — type to replace)" : "123456789:AAE… (from @BotFather)"} />
+        </div>
+      </div>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button type="button" onClick={save} disabled={!!busy} className="btn-primary">{busy === "save" ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> Save connection</>}</button>
+        <button type="button" onClick={() => test(true)} disabled={!!busy || !ready} className="btn-outline">{busy === "check" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Check connection</button>
+        <button type="button" onClick={() => test(false)} disabled={!!busy || !ready} className="btn-outline">{busy === "test" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Send test message</button>
+        {msg && <span className={`inline-flex items-center gap-1 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {msg.text}</span>}
+      </div>
+      <button type="button" onClick={() => setSteps((v) => !v)} className="mt-4 flex items-center gap-1 text-sm font-semibold text-brand-600">
+        <ChevronDown className={`h-4 w-4 transition ${steps ? "rotate-180" : ""}`} /> How to connect (2 minutes)
+      </button>
+      {steps && (
+        <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-sm text-slate-600 dark:text-slate-300">
+          <li>In Telegram, open <b>@BotFather</b>, send <code>/newbot</code>, choose a name → copy the <b>bot token</b> into the box above.</li>
+          <li>Open your channel → <b>Administrators → Add admin</b> → search your bot → allow <b>Post messages</b>.</li>
+          <li>Channel: type its public <b>@username</b> (e.g. <code>@mystudyguide</code>). Private channel / group: its id starting with <code>-100</code>.</li>
+          <li>Tap <b>Save connection</b>, then <b>Send test message</b>.</li>
+        </ol>
+      )}
+    </div>
+  );
+}
+
+// The YouTube CONNECTION (OAuth app, connect / reconnect, upload switch,
+// privacy, default playlists) — shown in the Connections card's YouTube tab.
 function YoutubeSection() {
   const [st, setSt] = useState(null);
   const [clientId, setClientId] = useState("");
@@ -2788,10 +2857,11 @@ function YoutubeSection() {
   const setPrivacy = (v) => run("save", async () => apply(await youtubeService.save({ privacy: v })));
   const copy = (t) => { try { navigator.clipboard?.writeText(t); setMsg({ ok: true, text: "Copied." }); } catch { /* ignore */ } };
 
+  void openOnReturn; // the parent opens the YouTube tab when coming back from Google
   return (
-    <CollapsibleCard title="YouTube Shorts" icon={Youtube} iconClass="h-5 w-5 text-[#FF0000]" defaultOpen={openOnReturn}>
+    <div>
       <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-        Upload each schedule's video to your YouTube channel as a <b>Short</b>. Works for <b>AI Slideshow</b>, <b>Reel</b> and <b>custom video</b> posts (YouTube only accepts videos). Tick <b>YouTube</b> on a schedule to use it.
+        Connect your YouTube channel once. Used for <b>Shorts</b> (tick <b>YouTube</b> on an AI Slideshow, Reel or custom-video schedule) and the <b>long videos</b> below.
       </p>
       {!st ? <div className="mt-3"><Loading label="Loading…" /></div> : (
         <>
@@ -2877,7 +2947,7 @@ function YoutubeSection() {
           )}
         </>
       )}
-    </CollapsibleCard>
+    </div>
   );
 }
 
@@ -3944,6 +4014,8 @@ export default function AdminFacebook() {
   const [fbSaving, setFbSaving] = useState(false);
   const [fbTesting, setFbTesting] = useState(false);
   const [igTesting, setIgTesting] = useState(false);
+  // Connections tab — open YouTube when we've just come back from Google's login.
+  const [connTab, setConnTab] = useState(() => (new URLSearchParams(window.location.search).has("youtube") ? "youtube" : "facebook"));
   const [fbMsg, setFbMsg] = useState(null);
   const [igMsg, setIgMsg] = useState(null);
 
@@ -4204,40 +4276,95 @@ export default function AdminFacebook() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="flex items-center gap-2 text-2xl font-extrabold"><Facebook className="h-6 w-6 text-[#1877F2]" /> Facebook Auto-Post</h1>
-        <p className="text-slate-500 dark:text-slate-400">Connect your Facebook Page and schedule quiz questions — or your own custom text &amp; media posts — to publish automatically at set times. Independent of the Notice Board.</p>
+        <h1 className="flex items-center gap-2 text-2xl font-extrabold"><Share2 className="h-6 w-6 text-brand-600" /> Social Media Auto Posting</h1>
+        <p className="text-slate-500 dark:text-slate-400">Connect Facebook, Instagram, YouTube and Telegram, then schedule quiz questions, Reels, Shorts, long videos — or your own text &amp; media posts — to publish automatically at set times.</p>
       </div>
 
-      {/* Connection */}
-      <CollapsibleCard title="Connection" icon={Power} iconClass="h-4 w-4 text-[#1877F2]" defaultOpen>
-        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">Your access token is stored on the server and never shown in the browser.</p>
-
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
-            <span className="text-sm font-medium">Enable Facebook posting</span>
-            <button type="button" onClick={() => setFb((f) => ({ ...f, fbEnabled: !f.fbEnabled }))}
-              className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${fb.fbEnabled ? "bg-[#1877F2]" : "bg-slate-300 dark:bg-slate-600"}`}>
-              <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${fb.fbEnabled ? "left-6" : "left-1"}`} />
+      {/* Connections — one tab per platform */}
+      <CollapsibleCard title="Connections" icon={Power} iconClass="h-4 w-4 text-brand-600" defaultOpen>
+        <div className="mt-1 flex flex-wrap gap-1.5" role="tablist">
+          {[
+            ["facebook", "Facebook", Facebook, "#1877F2", !!(settings?.fbEnabled && settings?.fbTokenSet)],
+            ["instagram", "Instagram", Instagram, "#E1306C", !!(settings?.igEnabled && settings?.fbTokenSet)],
+            ["youtube", "YouTube", Youtube, "#FF0000", null],
+            ["telegram", "Telegram", Send, "#229ED9", !!(settings?.tgEnabled && settings?.tgBotTokenSet && settings?.tgChatId)],
+          ].map(([k, label, Icon, color, on]) => (
+            <button key={k} type="button" role="tab" aria-selected={connTab === k} onClick={() => setConnTab(k)}
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-semibold transition ${connTab === k ? "border-transparent text-white" : "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"}`}
+              style={connTab === k ? { background: color } : undefined}>
+              <Icon className="h-4 w-4" style={connTab === k ? undefined : { color }} /> {label}
+              {on != null && <span className={`h-1.5 w-1.5 rounded-full ${on ? "bg-emerald-400" : "bg-slate-300"}`} title={on ? "Connected" : "Not connected"} />}
             </button>
-          </label>
-          <div>
-            <label className="mb-1 block text-sm font-medium">Graph API version</label>
-            <input className="input" value={fb.fbGraphVersion} onChange={(e) => setFb((f) => ({ ...f, fbGraphVersion: e.target.value }))} placeholder="v21.0" />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium">Facebook Page ID</label>
-            <input className="input" value={fb.fbPageId} onChange={(e) => setFb((f) => ({ ...f, fbPageId: e.target.value }))} placeholder="e.g. 100091234567890" />
-          </div>
-          <div>
-            <label className="mb-1 flex items-center gap-1.5 text-sm font-medium"><KeyRound className="h-4 w-4 text-slate-400" /> Page Access Token</label>
-            <input type="password" className="input" value={fbToken} onChange={(e) => setFbToken(e.target.value)} autoComplete="off"
-              placeholder={settings?.fbTokenSet ? "•••••••• (saved — type to replace)" : "Paste long-lived Page token"} />
-          </div>
+          ))}
         </div>
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <button type="button" onClick={saveFb} disabled={fbSaving} className="btn-primary">{fbSaving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> Save connection</>}</button>
-          <button type="button" onClick={testFb} disabled={fbTesting || !settings?.fbTokenSet} className="btn-outline">{fbTesting ? <><Loader2 className="h-4 w-4 animate-spin" /> Posting…</> : <><Send className="h-4 w-4" /> Send test post</>}</button>
-          {fbMsg && <span className={`inline-flex items-center gap-1 text-sm font-medium ${fbMsg.ok ? "text-emerald-600" : "text-rose-600"}`}>{fbMsg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {fbMsg.text}</span>}
+        <div className="mt-4 rounded-xl border border-slate-200 p-4 dark:border-slate-700">
+          {connTab === "facebook" && (
+            <div>
+              <p className="flex items-center gap-1.5 font-semibold"><Facebook className="h-4 w-4 text-[#1877F2]" /> Facebook connection</p>
+            <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">Your access token is stored on the server and never shown in the browser.</p>
+
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
+                <span className="text-sm font-medium">Enable Facebook posting</span>
+                <button type="button" onClick={() => setFb((f) => ({ ...f, fbEnabled: !f.fbEnabled }))}
+                  className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${fb.fbEnabled ? "bg-[#1877F2]" : "bg-slate-300 dark:bg-slate-600"}`}>
+                  <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${fb.fbEnabled ? "left-6" : "left-1"}`} />
+                </button>
+              </label>
+              <div>
+                <label className="mb-1 block text-sm font-medium">Graph API version</label>
+                <input className="input" value={fb.fbGraphVersion} onChange={(e) => setFb((f) => ({ ...f, fbGraphVersion: e.target.value }))} placeholder="v21.0" />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">Facebook Page ID</label>
+                <input className="input" value={fb.fbPageId} onChange={(e) => setFb((f) => ({ ...f, fbPageId: e.target.value }))} placeholder="e.g. 100091234567890" />
+              </div>
+              <div>
+                <label className="mb-1 flex items-center gap-1.5 text-sm font-medium"><KeyRound className="h-4 w-4 text-slate-400" /> Page Access Token</label>
+                <input type="password" className="input" value={fbToken} onChange={(e) => setFbToken(e.target.value)} autoComplete="off"
+                  placeholder={settings?.fbTokenSet ? "•••••••• (saved — type to replace)" : "Paste long-lived Page token"} />
+              </div>
+            </div>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <button type="button" onClick={saveFb} disabled={fbSaving} className="btn-primary">{fbSaving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> Save connection</>}</button>
+              <button type="button" onClick={testFb} disabled={fbTesting || !settings?.fbTokenSet} className="btn-outline">{fbTesting ? <><Loader2 className="h-4 w-4 animate-spin" /> Posting…</> : <><Send className="h-4 w-4" /> Send test post</>}</button>
+              {fbMsg && <span className={`inline-flex items-center gap-1 text-sm font-medium ${fbMsg.ok ? "text-emerald-600" : "text-rose-600"}`}>{fbMsg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {fbMsg.text}</span>}
+            </div>
+            </div>
+          )}
+          {connTab === "instagram" && (
+            <div>
+              <p className="flex items-center gap-1.5 font-semibold"><Instagram className="h-4 w-4 text-[#E1306C]" /> Instagram connection</p>
+            <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
+              Also post to Instagram. Requires an <b>Instagram Business/Creator account linked to your Facebook Page</b>. Instagram posts are always images, so those schedules auto-generate a question image.
+            </p>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
+                <span className="text-sm font-medium">Enable Instagram posting</span>
+                <button type="button" onClick={() => setFb((f) => ({ ...f, igEnabled: !f.igEnabled }))}
+                  className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${fb.igEnabled ? "bg-[#E1306C]" : "bg-slate-300 dark:bg-slate-600"}`}>
+                  <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${fb.igEnabled ? "left-6" : "left-1"}`} />
+                </button>
+              </label>
+              <div>
+                <label className="mb-1 block text-sm font-medium">Instagram account ID <span className="font-normal text-slate-400">(optional — auto-detected)</span></label>
+                <input className="input" value={fb.igUserId} onChange={(e) => setFb((f) => ({ ...f, igUserId: e.target.value }))} placeholder="Leave blank to auto-detect from the Page" />
+              </div>
+            </div>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <button type="button" onClick={saveFb} disabled={fbSaving} className="btn-primary">{fbSaving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> Save</>}</button>
+              <button type="button" onClick={testIg} disabled={igTesting || !settings?.fbTokenSet} className="btn-outline">{igTesting ? <><Loader2 className="h-4 w-4 animate-spin" /> Posting…</> : <><Send className="h-4 w-4" /> Send test to Instagram</>}</button>
+              {igMsg && <span className={`inline-flex items-center gap-1 text-sm font-medium ${igMsg.ok ? "text-emerald-600" : "text-rose-600"}`}>{igMsg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {igMsg.text}</span>}
+            </div>
+            </div>
+          )}
+          {connTab === "youtube" && (
+            <div>
+              <p className="flex items-center gap-1.5 font-semibold"><Youtube className="h-4 w-4 text-[#FF0000]" /> YouTube connection</p>
+              <YoutubeSection />
+            </div>
+          )}
+          {connTab === "telegram" && <TelegramConnection settings={settings} saveSettings={saveSettings} />}
         </div>
       </CollapsibleCard>
 
@@ -4286,32 +4413,6 @@ export default function AdminFacebook() {
         </div>
       </CollapsibleCard>
 
-      {/* Instagram */}
-      <CollapsibleCard title="Instagram cross-posting" icon={Instagram} iconClass="h-5 w-5 text-[#E1306C]">
-        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-          Also post to Instagram. Requires an <b>Instagram Business/Creator account linked to your Facebook Page</b>. Instagram posts are always images, so those schedules auto-generate a question image.
-        </p>
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
-            <span className="text-sm font-medium">Enable Instagram posting</span>
-            <button type="button" onClick={() => setFb((f) => ({ ...f, igEnabled: !f.igEnabled }))}
-              className={`relative h-6 w-11 flex-shrink-0 rounded-full transition ${fb.igEnabled ? "bg-[#E1306C]" : "bg-slate-300 dark:bg-slate-600"}`}>
-              <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${fb.igEnabled ? "left-6" : "left-1"}`} />
-            </button>
-          </label>
-          <div>
-            <label className="mb-1 block text-sm font-medium">Instagram account ID <span className="font-normal text-slate-400">(optional — auto-detected)</span></label>
-            <input className="input" value={fb.igUserId} onChange={(e) => setFb((f) => ({ ...f, igUserId: e.target.value }))} placeholder="Leave blank to auto-detect from the Page" />
-          </div>
-        </div>
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <button type="button" onClick={saveFb} disabled={fbSaving} className="btn-primary">{fbSaving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> Save</>}</button>
-          <button type="button" onClick={testIg} disabled={igTesting || !settings?.fbTokenSet} className="btn-outline">{igTesting ? <><Loader2 className="h-4 w-4 animate-spin" /> Posting…</> : <><Send className="h-4 w-4" /> Send test to Instagram</>}</button>
-          {igMsg && <span className={`inline-flex items-center gap-1 text-sm font-medium ${igMsg.ok ? "text-emerald-600" : "text-rose-600"}`}>{igMsg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {igMsg.text}</span>}
-        </div>
-      </CollapsibleCard>
-
-      <YoutubeSection />
       <YoutubeLongVideoSection />
 
       {/* Selfie / logo Watermark */}
