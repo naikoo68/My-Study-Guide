@@ -12,6 +12,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { tenantStore, getCurrentTenantId } from "../utils/tenantContext.js";
+import { activeSocialProfileId } from "../utils/socialProfile.js";
 import { generateSlideshow } from "./slideshow.js";
 import {
   uploadVideoFileToYoutube, buildYtTitle, buildYtLongDescription, buildYtTags,
@@ -110,6 +111,7 @@ export function publicJob(j) {
     notes: j.notes || [],
     playlistTitle: j.playlist?.title || "",
     auto: j.auto,
+    profileId: j.profileId || "",
     scheduleId: j.scheduleId || "", // lets the Scheduled posts list show this video's progress on its row
     createdAt: j.createdAt,
     finishedAt: j.finishedAt,
@@ -167,14 +169,17 @@ async function withRecord(job, fn) {
 
 export async function listLongVideoJobs(tenantKey, limit = 10) {
   cleanup();
-  const live = [...jobs.values()].filter((j) => j.tenantKey === tenantKey && !j.preview);
+  // Only THIS account's videos (the main account or a cross-posting user).
+  const pid = activeSocialProfileId();
+  const mineP = (x) => String(x || "") === pid;
+  const live = [...jobs.values()].filter((j) => j.tenantKey === tenantKey && !j.preview && mineP(j.profileId));
   const byId = new Map(live.map((j) => [j.id, { ...publicJob(j), canRetry: canRetryLive(j) }]));
   if (PERSIST) {
     try {
       const M = await Rec();
-      const recs = await M.find({ tenantKey }).sort({ createdAt: -1 }).limit(limit).lean();
+      const recs = await M.find({ tenantKey }).sort({ createdAt: -1 }).limit(limit * 4).lean();
       for (const r of recs || []) {
-        if (!r?.view || byId.has(r.jobId)) continue;
+        if (!r?.view || byId.has(r.jobId) || !mineP(r.view.profileId)) continue;
         byId.set(r.jobId, { ...r.view, status: r.status, canRetry: r.status === "failed" && !!r.request && !r.retriedAs });
       }
     } catch { /* memory only */ }
@@ -339,6 +344,7 @@ export function queueFullQuizVideo({ source, cfg, site, titleTemplate = "", priv
   const job = {
     id: randomUUID(),
     tenantKey: tenantKeyNow(),
+    profileId: activeSocialProfileId(), // cross-posting user ("" = main account)
     status: "queued",
     stage: "queued",
     progress: null,
@@ -918,6 +924,7 @@ export function queueLongVideoPreview({ source, cfg, site, titleTemplate = "", u
   const job = {
     id: randomUUID(),
     tenantKey: tenantKeyNow(),
+    profileId: activeSocialProfileId(), // cross-posting user ("" = main account)
     preview: true,
     owner: ownerId ? String(ownerId) : "",
     status: "queued",
@@ -1074,6 +1081,7 @@ export function queuePublishPreview({ preview, cfg, site, privacy, publishAt = n
   const job = {
     id: randomUUID(),
     tenantKey: tenantKeyNow(),
+    profileId: activeSocialProfileId(), // cross-posting user ("" = main account)
     status: "queued",
     stage: "queued",
     progress: null,

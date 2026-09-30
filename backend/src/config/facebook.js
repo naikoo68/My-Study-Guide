@@ -1,3 +1,4 @@
+import { socialSettingsFilter, activeSocialProfileId, runAsSocialProfile, scheduleProfileFilter } from "../utils/socialProfile.js";
 // Facebook / Instagram Graph API helper — verifies page credentials and publishes
 // auto-posts to a connected Facebook page / Instagram account.
 
@@ -22,7 +23,10 @@ import { youtubeConfigFromSite, isYoutubeConfigured, uploadVideoToYoutube, build
 // robustly even when running without a request/tenant context. In a normal
 // request it's omitted and the tenant plugin scopes to the caller's institute.
 export async function getFacebookConfig(filter) {
-  const s = await Settings.findOne({ key: "site", ...(filter || {}) }).lean();
+  // No explicit filter → the account this request / run is for: a cross-posting
+  // user's own settings doc (X-Social-Profile) or the main site.
+  const s = await Settings.findOne(filter ? { key: "site", ...filter } : socialSettingsFilter()).lean();
+  if (!filter && activeSocialProfileId() && !s) throw Object.assign(new Error("Cross-posting user not found."), { status: 404 });
   return {
     // Keep the exact Settings row that supplied the credentials. Publishing and
     // all behavior settings (auto-comments, watermarks, hashtags, notifications)
@@ -122,7 +126,7 @@ export async function getFacebookSiteForConfig(cfg) {
     if (exact) return exact;
   }
   // Backward-compatible fallback for directly supplied test configs.
-  return Settings.findOne({ key: "site" }).lean().catch(() => null);
+  return Settings.findOne(socialSettingsFilter()).lean().catch(() => null);
 }
 
 export const isFacebookConfigured = (cfg) => !!(cfg?.pageId && cfg?.token);
@@ -2500,7 +2504,19 @@ export async function runDueFbSchedules() {
     } catch { /* diagnostic only — never affects posting */ }
     for (const key of keys) {
       const tid = key === "" ? null : key;
-      await tenantStore.run({ tenantId: tid, bypass: !tid }, () => runTenantSchedules(tid, stats).catch((e) => { stats.lastError = e?.message || String(e); }));
+      await tenantStore.run({ tenantId: tid, bypass: !tid }, () => runAsSocialProfile("", () => runTenantSchedules(tid, stats).catch((e) => { stats.lastError = e?.message || String(e); })));
+    }
+    // Cross-posting users: each posts with its OWN credentials, inside its
+    // tenant AND its profile context (so anything that reads settings without
+    // a cfg — watermarks, card images — uses that person's settings too).
+    const withSchedules = new Set((await FbSchedule.distinct("profileId", { enabled: true })).map(String).filter(Boolean));
+    if (withSchedules.size) {
+      const profiles = await runUnscoped(() => Settings.find({ socialProfile: true }).select("_id key tenantId").lean());
+      for (const p of profiles || []) {
+        if (!withSchedules.has(String(p._id))) continue;
+        const tid = p.tenantId ? String(p.tenantId) : null;
+        await tenantStore.run({ tenantId: tid, bypass: !tid }, () => runAsSocialProfile(String(p._id), () => runTenantSchedules(tid, stats, p).catch((e) => { stats.lastError = e?.message || String(e); })));
+      }
     }
   } catch (e) {
     stats.lastError = e?.message || String(e);
@@ -2520,10 +2536,14 @@ export async function runDueFbSchedules() {
 }
 
 // Fire all due schedules for ONE tenant using THAT tenant's own credentials.
-async function runTenantSchedules(tid, stats = null) {
-  let cfg = await getFacebookConfig({ tenantId: tid ?? null });
+async function runTenantSchedules(tid, stats = null, profile = null) {
+  // A cross-posting user runs with THEIR OWN settings doc (their Page,
+  // Instagram, YouTube, Telegram…) and only their own schedules.
+  let cfg = profile
+    ? await getFacebookConfig({ _id: profile._id, key: profile.key, socialProfile: true })
+    : await getFacebookConfig({ tenantId: tid ?? null });
   const fbLive = (c) => !!(c.enabled && isFacebookConfigured(c));
-  if (!fbLive(cfg) && !isYoutubeConfigured(cfg)) {
+  if (!profile && !fbLive(cfg) && !isYoutubeConfigured(cfg)) {
     // The PLATFORM's schedules can be stamped with the default-tenant id while
     // its Facebook settings ("site" doc) live under tenantId null — or vice
     // versa (a tenant-backfill mismatch). An exact tenantId match then finds no
@@ -2553,7 +2573,7 @@ async function runTenantSchedules(tid, stats = null) {
   if (!fbLive(cfg)) cfg = { ...cfg, pageId: "", token: "", igEnabled: false };
   if (stats) stats.configured += 1;
   const now = new Date();
-  const schedules = await FbSchedule.find({ enabled: true, tenantId: tid ?? null });
+  const schedules = await FbSchedule.find({ enabled: true, tenantId: tid ?? null, ...scheduleProfileFilter(profile ? String(profile._id) : "") });
   if (stats) stats.enabled += schedules.length;
   for (const sch of schedules) {
     let slot = null;

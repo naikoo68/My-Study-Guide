@@ -15,6 +15,15 @@ export const getToken = () => localStorage.getItem(TOKEN_KEY);
 export const setToken = (t) => localStorage.setItem(TOKEN_KEY, t);
 export const clearToken = () => localStorage.removeItem(TOKEN_KEY);
 
+// Cross-posting user currently open in the admin panel ("" = the main
+// account). While set, social requests (/settings, /facebook, /youtube) carry
+// X-Social-Profile so they read & write THAT person's own accounts/settings.
+let activeSocialProfile = "";
+export const setActiveSocialProfile = (id) => { activeSocialProfile = id ? String(id) : ""; };
+export const getActiveSocialProfile = () => activeSocialProfile;
+const SOCIAL_PATH = /^\/(settings|facebook|youtube)(\/|\?|$)/;
+const socialHeader = (path) => (activeSocialProfile && SOCIAL_PATH.test(String(path || "")) ? activeSocialProfile : "");
+
 // One-time cross-subdomain session handoff.
 //
 // The JWT lives in localStorage, which is per-ORIGIN. So when an institute admin
@@ -82,6 +91,7 @@ async function request(path, { method = "GET", body, auth = true, headers = {}, 
     const token = getToken();
     if (token) finalHeaders.Authorization = `Bearer ${token}`;
   }
+  if (socialHeader(path)) finalHeaders["X-Social-Profile"] = socialHeader(path);
 
   // Multi-tenancy: tell the backend which institute this browser is for, derived
   // from the site's own hostname (e.g. acme.example.com). The backend maps it to
@@ -231,6 +241,7 @@ export function uploadWithProgress(path, file, { field = "file", onProgress, tim
       try {
         const token = getToken();
         if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+        if (socialHeader(path)) xhr.setRequestHeader("X-Social-Profile", socialHeader(path));
       } catch { /* ignore */ }
       try {
         if (typeof window !== "undefined" && window.location?.hostname) {

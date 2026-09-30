@@ -1,3 +1,4 @@
+import { socialSettingsFilter, scheduleProfileFilter, activeSocialProfileId } from "../utils/socialProfile.js";
 import FbSchedule from "../models/FbSchedule.js";
 import Question from "../models/Question.js";
 import Settings from "../models/Settings.js";
@@ -131,7 +132,7 @@ export async function testSlideshow(req, res) {
   // ttsApiKey) so the test resolves the same TTS provider as a real run.
   const cfg = await getFacebookConfig().catch(() => ({}));
   const savedSite = (await getFacebookSiteForConfig(cfg).catch(() => null))
-    || (await Settings.findOne({ key: "site" }).lean().catch(() => null));
+    || (await Settings.findOne(socialSettingsFilter()).lean().catch(() => null));
   // The narration engine currently on screen (+ a newly typed key) applies to
   // THIS test only — nothing is saved. Blank keys keep the saved ones. (A custom
   // API URL is checked against the SSRF guard when it's actually called.)
@@ -276,7 +277,7 @@ export function ttsVoices(_req, res) {
 export async function suggestTags(req, res) {
   const q = await Question.findById(req.params.id).lean();
   if (!q) return res.json({ hashtags: "" });
-  const site = await Settings.findOne({ key: "site" }).lean().catch(() => null);
+  const site = await Settings.findOne(socialSettingsFilter()).lean().catch(() => null);
   res.json({ hashtags: await hashtagsForQuestion(q, site, "") });
 }
 
@@ -489,7 +490,7 @@ export async function listSchedules(req, res) {
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const limit = Math.max(1, Math.min(100, parseInt(req.query.limit, 10) || 20));
   const q = String(req.query.q || "").trim();
-  const filter = {};
+  const filter = { ...scheduleProfileFilter() }; // only THIS account's schedules (main or a cross-posting user)
   if (q) {
     const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
     filter.$or = [{ title: rx }, { "source.label": rx }];
@@ -623,7 +624,7 @@ export async function createSchedule(req, res) {
   if (data.asReel && !Number.isInteger(data.audioIndex)) {
     data.audioIndex = Math.floor(Math.random() * 1000);
   }
-  const sch = await FbSchedule.create({ ...data, createdBy: req.user?._id || null });
+  const sch = await FbSchedule.create({ ...data, profileId: activeSocialProfileId(), createdBy: req.user?._id || null });
   res.status(201).json(sch);
 }
 
@@ -632,7 +633,7 @@ export async function updateSchedule(req, res) {
   const data = pickScheduleFields(req.body);
   const err = validateScheduleData(data);
   if (err) return res.status(400).json({ message: err });
-  const sch = await FbSchedule.findByIdAndUpdate(req.params.id, data, { new: true });
+  const sch = await FbSchedule.findOneAndUpdate({ _id: req.params.id, ...scheduleProfileFilter() }, data, { new: true });
   if (!sch) return res.status(404).json({ message: "Schedule not found." });
   res.json(sch);
 }
@@ -643,20 +644,20 @@ export async function updateSchedule(req, res) {
 export async function liveScheduleProgress(req, res) {
   const ids = String(req.query.ids || "").split(",").map((s) => s.trim()).filter((s) => /^[a-f0-9]{24}$/i.test(s)).slice(0, 100);
   if (!ids.length) return res.json({ jobs: {} });
-  const visible = await FbSchedule.find({ _id: { $in: ids } }).select("_id").lean();
+  const visible = await FbSchedule.find({ _id: { $in: ids }, ...scheduleProfileFilter() }).select("_id").lean();
   res.json({ jobs: activeJobsForSchedules(visible.map((s) => String(s._id))) });
 }
 
 // DELETE /api/facebook/schedules/:id — delete (admin)
 export async function deleteSchedule(req, res) {
-  await FbSchedule.findByIdAndDelete(req.params.id);
+  await FbSchedule.findOneAndDelete({ _id: req.params.id, ...scheduleProfileFilter() });
   res.json({ ok: true });
 }
 
 // Ids of every schedule matching the SAME search + time-of-day filter the list
 // uses (listSchedules), across all pages. Backs "Select all N schedules".
 async function matchingScheduleIds({ q, from, to } = {}) {
-  const filter = {};
+  const filter = { ...scheduleProfileFilter() };
   const term = String(q || "").trim();
   if (term) {
     const rx = new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
@@ -703,7 +704,7 @@ export async function bulkSchedules(req, res) {
   }
   if (!ids.length) return res.json({ ok: true, action, matched: 0, affected: 0 });
 
-  const filter = { _id: { $in: ids } };
+  const filter = { _id: { $in: ids }, ...scheduleProfileFilter() };
   let affected = 0;
   try {
     if (action === "delete") {
@@ -763,7 +764,7 @@ export async function backfillScheduleLabels(req, res) {
 
 // POST /api/facebook/schedules/:id/post-now — post one question immediately (admin)
 export async function postScheduleNow(req, res) {
-  const sch = await FbSchedule.findById(req.params.id);
+  const sch = await FbSchedule.findOne({ _id: req.params.id, ...scheduleProfileFilter() });
   if (!sch) return res.status(404).json({ message: "Schedule not found." });
   const cfg = await getFacebookConfig();
   const ytReady = !!sch.toYoutube && isYoutubeConfigured(cfg);
@@ -810,7 +811,7 @@ export async function previewQuestionImage(req, res) {
 
   const includeAnswer = !!req.body.includeAnswer;
   const hashtags = String(req.body.hashtags || "").trim();
-  const site = await Settings.findOne({ key: "site" }).lean().catch(() => null);
+  const site = await Settings.findOne(socialSettingsFilter()).lean().catch(() => null);
 
   // Flashcard image (for the admin's Flashcard Details "Download") — the SAME
   // two-panel flashcard the auto-post produces, on the uploaded template.
@@ -876,6 +877,7 @@ export async function scheduleQuestion(req, res) {
     times: [], days: [], timezone: String(req.body.timezone || "Asia/Kolkata"),
     order: "random",
     ...postOpts(req.body), // includes the pre-captured imageUrl (posted at run time)
+    profileId: activeSocialProfileId(), // a cross-posting user's own accounts ("" = main)
     createdBy: req.user?._id || null,
   });
   res.status(201).json(sch);

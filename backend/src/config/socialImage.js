@@ -1,3 +1,4 @@
+import { socialSettingsFilter } from "../utils/socialProfile.js";
 import { uploadImage, isCloudinaryConfigured } from "./cloudinary.js";
 import Settings from "../models/Settings.js";
 // NOTE: MathJax is intentionally NOT loaded here. On the free-tier server (512MB)
@@ -370,7 +371,7 @@ async function buildPreviewSvg(q, opts = {}) {
 export async function renderQuestionImage(q, opts = {}) {
   if (!isCloudinaryConfigured()) return { error: "Cloudinary keys are not set on the server (CLOUDINARY_CLOUD_NAME / API_KEY / API_SECRET)." };
   try {
-    const s = await Settings.findOne({ key: "site" }).lean();
+    const s = await Settings.findOne(socialSettingsFilter()).lean();
     // Pass selfie watermark settings if enabled and a URL is set.
     const selfieOpts = {};
     if (s?.fbSelfieWatermarkEnabled !== false && s?.fbSelfieWatermarkUrl) {

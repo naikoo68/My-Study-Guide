@@ -13,6 +13,7 @@ import {
 import { Facebook, Instagram, Youtube, SOCIAL_PLATFORMS } from "../../components/ui/SocialIcons";
 import { settingsService, facebookService, youtubeService, uploadVideoFileToYoutube, contentService, practiceService, uploadService } from "../../services";
 import { useSettings } from "../../context/SettingsContext";
+import { getActiveSocialProfile } from "../../lib/api";
 import { Loading, ErrorState } from "../../components/ui/AsyncState";
 import { estimateSlideshowEta, smoothRemaining, learnSlideshowProfile, loadSlideshowProfile, saveSlideshowProfile, fmtDuration } from "../../lib/slideshowEta";
 
@@ -2127,7 +2128,9 @@ function scheduleHasVideo(f) {
 
 // The channel's playlists, loaded once and shared by every picker on the page.
 let ytPlaylistCache = null; // Promise<{ playlists, canCreate }>
+let ytPlaylistCacheFor = ""; // the account (main / cross-posting user) the cache belongs to
 const loadYtPlaylists = (force = false) => {
+  if (ytPlaylistCacheFor !== getActiveSocialProfile()) { ytPlaylistCache = null; ytPlaylistCacheFor = getActiveSocialProfile(); }
   if (force || !ytPlaylistCache) {
     ytPlaylistCache = youtubeService.playlists().catch((e) => { ytPlaylistCache = null; throw e; });
   }

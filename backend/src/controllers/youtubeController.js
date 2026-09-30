@@ -145,7 +145,8 @@ export async function youtubeConnect(req, res) {
     return res.status(400).json({ message: "Add your Google OAuth Client ID and Client secret first (see the setup steps)." });
   }
   const redirectUri = ytRedirectUri(req);
-  const returnTo = `${clientBaseFromReq(req)}/admin/facebook`;
+  // A cross-posting user's own YouTube → back to that user's page.
+  const returnTo = `${clientBaseFromReq(req)}${req.socialProfileId ? `/admin/cross-posting/${req.socialProfileId}` : "/admin/facebook"}`;
   let state;
   try {
     state = signYtState({ sid: String(site._id), ru: redirectUri, rt: returnTo, uid: req.user?._id ? String(req.user._id) : "" });

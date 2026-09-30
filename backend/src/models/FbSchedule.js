@@ -16,6 +16,9 @@ const fbScheduleSchema = new mongoose.Schema(
     //   "slideshow"           — draw a question from `source` and post it as a narrated
     //                           2-slide Reel (slide 1 = question, slide 2 = answer).
     kind: { type: String, enum: ["question", "custom", "flashcard", "slideshow", "longvideo"], default: "question" },
+    // Cross-posting user this schedule posts for (Settings _id of their
+    // profile, see utils/socialProfile.js). "" / missing = the main account.
+    profileId: { type: String, default: "", index: true },
     // kind "longvideo": a REPEATING long (16:9) video schedule — each due time
     // makes the next part of the topic as one video (YouTube and/or Facebook).
     // { options, title, privacy, playlist, useThumbnail, nextStart, part } —

@@ -450,6 +450,14 @@ export async function uploadVideoFileToYoutube(file, meta, { thumbnail = null, o
 }
 
 // ---- Facebook scheduled auto-posting (admin) ----
+// Cross-posting users (other people's own social accounts).
+export const socialProfileService = {
+  list: () => api.get("/social-profiles"),
+  create: (name) => api.post("/social-profiles", { name }),
+  rename: (id, name) => api.put(`/social-profiles/${id}`, { name }),
+  remove: (id) => api.del(`/social-profiles/${id}`),
+};
+
 export const facebookService = {
   schedules: (params = {}) => {
     const qs = new URLSearchParams();
