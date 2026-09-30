@@ -3043,6 +3043,11 @@ function FullQuizVideoForm({ st, onStatus }) {
   const [toYoutube, setToYoutube] = useState(d.toYoutube !== false);
   const [toFacebook, setToFacebook] = useState(!!d.toFacebook);
   const [asShort, setAsShort] = useState(d.asShort ?? true);
+  // The same vertical Short also as a Facebook / Instagram Reel, and the full
+  // video's link commented under the Short + Reels.
+  const [shortToFacebook, setShortToFacebook] = useState(!!d.shortToFacebook);
+  const [shortToInstagram, setShortToInstagram] = useState(!!d.shortToInstagram);
+  const [linkComment, setLinkComment] = useState(d.linkComment !== false);
 
   const load = () => youtubeService.longVideos().then((r) => {
     setJobs(r?.jobs || []);
@@ -3105,7 +3110,7 @@ function FullQuizVideoForm({ st, onStatus }) {
     engine: provider, voice: voiceValue, slidesMode,
     reveal: { pauseSec: clamp(reveal.pauseSec, 3, 0, 15), showSec: clamp(reveal.showSec, 3, 1, 15), say: reveal.say },
     questionSec: clamp(questionSec, 10, 3, 40), answerSec: clamp(answerSec, 8, 3, 40), autoCaptions: captions,
-    read: readOpts, useTemplates, toYoutube, toFacebook, asShort,
+    read: readOpts, useTemplates, toYoutube, toFacebook, asShort, shortToFacebook, shortToInstagram, linkComment,
   });
   // "Save settings only": the form opens with these next time.
   const saveDefaults = async () => {
@@ -3204,7 +3209,7 @@ function FullQuizVideoForm({ st, onStatus }) {
       await youtubeService.publishLongVideoPreview(id, {
         privacy, publishAt: localToIso(publishAt), hashtags: hashtags.trim(),
         ...(pl ? { playlist: pl } : {}),
-        options: { toYoutube, toFacebook, asShort: toYoutube && asShort },
+        options: { toYoutube, toFacebook, asShort: toYoutube && asShort, shortToFacebook, shortToInstagram, linkComment },
       });
       setPv((p) => ({ ...p, job: p.job ? { ...p.job, canPublish: false, published: true } : p.job }));
       setPubMsg({ ok: true, text: `Publishing — the previewed video${toYoutube && asShort ? " and Short are" : " is"} being uploaded (not re-made). Follow it in “Recent long videos” below.${publishAt ? ` It goes live on ${new Date(publishAt).toLocaleString()}.` : ""}` });
@@ -3457,7 +3462,24 @@ function FullQuizVideoForm({ st, onStatus }) {
           <span>Also post a <b>YouTube Short</b> <span className="text-slate-400">— a vertical teaser of the <b>first 3 questions</b> with a link to the full video in its description. You get <b>two</b> YouTube uploads: the full video and the Short.</span></span>
         </label>
       )}
-      <p className="mt-1 text-xs text-slate-400">Instagram isn't offered — it only takes Reels (vertical, short).</p>
+      {/* The same vertical Short on Facebook and Instagram as a Reel. */}
+      <div className="mt-2 rounded-lg border border-slate-200 p-2.5 dark:border-slate-700">
+        <p className="mb-1.5 text-sm font-medium">Also post the Short as a Reel</p>
+        <div className="flex flex-wrap gap-4">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" className="h-4 w-4 accent-[#1877F2]" checked={shortToFacebook} onChange={(e) => setShortToFacebook(e.target.checked)} /> <Facebook className="h-4 w-4 text-[#1877F2]" /> Facebook Reel
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" className="h-4 w-4 accent-[#E1306C]" checked={shortToInstagram} onChange={(e) => setShortToInstagram(e.target.checked)} /> <Instagram className="h-4 w-4 text-[#E1306C]" /> Instagram Reel
+          </label>
+        </div>
+        <p className="mt-1 text-xs text-slate-400">The same vertical Short (first 3 questions), with the full video's link in the caption. Posted when you publish right away (a scheduled video isn't public yet).</p>
+        {(shortToFacebook || shortToInstagram) && !ready.facebook && <p className="mt-1 text-xs text-amber-600">Facebook isn't connected — Reels need your Page (and its linked Instagram account).</p>}
+        <label className="mt-2 flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-0.5 h-4 w-4 accent-emerald-600" checked={linkComment} onChange={(e) => setLinkComment(e.target.checked)} />
+          <span>Comment the <b>full video's link</b> under the YouTube Short and the Reels <span className="text-slate-400">— “▶ Watch the full video: …”. YouTube, Facebook and Instagram don't let apps <b>pin</b> a comment, so tap ⋮ → <b>Pin</b> on it once (it's the first comment). YouTube needs <b>Reconnect YouTube</b> once for the comment permission.</span></span>
+        </label>
+      </div>
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         <div className="sm:col-span-2">
           <label className="mb-1 block text-sm font-medium">Title <span className="font-normal text-slate-400">(optional — used on YouTube and Facebook)</span></label>
@@ -3629,7 +3651,7 @@ function FullQuizVideoForm({ st, onStatus }) {
             <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 dark:border-emerald-900/50 dark:bg-emerald-900/10">
               <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-300">Happy with it? Publish these videos</p>
               <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                Posts exactly what you see above — no re-making. Goes to: <b>{[toYoutube && `YouTube (${privacy})`, toYoutube && asShort && "YouTube Short", toFacebook && "Facebook Page"].filter(Boolean).join(" + ") || "nothing selected"}</b>
+                Posts exactly what you see above — no re-making. Goes to: <b>{[toYoutube && `YouTube (${privacy})`, toYoutube && asShort && "YouTube Short", toFacebook && "Facebook Page", shortToFacebook && "Facebook Reel", shortToInstagram && "Instagram Reel"].filter(Boolean).join(" + ") || "nothing selected"}</b>
                 {publishAt ? <> · goes live <b>{new Date(publishAt).toLocaleString()}</b></> : " · right away"}. Change these under <b>Post to</b> above.
               </p>
               <button type="button" onClick={publishPreview} disabled={pubBusy || !j.canPublish || (!toYoutube && !toFacebook)}
