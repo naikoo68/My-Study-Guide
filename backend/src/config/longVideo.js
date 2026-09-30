@@ -14,7 +14,7 @@ import { tenantStore, getCurrentTenantId } from "../utils/tenantContext.js";
 import { generateSlideshow } from "./slideshow.js";
 import {
   uploadVideoFileToYoutube, buildYtTitle, buildYtLongDescription, buildYtTags,
-  isYoutubeConfigured, DEFAULT_YT_LONG_TITLE, DEFAULT_YT_LONG_TITLE_NOQUIZ, applyYtExtras, thumbnailLines, thumbTemplateActive, setYtThumbnail, slideTextConfigFromSite,
+  isYoutubeConfigured, commentOnYoutubeVideo, DEFAULT_YT_LONG_TITLE, DEFAULT_YT_LONG_TITLE_NOQUIZ, applyYtExtras, thumbnailLines, thumbTemplateActive, setYtThumbnail, slideTextConfigFromSite,
 } from "./youtube.js";
 import { postLongVideoToFacebookPage } from "./fbLongVideo.js";
 import { TTS_PROVIDERS } from "../utils/ttsVoices.js";
@@ -23,6 +23,7 @@ import { normalizeReadOptions, readOptionsFromSettings } from "./slidePlan.js";
 import {
   pickAllQuestionsForSource, completeQuestionsForSource, titlePartsForQuestion, breadcrumbForQuestion,
   hashtagsForQuestion, fbNotify, isFacebookConfigured,
+  postReelToFacebookPage, postReelToInstagram, commentOnFacebookPost, commentOnInstagramMedia,
 } from "./facebook.js";
 
 export const MAX_LONG_VIDEO_QUESTIONS = 50;
@@ -42,6 +43,7 @@ const STAGE_LABEL = {
   uploading: "Uploading to YouTube",
   uploading_facebook: "Uploading to Facebook",
   short: "Uploading the Short",
+  reels: "Posting the Facebook / Instagram Reels",
   uploading_preview: "Saving the preview videos",
   downloading_preview: "Getting the previewed video",
   finishing: "Setting thumbnail & playlist",
@@ -62,13 +64,13 @@ const STAGE_PCT = {
   queued: [0, 2], picking: [2, 3], pending: [2, 3],
   generating_slides: [5, 35], generating_audio: [40, 15],
   rendering_video: [55, 28], ready: [83, 2], finishing: [85, 3],
-  uploading: [88, 8], uploading_facebook: [96, 2], short: [98, 2],
+  uploading: [88, 7], short: [95, 2], uploading_facebook: [97, 1], reels: [98, 1.9],
   done: [100, 0], failed: [0, 0],
 };
 // A preview being published has nothing to render — only download + uploads.
 const PUBLISH_PCT = {
   queued: [0, 1], picking: [1, 1], downloading_preview: [2, 10],
-  uploading: [12, 68], short: [80, 14], uploading_facebook: [94, 5],
+  uploading: [12, 60], short: [72, 12], uploading_facebook: [84, 6], reels: [90, 9],
   done: [100, 0], failed: [0, 0],
 };
 export function jobPercent(j) {
@@ -97,6 +99,7 @@ export function publicJob(j) {
     videoId: j.videoId,
     fbUrl: j.fbUrl || "",
     shortUrl: j.shortUrl || "",
+    fbReelUrl: j.fbReelUrl || "",
     toYoutube: j.toYoutube !== false,
     toFacebook: !!j.toFacebook,
     range: j.range || "",
@@ -288,6 +291,11 @@ export function normalizeLongVideoOptions(o = {}, site = {}) {
     // Also mark the YouTube upload as a Short (#Shorts) — only honoured when the
     // finished video is <= 3 minutes; skipped with a note otherwise.
     asShort: !!o.asShort,
+    // The same vertical Short ALSO as a Facebook Reel / Instagram Reel.
+    shortToFacebook: !!o.shortToFacebook,
+    shortToInstagram: !!o.shortToInstagram,
+    // Comment the full video's link under the YouTube Short and the Reels.
+    linkComment: o.linkComment !== false,
   };
 }
 
@@ -516,9 +524,13 @@ async function drawLongVideoThumbnail(job, { source, cfg, site, names, questions
 // exact files that were previewed). getShort() → { path, count } makes / fetches
 // the Short only when it's needed. Returns the Short's local path (the caller
 // deletes it). Throws when nothing could be uploaded.
-async function uploadRendered(job, { cfg, opts, filePath, description, tags, thumbnail, breadcrumb, getShort }) {
+async function uploadRendered(job, { cfg, opts, filePath, description, tags, thumbnail, breadcrumb, getShort: makeShort }) {
   const errors = [];
   let anyOk = false;
+  // The Short is made / fetched ONCE, then used for YouTube, Facebook and Instagram.
+  let shortOnce = null;
+  const getShort = () => (shortOnce ||= makeShort());
+  const scheduled = !!job.publishAt;
   // 1) YouTube — the FULL landscape video (normal).
   if (opts.toYoutube) {
     job.stage = "uploading";
@@ -576,6 +588,7 @@ async function uploadRendered(job, { cfg, opts, filePath, description, tags, thu
         }, cfg);
         if (s.ok) {
           job.shortUrl = s.url;
+          job.shortId = s.id;
           if (job.playlist) await applyYtExtras({ videoId: s.id, playlist: job.playlist }, cfg);
           job.notes.push(`Short ✓ (${s.url})`);
         } else {
@@ -601,6 +614,77 @@ async function uploadRendered(job, { cfg, opts, filePath, description, tags, thu
     }
   }
   if (!anyOk) throw new Error(errors.join(" · ") || "Nothing was uploaded.");
+
+  // 3) The Short as a Facebook Reel / Instagram Reel, and 4) the full video's
+  //    link as the first comment under the Short and each Reel. Best-effort —
+  //    a failure here never fails the job (the full video is already up).
+  await postShortReelsAndLinks(job, { cfg, opts, tags, getShort, scheduled });
+}
+
+// "Watch the full video: <link>" — the link under the Short / Reels.
+export function fullVideoComment(url) {
+  return url ? `▶ Watch the full video (all questions with answers): ${url}` : "";
+}
+
+async function postShortReelsAndLinks(job, { cfg, opts, tags, getShort, scheduled }) {
+  const fullUrl = job.url || job.fbUrl || "";
+  const comment = opts.linkComment !== false ? fullVideoComment(fullUrl) : "";
+  const wantReels = (opts.shortToFacebook || opts.shortToInstagram) && isFacebookConfigured(cfg);
+  if ((opts.shortToFacebook || opts.shortToInstagram) && !isFacebookConfigured(cfg)) job.notes.push("Reels ✗ (connect Facebook first)");
+  if (scheduled && (wantReels || (comment && job.shortId))) {
+    // A scheduled video isn't public yet: Reels would go out early and the
+    // link wouldn't open. Post them with "Publish now" (or a repeating schedule).
+    if (wantReels) job.notes.push("Reels skipped — the video is scheduled; Reels are posted only when publishing right away");
+    if (comment && job.shortId) job.notes.push("Link comment skipped — the video is scheduled (it isn't public yet)");
+    return;
+  }
+  // YouTube Short → the full video's link.
+  if (comment && job.shortId) {
+    const c = await commentOnYoutubeVideo({ videoId: job.shortId, text: comment }, cfg);
+    job.notes.push(c.ok ? "Short link comment ✓ (pin it in YouTube)" : `Short link comment ✗ (${c.error})`);
+  }
+  if (!wantReels) return;
+  job.stage = "reels";
+  job.progress = null;
+  let reelUrl = "";
+  try {
+    const short = await getShort();
+    reelUrl = short.url || "";
+    if (!reelUrl) {
+      // Meta fetches the video from a public URL — host the Short on Cloudinary.
+      const { isCloudinaryConfigured, uploadFileToCloudinary } = await import("./cloudinary.js");
+      if (!isCloudinaryConfigured()) throw new Error("media storage (Cloudinary) isn't set up");
+      reelUrl = (await uploadFileToCloudinary(short.path, { resourceType: "video", folder: "mystudyguide/longvideo/reels" })).secure_url;
+    }
+  } catch (e) {
+    job.notes.push(`Reels ✗ (${e?.message || e})`);
+    return;
+  }
+  const caption = [job.title, fullUrl ? `Watch the full video: ${fullUrl}` : "", tags].filter(Boolean).join("\n\n");
+  if (opts.shortToFacebook) {
+    const r = await postReelToFacebookPage({ videoUrl: reelUrl, description: caption }, cfg);
+    if (r.ok) {
+      job.fbReelUrl = `https://www.facebook.com/reel/${r.id}`;
+      let n = "Facebook Reel ✓";
+      if (comment) {
+        const c = await commentOnFacebookPost({ postId: r.id, message: comment }, cfg);
+        n += c.ok ? " · link comment ✓ (pin it on Facebook)" : ` · link comment ✗ (${c.error})`;
+      }
+      job.notes.push(n);
+    } else job.notes.push(`Facebook Reel ✗ (${r.error})`);
+  }
+  if (opts.shortToInstagram) {
+    const r = await postReelToInstagram({ videoUrl: reelUrl, caption }, cfg);
+    if (r.ok) {
+      job.igReelId = r.id;
+      let n = "Instagram Reel ✓";
+      if (comment) {
+        const c = await commentOnInstagramMedia({ mediaId: r.id, message: comment }, cfg);
+        n += c.ok ? " · link comment ✓ (pin it on Instagram)" : ` · link comment ✗ (${c.error})`;
+      }
+      job.notes.push(n);
+    } else job.notes.push(`Instagram Reel ✗ (${r.error})`);
+  }
 }
 
 async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts }) {
@@ -893,7 +977,10 @@ export function queuePublishPreview({ preview, cfg, site, privacy, publishAt = n
   if (!preview || preview.status !== "done" || !preview.publishData || !preview.videoUrl) throw new Error("This preview can't be published — make the preview again.");
   if (preview.publishedJobId) throw new Error("This preview has already been published.");
   const base = preview.publishData.opts || {};
-  const opts = { ...base, toYoutube: options.toYoutube !== false, toFacebook: !!options.toFacebook, asShort: !!options.asShort };
+  const opts = {
+    ...base, toYoutube: options.toYoutube !== false, toFacebook: !!options.toFacebook, asShort: !!options.asShort,
+    shortToFacebook: !!options.shortToFacebook, shortToInstagram: !!options.shortToInstagram, linkComment: options.linkComment !== false,
+  };
   if (!opts.toYoutube && !opts.toFacebook) throw new Error("Choose where to post the video (YouTube and/or Facebook).");
   if (opts.toYoutube && !isYoutubeConfigured(cfg)) throw new Error("Connect YouTube first (YouTube Shorts card) — or untick YouTube.");
   if (opts.toFacebook && !isFacebookConfigured(cfg)) throw new Error("Connect your Facebook Page first — or untick Facebook.");
@@ -960,7 +1047,7 @@ async function runPublish(job, { preview, cfg, site, hashtags, opts }) {
         if (!preview.shortUrl) throw new Error("the preview has no Short");
         const p = await downloadToFile(preview.shortUrl, "mp4");
         temp.push(p);
-        return { path: p, count: preview.shortQuestions || 3 };
+        return { path: p, count: preview.shortQuestions || 3, url: preview.shortUrl }; // already public → Reels use it directly
       },
     });
     job.status = "done";

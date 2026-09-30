@@ -741,3 +741,32 @@ export async function applyYtExtras({ videoId, thumb = null, playlist = null, br
   }
   return notes;
 }
+
+// Post a top-level comment on one of the channel's videos (commentThreads.insert,
+// needs the youtube.force-ssl scope). Used to put the full video's link under
+// the Short. NOTE: the YouTube API cannot PIN a comment — pin it in YouTube
+// Studio / the app (two taps). Returns { ok, id?, error? }; never throws.
+export async function commentOnYoutubeVideo({ videoId, text } = {}, cfg) {
+  if (!isYoutubeConfigured(cfg)) return { ok: false, error: "YouTube is not connected." };
+  const id = String(videoId || "").trim();
+  const msg = String(text || "").trim().slice(0, 10000);
+  if (!id || !msg) return { ok: false, error: "A video id and comment text are both required." };
+  try {
+    const token = await getYtAccessToken(cfg);
+    const res = await ytFetch(`${API}/commentThreads?part=snippet`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ snippet: { videoId: id, topLevelComment: { snippet: { textOriginal: msg } } } }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data?.id) return { ok: true, id: String(data.id) };
+    const reason = data?.error?.errors?.[0]?.reason || "";
+    if (/insufficientPermissions|ACCESS_TOKEN_SCOPE_INSUFFICIENT/i.test(`${reason} ${data?.error?.message || ""}`)) {
+      return { ok: false, error: "needs the comment permission — click Reconnect YouTube once" };
+    }
+    if (/commentsDisabled/i.test(reason)) return { ok: false, error: "comments are turned off on this video" };
+    return { ok: false, error: googleError(data, res.status, "Could not add the comment") };
+  } catch (e) {
+    return { ok: false, error: e?.message || "Could not reach YouTube." };
+  }
+}
