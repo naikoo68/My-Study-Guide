@@ -1987,6 +1987,12 @@ function LongVideoScheduleEditModal({ schedule, onClose, onSaved }) {
   const [videoTitle, setVideoTitle] = useState(lv.title || "");
   const [privacy, setPrivacy] = useState(lv.privacy || "public");
   const [hashtags, setHashtags] = useState(schedule?.hashtags || "");
+  // Saved playlist: "" = the default long-video playlist, "__none__" = none,
+  // or { id, title }. The Short goes into the same playlist.
+  const [playlist, setPlaylist] = useState(
+    lv.playlist === "__none__" ? { id: "__none__", title: "" }
+      : lv.playlist && typeof lv.playlist === "object" && lv.playlist.id ? { id: lv.playlist.id, title: lv.playlist.title || "" }
+        : { id: "", title: "" });
   const [opt, setOpt] = useState({
     toYoutube: o0.toYoutube !== false, asShort: !!o0.asShort, toFacebook: !!o0.toFacebook,
     shortToFacebook: !!o0.shortToFacebook, shortToInstagram: !!o0.shortToInstagram,
@@ -2007,6 +2013,7 @@ function LongVideoScheduleEditModal({ schedule, onClose, onSaved }) {
         title: title.trim(), times: cleanTimes, days, hashtags: hashtags.trim(),
         longVideo: {
           ...lv, title: videoTitle.trim(), privacy,
+          playlist: playlist.id === "__none__" ? "__none__" : playlist.id ? { id: playlist.id, title: playlist.title } : "",
           options: {
             ...o0, ...opt,
             // A Reel is made from the Short, so it needs the Short (and YouTube) on.
@@ -2073,6 +2080,16 @@ function LongVideoScheduleEditModal({ schedule, onClose, onSaved }) {
 
         <label className="mb-1 mt-3 block text-sm font-medium">Video title <span className="font-normal text-slate-400">(blank = the default)</span></label>
         <input className="input" value={videoTitle} maxLength={100} onChange={(e) => setVideoTitle(e.target.value)} />
+
+        {opt.toYoutube && (
+          <div className="mt-3">
+            <label className="mb-1 block text-sm font-medium">YouTube playlist <span className="font-normal text-slate-400">(long video &amp; Short)</span></label>
+            <YtPlaylistPicker value={playlist.id} disabled={busy} noneOption
+              emptyLabel="Default long-video playlist (YouTube settings)"
+              onChange={(id, t) => setPlaylist({ id, title: t })} />
+            <p className="mt-1 text-xs text-slate-400">Pick a playlist, or choose <b>+ New playlist…</b> to create one on your channel.</p>
+          </div>
+        )}
 
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <div>
