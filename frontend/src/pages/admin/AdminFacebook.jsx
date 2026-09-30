@@ -2742,6 +2742,17 @@ function TelegramConnection({ settings, saveSettings }) {
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState(null);
   const [steps, setSteps] = useState(!settings?.tgBotTokenSet);
+  const [found, setFound] = useState(null); // channels the bot is in: [{ id, title, type }]
+  const isInvite = /t(?:elegram)?\.me\/(\+|joinchat\/)/i.test(chat);
+  const findChats = async () => {
+    setBusy("find"); setMsg(null); setFound(null);
+    try {
+      const r = await settingsService.findTelegramChats(token.trim() ? { tgBotToken: token.trim() } : {});
+      setFound(r?.chats || []);
+      if (r?.chats?.length === 1) { setChat(r.chats[0].id); setMsg({ ok: true, text: `Found “${r.chats[0].title}” — tap Save connection.` }); }
+      else if (!r?.chats?.length) setMsg({ ok: false, text: "No channel found yet. Make the bot an admin of the channel, post any message there, then tap Find my channel again." });
+    } catch (e) { setMsg({ ok: false, text: e.message || "Could not look up the channels." }); } finally { setBusy(""); }
+  };
   const save = async () => {
     setBusy("save"); setMsg(null);
     try {
@@ -2756,7 +2767,7 @@ function TelegramConnection({ settings, saveSettings }) {
       setMsg({ ok: true, text: verifyOnly ? `Working — ${r.bot} can post in “${r.chat}”.` : `Sent to “${r.chat}”${r.url ? ` (${r.url})` : ""}. Check your channel.` });
     } catch (e) { setMsg({ ok: false, text: e.message || "Telegram test failed." }); } finally { setBusy(""); }
   };
-  const ready = (token.trim() || settings?.tgBotTokenSet) && chat.trim();
+  const ready = (token.trim() || settings?.tgBotTokenSet) && chat.trim() && !isInvite;
   return (
     <div>
       <p className="flex items-center gap-1.5 font-semibold"><Send className="h-4 w-4 text-[#229ED9]" /> Telegram connection</p>
@@ -2771,7 +2782,21 @@ function TelegramConnection({ settings, saveSettings }) {
         </label>
         <div>
           <label className="mb-1 block text-sm font-medium">Channel / group</label>
-          <input className="input" value={chat} onChange={(e) => setChat(e.target.value)} placeholder="@mystudyguide  or  -1001234567890" />
+          <div className="flex gap-2">
+            <input className="input" value={chat} onChange={(e) => setChat(e.target.value)} placeholder="@mystudyguide  or  -1001234567890" />
+            <button type="button" onClick={findChats} disabled={!!busy || !(token.trim() || settings?.tgBotTokenSet)} className="btn-outline flex-shrink-0 !px-2.5 text-xs" title="Find the channels your bot is an admin of">
+              {busy === "find" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />} Find my channel
+            </button>
+          </div>
+          {isInvite && <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">This is a private <b>invite link</b> — a bot can't post with it. Add the bot to the channel as an admin, then tap <b>Find my channel</b> to fill in its id (-100…).</p>}
+          {found?.length > 1 && (
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {found.map((c) => (
+                <button key={c.id} type="button" onClick={() => { setChat(c.id); setFound(null); setMsg({ ok: true, text: `Picked “${c.title}” — tap Save connection.` }); }}
+                  className="rounded-lg border border-slate-200 px-2 py-1 text-xs hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800">{c.title} <span className="text-slate-400">({c.type})</span></button>
+              ))}
+            </div>
+          )}
         </div>
         <div className="sm:col-span-2">
           <label className="mb-1 flex items-center gap-1.5 text-sm font-medium"><KeyRound className="h-4 w-4 text-slate-400" /> Bot token</label>
@@ -2792,7 +2817,7 @@ function TelegramConnection({ settings, saveSettings }) {
         <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-sm text-slate-600 dark:text-slate-300">
           <li>In Telegram, open <b>@BotFather</b>, send <code>/newbot</code>, choose a name → copy the <b>bot token</b> into the box above.</li>
           <li>Open your channel → <b>Administrators → Add admin</b> → search your bot → allow <b>Post messages</b>.</li>
-          <li>Channel: type its public <b>@username</b> (e.g. <code>@mystudyguide</code>). Private channel / group: its id starting with <code>-100</code>.</li>
+          <li>Public channel: type its <b>@username</b> (e.g. <code>@mystudyguide</code>). <b>Private</b> channel / group: don't use the invite link (<code>t.me/+…</code>) — post any message in the channel, then tap <b>Find my channel</b> and it fills in the id (<code>-100…</code>).</li>
           <li>Tap <b>Save connection</b>, then <b>Send test message</b>.</li>
         </ol>
       )}

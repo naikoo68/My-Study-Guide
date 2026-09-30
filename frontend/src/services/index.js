@@ -338,6 +338,7 @@ export const settingsService = {
   update: (data) => api.put("/settings", data),
   testFacebook: (data) => api.post("/settings/facebook/test", data || {}), // verify/send a test Page post (admin)
   testInstagram: (data) => api.post("/settings/instagram/test", data || {}), // verify/send a test Instagram post (admin)
+  findTelegramChats: (data) => api.post("/settings/telegram/find-chats", data || {}), // → { chats:[{id,title,type}] }
   testTelegram: (data) => api.post("/settings/telegram/test", data || {}), // check the bot + channel / send a test message (admin)
   uploadSelfieWatermark: (file, onProgress) => uploadWithProgress("/settings/selfie-watermark", file, { field: "image", onProgress }),
   deleteSelfieWatermark: () => api.del("/settings/selfie-watermark"),
