@@ -164,3 +164,16 @@ describe("each account has its own history and personal details", () => {
     expect(main.body.recent.map((r) => r.facebookPostId)).toContain("MAIN_POST_1");
   });
 });
+
+describe("old rows without profileId stay with the main account", () => {
+  it("backfill stamps them so the main filter matches on every engine", async () => {
+    const { ensureProfileIdBackfill } = await import("../src/utils/socialProfile.js");
+    await FbSchedule.collection.insertOne({ title: "legacy-sch", enabled: true, times: ["08:00"], mode: "recurring", source: {}, kind: "question" });
+    await ensureProfileIdBackfill({ force: true });
+    const row = await FbSchedule.collection.findOne({ title: "legacy-sch" });
+    expect(row.profileId).toBe("");
+    const main = mkRes();
+    await asAdmin(() => listSchedules({ query: {} }, main));
+    expect(main.body.items.map((s) => s.title)).toContain("legacy-sch");
+  });
+});

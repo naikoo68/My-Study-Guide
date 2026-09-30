@@ -1,4 +1,4 @@
-import { socialSettingsFilter, activeSocialProfileId, runAsSocialProfile, scheduleProfileFilter } from "../utils/socialProfile.js";
+import { socialSettingsFilter, activeSocialProfileId, runAsSocialProfile, scheduleProfileFilter, ensureProfileIdBackfill } from "../utils/socialProfile.js";
 // Facebook / Instagram Graph API helper — verifies page credentials and publishes
 // auto-posts to a connected Facebook page / Instagram account.
 
@@ -2485,6 +2485,7 @@ export async function runDueFbSchedules() {
   // timed posts until the next server restart).
   if (fbTickStartedAt && Date.now() - fbTickStartedAt < FB_TICK_MAX_MS) return;
   fbTickStartedAt = Date.now();
+  await ensureProfileIdBackfill(); // old rows must match the main account's filter on every DB engine
   const stats = { tenants: 0, configured: 0, enabled: 0, due: 0, posted: 0, lastError: "", scheduleTenants: [], defaultTenantId: null, configuredSiteTenants: [] };
   try {
     // Every institute posts to its OWN Facebook page. Find each tenant that has

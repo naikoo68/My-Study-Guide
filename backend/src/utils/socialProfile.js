@@ -46,3 +46,32 @@ export function socialSettingsFilter() {
 export function scheduleProfileFilter(profileId = activeSocialProfileId()) {
   return profileId ? { profileId: String(profileId) } : { profileId: { $in: [null, ""] } };
 }
+
+// Rows saved BEFORE cross-posting existed have NO profileId field. MongoDB's
+// `{ profileId: { $in: [null, ""] } }` matches a missing field, but the Oracle
+// MongoDB-compatible API (used in production) does NOT — so every old schedule
+// and post record vanished from the main account (list, scheduler, history).
+// Stamp them with "" once so the filter matches on every engine. Engine-agnostic
+// (plain find + update by _id), idempotent, and memoized per process.
+let backfillPromise = null;
+export function ensureProfileIdBackfill({ force = false } = {}) {
+  if (force) backfillPromise = null;
+  if (!backfillPromise) {
+    backfillPromise = (async () => {
+      const { runUnscoped } = await import("./tenantContext.js");
+      const models = [(await import("../models/FbSchedule.js")).default, (await import("../models/FbPost.js")).default];
+      let fixed = 0;
+      for (const M of models) {
+        const rows = await runUnscoped(() => M.find({}).select("_id profileId").lean());
+        const ids = (rows || []).filter((r) => typeof r.profileId !== "string").map((r) => r._id);
+        for (let i = 0; i < ids.length; i += 500) {
+          await runUnscoped(() => M.updateMany({ _id: { $in: ids.slice(i, i + 500) } }, { $set: { profileId: "" } }));
+        }
+        fixed += ids.length;
+      }
+      if (fixed) console.log(`[cross-posting] stamped profileId on ${fixed} older schedule/post row(s).`);
+      return fixed;
+    })().catch((e) => { backfillPromise = null; console.warn(`[cross-posting] profileId backfill failed: ${e?.message || e}`); return 0; });
+  }
+  return backfillPromise;
+}
