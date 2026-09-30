@@ -4459,6 +4459,46 @@ export default function AdminFacebook() {
   };
 
   const [lvEdit, setLvEdit] = useState(null); // the long-video schedule being edited
+  // Live progress of long videos being made by a schedule: scheduleId → job
+  // (from the same "Recent long videos" feed). Polled every 5 s while one is
+  // being made, every 30 s otherwise; when one finishes the list reloads so the
+  // row shows the result.
+  const hasLongVideoRows = schedules.some((s) => s.kind === "longvideo");
+  const [lvJobs, setLvJobs] = useState({});
+  const [lvClock, setLvClock] = useState(Date.now());
+  const lvActiveRef = useRef(new Set());
+  useEffect(() => {
+    if (!hasLongVideoRows) return undefined;
+    let stop = false;
+    let t = null;
+    const tick = async () => {
+      let busy = false;
+      try {
+        const r = await youtubeService.longVideos();
+        const map = {};
+        for (const j of r?.jobs || []) {
+          if (j.scheduleId && (j.status === "running" || j.status === "queued") && !map[j.scheduleId]) map[j.scheduleId] = j;
+        }
+        if (stop) return;
+        const now = new Set(Object.keys(map));
+        const finished = [...lvActiveRef.current].some((id) => !now.has(id));
+        lvActiveRef.current = now;
+        setLvJobs(map);
+        if (finished) load();
+        busy = now.size > 0;
+      } catch { /* keep the list usable if the feed fails */ }
+      if (!stop) t = setTimeout(tick, busy ? 5000 : 30000);
+    };
+    tick();
+    return () => { stop = true; clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasLongVideoRows]);
+  const lvBusy = Object.keys(lvJobs).length > 0;
+  useEffect(() => {
+    if (!lvBusy) return undefined;
+    const i = setInterval(() => setLvClock(Date.now()), 1000);
+    return () => clearInterval(i);
+  }, [lvBusy]);
   const toggleEnabled = async (s) => {
     setBusyId(s._id);
     try { await facebookService.update(s._id, { ...s, enabled: !s.enabled }); load(); }
@@ -5171,6 +5211,27 @@ export default function AdminFacebook() {
                         {s.mode !== "once" && <span className="text-slate-400">{s.timezone}</span>}
                       </div>
                       {(rowMsg[s._id] || s.lastResult) && <p className="mt-1 text-xs text-slate-400">{compactScheduleResult(rowMsg[s._id] || s.lastResult)}</p>}
+                      {s.kind === "longvideo" && lvJobs[s._id] && (() => {
+                        const j = lvJobs[s._id];
+                        const pct = Number.isFinite(j.percent) ? Math.max(0, Math.min(100, j.percent)) : 0;
+                        const elapsed = Math.max(0, Math.floor((lvClock - (j.createdAt || lvClock)) / 1000));
+                        const remain = pct > 3 ? Math.round((elapsed * (100 - pct)) / pct) : null;
+                        const mmss = (x) => `${Math.floor(x / 60)}:${String(Math.max(0, x) % 60).padStart(2, "0")}`;
+                        return (
+                          <div className="mt-2 w-full max-w-md rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2 dark:border-amber-900/50 dark:bg-amber-950/20">
+                            <div className="flex items-center justify-between gap-2 text-xs">
+                              <span className="flex items-center gap-1 font-semibold text-amber-700 dark:text-amber-300"><Loader2 className="h-3.5 w-3.5 animate-spin" /> {j.stageLabel || "Making the video"}</span>
+                              <span className="text-lg font-extrabold tabular-nums text-amber-700 dark:text-amber-300">{pct}%</span>
+                            </div>
+                            <div className="mt-1 h-2 overflow-hidden rounded-full bg-amber-100 dark:bg-amber-900/40">
+                              <div className="h-full rounded-full bg-amber-500 transition-all" style={{ width: `${Math.max(2, pct)}%` }} />
+                            </div>
+                            <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                              {mmss(elapsed)} elapsed{remain != null ? ` · about ${mmss(remain)} left` : " · working out the time left…"}
+                            </p>
+                          </div>
+                        );
+                      })()}
                     </div>
                     </div>
                     <div className="flex flex-shrink-0 items-center gap-1">
