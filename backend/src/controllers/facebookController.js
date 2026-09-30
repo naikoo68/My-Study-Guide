@@ -381,6 +381,9 @@ export function pickScheduleFields(body = {}) {
     // A long-video schedule's destinations come from its own settings.
     toFacebook: isLongVideo ? !!longVideo.options.toFacebook : body.toFacebook !== false,
     toInstagram: isLongVideo ? false : !!body.toInstagram,
+    // Telegram: question / flashcard image, Reel / Short / slideshow video, or
+    // for a long video the link to it.
+    toTelegram: isLongVideo ? !!longVideo.options.toTelegram : !!body.toTelegram,
     toYoutube: isLongVideo ? !!longVideo.options.toYoutube : !!body.toYoutube,
     longVideo,
     ytTitle: String(body.ytTitle || "").replace(/[<>]/g, "").trim().slice(0, 90),

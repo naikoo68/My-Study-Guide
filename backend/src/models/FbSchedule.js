@@ -122,6 +122,7 @@ const fbScheduleSchema = new mongoose.Schema(
     // Destinations & format.
     toFacebook: { type: Boolean, default: true }, // post to the Facebook Page
     toInstagram: { type: Boolean, default: false }, // also cross-post to Instagram (forces an image)
+    toTelegram: { type: Boolean, default: false }, // also post to the Telegram channel (image / video / text)
     // Also upload the video to YouTube as a Short (needs a video: Reel, AI
     // Slideshow or a custom video). Title = ytTitle + " #N" (fixed, numbered).
     toYoutube: { type: Boolean, default: false },

@@ -294,6 +294,8 @@ export function normalizeLongVideoOptions(o = {}, site = {}) {
     // The same vertical Short ALSO as a Facebook Reel / Instagram Reel.
     shortToFacebook: !!o.shortToFacebook,
     shortToInstagram: !!o.shortToInstagram,
+    // Telegram: a message with the full video's (and the Short's) link.
+    toTelegram: !!o.toTelegram,
     // Comment the full video's link under the YouTube Short and the Reels.
     linkComment: o.linkComment !== false,
   };
@@ -632,8 +634,26 @@ export function fullVideoComment(url) {
   return url ? `▶ Watch the full video (all questions with answers): ${url}` : "";
 }
 
+// Telegram gets the LINK to the long video (not the file): title, the full
+// video's link (+ the Short's) and the hashtags.
+export function longVideoTelegramText(job, tags = "") {
+  const links = [job.url && `▶ Watch the full video: ${job.url}`, !job.url && job.fbUrl && `▶ Watch the full video: ${job.fbUrl}`, job.shortUrl && `⚡ Short: ${job.shortUrl}`].filter(Boolean);
+  return [job.title, links.join("\n"), tags].filter(Boolean).join("\n\n");
+}
+
 async function postShortReelsAndLinks(job, { cfg, opts, tags, getShort, scheduled }) {
   const fullUrl = job.url || job.fbUrl || "";
+  if (opts.toTelegram) {
+    const { telegramReady } = await import("./facebook.js");
+    if (!telegramReady(cfg)) job.notes.push("Telegram ✗ (not connected)");
+    else if (!fullUrl) job.notes.push("Telegram ✗ (no video link to share)");
+    else if (scheduled) job.notes.push("Telegram skipped — the video is scheduled (the link isn't public yet)");
+    else {
+      const { sendTelegramMessage } = await import("./telegram.js");
+      const r = await sendTelegramMessage({ text: longVideoTelegramText(job, tags) }, cfg);
+      job.notes.push(r.ok ? "Telegram link ✓" : `Telegram ✗ (${r.error})`);
+    }
+  }
   const comment = opts.linkComment !== false ? fullVideoComment(fullUrl) : "";
   const wantReels = (opts.shortToFacebook || opts.shortToInstagram) && isFacebookConfigured(cfg);
   if ((opts.shortToFacebook || opts.shortToInstagram) && !isFacebookConfigured(cfg)) job.notes.push("Reels ✗ (connect Facebook first)");
@@ -986,6 +1006,7 @@ export function queuePublishPreview({ preview, cfg, site, privacy, publishAt = n
   const opts = {
     ...base, toYoutube: options.toYoutube !== false, toFacebook: !!options.toFacebook, asShort: !!options.asShort,
     shortToFacebook: !!options.shortToFacebook, shortToInstagram: !!options.shortToInstagram, linkComment: options.linkComment !== false,
+    toTelegram: !!options.toTelegram,
   };
   if (!opts.toYoutube && !opts.toFacebook) throw new Error("Choose where to post the video (YouTube and/or Facebook).");
   if (opts.toYoutube && !isYoutubeConfigured(cfg)) throw new Error("Connect YouTube first (YouTube Shorts card) — or untick YouTube.");
