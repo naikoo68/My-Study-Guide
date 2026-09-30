@@ -3,15 +3,14 @@
 // rule text sent ONCE per call instead of once per question. Pure — unit-tested.
 
 // Questions per call — two modes, chosen in the Extend / Regenerate dialog:
-//  "spread" (default) — EXACTLY like question generation: ceil(total / keys),
-//                        1 to 12 per call, so every key gets work. A small quiz
-//                        uses many keys with 1–2 questions each; a big one
-//                        (29 keys × 12 = 348+) gets 12 per call on every key.
-//  "max"              — always 12 per call (fewer, bigger requests; on a small
-//                        quiz only a few keys are needed).
+//  "max" (default) — fill each request up to 12: 26 questions → 12 + 12 + 2,
+//                     sent to 3 fresh keys at the same time. A key that hits a
+//                     rate limit hands its questions to another fresh key.
+//  "spread"        — ceil(total / keys), 1 to 12 per call, so every key gets
+//                     a small share (26 questions on 29 keys → 1 each).
 export const REWRITE_MAX_CHUNK = 12;
 export const BATCH_MODES = ["spread", "max"];
-export function rewriteChunkSize(total, keyCount, mode = "spread") {
+export function rewriteChunkSize(total, keyCount, mode = "max") {
   if (mode === "max") return REWRITE_MAX_CHUNK;
   const n = Math.ceil(Math.max(1, Number(total) || 1) / Math.max(1, Number(keyCount) || 1));
   return Math.max(1, Math.min(REWRITE_MAX_CHUNK, n));

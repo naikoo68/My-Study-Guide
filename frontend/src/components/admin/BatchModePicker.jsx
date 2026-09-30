@@ -1,6 +1,6 @@
 // How many questions go in each AI request for the bulk Extend / Regenerate
-// jobs. "spread" works exactly like question generation (all keys get work,
-// up to 12 per request); "max" always packs 12 per request.
+// jobs. "max" (default) fills each request up to 12 and runs them on fresh
+// keys at once; "spread" gives every key a small share.
 import { BATCH_MODE_KEY } from "./batchMode";
 
 export default function BatchModePicker({ value, onChange, disabled, total = 0, keys = 0 }) {
@@ -26,8 +26,8 @@ export default function BatchModePicker({ value, onChange, disabled, total = 0, 
     <div className="mt-3">
       <p className="mb-1 text-sm font-medium">Questions per request</p>
       <div className="grid gap-2">
-        {opt("spread", "Like question generation (all keys)", `spreads the questions over every key, up to 12 per request. Fastest for most quizzes${hint(spreadPer)}.`)}
-        {opt("max", "12 per request", `always packs 12 questions into each request, so fewer keys are needed on a small quiz${hint(12)}.`)}
+        {opt("max", "Up to 12 per request", `fills each request with up to 12 questions (e.g. 26 → 12 + 12 + 2) and sends them to fresh keys at the same time; if a key is rate limited, its questions move to another fresh key${hint(12)}.`)}
+        {opt("spread", "Spread over all keys", `gives every key a small share (up to 12 each)${hint(spreadPer)}.`)}
       </div>
     </div>
   );
