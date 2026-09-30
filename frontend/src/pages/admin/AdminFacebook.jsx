@@ -3798,7 +3798,7 @@ function FullQuizVideoForm({ st, onStatus }) {
             settingKey="longVideoAnswerTemplateUrl" settings={settings} saveSettings={saveSettings} />
         )}
       </div>
-      {st?.connected && (
+      {st && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button type="button" onClick={hideAllSlideText} disabled={hidingText || allSlideTextHidden} className="btn-outline text-sm">
             {hidingText ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -3808,7 +3808,7 @@ function FullQuizVideoForm({ st, onStatus }) {
           {hideMsg && <span className={`w-full text-xs font-medium ${hideMsg.ok ? "text-emerald-600" : "text-rose-600"}`}>{hideMsg.text}</span>}
         </div>
       )}
-      {st?.connected && (
+      {st && (
         <div key={slideEdRev} className="mt-3 space-y-3">
           <SlideTextEditor role="intro" title="Intro slide" note="Opening title (subject / topic · “Let's begin”)."
             settingKey="longVideoIntroText" templateKey="longVideoIntroTemplateUrl" initial={st.introText} onSaved={onStatus} ttsEngine={provider} ttsVoice={voiceValue} />
@@ -3891,7 +3891,7 @@ function FullQuizVideoForm({ st, onStatus }) {
               <label className="mb-1 block text-sm font-medium">YouTube playlist (folder)</label>
               {st?.connected
                 ? <YtPlaylistPicker value={playlist.id} onChange={(id, t) => setPlaylist({ id, title: t })} emptyLabel={defaultPlaylistLabel(st)} noneOption={!!st?.longPlaylist?.id} />
-                : <p className="text-xs text-slate-400">Connect YouTube first.</p>}
+                : <p className="text-xs text-slate-400">Playlists appear here after you click <b>Connect YouTube</b> in the YouTube Shorts card (they're read from the channel).</p>}
             </div>
           </>
         )}
@@ -3903,9 +3903,9 @@ function FullQuizVideoForm({ st, onStatus }) {
 
       {/* Thumbnail — upload the template ONCE; the text is filled in per video */}
       <p className="mb-1 mt-4 text-sm font-medium">Thumbnail</p>
-      {st?.connected
+      {st
         ? <YtThumbnailTemplateEditor st={st} onSaved={onStatus} />
-        : <p className="text-xs text-slate-400">Connect YouTube first (YouTube Shorts card).</p>}
+        : <p className="flex items-center gap-1 text-xs text-slate-400"><Loader2 className="h-3 w-3 animate-spin" /> Loading…</p>}
       {thumbReady(st) && (
         <label className="mt-2 flex items-center gap-2 text-sm">
           <input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={useThumb} onChange={(e) => setUseThumb(e.target.checked)} />
@@ -4246,10 +4246,10 @@ function OwnVideoUploadForm({ st, onStatus }) {
           <label className="mb-1 block text-sm font-medium">Playlist (folder)</label>
           {st?.connected
             ? <YtPlaylistPicker value={playlist.id} disabled={busy} onChange={(id, t) => setPlaylist({ id, title: t })} emptyLabel={defaultPlaylistLabel(st)} noneOption={!!st?.longPlaylist?.id} />
-            : <p className="text-xs text-slate-400">Connect YouTube first.</p>}
+            : <p className="text-xs text-slate-400">Playlists appear here after you click <b>Connect YouTube</b> in the YouTube Shorts card (they're read from the channel).</p>}
         </div>
       </div>
-      {st?.connected && !thumb && (
+      {st && !thumb && (
         <details className="mt-3">
           <summary className="cursor-pointer text-sm font-medium text-slate-600 dark:text-slate-300">Thumbnail template (upload once, used for every long video)</summary>
           <YtThumbnailTemplateEditor st={st} onSaved={onStatus} />
