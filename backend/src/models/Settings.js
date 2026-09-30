@@ -112,6 +112,10 @@ const settingsSchema = new mongoose.Schema(
     // NOT globally unique anymore: each tenant has its own "site" settings doc.
     // Uniqueness is enforced per-tenant by the compound index defined below.
     key: { type: String, default: "site" },
+    // Cross-posting USER (another person's social accounts) — see
+    // utils/socialProfile.js. The main site doc has socialProfile=false.
+    socialProfile: { type: Boolean, default: false },
+    profileName: { type: String, default: "" },
     // One-time migration flag: existing test series were made private-by-default.
     testsPrivatized: { type: Boolean, default: false },
     // One-time migration flag: existing client accounts were granted AI access

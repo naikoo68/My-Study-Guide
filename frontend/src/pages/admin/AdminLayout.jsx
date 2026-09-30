@@ -19,6 +19,7 @@ import {
   ArrowRightLeft,
   Share2,
   Send,
+  UsersRound,
   MonitorCheck,
   SearchCheck,
   BookOpen,
@@ -78,6 +79,7 @@ const nav = [
   { to: "/admin/messages", label: "Messages", icon: Mail, feature: "messages" },
   { to: "/admin/notices", label: "Notice Board", icon: Megaphone, feature: "notices" },
   { to: "/admin/facebook", label: "Social Media Auto Posting", icon: Send, feature: "facebook" },
+  { to: "/admin/cross-posting", label: "Cross-posting", icon: UsersRound, feature: "facebook" },
   { to: "/admin/ai-generator", label: "AI Generator", icon: Sparkles, feature: "aiGenerator" },
   { to: "/admin/visualize", label: "Visualization Studio", icon: LayoutGrid, feature: "visualize" },
   { to: "/admin/ai-keys", label: "AI Keys (APIs)", icon: KeyRound, feature: "aiKeys" }, // institute admins manage their OWN keys (tenant-scoped); super-admin manages platform keys

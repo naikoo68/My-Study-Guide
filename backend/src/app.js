@@ -67,6 +67,8 @@ import instituteSignupRoutes from "./routes/instituteSignupRoutes.js";
 import cbtRoutes from "./routes/cbtRoutes.js";
 import facebookRoutes from "./routes/facebookRoutes.js";
 import youtubeRoutes from "./routes/youtubeRoutes.js";
+import socialProfileRoutes from "./routes/socialProfileRoutes.js";
+import { socialProfileMiddleware } from "./utils/socialProfile.js";
 import userManualRoutes from "./routes/userManualRoutes.js";
 import backupRoutes from "./routes/backupRoutes.js";
 import recycleBinRoutes from "./routes/recycleBinRoutes.js";
@@ -272,7 +274,7 @@ app.use("/api", analyticsRoutes); // /admin/analytics, /me/dashboard, /leaderboa
 app.use("/api", storageRoutes); // /admin/storage — DB usage + old-attempt cleanup (admin)
 app.use("/api/upload", uploadRoutes);
 app.use("/api/setup", setupRoutes); // one-time bootstrap (auto-disabled after first admin)
-app.use("/api/settings", settingsRoutes); // site branding & theme (public read, admin write)
+app.use("/api/settings", socialProfileMiddleware, settingsRoutes); // site branding & theme (public read, admin write)
 app.use("/api/messages", messageRoutes); // contact-form inbox
 app.use("/api", examRoutes); // /exams, /exams/:id/posts, /posts
 app.use("/api", studyRoutes); // study material: institutions → subjects → classes → files
@@ -294,8 +296,9 @@ app.use("/api/tenants", tenantRoutes); // multi-tenant SaaS: super-admin managem
 app.use("/api/institute-share", instituteShareRoutes); // super-admin: COPY platform content into institute accounts
 app.use("/api/institute-signup", instituteSignupRoutes); // public paid institute self-signup → auto-provision (Phase 5)
 app.use("/api/cbt", cbtRoutes); // CBT online exams (public name+email sign-in, emailed results, admin rankings)
-app.use("/api/facebook", facebookRoutes); // scheduled Facebook question auto-posting (admin)
-app.use("/api/youtube", youtubeRoutes); // YouTube Shorts auto-post connection (admin) + OAuth callback
+app.use("/api/facebook", socialProfileMiddleware, facebookRoutes); // scheduled Facebook question auto-posting (admin)
+app.use("/api/youtube", socialProfileMiddleware, youtubeRoutes); // YouTube Shorts auto-post connection (admin) + OAuth callback
+app.use("/api/social-profiles", socialProfileRoutes); // cross-posting users (admin)
 app.use("/api/manual", userManualRoutes); // editable User Manual (public read, admin write)
 
 // Rich social preview for a shared quiz/test link (WhatsApp/Facebook crawlers).

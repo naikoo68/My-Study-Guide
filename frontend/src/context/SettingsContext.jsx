@@ -128,6 +128,28 @@ export function SettingsProvider({ children }) {
   );
 }
 
+// Settings for a CROSS-POSTING USER's page: the same { settings, save, loaded }
+// shape, but loaded from / saved to that user's own settings (the API adds the
+// X-Social-Profile header) and NEVER applied to the site's theme/branding or
+// its local cache. Wrap the Social Media Auto Posting screen in it.
+export function ScopedSettingsProvider({ children }) {
+  const [settings, setSettings] = useState(() => withDefaults({}));
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    settingsService.get().then((s) => setSettings(withDefaults(s))).catch(() => {}).finally(() => setLoaded(true));
+  }, []);
+  const save = async (patch) => {
+    const updated = await settingsService.update(patch);
+    setSettings(withDefaults(updated));
+    return updated;
+  };
+  return (
+    <SettingsContext.Provider value={{ settings, save, loaded }}>
+      {children}
+    </SettingsContext.Provider>
+  );
+}
+
 // eslint-disable-next-line react-refresh/only-export-components
 export function useSettings() {
   return useContext(SettingsContext);

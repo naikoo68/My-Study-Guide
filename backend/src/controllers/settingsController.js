@@ -1,3 +1,4 @@
+import { activeSocialProfileId, runAsSocialProfile } from "../utils/socialProfile.js";
 import Settings from "../models/Settings.js";
 import { cleanTgChat, verifyTelegram, sendTelegramMessage, findTelegramChats, isTgInviteLink, TG_INVITE_HELP } from "../config/telegram.js";
 import Tenant from "../models/Tenant.js";
@@ -44,7 +45,20 @@ export function cleanTenantSeed(instituteName) {
 // institute's (near-empty) settings, so branding, social links, contacts,
 // platform statistics and the home layout all went missing. Here we pick the
 // right doc explicitly: current tenant → default tenant → tenant-less → any.
+// A cross-posting user's own settings doc (X-Social-Profile header). Throws
+// when the id isn't a profile of this institute, so a bad id can NEVER fall
+// through to — and edit — the main site's settings.
+async function findActiveProfileDoc() {
+  const pid = activeSocialProfileId();
+  if (!pid) return null;
+  const doc = await Settings.findOne({ _id: pid, socialProfile: true });
+  if (!doc) { const e = new Error("Cross-posting user not found."); e.status = 404; throw e; }
+  return doc;
+}
+
 async function findSite() {
+  const profile = await findActiveProfileDoc();
+  if (profile) return profile;
   const tenantId = getCurrentTenantId();
   if (tenantId) {
     const s = await Settings.findOne({ key: "site", tenantId });
@@ -85,6 +99,8 @@ async function getOrCreate() {
 // resolve/create the caller's OWN doc and save() it, which the plugin stamps to
 // the right tenant instead of filtering away.
 export async function getOrCreateOwn() {
+  const profile = await findActiveProfileDoc();
+  if (profile) return profile;
   const tenantId = getCurrentTenantId();
   if (tenantId) {
     const mine = await Settings.findOne({ key: "site", tenantId });
@@ -128,6 +144,10 @@ function safeSettings(s) {
 
 // GET /api/settings — public (frontend reads this to brand/theme itself)
 export async function getSettings(req, res) {
+  // GET /settings is public; a cross-posting user's settings are admin-only.
+  if (activeSocialProfileId() && req.user?.role !== "admin") {
+    return runAsSocialProfile("", () => getSettings(req, res));
+  }
   const doc = await getOrCreate();
   // SELF-HEAL a logo corrupted by the old round-trip bug. That bug could store
   // the logo as its OWN /api/settings/logo proxy URL — a self-referential link
