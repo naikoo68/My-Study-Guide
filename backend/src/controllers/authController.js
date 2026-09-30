@@ -619,6 +619,22 @@ export async function login(req, res) {
 // We verify it against Google's public tokeninfo endpoint (or certs) so a forged
 // request cannot log in as any email. Falls back to the old { email, name, googleId }
 // body ONLY in development for testing convenience.
+// The Google OAuth Client IDs whose ID tokens we accept: GOOGLE_CLIENT_ID (may
+// be a comma-separated list), the site's own Client ID (Admin settings), and the
+// built-in one the website uses by default (frontend SettingsContext). Only
+// OUR app's IDs — a token minted for anyone else's app is still refused.
+export const BUILTIN_GOOGLE_CLIENT_ID = "127205537308-lic1g1e6lvk03ee4qe3ch75k9effenl0.apps.googleusercontent.com";
+async function allowedGoogleClientIds() {
+  const ids = new Set(String(process.env.GOOGLE_CLIENT_ID || "").split(",").map((x) => x.trim()).filter(Boolean));
+  ids.add(BUILTIN_GOOGLE_CLIENT_ID);
+  try {
+    const Settings = (await import("../models/Settings.js")).default;
+    const sites = await runUnscoped(() => Settings.find({ key: "site", googleClientId: { $nin: ["", null] } }).select("googleClientId").lean());
+    for (const x of sites || []) if (x.googleClientId) ids.add(String(x.googleClientId).trim());
+  } catch { /* env + built-in still apply */ }
+  return ids;
+}
+
 export async function googleLogin(req, res) {
   const { credential } = req.body;
 
@@ -637,15 +653,15 @@ export async function googleLogin(req, res) {
       // Google OAuth client could be replayed here to log in as its email).
       // GOOGLE_CLIENT_ID is REQUIRED: if it isn't configured we refuse rather
       // than skip the check, so a misconfiguration can never open this hole.
-      const expectedClientId = process.env.GOOGLE_CLIENT_ID;
-      if (!expectedClientId) {
-        console.error("[google-login] GOOGLE_CLIENT_ID is not set — refusing to trust Google tokens.");
-        return res.status(500).json({ message: "Google login is not configured on the server." });
-      }
-      if (payload.aud !== expectedClientId) {
+      const allowed = await allowedGoogleClientIds();
+      if (!allowed.has(String(payload.aud || ""))) {
+        console.error(`[google-login] token for an unknown Google Client ID (${payload.aud}) — add it to GOOGLE_CLIENT_ID.`);
         return res.status(401).json({ message: "Google token audience mismatch." });
       }
-      if (!payload.email || payload.email_verified === "false") {
+      if (payload.iss && !/^(https:\/\/)?accounts\.google\.com$/.test(String(payload.iss))) {
+        return res.status(401).json({ message: "Google token issuer mismatch." });
+      }
+      if (!payload.email || !(payload.email_verified === true || payload.email_verified === "true")) {
         return res.status(401).json({ message: "Google account email not verified." });
       }
       email = norm(payload.email);
@@ -670,10 +686,26 @@ export async function googleLogin(req, res) {
 
   let user = await runUnscoped(() => User.findOne({ email }));
   if (!user) {
-    user = await User.create({ name, email, googleId, avatar, isEmailVerified: true });
+    // First Google sign-in = sign-up (Google has already verified the email).
+    user = await User.create({ name: name || email.split("@")[0], email, googleId, avatar, isEmailVerified: true });
     notifyNewUser(user); // notify admin of the new registration (fire-and-forget)
+  } else {
+    // Same checks as email login.
+    if (user.status === "blocked") return res.status(403).json({ message: "Account blocked" });
+    if (user.deleted) return res.status(403).json({ message: "This account has been deleted. Please contact the administrator." });
+    if (user.expiresAt && user.expiresAt.getTime() < Date.now()) {
+      return res.status(403).json({ message: "This temporary account has expired. Please contact the administrator." });
+    }
+    if (await tenantSuspended(user)) return res.status(403).json({ message: SUSPENDED_INSTITUTE_MESSAGE });
+    // An existing email account signing in with Google: Google proved they own
+    // the address, so mark it verified and remember the Google id / photo.
+    let changed = false;
+    if (!user.isEmailVerified) { user.isEmailVerified = true; changed = true; }
+    if (googleId && !user.googleId) { user.googleId = googleId; changed = true; }
+    if (avatar && !user.avatar) { user.avatar = avatar; changed = true; }
+    if (changed) await user.save().catch(() => {});
   }
-  res.json({ user: sanitize(user), token: generateToken(user._id, user.tokenVersion) });
+  res.json({ user: { ...sanitize(user), tenant: await tenantInfo(user.tenantId) }, token: generateToken(user._id, user.tokenVersion) });
 }
 
 // GET /api/auth/verify-email/:token — DEPRECATED: the app uses OTP-based

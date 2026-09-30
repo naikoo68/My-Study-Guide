@@ -14,19 +14,19 @@ export const DRIVE_FOLDER_NAME = "My Study Guide Backups";
 
 // ---- Load Google Identity Services (once) ----
 let gisPromise = null;
-function loadGis() {
+export function loadGis() {
   if (gisPromise) return gisPromise;
   gisPromise = new Promise((resolve, reject) => {
-    if (window.google?.accounts?.oauth2) return resolve();
+    if (window.google?.accounts?.oauth2 || window.google?.accounts?.id) return resolve();
     const s = document.createElement("script");
     s.src = "https://accounts.google.com/gsi/client";
     s.async = true;
     s.defer = true;
     s.onload = () => {
-      if (window.google?.accounts?.oauth2) resolve();
+      if (window.google?.accounts?.oauth2 || window.google?.accounts?.id) resolve();
       else reject(new Error("Google sign-in could not start. Please try again."));
     };
-    s.onerror = () => reject(new Error("Couldn't reach Google. Please check your internet connection and try again."));
+    s.onerror = () => { gisPromise = null; reject(new Error("Couldn't reach Google. Please check your internet connection and try again.")); };
     document.head.appendChild(s);
   });
   return gisPromise;

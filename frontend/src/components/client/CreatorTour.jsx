@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { zoomedRect, viewportWidth, viewportHeight } from "../../lib/pageZoom";
 import { useAuth } from "../../context/AuthContext";
 import { authService, practiceService } from "../../services";
 
@@ -104,7 +105,7 @@ export default function CreatorTour({ tab, menuOpen }) {
         }
       }
       if (el) {
-        const r = el.getBoundingClientRect();
+        const r = zoomedRect(el.getBoundingClientRect()); // page pixels (site zoom)
         setRect({ top: r.top, left: r.left, width: r.width, height: r.height });
       } else {
         setRect(null);
@@ -137,9 +138,9 @@ export default function CreatorTour({ tab, menuOpen }) {
   const total = STEPS.length;
   const pad = 6;
   // Tooltip sits below the target when there's room, otherwise above.
-  const below = rect ? rect.top + rect.height + 90 < window.innerHeight : true;
+  const below = rect ? rect.top + rect.height + 90 < viewportHeight() : true;
   const tipTop = rect ? (below ? rect.top + rect.height + pad + 10 : rect.top - pad - 56) : 0;
-  const tipLeft = rect ? Math.max(12, Math.min(rect.left, window.innerWidth - 268)) : 0;
+  const tipLeft = rect ? Math.max(12, Math.min(rect.left, viewportWidth() - 268)) : 0;
 
   return (
     <>

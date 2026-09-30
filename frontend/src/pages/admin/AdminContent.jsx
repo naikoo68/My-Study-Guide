@@ -1627,7 +1627,7 @@ export default function AdminContent() {
       {/* Scan missing areas — coverage report across all quizzes in this topic */}
       {scanOpen && (
         <div className={`fixed inset-0 z-50 flex justify-center overflow-y-auto bg-black/50 ${scanFull ? "items-stretch p-2 sm:p-4" : "items-start p-4"}`} onClick={() => setScanOpen(false)}>
-          <div className={`card flex flex-col p-6 ${scanFull ? "m-0 h-full w-full max-w-none" : "my-8 max-h-[calc(100vh-4rem)] w-full max-w-lg"}`} onClick={(e) => e.stopPropagation()}>
+          <div className={`card flex flex-col p-6 ${scanFull ? "m-0 h-full w-full max-w-none" : "my-8 max-h-screen-nav w-full max-w-lg"}`} onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 flex items-center justify-between">
               <h3 className="flex items-center gap-2 text-lg font-bold">
                 <ScanSearch className="h-5 w-5 text-brand-600" /> Missing areas{scanTopic ? ` — ${scanTopic}` : ""}

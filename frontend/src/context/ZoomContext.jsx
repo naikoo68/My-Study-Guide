@@ -1,18 +1,21 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { useSettings } from "./SettingsContext";
+import { applyPageZoom } from "../lib/pageZoom";
 
 const ZoomContext = createContext();
 const MIN = 0.5;
 const MAX = 2;
 const DEFAULT = 0.8; // fallback page zoom (80%) if no admin default is set
-const KEY = "msg-zoom-v2";
+// v3: the zoom now scales the WHOLE page (CSS zoom) instead of only rem sizes,
+// so choices saved by the old method are not reused.
+const KEY = "msg-zoom-v3";
 
 const clamp = (v) => Math.min(MAX, Math.max(MIN, +(+v).toFixed(2)));
 
 // Site-wide zoom. A visitor's own choice (stored in localStorage) always wins;
-// otherwise the admin-configured default zoom (Settings) is applied. The chosen
-// level scales the root font-size so the whole rem-based layout zooms — this
-// also works correctly inside full-screen quiz/test screens and on iOS Safari.
+// otherwise the admin-configured default zoom (Settings) is applied. Applied as
+// CSS `zoom` on <html> (lib/pageZoom.js) so EVERYTHING scales, like the
+// browser's own zoom — desktop, Android, iOS and in-app browsers.
 export function ZoomProvider({ children }) {
   const { settings } = useSettings();
 
@@ -37,7 +40,7 @@ export function ZoomProvider({ children }) {
 
   // Reflect the current zoom on the document.
   useEffect(() => {
-    document.documentElement.style.fontSize = `${Math.round(zoom * 100)}%`;
+    applyPageZoom(zoom);
   }, [zoom]);
 
   // Persist only when the visitor deliberately changes the zoom.

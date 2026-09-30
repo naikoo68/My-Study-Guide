@@ -6,7 +6,8 @@ export default function useElementWidth(ref) {
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return undefined;
-    const update = () => setW(el.getBoundingClientRect().width);
+    // offsetWidth = the width in the page's own CSS pixels (correct under the site zoom).
+    const update = () => setW(el.offsetWidth);
     update();
     const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(update) : null;
     ro?.observe(el);

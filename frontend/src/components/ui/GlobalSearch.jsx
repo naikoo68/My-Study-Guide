@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { zoomedRect } from "../../lib/pageZoom";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { Search, X, Loader2 } from "lucide-react";
@@ -50,7 +51,7 @@ export default function GlobalSearch({
 
   const measure = useCallback(() => {
     if (!boxRef.current) return;
-    const r = boxRef.current.getBoundingClientRect();
+    const r = zoomedRect(boxRef.current.getBoundingClientRect()); // page pixels (site zoom)
     setRect({ left: r.left, top: r.bottom + 6, width: r.width });
   }, []);
 
