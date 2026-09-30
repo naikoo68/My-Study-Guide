@@ -1988,7 +1988,7 @@ function LongVideoScheduleEditModal({ schedule, onClose, onSaved }) {
   const [privacy, setPrivacy] = useState(lv.privacy || "public");
   const [hashtags, setHashtags] = useState(schedule?.hashtags || "");
   // Saved playlist: "" = the default long-video playlist, "__none__" = none,
-  // or { id, title }. The Short goes into the same playlist.
+  // or { id, title }. Only the long video goes in it — the Short gets no playlist.
   const [playlist, setPlaylist] = useState(
     lv.playlist === "__none__" ? { id: "__none__", title: "" }
       : lv.playlist && typeof lv.playlist === "object" && lv.playlist.id ? { id: lv.playlist.id, title: lv.playlist.title || "" }
@@ -2083,7 +2083,7 @@ function LongVideoScheduleEditModal({ schedule, onClose, onSaved }) {
 
         {opt.toYoutube && (
           <div className="mt-3">
-            <label className="mb-1 block text-sm font-medium">YouTube playlist <span className="font-normal text-slate-400">(long video &amp; Short)</span></label>
+            <label className="mb-1 block text-sm font-medium">YouTube playlist <span className="font-normal text-slate-400">(long video only — the Short is not added)</span></label>
             <YtPlaylistPicker value={playlist.id} disabled={busy} noneOption
               emptyLabel="Default long-video playlist (YouTube settings)"
               onChange={(id, t) => setPlaylist({ id, title: t })} />

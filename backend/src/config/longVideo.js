@@ -602,7 +602,8 @@ async function uploadRendered(job, { cfg, opts, filePath, description, tags, thu
         if (s.ok) {
           job.shortUrl = s.url;
           job.shortId = s.id;
-          if (job.playlist) await applyYtExtras({ videoId: s.id, playlist: job.playlist }, cfg);
+          // The Short is NOT added to the long video's playlist — that playlist
+          // is for full videos only (a Short there sat next to its own full video).
           job.notes.push(`Short ✓ (${s.url})`);
         } else {
           job.notes.push(`Short ✗ (${s.error})`);

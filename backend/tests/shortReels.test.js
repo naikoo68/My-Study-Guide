@@ -66,3 +66,16 @@ describe("the Short also as Facebook + Instagram Reels, with the full video's li
     expect(done.notes.join(" ")).toMatch(/Reels skipped/);
   });
 });
+
+describe("playlists", () => {
+  it("adds only the long video to the playlist — never the Short", async () => {
+    const yt = await import("../src/config/youtube.js");
+    yt.applyYtExtras.mockClear();
+    const p = preview("pl1");
+    const j = queuePublishPreview({ preview: p, cfg: {}, site: {}, options: { toYoutube: true, asShort: true }, playlist: { id: "PLabcdefghij", title: "Env" } });
+    await waitDone(j.id);
+    const ids = yt.applyYtExtras.mock.calls.map((c) => c[0].videoId);
+    expect(ids).toContain("vid1");     // the long video IS added
+    expect(ids).not.toContain("vid2"); // vid2 = the Short
+  });
+});
