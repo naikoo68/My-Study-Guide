@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Users, Plus, Pencil, Trash2, Loader2, ArrowLeft, ChevronRight, Check, X, Send, CalendarClock } from "lucide-react";
+import { Users, Plus, Pencil, Trash2, Loader2, ArrowLeft, ChevronRight, Check, X, Send, CalendarClock, Copy } from "lucide-react";
 import { socialProfileService } from "../../services";
 import { setActiveSocialProfile } from "../../lib/api";
 import { ScopedSettingsProvider } from "../../context/SettingsContext";
@@ -27,6 +27,8 @@ function ProfileList() {
   const [busy, setBusy] = useState("");
   const [editId, setEditId] = useState("");
   const [editName, setEditName] = useState("");
+  const [copyNew, setCopyNew] = useState(true); // new user starts as a copy of your settings
+  const [copyNewSch, setCopyNewSch] = useState(false);
 
   const load = () => socialProfileService.list().then((r) => setList(r?.profiles || [])).catch((e) => { setList([]); setErr(e.message); });
   useEffect(() => { load(); }, []);
@@ -34,7 +36,11 @@ function ProfileList() {
   const add = async () => {
     if (!name.trim()) return;
     setBusy("add"); setErr("");
-    try { await socialProfileService.create(name.trim()); setName(""); setAdding(false); await load(); }
+    try {
+      const r = await socialProfileService.create(name.trim());
+      if (copyNew && r?.profile?.id) await socialProfileService.copyFromMain(r.profile.id, { schedules: copyNewSch });
+      setName(""); setAdding(false); await load();
+    }
     catch (e) { setErr(e.message); } finally { setBusy(""); }
   };
   const rename = async (id) => {
@@ -73,6 +79,16 @@ function ProfileList() {
               {busy === "add" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Add
             </button>
             <button type="button" onClick={() => { setAdding(false); setName(""); }} className="btn-outline"><X className="h-4 w-4" /></button>
+            <label className="flex w-full items-center gap-2 text-sm">
+              <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={copyNew} onChange={(e) => setCopyNew(e.target.checked)} />
+              Start with a <b>copy of everything</b> from my Social Media Auto Posting <span className="text-slate-400">(not my Facebook / Instagram / YouTube / Telegram connections)</span>
+            </label>
+            {copyNew && (
+              <label className="flex w-full items-center gap-2 pl-6 text-sm">
+                <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={copyNewSch} onChange={(e) => setCopyNewSch(e.target.checked)} />
+                Also copy my schedules <span className="text-slate-400">(they start fresh — nothing posted yet)</span>
+              </label>
+            )}
           </div>
         )}
         {err && <p className="mt-3 text-sm text-rose-600">{err}</p>}
@@ -114,7 +130,45 @@ function ProfileList() {
 }
 
 // One user's own Social Media Auto Posting screen.
+function CopyFromMainBox({ id, onCopied }) {
+  const [open, setOpen] = useState(false);
+  const [withSch, setWithSch] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const run = async () => {
+    if (!window.confirm("Copy everything from your Social Media Auto Posting into this user? Their current settings (comments, templates, slide texts, thumbnail, watermarks, music, hashtags, narration…) are replaced. Their connected accounts stay as they are.")) return;
+    setBusy(true); setMsg(null);
+    try {
+      const r = await socialProfileService.copyFromMain(id, { schedules: withSch });
+      setMsg({ ok: true, text: `Copied ✓${withSch ? ` · ${r.schedulesCopied} schedule(s) copied${r.schedulesSkipped ? `, ${r.schedulesSkipped} already copied earlier` : ""}` : ""}` });
+      setOpen(false);
+      onCopied?.();
+    } catch (e) { setMsg({ ok: false, text: e.message }); } finally { setBusy(false); }
+  };
+  return (
+    <div className="w-full">
+      {!open
+        ? <button type="button" onClick={() => setOpen(true)} className="btn-outline !py-1.5"><Copy className="h-4 w-4" /> Copy everything from my Social Media Auto Posting</button>
+        : (
+          <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm dark:border-slate-700 dark:bg-slate-900">
+            <p>Copies <b>all</b> your options — auto-comments, Instagram comments, mentions, hashtags, watermarks, flashcard &amp; slide templates, intro / end slide texts, thumbnail template, Reel music, narration, social links, notifications and your Google app (Client ID). <b>Not copied:</b> your Facebook Page &amp; token, Instagram, Telegram bot/channel, extra Pages and YouTube channel/playlists — this user connects their own.</p>
+            <label className="mt-2 flex items-center gap-2">
+              <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={withSch} onChange={(e) => setWithSch(e.target.checked)} />
+              Also copy my schedules <span className="text-slate-400">(start fresh, same on/off; ones copied before are skipped)</span>
+            </label>
+            <div className="mt-2 flex gap-2">
+              <button type="button" onClick={run} disabled={busy} className="btn-primary !py-1.5">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />} Copy now</button>
+              <button type="button" onClick={() => setOpen(false)} disabled={busy} className="btn-outline !py-1.5">Cancel</button>
+            </div>
+          </div>
+        )}
+      {msg && <p className={`mt-1 text-sm ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.text}</p>}
+    </div>
+  );
+}
+
 function ProfileWorkspace({ id }) {
+  const [rev, setRev] = useState(0); // remount the screen after a copy so it shows the new settings
   // Point every social request at this user BEFORE the screen renders (its
   // children fetch on mount — before this component's own effects run), and
   // back to the main account on leave. The parent keys this by id.
@@ -134,9 +188,10 @@ function ProfileWorkspace({ id }) {
           Editing <b>{name || "this user"}</b> — everything here (accounts, schedules, comments, templates…) is saved <b>only for this user</b>
           and posts to <b>their</b> accounts. Your own Social Media Auto Posting is not changed.
         </p>
+        <CopyFromMainBox id={id} onCopied={() => setRev((r) => r + 1)} />
       </div>
-      <ScopedSettingsProvider key={id}>
-        <AdminFacebook key={id} />
+      <ScopedSettingsProvider key={`${id}-${rev}`}>
+        <AdminFacebook key={`${id}-${rev}`} />
       </ScopedSettingsProvider>
     </div>
   );
