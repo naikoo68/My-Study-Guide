@@ -427,6 +427,14 @@ const settingsSchema = new mongoose.Schema(
     // ONLY Page tags clickable, using the `@[page-id]` bracketed form. Plain
     // `@name` on Facebook stays plain text — the API can't tag personal profiles.
     fbAutoCommentMentions: { type: [String], default: [] },
+    // Instagram NEVER makes links in captions/comments tappable (YouTube Shorts
+    // comments neither). Optional Instagram-only comment list — used instead of
+    // `fbAutoComments` on Instagram when non-empty (same mode/rotation). When
+    // empty, the main list is reused with its URLs rewritten to a bare domain.
+    igAutoComments: { type: [String], default: [] },
+    // Call to action added wherever a URL was rewritten for Instagram / a Short
+    // ("" = add nothing).
+    linkInBioText: { type: String, default: "🔗 Link in bio" },
     // ---- Google Drive backup ----
     // OAuth Web Client ID (from Google Cloud Console). NOT a secret — it is meant
     // to be public in the browser. When set, the "Back up / Restore to Google

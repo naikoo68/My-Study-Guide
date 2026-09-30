@@ -1787,6 +1787,10 @@ function AutoCommentSection({ settings, saveSettings }) {
     return list.join(" ");
   };
   const [mentions, setMentions] = useState(seedMentions(settings));
+  // Instagram-only comments (links aren't tappable there) + the "link in bio" CTA.
+  const seedIgList = (s) => (Array.isArray(s?.igAutoComments) ? s.igAutoComments : []);
+  const [igComments, setIgComments] = useState(seedIgList(settings));
+  const [linkInBio, setLinkInBio] = useState(typeof settings?.linkInBioText === "string" ? settings.linkInBioText : "🔗 Link in bio");
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
 
@@ -1797,11 +1801,16 @@ function AutoCommentSection({ settings, saveSettings }) {
     setToFb(settings?.fbAutoCommentToFacebook !== false);
     setToIg(settings?.fbAutoCommentToInstagram === true);
     setMentions(seedMentions(settings));
-  }, [settings?.fbAutoCommentEnabled, settings?.fbAutoComment, settings?.fbAutoComments, settings?.fbAutoCommentMode, settings?.fbAutoCommentToFacebook, settings?.fbAutoCommentToInstagram, settings?.fbAutoCommentMentions]);
+    setIgComments(seedIgList(settings));
+    setLinkInBio(typeof settings?.linkInBioText === "string" ? settings.linkInBioText : "🔗 Link in bio");
+  }, [settings?.fbAutoCommentEnabled, settings?.fbAutoComment, settings?.fbAutoComments, settings?.fbAutoCommentMode, settings?.fbAutoCommentToFacebook, settings?.fbAutoCommentToInstagram, settings?.fbAutoCommentMentions, settings?.igAutoComments, settings?.linkInBioText]);
 
   const setComment = (i, v) => setComments((cs) => cs.map((c, idx) => (idx === i ? v : c)));
   const addComment = () => setComments((cs) => [...cs, ""]);
   const removeComment = (i) => setComments((cs) => cs.filter((_, idx) => idx !== i));
+  const setIgComment = (i, v) => setIgComments((cs) => cs.map((c, idx) => (idx === i ? v : c)));
+  const addIgComment = () => setIgComments((cs) => [...cs, ""]);
+  const removeIgComment = (i) => setIgComments((cs) => cs.filter((_, idx) => idx !== i));
 
   // Split the mentions textarea on any whitespace/comma. Each token is a single
   // handle. Blank tokens are dropped by the backend sanitizer.
@@ -1821,6 +1830,8 @@ function AutoCommentSection({ settings, saveSettings }) {
         fbAutoCommentToFacebook: toFb,
         fbAutoCommentToInstagram: toIg,
         fbAutoCommentMentions: mentionList(),
+        igAutoComments: igComments.map((c) => String(c || "").trim()).filter(Boolean),
+        linkInBioText: String(linkInBio || "").trim(),
         // Keep the legacy single field in sync (first comment) for back-compat.
         fbAutoComment: fbAutoComments[0] || "",
       });
@@ -1881,6 +1892,31 @@ function AutoCommentSection({ settings, saveSettings }) {
             <span className="flex items-center gap-2 text-sm font-medium"><Instagram className="h-4 w-4 text-[#E1306C]" /> Comment on Instagram</span>
             {toggle(toIg, () => setToIg((v) => !v))}
           </label>
+        </div>
+
+        {/* Instagram-only wording: links are never tappable on Instagram */}
+        <div className="rounded-lg border border-pink-200 bg-pink-50/50 p-3 dark:border-pink-900/50 dark:bg-pink-950/20">
+          <label className="mb-1 flex items-center gap-2 text-sm font-medium"><Instagram className="h-4 w-4 text-[#E1306C]" /> Instagram comments (optional)</label>
+          <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
+            Instagram <b>never makes links tappable</b> in captions, Reels or comments (and YouTube Shorts comments don't either).
+            Write Instagram-specific comments here — e.g. <i>"👉 Practice free quizzes — 🔗 link in bio"</i>. Leave empty to reuse the list
+            above: its links are shortened to a plain domain (<i>mystudyguide.in</i>) and the text below is added.
+            Comments that are only <b>@everyone / @followers</b> are skipped on Instagram.
+          </p>
+          <div className="space-y-2">
+            {igComments.map((c, i) => (
+              <div key={i} className="flex items-start gap-2">
+                <textarea className="input min-h-[42px] flex-1 resize-y" rows={1} maxLength={2000} value={c}
+                  onChange={(e) => setIgComment(i, e.target.value)}
+                  placeholder="e.g. 👉 Daily quizzes & mock tests — 🔗 link in bio" />
+                <button type="button" onClick={() => removeIgComment(i)} title="Remove" className="mt-1 rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30"><Trash2 className="h-4 w-4" /></button>
+              </div>
+            ))}
+            <button type="button" onClick={addIgComment} className="btn-outline"><Plus className="h-4 w-4" /> Add Instagram comment</button>
+          </div>
+          <label className="mb-1 mt-3 block text-sm font-medium">"Link in bio" text</label>
+          <input className="input" maxLength={100} value={linkInBio} onChange={(e) => setLinkInBio(e.target.value)} placeholder="🔗 Link in bio" />
+          <p className="mt-1 text-xs text-slate-400">Added to Instagram captions/comments whose link was shortened, and to the full-video comment on Instagram Reels. Leave blank to add nothing. Make sure your Instagram bio has your website link.</p>
         </div>
 
         {/* Optional @-mentions appended to every auto-comment */}

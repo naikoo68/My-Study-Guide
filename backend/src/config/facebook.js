@@ -2,6 +2,7 @@
 // auto-posts to a connected Facebook page / Instagram account.
 
 import { formatSocialLinks } from "../utils/socialLinks.js";
+import { DEFAULT_LINK_IN_BIO, toNoLinkText, forNoLinkComment, isNotifyAllOnly } from "../utils/noLinkText.js";
 import { telegramConfigured, sendTelegramMedia, sendTelegramMessage } from "./telegram.js";
 import { displayName } from "../utils/displayName.js";
 import Settings from "../models/Settings.js";
@@ -36,6 +37,9 @@ export async function getFacebookConfig(filter) {
     siteUrl: String(process.env.CLIENT_URL || "").replace(/\/$/, ""),
     igEnabled: !!s?.igEnabled,
     igUserId: String(s?.igUserId || "").trim(),
+    // CTA used where links can't be tapped (Instagram, YouTube Shorts comments).
+    // "" is a valid choice (no CTA), so only fall back when the field is unset.
+    linkInBioText: typeof s?.linkInBioText === "string" ? s.linkInBioText.trim() : DEFAULT_LINK_IN_BIO,
     // Telegram channel (server-only token).
     tgEnabled: !!s?.tgEnabled,
     tgBotToken: String(s?.tgBotToken || "").trim(),
@@ -436,11 +440,17 @@ function isRetryableIgPublishError(msg) {
   return /not available|not ready|request limit|rate limit|reduce the amount|temporarily|#4\b|#17\b|#32\b/i.test(String(msg || ""));
 }
 
+// The "link in bio" CTA for this config (Settings.linkInBioText; "" = none).
+export const linkInBioOf = (cfg) => (typeof cfg?.linkInBioText === "string" ? cfg.linkInBioText : DEFAULT_LINK_IN_BIO);
+
 // Post a single image with caption to Instagram (create container → publish).
 // Instagram REQUIRES an image. Returns { ok, id?, error? }.
-export async function postToInstagram({ imageUrl, caption } = {}, cfgOverride) {
+// Instagram never makes caption URLs tappable, so they're rewritten to a bare
+// domain + the "link in bio" CTA (see utils/noLinkText.js).
+export async function postToInstagram({ imageUrl, caption: rawCaption } = {}, cfgOverride) {
   const cfg = cfgOverride || (await getFacebookConfig());
   if (!isFacebookConfigured(cfg)) return { ok: false, error: "Facebook/Instagram is not connected." };
+  const caption = rawCaption ? toNoLinkText(rawCaption, { cta: linkInBioOf(cfg) }) : rawCaption;
   const rawImg = String(imageUrl || "").trim();
   if (!rawImg) return { ok: false, error: "Instagram needs an image to post." };
   // Instagram's fetch path can't download our Cloudinary TRANSFORMATION urls
@@ -511,9 +521,11 @@ export async function postToInstagram({ imageUrl, caption } = {}, cfgOverride) {
 // (create container with media_type=REELS → wait for processing → publish).
 // Video is processed asynchronously by Instagram, so we poll longer than an
 // image. Returns { ok, id?, error? }. Never throws.
-export async function postReelToInstagram({ videoUrl, caption } = {}, cfgOverride) {
+export async function postReelToInstagram({ videoUrl, caption: rawCaption } = {}, cfgOverride) {
   const cfg = cfgOverride || (await getFacebookConfig());
   if (!isFacebookConfigured(cfg)) return { ok: false, error: "Facebook/Instagram is not connected." };
+  // Reel descriptions don't link either — same rewrite as postToInstagram.
+  const caption = rawCaption ? toNoLinkText(rawCaption, { cta: linkInBioOf(cfg) }) : rawCaption;
   const vid = String(videoUrl || "").trim();
   if (!vid) return { ok: false, error: "Instagram needs a video to post a Reel." };
   const igId = await getInstagramUserId(cfg);
@@ -826,13 +838,18 @@ export async function commentOnFacebookPost({ postId, message } = {}, cfgOverrid
 
 // Post the FIRST COMMENT on a just-published Instagram media via
 // /{ig-media-id}/comments. Requires the instagram_manage_comments permission.
-// Best-effort; never throws. (Same @everyone caveat as above.)
+// Best-effort; never throws.
+// Instagram comments never make links tappable and @everyone/@followers notify
+// nobody, so the text is cleaned first (utils/noLinkText.js). A comment that is
+// ONLY such tokens is skipped ({ ok:false, skipped:true }) rather than posted.
 export async function commentOnInstagramMedia({ mediaId, message } = {}, cfgOverride) {
   const cfg = cfgOverride || (await getFacebookConfig());
   if (!isFacebookConfigured(cfg)) return { ok: false, error: "Instagram is not connected." };
   const id = String(mediaId || "").trim();
-  const msg = String(message || "").trim();
-  if (!id || !msg) return { ok: false, error: "A media id and comment text are both required." };
+  const raw = String(message || "").trim();
+  if (!id || !raw) return { ok: false, error: "A media id and comment text are both required." };
+  const msg = forNoLinkComment(raw, { cta: linkInBioOf(cfg) });
+  if (!msg) return { ok: false, skipped: true, error: "only @everyone/@followers — skipped (they don't notify anyone on Instagram)" };
   const pageToken = await resolvePageToken(cfg);
   let lastError = "";
   let permissionDenied = false;
@@ -937,6 +954,15 @@ export async function postAutoFirstComment({ site, cfg, fbAttempts = [], igMedia
   const index = Number(site.fbAutoCommentIndex) || 0;
   const { comments, nextIndex } = selectAutoComments(list, mode, index);
   if (!comments.length) return;
+  // Instagram gets its OWN list when the admin wrote one (links can't be tapped
+  // there, so a "link in bio" wording usually fits better); otherwise the main
+  // list is reused and commentOnInstagramMedia rewrites the URLs. Same mode and
+  // rotation pointer, so both networks advance together. Comments that are only
+  // @everyone/@followers are dropped — they notify nobody on Instagram.
+  const igList = (Array.isArray(site.igAutoComments) ? site.igAutoComments : [])
+    .map((s) => String(s || "").trim()).filter(Boolean);
+  const igComments = (igList.length ? selectAutoComments(igList, mode, index).comments : comments)
+    .filter((c) => !isNotifyAllOnly(c));
 
   const toFb = site.fbAutoCommentToFacebook !== false; // default ON
   const toIg = site.fbAutoCommentToInstagram === true;  // default OFF (needs instagram_manage_comments)
@@ -981,13 +1007,14 @@ export async function postAutoFirstComment({ site, cfg, fbAttempts = [], igMedia
       }
     }
     if (toIg && igMediaId && canCommentIg) {
-      for (let i = 0; i < comments.length; i++) {
-        const r = await commentOnInstagramMedia({ mediaId: igMediaId, message: withSuffix(comments[i], igMentionSuffix) }, cfg);
+      for (let i = 0; i < igComments.length; i++) {
+        const r = await commentOnInstagramMedia({ mediaId: igMediaId, message: withSuffix(igComments[i], igMentionSuffix) }, cfg);
         if (r.ok) {
           successfulComments += 1;
           continue;
         }
-        const skipped = r.permissionDenied ? comments.length - i - 1 : 0;
+        if (r.skipped) continue;
+        const skipped = r.permissionDenied ? igComments.length - i - 1 : 0;
         pushUniqueNote(`IG comment ✗ (${r.error}${skipped ? ` ${skipped} additional comment(s) skipped.` : ""})`);
         if (r.permissionDenied) break;
       }

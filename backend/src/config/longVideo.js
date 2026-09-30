@@ -24,7 +24,7 @@ import { normalizeReadOptions, readOptionsFromSettings } from "./slidePlan.js";
 import {
   pickAllQuestionsForSource, completeQuestionsForSource, titlePartsForQuestion, breadcrumbForQuestion,
   hashtagsForQuestion, fbNotify, isFacebookConfigured,
-  postReelToFacebookPage, postReelToInstagram, commentOnFacebookPost, commentOnInstagramMedia,
+  postReelToFacebookPage, postReelToInstagram, commentOnFacebookPost, commentOnInstagramMedia, linkInBioOf,
 } from "./facebook.js";
 
 export const MAX_LONG_VIDEO_QUESTIONS = 50;
@@ -637,9 +637,26 @@ async function uploadRendered(job, { cfg, opts, filePath, description, tags, thu
   await postShortReelsAndLinks(job, { cfg, opts, tags, getShort, scheduled, site });
 }
 
-// "Watch the full video: <link>" — the link under the Short / Reels.
+// "Watch the full video: <link>" — the link under the Facebook Reel (Facebook
+// makes it tappable).
 export function fullVideoComment(url) {
   return url ? `▶ Watch the full video (all questions with answers): ${url}` : "";
+}
+
+// The same pointer for places where links are NEVER tappable — YouTube Shorts
+// comments and Instagram captions/comments — so a raw URL would be dead text.
+// Instead tell viewers where to find it (and the title to search for).
+//   platform: "youtube" (under the Short) | "instagram" (Reel caption/comment)
+//   where:    "youtube" | "facebook" — where the full video actually lives
+export function fullVideoNoLinkComment({ platform = "youtube", where = "youtube", title = "", cta = "" } = {}) {
+  const t = String(title || "").trim();
+  const search = t ? `\n🔎 Search: "${t}"` : "";
+  if (platform === "youtube" && where === "youtube") {
+    return `▶ Watch the full video (all questions with answers): tap our channel name → Videos${search}`;
+  }
+  const home = where === "facebook" ? "Facebook Page" : "YouTube channel";
+  const call = String(cta || "").trim();
+  return `▶ Watch the full video (all questions with answers) on our ${home}${search}${call ? `\n${call}` : ""}`;
 }
 
 // Telegram gets the LINK to the long video (not the file): title, the full
@@ -663,6 +680,12 @@ async function postShortReelsAndLinks(job, { cfg, opts, tags, getShort, schedule
     }
   }
   const comment = opts.linkComment !== false ? fullVideoComment(fullUrl) : "";
+  // Shorts comments and Instagram never make links tappable — use a no-link
+  // pointer there instead of a dead URL.
+  const where = job.url ? "youtube" : "facebook";
+  const cta = linkInBioOf(cfg);
+  const shortComment = comment ? fullVideoNoLinkComment({ platform: "youtube", where, title: job.title }) : "";
+  const igComment = comment ? fullVideoNoLinkComment({ platform: "instagram", where, title: job.title, cta }) : "";
   const wantReels = (opts.shortToFacebook || opts.shortToInstagram) && isFacebookConfigured(cfg);
   if ((opts.shortToFacebook || opts.shortToInstagram) && !isFacebookConfigured(cfg)) job.notes.push("Reels ✗ (connect Facebook first)");
   if (scheduled && (wantReels || (comment && job.shortId))) {
@@ -674,7 +697,7 @@ async function postShortReelsAndLinks(job, { cfg, opts, tags, getShort, schedule
   }
   // YouTube Short → the full video's link.
   if (comment && job.shortId) {
-    const c = await commentOnYoutubeVideo({ videoId: job.shortId, text: comment }, cfg);
+    const c = await commentOnYoutubeVideo({ videoId: job.shortId, text: shortComment }, cfg);
     job.notes.push(c.ok ? "Short link comment ✓ (pin it in YouTube)" : `Short link comment ✗ (${c.error})`);
   }
   if (!wantReels) return;
@@ -709,12 +732,13 @@ async function postShortReelsAndLinks(job, { cfg, opts, tags, getShort, schedule
     } else job.notes.push(`Facebook Reel ✗ (${r.error})`);
   }
   if (opts.shortToInstagram) {
-    const r = await postReelToInstagram({ videoUrl: reelUrl, caption }, cfg);
+    const igCaption = [job.title, fullUrl ? fullVideoNoLinkComment({ platform: "instagram", where, cta }) : "", tags].filter(Boolean).join("\n\n");
+    const r = await postReelToInstagram({ videoUrl: reelUrl, caption: igCaption }, cfg);
     if (r.ok) {
       job.igReelId = r.id;
       let n = "Instagram Reel ✓";
-      if (comment) {
-        const c = await commentOnInstagramMedia({ mediaId: r.id, message: comment }, cfg);
+      if (igComment) {
+        const c = await commentOnInstagramMedia({ mediaId: r.id, message: igComment }, cfg);
         n += c.ok ? " · link comment ✓ (pin it on Instagram)" : ` · link comment ✗ (${c.error})`;
       }
       job.notes.push(n);

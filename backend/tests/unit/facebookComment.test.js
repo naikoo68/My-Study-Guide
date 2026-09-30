@@ -175,12 +175,39 @@ describe("postAutoFirstComment — scheduled publish integration", () => {
       notes,
     });
 
-    expect(posted).toHaveLength(4);
+    // Instagram skips the "@everyone"-only comment (it notifies nobody there).
+    expect(posted).toHaveLength(3);
     expect(posted.filter((p) => p.url.includes("/FB_POST/comments")).map((p) => p.message))
       .toEqual(["@everyone", "Follow My Study Guide"]);
     expect(posted.filter((p) => p.url.includes("/IG_MEDIA/comments")).map((p) => p.message))
-      .toEqual(["@everyone", "Follow My Study Guide"]);
+      .toEqual(["Follow My Study Guide"]);
     expect(notes).toEqual([]);
+  });
+
+  it("uses the Instagram-only list on Instagram and rewrites links from the main list", async () => {
+    const run = async (site, pageId) => {
+      const posted = [];
+      installFetch((url, opts) => {
+        if (opts.method !== "POST" && url.includes("fields=access_token")) return reply({ access_token: "PAGE_TOKEN" });
+        if (url.includes("/comments")) { posted.push({ url, message: field(opts, "message") }); return reply({ id: `C${posted.length}` }); }
+        throw new Error(`unexpected call: ${url}`);
+      });
+      await postAutoFirstComment({
+        site: { fbAutoCommentEnabled: true, fbAutoCommentMode: "all", fbAutoCommentToFacebook: true, fbAutoCommentToInstagram: true, ...site },
+        cfg: { pageId, token: "tok", version: VERSION },
+        fbAttempts: [{ ok: true, id: "FB_POST" }], igMediaId: "IG_MEDIA", notes: [],
+      });
+      return {
+        fb: posted.filter((p) => p.url.includes("/FB_POST/")).map((p) => p.message),
+        ig: posted.filter((p) => p.url.includes("/IG_MEDIA/")).map((p) => p.message),
+      };
+    };
+    const main = ["Explore: https://www.mystudyguide.in"];
+    const a = await run({ fbAutoComments: main, igAutoComments: ["Quizzes daily — link in bio"] }, "page-ig-list");
+    expect(a.fb).toEqual(main);
+    expect(a.ig).toEqual(["Quizzes daily — link in bio"]);
+    const b = await run({ fbAutoComments: main }, "page-ig-rewrite");
+    expect(b.ig).toEqual(["Explore: mystudyguide.in\n🔗 Link in bio"]);
   });
 
   it("appends fbAutoCommentMentions to every comment (IG @handle, FB @[page-id])", async () => {
