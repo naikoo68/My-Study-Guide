@@ -1,6 +1,7 @@
 // Facebook / Instagram Graph API helper — verifies page credentials and publishes
 // auto-posts to a connected Facebook page / Instagram account.
 
+import { telegramConfigured, sendTelegramMedia, sendTelegramMessage } from "./telegram.js";
 import { displayName } from "../utils/displayName.js";
 import Settings from "../models/Settings.js";
 import User from "../models/User.js";
@@ -34,9 +35,43 @@ export async function getFacebookConfig(filter) {
     siteUrl: String(process.env.CLIENT_URL || "").replace(/\/$/, ""),
     igEnabled: !!s?.igEnabled,
     igUserId: String(s?.igUserId || "").trim(),
+    // Telegram channel (server-only token).
+    tgEnabled: !!s?.tgEnabled,
+    tgBotToken: String(s?.tgBotToken || "").trim(),
+    tgChatId: String(s?.tgChatId || "").trim(),
     // YouTube (Shorts) connection from the SAME settings row (decrypted, server-only).
     ...youtubeConfigFromSite(s),
   };
+}
+
+// Is Telegram switched on and connected for this institute?
+export const telegramReady = (cfg) => !!(cfg?.tgEnabled && telegramConfigured(cfg));
+
+// Post this run to the Telegram channel: a VIDEO (Reel / Short / slideshow) or
+// an IMAGE (question card / flashcard), else the text. A caption longer than
+// Telegram's 1024-character media limit goes as a follow-up message. Pushes a
+// note; returns true on success. Never throws.
+export async function publishToTelegram({ cfg, videoUrl = "", imageUrl = "", caption = "", notes }) {
+  try {
+    const text = String(caption || "").trim();
+    let r;
+    if (videoUrl || imageUrl) {
+      const long = text.length > 1024;
+      r = await sendTelegramMedia({ url: videoUrl || imageUrl, kind: videoUrl ? "video" : "photo", caption: long ? "" : text }, cfg);
+      // Telegram couldn't fetch the video (e.g. >20 MB via URL) → send the image / text instead.
+      if (!r.ok && videoUrl && imageUrl) r = await sendTelegramMedia({ url: imageUrl, kind: "photo", caption: long ? "" : text }, cfg);
+      if (r.ok && long) await sendTelegramMessage({ text }, cfg);
+    } else if (text) {
+      r = await sendTelegramMessage({ text }, cfg);
+    } else {
+      r = { ok: false, error: "nothing to post" };
+    }
+    notes.push(r.ok ? "Telegram ✓" : `Telegram ✗ (${r.error})`);
+    return !!r.ok;
+  } catch (e) {
+    notes.push(`Telegram ✗ (${e?.message || e})`);
+    return false;
+  }
 }
 
 // Upload this run's video to YouTube as a Short. Default title is
@@ -1622,8 +1657,9 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
   const wantFb = sch.toFacebook !== false && fbReady;
   const wantIg = !!sch.toInstagram && cfg.igEnabled && fbReady;
   const wantYt = !!sch.toYoutube && isYoutubeConfigured(cfg);
-  if (!wantFb && !wantIg && !wantYt) {
-    return { ok: false, error: sch.toYoutube && !isYoutubeConfigured(cfg) ? "YouTube is not connected." : "No destination selected (enable Facebook, Instagram or YouTube)." };
+  const wantTg = !!sch.toTelegram && telegramReady(cfg);
+  if (!wantFb && !wantIg && !wantYt && !wantTg) {
+    return { ok: false, error: sch.toYoutube && !isYoutubeConfigured(cfg) ? "YouTube is not connected." : sch.toTelegram && !telegramReady(cfg) ? "Telegram is not connected." : "No destination selected (enable Facebook, Instagram, YouTube or Telegram)." };
   }
 
   // Build the message: the admin's text, plus hashtags. Apply the site-wide
@@ -1689,6 +1725,9 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
   let ytOk = false;
   if (wantYt) ytOk = await publishScheduleToYoutube({ sch, cfg, videoUrl, caption: message, notes });
   else if (sch.toYoutube) notes.push("YouTube ✗ (not connected)");
+  let tgOk = false;
+  if (wantTg) tgOk = await publishToTelegram({ cfg, videoUrl, imageUrl: rawImageUrl, caption: message, notes });
+  else if (sch.toTelegram) notes.push("Telegram ✗ (not connected)");
 
   // ALSO share the uploaded image as a 24h Story (additive, best-effort). A
   // successful Facebook Story is recorded in the ledger too (kind "story").
@@ -1715,8 +1754,8 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
   await postAutoFirstComment({ site, cfg, fbAttempts, igMediaId, notes });
 
   sch.lastRunAt = new Date();
-  // Published to at least one selected network (FB, IG and YouTube tracked separately).
-  const anyOk = fbOk || igOk || ytOk;
+  // Published to at least one selected network (FB, IG, YouTube and Telegram tracked separately).
+  const anyOk = fbOk || igOk || ytOk || tgOk;
   // Permanent Facebook ledger (survives schedule deletion) — one row per Page publish.
   const fbPublications = collectFacebookPublications(fbAttempts);
   if (fbPublications.length) {
@@ -1764,8 +1803,8 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
     return runLongVideoSchedule(sch, cfg, site);
   }
   // Facebook OR YouTube must be connected (a YouTube-only schedule is valid).
-  if (!isFacebookConfigured(cfg) && !(sch.toYoutube && isYoutubeConfigured(cfg))) {
-    return { ok: false, error: sch.toYoutube ? "Neither Facebook nor YouTube is connected." : "Facebook is not connected." };
+  if (!isFacebookConfigured(cfg) && !(sch.toYoutube && isYoutubeConfigured(cfg)) && !(sch.toTelegram && telegramReady(cfg))) {
+    return { ok: false, error: sch.toYoutube || sch.toTelegram ? "None of the chosen networks is connected." : "Facebook is not connected." };
   }
   // Load the SAME settings row that supplied the credentials — never a bare,
   // nondeterministic {key:"site"} row from another tenant/platform scope.
@@ -1828,6 +1867,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   const wantFb = sch.toFacebook !== false && fbReady;
   const wantIg = !!sch.toInstagram && cfg.igEnabled && fbReady;
   const wantYt = !!sch.toYoutube && isYoutubeConfigured(cfg);
+  const wantTg = !!sch.toTelegram && telegramReady(cfg);
   // A "flashcard" post publishes a combined question+answer IMAGE, so the caption
   // stays light (stem + breadcrumb + hashtags) — the options/answer live in the image.
   const isFlashcard = sch.kind === "flashcard";
@@ -1951,7 +1991,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
       imageUrl = r.url || null;
       imageErr = imageErr || r.error || "";
     }
-  } else if (sch.asImage || wantIg || selfieWatermarkActive || textWatermarkActive || sch.asReel || sch.asStory || sch.asSlideshow || sch.kind === "slideshow") {
+  } else if (sch.asImage || wantIg || wantTg || selfieWatermarkActive || textWatermarkActive || sch.asReel || sch.asStory || sch.asSlideshow || sch.kind === "slideshow") {
     // PREFER a pixel-identical screenshot of the REAL quiz card (matches the
     // admin Download button exactly — same React/Tailwind/Inter). Best-effort:
     // any failure falls through to the lightweight SVG card so posting never
@@ -2234,7 +2274,13 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
     ytOk = await publishScheduleToYoutube({ sch, cfg, videoUrl: reelVideoUrl, caption: captionBase, notes, titleVars });
   } else if (sch.toYoutube) notes.push("YouTube ✗ (not connected)");
 
-  if (!wantFb && !wantIg && !wantYt) return { ok: false, error: "No destination selected (enable Facebook, Instagram or YouTube)." };
+  // Telegram — the Reel / Short / slideshow VIDEO when there is one, else the
+  // question card / flashcard IMAGE, with the caption.
+  let tgOk = false;
+  if (wantTg) tgOk = await publishToTelegram({ cfg, videoUrl: reelVideoUrl, imageUrl, caption: captionBase, notes });
+  else if (sch.toTelegram) notes.push("Telegram ✗ (not connected)");
+
+  if (!wantFb && !wantIg && !wantYt && !wantTg) return { ok: false, error: "No destination selected (enable Facebook, Instagram, YouTube or Telegram)." };
 
   // ALSO share the card image as a 24h Story (in addition to the feed/reel post),
   // to whichever networks are selected. Additive & best-effort — a Story failure
@@ -2264,7 +2310,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   // A post counts as "made" (advance the pool / mark the question posted) when it
   // published to at least ONE selected network. FB and IG are tracked separately
   // above, so one network's failure never hides — or fakes — the other's outcome.
-  const anyOk = fbOk || igOk || ytOk;
+  const anyOk = fbOk || igOk || ytOk || tgOk;
 
   // Permanent Facebook ledger: one row per Page publish (main + extras), keyed by
   // Meta's post id. Independent of this schedule, so the lifetime count survives.

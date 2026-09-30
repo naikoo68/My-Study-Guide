@@ -1187,6 +1187,7 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
   const [stopWhenExhausted, setStopWhenExhausted] = useState(true);
   const [toFacebook, setToFacebook] = useState(true);
   const [toInstagram, setToInstagram] = useState(false);
+  const [toTelegram, setToTelegram] = useState(false);
   const [toYoutube, setToYoutube] = useState(false);
   const [ytTitle, setYtTitle] = useState("");
   const [ytFullVideo, setYtFullVideo] = useState(false);
@@ -1370,7 +1371,7 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
     const cleanTimes = times.filter(Boolean);
     if (!hasSource) { setCreateMsg({ ok: false, text: "Pick the content first (at least a subject, or a My Quiz)." }); return; }
     if (!cleanTimes.length) { setCreateMsg({ ok: false, text: "Add at least one posting time." }); return; }
-    if (!toFacebook && !toInstagram && !toYoutube) { setCreateMsg({ ok: false, text: "Choose Facebook, Instagram and/or YouTube." }); return; }
+    if (!toFacebook && !toInstagram && !toYoutube && !toTelegram) { setCreateMsg({ ok: false, text: "Choose Facebook, Instagram, YouTube and/or Telegram." }); return; }
     setCreating(true);
     try {
       await saveSettings({
@@ -1400,6 +1401,7 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
         toFacebook,
         toInstagram,
         toYoutube,
+        toTelegram,
         ytTitle: ytTitle.trim(),
         ytFullVideo: toYoutube && ytFullVideo,
         ytPlaylistId: toYoutube ? ytPlaylist.id : "",
@@ -1496,6 +1498,9 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
         </label>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={toYoutube} onChange={(e) => setToYoutube(e.target.checked)} /> YouTube <span className="text-slate-400">(Short)</span>
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" className="h-4 w-4 accent-[#229ED9]" checked={toTelegram} onChange={(e) => setToTelegram(e.target.checked)} /> <Send className="h-4 w-4 text-[#229ED9]" /> Telegram <span className="text-slate-400">(video)</span>
         </label>
       </div>
       {toYoutube && (
@@ -3128,6 +3133,7 @@ function FullQuizVideoForm({ st, onStatus }) {
   // video's link commented under the Short + Reels.
   const [shortToFacebook, setShortToFacebook] = useState(!!d.shortToFacebook);
   const [shortToInstagram, setShortToInstagram] = useState(!!d.shortToInstagram);
+  const [lvToTelegram, setLvToTelegram] = useState(!!d.toTelegram); // Telegram gets the video's LINK
   const [linkComment, setLinkComment] = useState(d.linkComment !== false);
 
   const load = () => youtubeService.longVideos().then((r) => {
@@ -3209,7 +3215,7 @@ function FullQuizVideoForm({ st, onStatus }) {
     engine: provider, voice: voiceValue, slidesMode,
     reveal: { pauseSec: clamp(reveal.pauseSec, 3, 0, 15), showSec: clamp(reveal.showSec, 3, 1, 15), say: reveal.say },
     questionSec: clamp(questionSec, 10, 3, 40), answerSec: clamp(answerSec, 8, 3, 40), autoCaptions: captions,
-    read: readOpts, useTemplates, toYoutube, toFacebook, asShort, shortToFacebook, shortToInstagram, linkComment,
+    read: readOpts, useTemplates, toYoutube, toFacebook, asShort, shortToFacebook, shortToInstagram, linkComment, toTelegram: lvToTelegram,
   });
   // "Save settings only": the form opens with these next time.
   const saveDefaults = async () => {
@@ -3314,7 +3320,7 @@ function FullQuizVideoForm({ st, onStatus }) {
       await youtubeService.publishLongVideoPreview(id, {
         privacy, publishAt: localToIso(publishAt), hashtags: hashtags.trim(),
         ...(pl ? { playlist: pl } : {}),
-        options: { toYoutube, toFacebook, asShort: toYoutube && asShort, shortToFacebook, shortToInstagram, linkComment },
+        options: { toYoutube, toFacebook, asShort: toYoutube && asShort, shortToFacebook, shortToInstagram, linkComment, toTelegram: lvToTelegram },
       });
       setPv((p) => ({ ...p, job: p.job ? { ...p.job, canPublish: false, published: true } : p.job }));
       setPubMsg({ ok: true, text: `Publishing — the previewed video${toYoutube && asShort ? " and Short are" : " is"} being uploaded (not re-made). Follow it in “Recent long videos” below.${publishAt ? ` It goes live on ${new Date(publishAt).toLocaleString()}.` : ""}` });
@@ -3577,6 +3583,9 @@ function FullQuizVideoForm({ st, onStatus }) {
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" className="h-4 w-4 accent-[#E1306C]" checked={shortToInstagram} onChange={(e) => setShortToInstagram(e.target.checked)} /> <Instagram className="h-4 w-4 text-[#E1306C]" /> Instagram Reel
           </label>
+          <label className="flex items-center gap-2 text-sm" title="A message with the full video's link (and the Short's) — not the video file">
+            <input type="checkbox" className="h-4 w-4 accent-[#229ED9]" checked={lvToTelegram} onChange={(e) => setLvToTelegram(e.target.checked)} /> <Send className="h-4 w-4 text-[#229ED9]" /> Telegram <span className="text-slate-400">(link to the video)</span>
+          </label>
         </div>
         <p className="mt-1 text-xs text-slate-400">The same vertical Short (first 3 questions), with the full video's link in the caption. Posted when you publish right away (a scheduled video isn't public yet).</p>
         {(shortToFacebook || shortToInstagram) && !ready.facebook && <p className="mt-1 text-xs text-amber-600">Facebook isn't connected — Reels need your Page (and its linked Instagram account).</p>}
@@ -3797,7 +3806,7 @@ function FullQuizVideoForm({ st, onStatus }) {
             <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 dark:border-emerald-900/50 dark:bg-emerald-900/10">
               <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-300">Happy with it? Publish these videos</p>
               <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                Posts exactly what you see above — no re-making. Goes to: <b>{[toYoutube && `YouTube (${privacy})`, toYoutube && asShort && "YouTube Short", toFacebook && "Facebook Page", shortToFacebook && "Facebook Reel", shortToInstagram && "Instagram Reel"].filter(Boolean).join(" + ") || "nothing selected"}</b>
+                Posts exactly what you see above — no re-making. Goes to: <b>{[toYoutube && `YouTube (${privacy})`, toYoutube && asShort && "YouTube Short", toFacebook && "Facebook Page", shortToFacebook && "Facebook Reel", shortToInstagram && "Instagram Reel", lvToTelegram && "Telegram (link)"].filter(Boolean).join(" + ") || "nothing selected"}</b>
                 {publishAt ? <> · goes live <b>{new Date(publishAt).toLocaleString()}</b></> : " · right away"}. Change these under <b>Post to</b> above.
               </p>
               <button type="button" onClick={publishPreview} disabled={pubBusy || !j.canPublish || (!toYoutube && !toFacebook)}
@@ -3995,7 +4004,7 @@ const emptyForm = {
   times: ["09:00"], days: [], timezone: "Asia/Kolkata",
   includeOptions: true, includeAnswer: false, includeLink: false, hashtags: "", order: "random",
   stopWhenExhausted: true,
-  toFacebook: true, toInstagram: false, toYoutube: false, ytTitle: "", ytFullVideo: false, ytPlaylistId: "", ytPlaylistTitle: "", asImage: false,
+  toFacebook: true, toInstagram: false, toYoutube: false, toTelegram: false, ytTitle: "", ytFullVideo: false, ytPlaylistId: "", ytPlaylistTitle: "", asImage: false,
   asReel: false, customAudios: [], reelDuration: 30, // Reel mode for question/flashcard: rotate through these music tracks, trimmed to reelDuration seconds
   asStory: false, // also share the image as a 24h Story (Facebook + Instagram)
   // AI Educational Slideshow + Voice — builds narrated 9:16 slides and posts a Reel.
@@ -4123,7 +4132,7 @@ export default function AdminFacebook() {
     includeOptions: s.includeOptions !== false, includeAnswer: !!s.includeAnswer, includeLink: !!s.includeLink,
     hashtags: s.hashtags || "", order: s.order || "random",
     stopWhenExhausted: s.stopWhenExhausted !== false,
-    toFacebook: s.toFacebook !== false, toInstagram: !!s.toInstagram, toYoutube: !!s.toYoutube, ytTitle: s.ytTitle || "", ytFullVideo: !!s.ytFullVideo, ytPlaylistId: s.ytPlaylistId || "", ytPlaylistTitle: s.ytPlaylistTitle || "", asImage: !!s.asImage,
+    toFacebook: s.toFacebook !== false, toInstagram: !!s.toInstagram, toYoutube: !!s.toYoutube, toTelegram: !!s.toTelegram, ytTitle: s.ytTitle || "", ytFullVideo: !!s.ytFullVideo, ytPlaylistId: s.ytPlaylistId || "", ytPlaylistTitle: s.ytPlaylistTitle || "", asImage: !!s.asImage,
     asReel: !!s.asReel,
     reelDuration: s.reelDuration || 30,
     asStory: !!s.asStory,
@@ -4171,7 +4180,7 @@ export default function AdminFacebook() {
     if (isOnce) {
       if (!form.runAt) { setError("Pick a date & time for the one-time post."); return; }
     } else if (!form.times.filter(Boolean).length) { setError("Add at least one time."); return; }
-    if (!form.toFacebook && !form.toInstagram && !form.toYoutube) { setError("Choose at least one destination (Facebook, Instagram or YouTube)."); return; }
+    if (!form.toFacebook && !form.toInstagram && !form.toYoutube && !form.toTelegram) { setError("Choose at least one destination (Facebook, Instagram, YouTube or Telegram)."); return; }
     // YouTube only accepts videos: AI Slideshow, a Reel, or a custom video.
     if (form.toYoutube && !scheduleHasVideo(form)) {
       setError("YouTube needs a video — use AI Slideshow, turn on Reel, or add a custom video (or untick YouTube)."); return;
@@ -4636,6 +4645,9 @@ export default function AdminFacebook() {
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" className="h-4 w-4 accent-[#FF0000]" checked={!!form.toYoutube} onChange={(e) => setForm((f) => ({ ...f, toYoutube: e.target.checked }))} /> YouTube <span className="text-slate-400">(Short)</span>
               </label>
+              <label className="flex items-center gap-2 text-sm" title="Question / flashcard → image · Reel / slideshow / custom video → video · custom text → message">
+                <input type="checkbox" className="h-4 w-4 accent-[#229ED9]" checked={!!form.toTelegram} onChange={(e) => setForm((f) => ({ ...f, toTelegram: e.target.checked }))} /> <Send className="h-4 w-4 text-[#229ED9]" /> Telegram <span className="text-slate-400">({form.kind === "slideshow" || form.asReel ? "video" : form.kind === "custom" ? "post" : "image"})</span>
+              </label>
               {form.kind === "question" && (
                 <label className="flex items-center gap-2 text-sm">
                   <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={form.asImage} onChange={(e) => setForm((f) => ({ ...f, asImage: e.target.checked }))} /> Post as image on Facebook
@@ -4850,6 +4862,11 @@ export default function AdminFacebook() {
                         {((s.asReel && !s.asSlideshow && s.kind !== "slideshow") || (s.kind === "custom" && s.customVideo)) && (
                           <span className="inline-flex items-center gap-1 rounded-full bg-fuchsia-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-fuchsia-700 dark:bg-fuchsia-900/40 dark:text-fuchsia-300">
                             <Film className="h-3 w-3" /> Reel
+                          </span>
+                        )}
+                        {s.toTelegram && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">
+                            <Send className="h-3 w-3" /> Telegram
                           </span>
                         )}
                         {s.toYoutube && (
