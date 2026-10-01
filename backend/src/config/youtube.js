@@ -318,10 +318,12 @@ const clean = (s) => String(s || "").replace(/[<>]/g, "").replace(/\r/g, "");
 
 // Default YouTube title: "Subject | Topic | Quiz N" — e.g. a 25-question topic
 // posted 5 questions per video becomes Quiz 1 … Quiz 5.
-export const DEFAULT_YT_TITLE = "{subject} | {topic} | Quiz {n}";
-const TITLE_VARS = /\{(subject|topic|quiz|n|total|count)\}/i;
+// {stream} first (e.g. "Civil Engineering | Concrete Technology | …"); an
+// empty part is dropped, so content without a stream keeps the old title.
+export const DEFAULT_YT_TITLE = "{stream} | {subject} | {topic} | Quiz {n}";
+const TITLE_VARS = /\{(stream|subject|topic|quiz|n|total|count)\}/i;
 
-// Build the video title from a template. Placeholders: {subject} {topic}
+// Build the video title from a template. Placeholders: {stream} {subject} {topic}
 // {quiz} (quiz/test name) {n} (quiz number) {total} (quizzes in the topic)
 // {count} (number of questions in the video).
 // Blank template → DEFAULT_YT_TITLE. A plain title with no placeholders gets
@@ -340,6 +342,7 @@ export function buildYtTitle(template, vars = {}, fallback = "Daily Quiz") {
   }
 
   const values = {
+    stream: tidy(v.stream),
     subject: tidy(v.subject),
     topic: tidy(v.topic),
     quiz: tidy(v.quiz),
@@ -349,7 +352,7 @@ export function buildYtTitle(template, vars = {}, fallback = "Daily Quiz") {
   };
   // Split into parts on " | " (or • · – —) so an empty part (e.g. no topic)
   // is dropped instead of leaving "Polity |  | Quiz 1".
-  const VAR_G = /\{(subject|topic|quiz|n|total|count)\}/gi;
+  const VAR_G = /\{(stream|subject|topic|quiz|n|total|count)\}/gi;
   const segs = tpl.split(/\s*[|•·–—]\s*/).filter((s) => s.trim());
   const parts = [];
   for (const seg of segs) {
@@ -478,9 +481,9 @@ export async function uploadVideoToYoutube({ videoUrl, title, description, tags 
 // "Economics | Characteristics and Problems of Developing Economy | Quiz 1 (25 Questions)".
 // (A video with only PART of the quiz uses DEFAULT_YT_SERIES_TITLE in
 // config/longVideo.js: "… | Quiz 1 (Part 1) (25 Questions)".) Never "Full Quiz".
-export const DEFAULT_YT_LONG_TITLE = "{subject} | {topic} | {quiz} ({count} Questions)";
+export const DEFAULT_YT_LONG_TITLE = "{stream} | {subject} | {topic} | {quiz} ({count} Questions)";
 // The same when the source is a whole topic (no single quiz name).
-export const DEFAULT_YT_LONG_TITLE_NOQUIZ = "{subject} | {topic} ({count} Questions)";
+export const DEFAULT_YT_LONG_TITLE_NOQUIZ = "{stream} | {subject} | {topic} ({count} Questions)";
 
 // "m:ss" / "h:mm:ss" for YouTube chapter timestamps.
 export function ytTimestamp(sec) {
@@ -705,14 +708,16 @@ export async function setYtThumbnail({ videoId, image, mime = "image/jpeg" }, cf
 // With no quiz (a whole topic) the badge says how many questions ("25
 // Questions", or "Questions 26–50" for a part). A missing topic moves the quiz
 // (or subject) up to the headline so nothing is left blank. Pure — tested.
-export function thumbnailLines({ subject = "", topic = "", quiz = "", count = 0, range = "", title = "" } = {}) {
+export function thumbnailLines({ stream = "", subject = "", topic = "", quiz = "", count = 0, range = "", title = "" } = {}) {
   const tidy = (s) => clean(s).replace(/\s+/g, " ").trim();
-  const s = tidy(subject), t = tidy(topic), qz = tidy(quiz);
+  const st = tidy(stream), s = tidy(subject), t = tidy(topic), qz = tidy(quiz);
   if (s || t || qz) {
     const countBadge = range ? `Questions ${tidy(range)}` : Number(count) > 0 ? `${Number(count)} Questions` : "Full Quiz";
     const headline = t || qz || s;
+    // Small line above the headline: "Stream · Subject" (the stream first).
+    const kicker = [st, headline === s ? "" : s].filter((x, i, a) => x && a.indexOf(x) === i && x !== headline).join(" · ");
     return {
-      kicker: (headline === s ? "" : s).slice(0, 60),
+      kicker: kicker.slice(0, 60),
       headline: headline.slice(0, 80),
       badge: (qz && headline !== qz ? qz : countBadge).slice(0, 40),
     };

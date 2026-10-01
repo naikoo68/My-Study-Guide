@@ -21,7 +21,7 @@ import {
 } from "./youtube.js";
 import { postLongVideoToFacebookPage } from "./fbLongVideo.js";
 import { TTS_PROVIDERS } from "../utils/ttsVoices.js";
-import { displayTrail } from "../utils/displayName.js";
+import { displayTrail, displayName } from "../utils/displayName.js";
 import { normalizeReadOptions, readOptionsFromSettings } from "./slidePlan.js";
 import {
   pickAllQuestionsForSource, completeQuestionsForSource, titlePartsForQuestion, breadcrumbForQuestion,
@@ -251,8 +251,8 @@ export const DEFAULT_YT_PART_TITLE = "{subject} | {topic} | Questions {range}";
 // "Accountancy | Basic Terms | Quiz 1 | Part 2". {quiz} drops out if the source
 // is a whole topic with no single quiz name.
 // "Economics | Characteristics and Problems of Developing Economy | Quiz 1 (Part 1) (25 Questions)"
-export const DEFAULT_YT_SERIES_TITLE = "{subject} | {topic} | {quiz} (Part {part}) ({count} Questions)";
-export const DEFAULT_YT_SERIES_TITLE_NOQUIZ = "{subject} | {topic} (Part {part}) ({count} Questions)";
+export const DEFAULT_YT_SERIES_TITLE = "{stream} | {subject} | {topic} | {quiz} (Part {part}) ({count} Questions)";
+export const DEFAULT_YT_SERIES_TITLE_NOQUIZ = "{stream} | {subject} | {topic} (Part {part}) ({count} Questions)";
 
 // Default title template for a video (pure, tested):
 //   the WHOLE quiz            → "… | Quiz 1 (25 Questions)"
@@ -266,6 +266,15 @@ export function defaultLongVideoTitle({ isPart = false, hasQuiz = true } = {}) {
 // Part 2, even when the LAST part is shorter (41–50 at 20 per video → Part 3).
 export function partNumberFor(first, perVideo) {
   return Math.floor((Math.max(1, Number(first) || 1) - 1) / Math.max(1, Number(perVideo) || 1)) + 1;
+}
+
+// The stream from a picker label "Stream › Subject › …" ("My Quiz › Stream ›
+// Subject › …" for My Quiz) — only when the next part really is this subject,
+// so an odd label never puts a wrong name in the title (pure, tested).
+export function streamFromLabel(label, subject) {
+  const parts = String(label || "").split("›").map((p) => displayName(p.trim())).filter(Boolean);
+  if (parts[0] === "My Quiz") parts.shift();
+  return parts.length >= 2 && subject && parts[1].toLowerCase() === String(subject).trim().toLowerCase() ? parts[0] : "";
 }
 
 // A short teaser's title (kept within YouTube's 100 chars).
@@ -452,8 +461,11 @@ async function planLongVideo(job, { source, cfg, site, titleTemplate, opts }) {
   }
 
   const names = await titlePartsForQuestion(questions[0]);
+  // The stream the admin PICKED wins (a subject can be listed under several
+  // streams; the database only knows its home one).
+  names.stream = streamFromLabel(source?.label, names.subject) || names.stream || "";
   const breadcrumb = await breadcrumbForQuestion(questions[0]);
-  job.tagNames = { subject: names.subject || "", topic: names.topic || "" };
+  job.tagNames = { stream: names.stream, subject: names.subject || "", topic: names.topic || "" };
   // Part number of THIS video within the quiz/source. For a repeating
   // schedule it's opts.part; for a one-off chunk (Choose how many + Start
   // from), derive it from where it starts. A 100-question quiz at 25/video →
@@ -474,6 +486,7 @@ async function planLongVideo(job, { source, cfg, site, titleTemplate, opts }) {
     .replace(/\{range\}/gi, job.range || `1–${questions.length}`)
     .replace(/\{part\}/gi, String(partNum || 1));
   job.title = buildYtTitle(tpl, {
+    stream: names.stream,
     subject: names.subject || names.quiz || displayTrail(source?.label),
     topic: names.topic,
     quiz: quizName,
@@ -539,6 +552,7 @@ async function drawLongVideoThumbnail(job, { source, cfg, site, names, questions
     // Subject | Topic | Quiz of THIS video. The quiz name only when one quiz
     // (or My Quiz) was picked — a whole topic mixes several quizzes.
     lines: thumbnailLines({
+      stream: names.stream,
       subject: names.subject || displayTrail(source?.label),
       topic: names.topic,
       quiz: source?.quiz || source?.testSeries ? names.quiz : "",
@@ -575,7 +589,7 @@ async function uploadRendered(job, { cfg, opts, filePath, description, tags, thu
       filePath,
       title: job.title,
       description,
-      tags: buildYtTags(tags, { first: [job.tagNames?.subject, job.tagNames?.topic] }), // subject & topic as readable tags first
+      tags: buildYtTags(tags, { first: [job.tagNames?.stream, job.tagNames?.subject, job.tagNames?.topic] }), // subject & topic as readable tags first
       privacy: job.privacy,
       publishAt: job.publishAt,
       onProgress: (sent, size) => { job.progress = { done: Math.round((sent / size) * 100), total: 100 }; },
@@ -619,7 +633,7 @@ async function uploadRendered(job, { cfg, opts, filePath, description, tags, thu
           filePath: shortPath,
           title: shortTitle(job.title),
           description: shortDesc,
-          tags: buildYtTags(tags, { first: [job.tagNames?.subject, job.tagNames?.topic] }), // subject & topic as readable tags first
+          tags: buildYtTags(tags, { first: [job.tagNames?.stream, job.tagNames?.subject, job.tagNames?.topic] }), // subject & topic as readable tags first
           privacy: job.privacy,
           publishAt: job.publishAt,
         }, cfg);
@@ -1123,7 +1137,7 @@ async function runPublish(job, { preview, cfg, site, hashtags, opts }) {
   const temp = [];
   try {
     const d = preview.publishData;
-    job.tagNames = { subject: d.names?.subject || "", topic: d.names?.topic || "" };
+    job.tagNames = { stream: d.names?.stream || "", subject: d.names?.subject || "", topic: d.names?.topic || "" };
     job.stage = "downloading_preview";
     const filePath = await downloadToFile(preview.videoUrl, "mp4");
     temp.push(filePath);
