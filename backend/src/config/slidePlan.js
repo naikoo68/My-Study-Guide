@@ -7,6 +7,8 @@ import { displayName, displayTrail } from "../utils/displayName.js";
 // (slideRender.js) draws each slide; the TTS service speaks each `narration`.
 
 const LETTERS = ["A", "B", "C", "D", "E", "F"];
+import { readFileSync } from "node:fs";
+import wordListPath from "word-list";
 const ROMAN = ["I", "II", "III", "IV", "V", "VI"];
 
 const asText = (v) => String(v ?? "").trim();
@@ -21,8 +23,37 @@ const arr = (a) => (Array.isArray(a) ? a.filter((x) => isFilled(x)) : []);
 // brackets like "(ITZ)" or "(25 marks)" are kept.)
 const DEVANAGARI = /[\u0900-\u097F]/;
 const ROMANISED_WORDS = (t) => /^[A-Za-z\s\-–'’.]+$/.test(t) && /[A-Za-z]{4,}/.test(t);
+// Is a bracket's text a Hindi meaning written in English letters —
+// "(Ghata Budget)", "(Santulit Budget)", "(Rokar bahi)"? Yes when, ignoring
+// words it shares with the term before it ("Budget"), at least half of its
+// words aren't English. Real English brackets — "(excluding borrowings)",
+// "(25 marks)", "(ITZ)" — are kept. Names in brackets may also be skipped.
+let ENGLISH = null;
+function englishWords() {
+  if (!ENGLISH) {
+    try { ENGLISH = new Set(readFileSync(wordListPath, "utf8").split("\n")); }
+    catch { ENGLISH = new Set(); } // no dictionary → never drop plain-letter brackets
+  }
+  return ENGLISH;
+}
+export function isRomanisedGloss(inner, before = "") {
+  const t = String(inner || "").trim();
+  if (!t || !/^[A-Za-z][A-Za-z\s\-–'’]*$/.test(t)) return false;  // letters only (no numbers, "/", ",")
+  const words = t.split(/[\s\-–]+/).filter(Boolean);
+  if (words.length > 6 || words.every((w) => /^[A-Z]{2,}$/.test(w))) return false; // long text / acronyms
+  const dict = englishWords();
+  if (!dict.size) return false;
+  const prev = new Set(String(before).toLowerCase().split(/[^a-z]+/).filter(Boolean).slice(-8));
+  const own = words.map((w) => w.toLowerCase().replace(/[’']s$/, "")).filter((w) => !prev.has(w));
+  if (!own.length) return false;
+  const foreign = own.filter((w) => w.length >= 3 && !dict.has(w)).length;
+  return foreign > 0 && foreign / own.length >= 0.5;
+}
+
 export function dropBracketGlosses(input) {
   let s = String(input ?? "");
+  // (Ghata Budget) — romanised Hindi in plain brackets.
+  s = s.replace(/\s*\(([^()$\\]*)\)/g, (m, inner, offset, all) => (isRomanisedGloss(inner, all.slice(Math.max(0, offset - 80), offset)) ? "" : m));
   // (… Hindi script …) or [… Hindi script …]
   s = s.replace(/\s*[([]([^()[\]]*)[)\]]/g, (m, inner) => (DEVANAGARI.test(inner) ? "" : m));
   // ($Rokar-bahi$)

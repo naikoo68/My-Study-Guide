@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { toSpeech, dropBracketGlosses, speakRomanNumerals, dropAssertionReasonMarks, buildSlidePlan } from "../../src/config/slidePlan.js";
+import { toSpeech, dropBracketGlosses, speakRomanNumerals, dropAssertionReasonMarks, buildSlidePlan, isRomanisedGloss } from "../../src/config/slidePlan.js";
 
 describe("Hindi in brackets is not narrated", () => {
   it("drops Devanagari glosses", () => {
@@ -55,5 +55,22 @@ describe("Assertion (A) / Reason (R) markers", () => {
     expect(n).toContain("Consider the following Assertion and Reason.");
     expect(n).not.toMatch(/Assertion \(A\)|Reason \(R\)|Assertion A\b|Reason R\b/);
     expect(n).toContain("Both A and R are true and R is the correct explanation of A");
+  });
+});
+
+describe("Hindi meanings in English letters (plain brackets)", () => {
+  it("are skipped", () => {
+    expect(toSpeech("Deficit Budget (Ghata Budget)")).toBe("Deficit Budget");
+    expect(toSpeech("Balanced Budget (Santulit Budget)")).toBe("Balanced Budget");
+    expect(toSpeech("Surplus Budget (Bachat Budget)")).toBe("Surplus Budget");
+    expect(toSpeech("Zero-Based Budget (Shunya Adharit Budget)")).toBe("Zero-Based Budget");
+    expect(toSpeech("recorded in the cash book (Rokar bahi) to reflect")).toBe("recorded in the cash book to reflect");
+  });
+  it("real English brackets are still read", () => {
+    expect(toSpeech("total receipts (excluding borrowings), the budget")).toBe("total receipts (excluding borrowings), the budget");
+    expect(toSpeech("interfacial transition zone (ITZ)")).toBe("interfacial transition zone (ITZ)");
+    expect(toSpeech("the cell (mitochondria)")).toBe("the cell (mitochondria)");
+    expect(toSpeech("marks (25 marks)")).toBe("marks (25 marks)");
+    expect(isRomanisedGloss("Contra entry")).toBe(false);
   });
 });

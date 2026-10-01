@@ -48,6 +48,7 @@
     "nodemailer": "^9.0.3",
     "puppeteer-core": "^23.11.1",
     "uuid": "^9.0.1",
+    "word-list": "^4.1.0",
     "ws": "^8.21.3"
   },
   "devDependencies": {
