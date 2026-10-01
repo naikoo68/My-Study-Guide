@@ -54,6 +54,11 @@ function templateCard(tw, th, cb = null) {
     height: ry(base.top + base.height) - top,
   };
 }
+// Template-mode card look from the saved opacities (cb): background + shadow
+// fade together; `text` fades the quiz content (text + option boxes).
+const cardBg = (cb) => `rgba(255,255,255,${cb ? cb.card : 0.94})`;
+const cardShadow = (cb) => `0 12px 40px rgba(15,23,42,${(0.10 * (cb ? cb.card : 1)).toFixed(3)})`;
+
 const BUILTIN_CARD = { left: 50, top: 230, width: 980, height: 1530 };
 // Landscape (1920×1080): slim brand bar on top, a wide card below.
 const LAND_W = 1920, LAND_H = 1080;
@@ -253,11 +258,14 @@ export default function SlideCardImage() {
   const tplInset = parseFloat(sp.get("m")) || 0; // safe margin around the template (fraction/side)
   const landscape = sp.get("o") === "l";
   // Card position on the template: "top,bottom,side" fractions (else default).
+  // Card position + opacities on the template: "top,bottom,side[,card,text]"
+  // (fractions; see backend utils/cardBox.js) — else the defaults.
   const cardBox = (() => {
     const v = (sp.get("cb") || "").split(",").map(Number);
-    if (v.length !== 3 || !v.every((x) => Number.isFinite(x) && x >= 0 && x <= 0.45)) return null;
-    const [top, bottom, side] = v;
-    return top + bottom <= 0.71 && side <= 0.3 ? { top, bottom, side } : null;
+    if (!(v.length === 3 || v.length === 5) || !v.every((x) => Number.isFinite(x) && x >= 0 && x <= 1)) return null;
+    const [top, bottom, side, card = 0.94, text = 1] = v;
+    if (top > 0.45 || bottom > 0.45 || top + bottom > 0.71 || side > 0.3) return null;
+    return { top, bottom, side, card, text: Math.max(0.1, text) };
   })();
   // Per-account header (cross-posting users): name, hosted https logo, colour.
   const bn = (sp.get("bn") || "").trim().slice(0, 40);
@@ -351,12 +359,14 @@ export default function SlideCardImage() {
       <div
         style={{
           position: "absolute", left: card.left, top: card.top, width: card.width, height: card.height,
-          padding: CARD_PAD, borderRadius: 36, background: templateMode ? "rgba(255,255,255,0.94)" : "#ffffff",
-          boxShadow: "0 12px 40px rgba(15,23,42,0.10)", boxSizing: "border-box",
+          padding: CARD_PAD, borderRadius: 36, background: templateMode ? cardBg(cardBox) : "#ffffff",
+          boxShadow: templateMode ? cardShadow(cardBox) : "0 12px 40px rgba(15,23,42,0.10)", boxSizing: "border-box",
         }}
       >
         <ZoomFit width={innerW} height={innerH} onFit={setFitted}>
-          {role === "answer" ? <AnswerSlide q={q} tag={tag} /> : <QuestionSlide q={q} tag={tag} reveal={role === "reveal"} />}
+          <div style={templateMode && cardBox && cardBox.text < 1 ? { opacity: cardBox.text } : undefined}>
+            {role === "answer" ? <AnswerSlide q={q} tag={tag} /> : <QuestionSlide q={q} tag={tag} reveal={role === "reveal"} />}
+          </div>
         </ZoomFit>
         {caption && (
           <div
@@ -399,11 +409,14 @@ function LandscapeSlide({ q, role, tag, caption, site, brand, cardBox = null, re
       <div
         style={{
           position: "absolute", left: card.left, top: card.top, width: card.width, height: card.height,
-          padding: pad, borderRadius: 36, background: templateMode ? "rgba(255,255,255,0.94)" : "#ffffff", boxShadow: "0 12px 40px rgba(15,23,42,0.10)", boxSizing: "border-box",
+          padding: pad, borderRadius: 36, background: templateMode ? cardBg(cardBox) : "#ffffff",
+          boxShadow: templateMode ? cardShadow(cardBox) : "0 12px 40px rgba(15,23,42,0.10)", boxSizing: "border-box",
         }}
       >
         <ZoomFit width={innerW} height={innerH} onFit={onFit} maxZoom={2.2} layoutW={LAND_LAYOUT_W}>
-          {role === "answer" ? <AnswerSlide q={q} tag={tag} /> : <QuestionSlide q={q} tag={tag} reveal={role === "reveal"} />}
+          <div style={templateMode && cardBox && cardBox.text < 1 ? { opacity: cardBox.text } : undefined}>
+            {role === "answer" ? <AnswerSlide q={q} tag={tag} /> : <QuestionSlide q={q} tag={tag} reveal={role === "reveal"} />}
+          </div>
         </ZoomFit>
         {caption && (
           <div
