@@ -8,11 +8,14 @@ import { useRef, useState } from "react";
 import { Loader2, Save, RotateCcw, CheckCircle2, AlertTriangle, Minus, Plus, Move } from "lucide-react";
 
 // Same defaults as the backend (the old fixed card boxes).
+// card / text = opacity of the card's white background and of the quiz text.
 const DEFAULT_CARD_BOX = {
-  landscape: { top: 0.176, bottom: 0.139, side: 0.057 },
-  portrait: { top: 0.156, bottom: 0.135, side: 0.046 },
+  landscape: { top: 0.176, bottom: 0.139, side: 0.057, card: 0.94, text: 1 },
+  portrait: { top: 0.156, bottom: 0.135, side: 0.046, card: 0.94, text: 1 },
 };
-const MAX = { top: 0.45, bottom: 0.45, side: 0.3 };
+const MAX = { top: 0.45, bottom: 0.45, side: 0.3, card: 1, text: 1 };
+const MIN = { top: 0, bottom: 0, side: 0, card: 0, text: 0.1 }; // text never fully invisible
+const STEPS = { card: 0.05, text: 0.05 }; // opacity − / + step (5%)
 const MAX_TB = 0.7; // top + bottom — the card always keeps ≥ 30% of the height
 const STEP = 0.005; // − / + step (0.5%)
 
@@ -22,8 +25,8 @@ const pctText = (v) => `${Math.round(v * 1000) / 10}%`;
 
 // Set one side, keeping every limit (the OTHER of top / bottom gives way).
 function withValue(b, k, v) {
-  const n = { ...b, [k]: r3(clamp(v, 0, MAX[k])) };
-  if (k !== "side" && n.top + n.bottom > MAX_TB) {
+  const n = { ...b, [k]: r3(clamp(v, MIN[k], MAX[k])) };
+  if ((k === "top" || k === "bottom") && n.top + n.bottom > MAX_TB) {
     const other = k === "top" ? "bottom" : "top";
     n[other] = r3(Math.max(0, MAX_TB - n[k]));
   }
@@ -85,14 +88,14 @@ export default function CardBoxEditor({ templateUrl, boxKey, settings, saveSetti
   };
   const reset = () => { setBox(def); save(null); };
 
-  const row = (k, label) => (
+  const row = (k, label, step = STEPS[k] || STEP) => (
     <div className="text-xs">
       <span className="flex justify-between font-medium"><span>{label}</span><span className="tabular-nums text-slate-400">{pctText(box[k])}</span></span>
       <div className="mt-1 flex items-center gap-1.5">
-        <button type="button" aria-label={`Less ${label.toLowerCase()}`} onClick={() => setVal(k, box[k] - STEP)} disabled={box[k] <= 0}
+        <button type="button" aria-label={`Less ${label.toLowerCase()}`} onClick={() => setVal(k, box[k] - step)} disabled={box[k] <= MIN[k]}
           className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md border border-slate-200 hover:bg-slate-100 disabled:opacity-40 dark:border-slate-700 dark:hover:bg-slate-800"><Minus className="h-3.5 w-3.5" /></button>
-        <input type="range" min={0} max={MAX[k] * 1000} step={5} value={Math.round(box[k] * 1000)} onChange={(e) => setVal(k, Number(e.target.value) / 1000)} className="w-full min-w-0 accent-brand-600" />
-        <button type="button" aria-label={`More ${label.toLowerCase()}`} onClick={() => setVal(k, box[k] + STEP)} disabled={box[k] >= MAX[k]}
+        <input type="range" min={MIN[k] * 1000} max={MAX[k] * 1000} step={5} value={Math.round(box[k] * 1000)} onChange={(e) => setVal(k, Number(e.target.value) / 1000)} className="w-full min-w-0 accent-brand-600" />
+        <button type="button" aria-label={`More ${label.toLowerCase()}`} onClick={() => setVal(k, box[k] + step)} disabled={box[k] >= MAX[k]}
           className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md border border-slate-200 hover:bg-slate-100 disabled:opacity-40 dark:border-slate-700 dark:hover:bg-slate-800"><Plus className="h-3.5 w-3.5" /></button>
       </div>
     </div>
@@ -115,12 +118,15 @@ export default function CardBoxEditor({ templateUrl, boxKey, settings, saveSetti
       <div className="mt-3 grid gap-4 sm:grid-cols-[minmax(0,1fr)_220px]">
         <div ref={frameRef} className={`relative select-none overflow-hidden rounded-md border border-slate-200 dark:border-slate-700 ${landscape ? "" : "mx-auto max-w-[240px]"}`}>
           <img src={templateUrl} alt="" draggable={false} className="pointer-events-none block w-full" />
-          <div className="absolute rounded-md border-2 border-dashed border-rose-500 bg-white/80"
-            style={{ top: `${box.top * 100}%`, bottom: `${box.bottom * 100}%`, left: `${box.side * 100}%`, right: `${box.side * 100}%` }}>
+          <div className="absolute rounded-md border-2 border-dashed border-rose-500"
+            style={{ top: `${box.top * 100}%`, bottom: `${box.bottom * 100}%`, left: `${box.side * 100}%`, right: `${box.side * 100}%`, backgroundColor: `rgba(255,255,255,${box.card})` }}>
             {/* Middle: move up / down */}
             <div data-drag="move" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
               className="absolute inset-3 flex cursor-move flex-col items-center justify-center gap-1 text-[10px] font-semibold text-slate-500 sm:text-xs" style={{ touchAction: "none" }}>
-              <Move className="h-4 w-4" /> Question card
+              <Move className="h-4 w-4" />
+              {/* Sample quiz text at the chosen text opacity */}
+              <span className="text-center text-xs font-bold text-slate-900 sm:text-sm" style={{ opacity: box.text }}>Sample question text?</span>
+              <span className="w-2/3 max-w-[220px] rounded border border-slate-300 bg-white px-2 py-0.5 text-[10px] text-slate-700 sm:text-xs" style={{ opacity: box.text }}>A&nbsp; Option one</span>
             </div>
             {handle("top", { left: 0, right: 0, top: -12, height: 24 }, "ns-resize", "h-2.5 w-10")}
             {handle("bottom", { left: 0, right: 0, bottom: -12, height: 24 }, "ns-resize", "h-2.5 w-10")}
@@ -132,6 +138,9 @@ export default function CardBoxEditor({ templateUrl, boxKey, settings, saveSetti
           {row("top", "Space at the top")}
           {row("bottom", "Space at the bottom")}
           {row("side", "Space at the sides")}
+          <div className="border-t border-slate-200 pt-2 dark:border-slate-700" />
+          {row("card", "Card opacity")}
+          {row("text", "Text opacity")}
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => save(box)} disabled={busy} className="btn-primary !py-1.5 !text-xs">
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save position
@@ -142,7 +151,7 @@ export default function CardBoxEditor({ templateUrl, boxKey, settings, saveSetti
           {msg && <p className={`inline-flex items-center gap-1 text-xs font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.ok ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />} {msg.text}</p>}
         </div>
       </div>
-      <p className="mt-2 text-xs text-slate-400">Used for the question and answer slides. The left and right sides move together so the card stays centred. The text inside the card shrinks automatically to fit a smaller card.</p>
+      <p className="mt-2 text-xs text-slate-400">Used for the question and answer slides. <b>Card opacity</b> = the white card behind the text (0% = fully see-through, your template shows behind the text). <b>Text opacity</b> = the question, options and explanation (at least 10%). The left and right sides move together so the card stays centred. The text inside the card shrinks automatically to fit a smaller card.</p>
     </div>
   );
 }
