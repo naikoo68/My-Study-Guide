@@ -278,12 +278,16 @@ export default function SlideCardImage() {
   const tplInset = parseFloat(sp.get("m")) || 0; // safe margin around the template (fraction/side)
   const landscape = sp.get("o") === "l";
   // Card position on the template: "top,bottom,side" fractions (else default).
-  // Extra image on the template: lg = https URL, lp = "x,y,w,opacity" fractions.
-  const tplLogo = (() => {
-    const url = (sp.get("lg") || "").trim();
-    const v = (sp.get("lp") || "").split(",").map(Number);
-    if (!/^https:\/\//i.test(url) || v.length !== 4 || !v.every((x) => Number.isFinite(x) && x >= 0 && x <= 1)) return null;
-    return { url, x: v[0], y: v[1], w: Math.max(0.02, v[2]), opacity: Math.max(0.05, v[3]) };
+  // Extra images on the template: each lg = https URL with its lp =
+  // "x,y,w,opacity" fractions (same order; later ones are drawn on top).
+  const tplLogos = (() => {
+    const urls = sp.getAll("lg"), pos = sp.getAll("lp");
+    return urls.slice(0, 5).map((u, i) => {
+      const url = String(u || "").trim();
+      const v = String(pos[i] || "").split(",").map(Number);
+      if (!/^https:\/\//i.test(url) || v.length !== 4 || !v.every((x) => Number.isFinite(x) && x >= 0 && x <= 1)) return null;
+      return { url, x: v[0], y: v[1], w: Math.max(0.02, v[2]), opacity: Math.max(0.05, v[3]) };
+    }).filter(Boolean);
   })();
   // Card position + opacities on the template: "top,bottom,side[,card,text]"
   // (fractions; see backend utils/cardBox.js) — else the defaults.
@@ -362,7 +366,7 @@ export default function SlideCardImage() {
   if (error) return <div data-card-error="1" style={{ padding: 24, fontFamily: "sans-serif" }}>{error}</div>;
   if (!q) return <div style={{ padding: 24, fontFamily: "sans-serif" }}>Loading…</div>;
 
-  if (landscape) return <LandscapeSlide q={q} role={role} tag={tag} caption={caption} site={site} brand={brand} cardBox={cardBox} tplLogo={tplLogo} ready={ready} onFit={setFitted} templateMode={templateMode} tplW={tplW} tplH={tplH} tplInset={tplInset} />;
+  if (landscape) return <LandscapeSlide q={q} role={role} tag={tag} caption={caption} site={site} brand={brand} cardBox={cardBox} tplLogos={tplLogos} ready={ready} onFit={setFitted} templateMode={templateMode} tplW={tplW} tplH={tplH} tplInset={tplInset} />;
 
   const card = templateMode ? templateCard(tplW, tplH, cardBox) : BUILTIN_CARD;
   const innerW = card.width - CARD_PAD * 2;
@@ -408,7 +412,7 @@ export default function SlideCardImage() {
       {!templateMode && site && (
         <div style={{ position: "absolute", left: 0, right: 0, bottom: 70 }} className="text-center text-3xl font-semibold text-slate-500">{site}</div>
       )}
-      {templateMode && <TemplateLogo logo={tplLogo} rect={templateRect(SLIDE_W, SLIDE_H, tplW, tplH)} />}
+      {templateMode && tplLogos.map((l, i) => <TemplateLogo key={i} logo={l} rect={templateRect(SLIDE_W, SLIDE_H, tplW, tplH)} />)}
     </div>
   );
 }
@@ -417,7 +421,7 @@ export default function SlideCardImage() {
 // with the question (or answer), and the caption strip at the bottom of it.
 // Template mode: transparent page (the uploaded 16:9 template is laid underneath
 // by ffmpeg), no built-in brand bar, and the card placed in the template's middle.
-function LandscapeSlide({ q, role, tag, caption, site, brand, cardBox = null, tplLogo = null, ready, onFit, templateMode = false, tplW = 0, tplH = 0, tplInset = 0 }) {
+function LandscapeSlide({ q, role, tag, caption, site, brand, cardBox = null, tplLogos = [], ready, onFit, templateMode = false, tplW = 0, tplH = 0, tplInset = 0 }) {
   const card = templateMode ? landTemplateCard(tplW, tplH, tplInset, cardBox) : LAND_CARD;
   const pad = templateMode ? 40 : 48;
   const innerW = card.width - pad * 2;
@@ -455,7 +459,7 @@ function LandscapeSlide({ q, role, tag, caption, site, brand, cardBox = null, tp
           </div>
         )}
       </div>
-      {templateMode && <TemplateLogo logo={tplLogo} rect={templateRect(LAND_W, LAND_H, tplW, tplH, tplInset)} />}
+      {templateMode && tplLogos.map((l, i) => <TemplateLogo key={i} logo={l} rect={templateRect(LAND_W, LAND_H, tplW, tplH, tplInset)} />)}
     </div>
   );
 }

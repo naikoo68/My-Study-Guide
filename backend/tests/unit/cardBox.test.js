@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { cleanCardBox, cardBoxParam, cardBoxLogo } from "../../src/utils/cardBox.js";
+import { cleanCardBox, cardBoxParam, cardBoxLogos } from "../../src/utils/cardBox.js";
 
 describe("cleanCardBox", () => {
   it("opacities: clamped, text never below 10%, card can be 0", () => {
@@ -26,14 +26,22 @@ describe("cleanCardBox", () => {
   });
 });
 
-describe("logo on the template", () => {
-  it("keeps a valid logo, clamps it on-frame", () => {
-    const b = cleanCardBox({ top: 0.2, bottom: 0.2, side: 0, logo: { url: "https://res.cloudinary.com/a/l.png", x: 0.95, y: -1, w: 0.2, opacity: 0 } });
-    expect(b.logo).toEqual({ url: "https://res.cloudinary.com/a/l.png", w: 0.2, x: 0.8, y: 0, opacity: 0.05 });
-    expect(cardBoxLogo({ top: 0.2, bottom: 0.2, side: 0, logo: { url: "https://x.com/l.png", x: 0.1, y: 0.1, w: 0.1, opacity: 0.5 } })).toEqual({ url: "https://x.com/l.png", pos: "0.1,0.1,0.1,0.5" });
+describe("images on the template", () => {
+  it("keeps valid images, clamps them on-frame", () => {
+    const b = cleanCardBox({ top: 0.2, bottom: 0.2, side: 0, logos: [{ url: "https://res.cloudinary.com/a/l.png", x: 0.95, y: -1, w: 0.2, opacity: 0 }] });
+    expect(b.logos).toEqual([{ url: "https://res.cloudinary.com/a/l.png", w: 0.2, x: 0.8, y: 0, opacity: 0.05 }]);
   });
-  it("drops unsafe / missing logos", () => {
-    expect(cleanCardBox({ top: 0.2, bottom: 0.2, side: 0, logo: { url: "javascript:alert(1)" } }).logo).toBeUndefined();
-    expect(cardBoxLogo({ top: 0.2, bottom: 0.2, side: 0 })).toBe(null);
+  it("several images, in order, max 5", () => {
+    const logos = Array.from({ length: 7 }, (_, i) => ({ url: `https://x.com/${i}.png`, x: 0.1, y: 0.1, w: 0.1, opacity: 0.5 }));
+    const out = cardBoxLogos({ top: 0.2, bottom: 0.2, side: 0, logos });
+    expect(out).toHaveLength(5);
+    expect(out[0]).toEqual({ url: "https://x.com/0.png", pos: "0.1,0.1,0.1,0.5" });
+  });
+  it("reads an older single logo", () => {
+    expect(cleanCardBox({ top: 0.2, bottom: 0.2, side: 0, logo: { url: "https://x.com/l.png" } }).logos).toHaveLength(1);
+  });
+  it("drops unsafe / missing images", () => {
+    expect(cleanCardBox({ top: 0.2, bottom: 0.2, side: 0, logos: [{ url: "javascript:alert(1)" }] }).logos).toBeUndefined();
+    expect(cardBoxLogos({ top: 0.2, bottom: 0.2, side: 0 })).toEqual([]);
   });
 });
