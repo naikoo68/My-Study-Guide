@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { toSpeech, dropBracketGlosses, speakRomanNumerals } from "../../src/config/slidePlan.js";
+import { toSpeech, dropBracketGlosses, speakRomanNumerals, dropAssertionReasonMarks, buildSlidePlan } from "../../src/config/slidePlan.js";
 
 describe("Hindi in brackets is not narrated", () => {
   it("drops Devanagari glosses", () => {
@@ -34,5 +34,26 @@ describe("Roman numerals are read as numbers", () => {
     expect(speakRomanNumerals("I think you and I agree")).toBe("I think you and I agree");
     expect(speakRomanNumerals("V = IR and X-ray")).toBe("V = IR and X-ray");
     expect(speakRomanNumerals("Vitamin A")).toBe("Vitamin A");
+  });
+});
+
+describe("Assertion (A) / Reason (R) markers", () => {
+  it("are not read in the question", () => {
+    expect(dropAssertionReasonMarks("Assertion (A): Plants make food. Reason (R): They have chlorophyll.")).toBe("Assertion: Plants make food. Reason: They have chlorophyll.");
+    expect(dropAssertionReasonMarks("Consider the following Assertion (A) and Reason (R):")).toBe("Consider the following Assertion and Reason:");
+    expect(dropAssertionReasonMarks("(A) Plants make food\n(R): They have chlorophyll")).toBe("Plants make food\nThey have chlorophyll");
+  });
+  it("question narration skips them, options keep A and R", () => {
+    const q = {
+      type: "assertion", text: "Consider the following Assertion (A) and Reason (R):",
+      assertion: "Plants make food (A).", reason: "They have chlorophyll.",
+      options: ["Both A and R are true and R is the correct explanation of A", "A is true but R is false", "A is false but R is true", "Both A and R are false"],
+      correctAnswer: 0,
+    };
+    const [slide] = buildSlidePlan(q, { index: 1, total: 1, read: { question: true, options: true } });
+    const n = slide.narration;
+    expect(n).toContain("Consider the following Assertion and Reason.");
+    expect(n).not.toMatch(/Assertion \(A\)|Reason \(R\)|Assertion A\b|Reason R\b/);
+    expect(n).toContain("Both A and R are true and R is the correct explanation of A");
   });
 });
