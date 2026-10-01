@@ -35,11 +35,38 @@ export function cleanCardBox(v) {
   if (top + bottom > 0.7) { const k = 0.7 / (top + bottom); top *= k; bottom *= k; }
   const side = clamp(n(v.side), 0, 0.3);
   const op = (x, d, lo) => (x === undefined || x === null || x === "" || !Number.isFinite(n(x)) ? d : clamp(n(x), lo, 1));
+  const logo = cleanLogo(v.logo);
   return {
     top: r3(top), bottom: r3(bottom), side: r3(side),
     card: r3(op(v.card, DEFAULT_CARD_OPACITY, 0)),
     text: r3(op(v.text, DEFAULT_TEXT_OPACITY, 0.1)),
+    ...(logo ? { logo } : {}),
   };
+}
+
+// An extra image (logo / sticker / badge) placed ANYWHERE on the template:
+// { url, x, y, w, opacity } — x / y = its top-left corner and w = its width,
+// all as fractions of the template; the height follows the image. Only a
+// hosted https image (it goes into the screenshot URL). → object | null.
+export function cleanLogo(v) {
+  if (!v || typeof v !== "object") return null;
+  const url = String(v.url || "").trim();
+  if (!/^https:\/\/[^\s"'<>]+$/i.test(url) || url.length > 1000) return null;
+  const n = (x, d) => (Number.isFinite(Number(x)) ? Number(x) : d);
+  const w = clamp(n(v.w, 0.15), 0.02, 0.8);
+  return {
+    url,
+    w: r3(w),
+    x: r3(clamp(n(v.x, 0.02), 0, 1 - w)),
+    y: r3(clamp(n(v.y, 0.02), 0, 0.98)),
+    opacity: r3(clamp(n(v.opacity, 1), 0.05, 1)),
+  };
+}
+
+// The logo for the screenshot URL: { url, pos: "x,y,w,opacity" } | null.
+export function cardBoxLogo(v) {
+  const l = cleanCardBox(v)?.logo;
+  return l ? { url: l.url, pos: `${l.x},${l.y},${l.w},${l.opacity}` } : null;
 }
 
 // The `cb` screenshot param ("top,bottom,side,card,text") or "" for the defaults.

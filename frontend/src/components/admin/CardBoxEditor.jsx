@@ -5,7 +5,8 @@
 // use the sliders and − / + buttons. Saved as { top, bottom, side } fractions
 // (backend utils/cardBox.js).
 import { useRef, useState } from "react";
-import { Loader2, Save, RotateCcw, CheckCircle2, AlertTriangle, Minus, Plus, Move } from "lucide-react";
+import { Loader2, Save, RotateCcw, CheckCircle2, AlertTriangle, Minus, Plus, Move, ImagePlus, Trash2 } from "lucide-react";
+import { uploadService } from "../../services";
 
 // Same defaults as the backend (the old fixed card boxes).
 // card / text = opacity of the card's white background and of the quiz text.
@@ -39,6 +40,18 @@ function moved(b, dy) {
   return { ...b, top: r3(b.top + d), bottom: r3(b.bottom - d) };
 }
 
+// Extra image (logo / badge) on the template: x / y / w fractions + opacity.
+const LOGO_DEFAULT = { x: 0.03, y: 0.03, w: 0.15, opacity: 1 };
+const LOGO_LIMITS = { w: [0.02, 0.8], opacity: [0.05, 1] };
+function placedLogo(l, patch = {}) {
+  const n = { ...l, ...patch };
+  n.w = r3(clamp(n.w, ...LOGO_LIMITS.w));
+  n.opacity = r3(clamp(n.opacity, ...LOGO_LIMITS.opacity));
+  n.x = r3(clamp(n.x, 0, 1 - n.w));
+  n.y = r3(clamp(n.y, 0, 0.98));
+  return n;
+}
+
 export default function CardBoxEditor({ templateUrl, boxKey, settings, saveSettings, landscape = false }) {
   const def = landscape ? DEFAULT_CARD_BOX.landscape : DEFAULT_CARD_BOX.portrait;
   const saved = settings?.[boxKey];
@@ -48,6 +61,8 @@ export default function CardBoxEditor({ templateUrl, boxKey, settings, saveSetti
   const [dirty, setDirty] = useState(false);
   const frameRef = useRef(null);
   const drag = useRef(null); // { mode, startX, startY, start: box, w, h }
+  const logoFileRef = useRef(null);
+  const [logoBusy, setLogoBusy] = useState(false);
   if (!templateUrl) return null;
 
   const update = (fn) => { setMsg(null); setDirty(true); setBox(fn); };
@@ -74,6 +89,7 @@ export default function CardBoxEditor({ templateUrl, boxKey, settings, saveSetti
     else if (d.mode === "left") n = withValue(s, "side", s.side + dx);
     else if (d.mode === "right") n = withValue(s, "side", s.side - dx);
     else if (d.mode === "move") n = moved(s, dy);
+    else if (d.mode === "logo" && s.logo) n = { ...s, logo: placedLogo(s.logo, { x: s.logo.x + dx, y: s.logo.y + dy }) };
     setMsg(null); setDirty(true); setBox(n);
   };
   const onUp = () => { drag.current = null; };
@@ -86,7 +102,39 @@ export default function CardBoxEditor({ templateUrl, boxKey, settings, saveSetti
       setMsg({ ok: true, text: value ? "Saved — new videos use this position." : "Reset to the default position." });
     } catch (e) { setMsg({ ok: false, text: e.message || "Could not save." }); } finally { setBusy(false); }
   };
-  const reset = () => { setBox(def); save(null); };
+  // Reset keeps the logo (only the card goes back to the default).
+  const reset = () => { const b = box.logo ? { ...def, logo: box.logo } : def; setBox(b); save(box.logo ? b : null); };
+
+  // ---- Logo ----
+  const setLogo = (patch) => update((b) => (b.logo ? { ...b, logo: placedLogo(b.logo, patch) } : b));
+  const uploadLogo = async (e) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    if (!file.type.startsWith("image/")) { setMsg({ ok: false, text: "Please pick an image file." }); return; }
+    setLogoBusy(true); setMsg(null);
+    try {
+      const r = await uploadService.imageDirect(file);
+      if (!/^https:\/\//i.test(r?.url || "")) throw new Error("Upload failed.");
+      update((b) => ({ ...b, logo: placedLogo({ ...LOGO_DEFAULT, ...(b.logo || {}), url: r.url }) }));
+    } catch (err) { setMsg({ ok: false, text: err.message || "Upload failed." }); }
+    finally { setLogoBusy(false); if (logoFileRef.current) logoFileRef.current.value = ""; }
+  };
+  const removeLogo = () => update((b) => { const n = { ...b }; delete n.logo; return n; });
+  const logoRow = (k, label, step) => {
+    const [lo, hi] = LOGO_LIMITS[k];
+    const v = box.logo?.[k] ?? 0;
+    return (
+      <div className="text-xs">
+        <span className="flex justify-between font-medium"><span>{label}</span><span className="tabular-nums text-slate-400">{pctText(v)}</span></span>
+        <div className="mt-1 flex items-center gap-1.5">
+          <button type="button" aria-label={`Less ${label.toLowerCase()}`} onClick={() => setLogo({ [k]: v - step })} disabled={v <= lo}
+            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md border border-slate-200 hover:bg-slate-100 disabled:opacity-40 dark:border-slate-700 dark:hover:bg-slate-800"><Minus className="h-3.5 w-3.5" /></button>
+          <input type="range" min={lo * 1000} max={hi * 1000} step={5} value={Math.round(v * 1000)} onChange={(e) => setLogo({ [k]: Number(e.target.value) / 1000 })} className="w-full min-w-0 accent-brand-600" />
+          <button type="button" aria-label={`More ${label.toLowerCase()}`} onClick={() => setLogo({ [k]: v + step })} disabled={v >= hi}
+            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md border border-slate-200 hover:bg-slate-100 disabled:opacity-40 dark:border-slate-700 dark:hover:bg-slate-800"><Plus className="h-3.5 w-3.5" /></button>
+        </div>
+      </div>
+    );
+  };
 
   const row = (k, label, step = STEPS[k] || STEP) => (
     <div className="text-xs">
@@ -133,6 +181,12 @@ export default function CardBoxEditor({ templateUrl, boxKey, settings, saveSetti
             {handle("left", { top: 0, bottom: 0, left: -12, width: 24 }, "ew-resize", "h-10 w-2.5")}
             {handle("right", { top: 0, bottom: 0, right: -12, width: 24 }, "ew-resize", "h-10 w-2.5")}
           </div>
+          {box.logo && (
+            <img src={box.logo.url} alt="" draggable={false} data-drag="logo"
+              onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
+              title="Drag to move" className="absolute z-20 cursor-move outline-2 outline-offset-2 outline-dashed outline-sky-500"
+              style={{ left: `${box.logo.x * 100}%`, top: `${box.logo.y * 100}%`, width: `${box.logo.w * 100}%`, opacity: box.logo.opacity, touchAction: "none" }} />
+          )}
         </div>
         <div className="space-y-3">
           {row("top", "Space at the top")}
@@ -141,6 +195,22 @@ export default function CardBoxEditor({ templateUrl, boxKey, settings, saveSetti
           <div className="border-t border-slate-200 pt-2 dark:border-slate-700" />
           {row("card", "Card opacity")}
           {row("text", "Text opacity")}
+          <div className="border-t border-slate-200 pt-2 dark:border-slate-700" />
+          <p className="text-xs font-semibold">Logo / image on the template</p>
+          <input ref={logoFileRef} type="file" accept="image/*" className="hidden" onChange={uploadLogo} />
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => logoFileRef.current?.click()} disabled={logoBusy || busy} className="btn-outline !py-1.5 !text-xs">
+              {logoBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />} {box.logo ? "Change image" : "Upload image"}
+            </button>
+            {box.logo && <button type="button" onClick={removeLogo} disabled={busy} className="btn-outline !py-1.5 !text-xs text-rose-600"><Trash2 className="h-4 w-4" /> Remove</button>}
+          </div>
+          {box.logo ? (
+            <>
+              <p className="text-xs text-slate-400">Drag the image (blue outline) anywhere on the template.</p>
+              {logoRow("w", "Logo size", 0.01)}
+              {logoRow("opacity", "Logo opacity", 0.05)}
+            </>
+          ) : <p className="text-xs text-slate-400">PNG with a transparent background works best.</p>}
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => save(box)} disabled={busy} className="btn-primary !py-1.5 !text-xs">
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save position

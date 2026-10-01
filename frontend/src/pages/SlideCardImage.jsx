@@ -59,6 +59,26 @@ function templateCard(tw, th, cb = null) {
 const cardBg = (cb) => `rgba(255,255,255,${cb ? cb.card : 0.94})`;
 const cardShadow = (cb) => `0 12px 40px rgba(15,23,42,${(0.10 * (cb ? cb.card : 1)).toFixed(3)})`;
 
+// Where the template image sits in the frame (it's FITTED, never cropped; the
+// 16:9 one inside a small safe margin `inset`) → { x, y, w, h } in px.
+function templateRect(W, H, tw, th, inset = 0) {
+  if (!(tw > 0 && th > 0)) return { x: 0, y: 0, w: W, h: H };
+  const m = Math.max(0, Math.min(0.2, Number(inset) || 0));
+  const s = Math.min((W * (1 - 2 * m)) / tw, (H * (1 - 2 * m)) / th);
+  const w = tw * s, h = th * s;
+  return { x: (W - w) / 2, y: (H - h) / 2, w, h };
+}
+// The admin's extra image (logo / badge) at its spot on the template.
+function TemplateLogo({ logo, rect }) {
+  if (!logo) return null;
+  return (
+    <img src={logo.url} alt="" style={{
+      position: "absolute", left: rect.x + logo.x * rect.w, top: rect.y + logo.y * rect.h,
+      width: logo.w * rect.w, height: "auto", opacity: logo.opacity, zIndex: 5, pointerEvents: "none",
+    }} />
+  );
+}
+
 const BUILTIN_CARD = { left: 50, top: 230, width: 980, height: 1530 };
 // Landscape (1920×1080): slim brand bar on top, a wide card below.
 const LAND_W = 1920, LAND_H = 1080;
@@ -258,6 +278,13 @@ export default function SlideCardImage() {
   const tplInset = parseFloat(sp.get("m")) || 0; // safe margin around the template (fraction/side)
   const landscape = sp.get("o") === "l";
   // Card position on the template: "top,bottom,side" fractions (else default).
+  // Extra image on the template: lg = https URL, lp = "x,y,w,opacity" fractions.
+  const tplLogo = (() => {
+    const url = (sp.get("lg") || "").trim();
+    const v = (sp.get("lp") || "").split(",").map(Number);
+    if (!/^https:\/\//i.test(url) || v.length !== 4 || !v.every((x) => Number.isFinite(x) && x >= 0 && x <= 1)) return null;
+    return { url, x: v[0], y: v[1], w: Math.max(0.02, v[2]), opacity: Math.max(0.05, v[3]) };
+  })();
   // Card position + opacities on the template: "top,bottom,side[,card,text]"
   // (fractions; see backend utils/cardBox.js) — else the defaults.
   const cardBox = (() => {
@@ -335,7 +362,7 @@ export default function SlideCardImage() {
   if (error) return <div data-card-error="1" style={{ padding: 24, fontFamily: "sans-serif" }}>{error}</div>;
   if (!q) return <div style={{ padding: 24, fontFamily: "sans-serif" }}>Loading…</div>;
 
-  if (landscape) return <LandscapeSlide q={q} role={role} tag={tag} caption={caption} site={site} brand={brand} cardBox={cardBox} ready={ready} onFit={setFitted} templateMode={templateMode} tplW={tplW} tplH={tplH} tplInset={tplInset} />;
+  if (landscape) return <LandscapeSlide q={q} role={role} tag={tag} caption={caption} site={site} brand={brand} cardBox={cardBox} tplLogo={tplLogo} ready={ready} onFit={setFitted} templateMode={templateMode} tplW={tplW} tplH={tplH} tplInset={tplInset} />;
 
   const card = templateMode ? templateCard(tplW, tplH, cardBox) : BUILTIN_CARD;
   const innerW = card.width - CARD_PAD * 2;
@@ -381,6 +408,7 @@ export default function SlideCardImage() {
       {!templateMode && site && (
         <div style={{ position: "absolute", left: 0, right: 0, bottom: 70 }} className="text-center text-3xl font-semibold text-slate-500">{site}</div>
       )}
+      {templateMode && <TemplateLogo logo={tplLogo} rect={templateRect(SLIDE_W, SLIDE_H, tplW, tplH)} />}
     </div>
   );
 }
@@ -389,7 +417,7 @@ export default function SlideCardImage() {
 // with the question (or answer), and the caption strip at the bottom of it.
 // Template mode: transparent page (the uploaded 16:9 template is laid underneath
 // by ffmpeg), no built-in brand bar, and the card placed in the template's middle.
-function LandscapeSlide({ q, role, tag, caption, site, brand, cardBox = null, ready, onFit, templateMode = false, tplW = 0, tplH = 0, tplInset = 0 }) {
+function LandscapeSlide({ q, role, tag, caption, site, brand, cardBox = null, tplLogo = null, ready, onFit, templateMode = false, tplW = 0, tplH = 0, tplInset = 0 }) {
   const card = templateMode ? landTemplateCard(tplW, tplH, tplInset, cardBox) : LAND_CARD;
   const pad = templateMode ? 40 : 48;
   const innerW = card.width - pad * 2;
@@ -427,6 +455,7 @@ function LandscapeSlide({ q, role, tag, caption, site, brand, cardBox = null, re
           </div>
         )}
       </div>
+      {templateMode && <TemplateLogo logo={tplLogo} rect={templateRect(LAND_W, LAND_H, tplW, tplH, tplInset)} />}
     </div>
   );
 }
