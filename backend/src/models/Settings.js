@@ -266,6 +266,10 @@ const settingsSchema = new mongoose.Schema(
     // Reel / Short / long-video slides. Per account — never copied to a
     // cross-posting user (see utils/videoBrand.js). Blank = automatic.
     videoBrandName: { type: String, default: "" },
+    // Where the white question / answer card sits on an uploaded slide
+    // template: { top, bottom, side } fractions (utils/cardBox.js). null = default.
+    slideshowCardBox: { type: mongoose.Schema.Types.Mixed, default: null },   // 9:16 Reel / Short
+    longVideoCardBox: { type: mongoose.Schema.Types.Mixed, default: null },   // 16:9 long video
     videoBrandLogoUrl: { type: String, default: "" }, // hosted https image
     videoBrandWebsite: { type: String, default: "" },
     videoBrandColor: { type: String, default: "" },
