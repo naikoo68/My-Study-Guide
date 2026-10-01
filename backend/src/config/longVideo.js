@@ -52,6 +52,7 @@ const STAGE_LABEL = {
   finishing: "Setting thumbnail & playlist",
   done: "Done",
   failed: "Failed",
+  cancelled: "Cancelled — its schedule was deleted",
 };
 
 function cleanup() {
@@ -68,7 +69,7 @@ const STAGE_PCT = {
   generating_slides: [5, 35], generating_audio: [40, 15],
   rendering_video: [55, 28], ready: [83, 2], finishing: [85, 3],
   uploading: [88, 7], short: [95, 2], uploading_facebook: [97, 1], reels: [98, 1.9],
-  done: [100, 0], failed: [0, 0],
+  done: [100, 0], failed: [0, 0], cancelled: [0, 0],
 };
 // A preview being published has nothing to render — only download + uploads.
 const PUBLISH_PCT = {
@@ -135,6 +136,44 @@ export function activeJobsForSchedules(scheduleIds = []) {
     if (!prev || (j.createdAt || 0) > (prev.createdAt || 0)) out[j.scheduleId] = publicJob(j);
   }
   return out;
+}
+
+// ---- Deleted schedules must not keep posting ----
+// A schedule's video is made in the background queue and can take 20+ minutes
+// (and wait behind other videos). Deleting the schedule used to leave its
+// queued / half-made video running, so it was still uploaded afterwards. Now:
+// deleting marks its jobs cancelled at once, and every job re-checks that its
+// schedule still exists before it starts and again right before uploading.
+const CANCELLED = "__schedule_deleted__";
+export function cancelJobsForSchedules(scheduleIds = []) {
+  const ids = new Set((scheduleIds || []).map(String));
+  let n = 0;
+  for (const j of jobs.values()) {
+    if (j.preview || !j.scheduleId || !ids.has(String(j.scheduleId))) continue;
+    if (j.status !== "queued" && j.status !== "running") continue;
+    j.cancelRequested = true; n += 1;
+  }
+  return n;
+}
+async function scheduleGone(job) {
+  if (job.cancelRequested) return true;
+  if (!job.scheduleId) return false;
+  try {
+    const FbSchedule = (await import("../models/FbSchedule.js")).default;
+    const { runUnscoped } = await import("../utils/tenantContext.js");
+    return !(await runUnscoped(() => FbSchedule.exists({ _id: job.scheduleId })));
+  } catch {
+    return false; // a database hiccup never cancels a video
+  }
+}
+async function stopIfScheduleGone(job) {
+  if (await scheduleGone(job)) throw Object.assign(new Error("Its schedule was deleted, so this video was not posted."), { code: CANCELLED });
+}
+function markCancelled(job, e) {
+  job.status = "cancelled";
+  job.stage = "cancelled";
+  job.error = e.message;
+  job.finishedAt = Date.now();
 }
 
 export function getLongVideoJob(id, tenantKey) {
@@ -229,6 +268,7 @@ export async function retryLongVideoJob(id, tenantKey, { cfg, site }) {
     req = rec.request;
   }
   if (!req) throw new Error("This video can't be retried — start it again from the form.");
+  if (req.scheduleId && (await scheduleGone({ scheduleId: req.scheduleId }))) throw new Error("Its schedule was deleted — this video can't be retried.");
   const publishAt = req.publishAt && new Date(req.publishAt).getTime() > Date.now() + 5 * 60 * 1000 ? req.publishAt : null;
   const job = queueFullQuizVideo({
     source: req.source, cfg, site,
@@ -798,6 +838,7 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
   let filePath = "";
   let shortPath = ""; // the vertical Short copy (deleted at the end)
   try {
+    await stopIfScheduleGone(job); // deleted while it waited in the queue
     const { questions, names, breadcrumb, first, siteUrl, slideBase, intro, shortBase } = await planLongVideo(job, { source, cfg, site, titleTemplate, opts });
     const onStatus = (st) => { job.stage = String(st || "").toLowerCase(); };
     const onProgress = (stage, done, total) => { job.stage = String(stage || "").toLowerCase(); job.progress = { done, total }; };
@@ -831,6 +872,7 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
       thumbnail = await drawLongVideoThumbnail(job, { source, cfg, site, names, questions });
     }
 
+    await stopIfScheduleGone(job); // deleted while the video was being made
     await uploadRendered(job, {
       cfg, site, opts, filePath, description, tags, thumbnail, breadcrumb,
       // The Short is rendered only when it will be posted (deleted in finally).
@@ -856,6 +898,8 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
       }).catch(() => {});
     }
   } catch (e) {
+    // Cancelled because its schedule was deleted: no error email, no retry.
+    if (e?.code === CANCELLED) { markCancelled(job, e); return; }
     job.status = "failed";
     job.stage = "failed";
     job.error = String(e?.message || e).slice(0, 500);
