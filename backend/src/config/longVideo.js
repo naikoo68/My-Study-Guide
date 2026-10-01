@@ -1324,7 +1324,10 @@ export function nextQuizVideo({ list = [], countOf, quizId = "", quizIdx = 0, qu
   return { done: true };
 }
 
-async function runByQuizSchedule(sch, cfg, site) {
+// What a quiz-by-quiz schedule's NEXT run would make (no side effects) — used
+// by the run itself and to check a schedule before it's switched back on.
+// → { list, next, startIdx }
+export async function planByQuizNext(sch) {
   const lv = sch.longVideo || {};
   const o = lv.options || {};
   const list = await topicQuizList(sch.source || {});
@@ -1347,6 +1350,14 @@ async function runByQuizSchedule(sch, cfg, site) {
   }
   const stop = sch.stopWhenExhausted !== false;
   const next = nextQuizVideo({ list, countOf, quizId: lv.quizId, quizIdx: lv.quizIdx, quizStartId: lv.quizStartId, nextStart: lv.nextStart, per: o.count, stopWhenExhausted: stop });
+  return { list, next, startIdx };
+}
+
+async function runByQuizSchedule(sch, cfg, site) {
+  const lv = sch.longVideo || {};
+  const o = lv.options || {};
+  const stop = sch.stopWhenExhausted !== false;
+  const { list, next, startIdx } = await planByQuizNext(sch);
   sch.lastRunAt = new Date();
   const totalQuizzes = Math.max(0, list.length - startIdx);
   if (next.done) {

@@ -2006,6 +2006,21 @@ function LongVideoScheduleEditModal({ schedule, onClose, onSaved }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const flip = (k) => setOpt((o) => ({ ...o, [k]: !o[k] }));
+  // On / off. A schedule that's off (e.g. Completed) is switched on by default
+  // when edited — changing its time alone did nothing while it stayed off.
+  const [turnOn, setTurnOn] = useState(true);
+  // Quiz by quiz: which quiz the NEXT video is ("" = carry on where it stopped).
+  const byQuiz = !!lv.byQuiz;
+  const [quizzes, setQuizzes] = useState(null);
+  const [continueFrom, setContinueFrom] = useState("");
+  useEffect(() => {
+    if (!byQuiz) return undefined;
+    let live = true;
+    youtubeService.longVideoTopicQuizzes({ source: schedule?.source || {}, per: o0.count || 25 })
+      .then((r) => { if (live) setQuizzes(r?.quizzes || []); })
+      .catch(() => { if (live) setQuizzes([]); });
+    return () => { live = false; };
+  }, [byQuiz]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = async () => {
     const cleanTimes = times.map((t) => String(t || "").trim()).filter(Boolean);
@@ -2013,11 +2028,15 @@ function LongVideoScheduleEditModal({ schedule, onClose, onSaved }) {
     if (!opt.toYoutube && !opt.toFacebook) { setErr("Choose YouTube and/or Facebook for the long video."); return; }
     setBusy(true); setErr("");
     try {
+      const pickedIdx = continueFrom ? (quizzes || []).findIndex((q) => q.id === continueFrom) : -1;
       await facebookService.update(schedule._id, {
         ...schedule,
+        enabled: schedule.enabled || turnOn,
         title: title.trim(), times: cleanTimes, days, hashtags: hashtags.trim(),
         longVideo: {
           ...lv, title: videoTitle.trim(), privacy,
+          // "Continue from quiz": the next run makes this quiz from question 1.
+          ...(pickedIdx >= 0 ? { quizId: continueFrom, quizIdx: pickedIdx, nextStart: 1, part: 0 } : {}),
           playlist: playlist.id === "__none__" ? "__none__" : playlist.id ? { id: playlist.id, title: playlist.title } : "",
           options: {
             ...o0, ...opt,
@@ -2070,6 +2089,29 @@ function LongVideoScheduleEditModal({ schedule, onClose, onSaved }) {
               className={`rounded-lg border px-2.5 py-1 text-xs font-semibold ${days.includes(w.v) ? "border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-900/30 dark:text-brand-300" : "border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300"}`}>{w.l}</button>
           ))}
         </div>
+
+        {!schedule?.enabled && (
+          <label className="mt-3 flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-2 text-sm dark:border-emerald-900/50 dark:bg-emerald-900/10">
+            <input type="checkbox" className="mt-0.5 h-4 w-4 accent-emerald-600" checked={turnOn} onChange={(e) => setTurnOn(e.target.checked)} />
+            <span><b>Switch the schedule on</b> <span className="text-slate-500">— it's {schedule?.completedAt ? "Completed" : "paused"} now, so it won't run at the new time unless it's on.</span></span>
+          </label>
+        )}
+
+        {byQuiz && (
+          <div className="mt-3">
+            <label className="mb-1 block text-sm font-medium">Continue from quiz</label>
+            {quizzes == null ? <p className="text-xs text-slate-500"><Loader2 className="inline h-3.5 w-3.5 animate-spin" /> Loading the topic's quizzes…</p> : (
+              <select className="input" value={continueFrom} onChange={(e) => setContinueFrom(e.target.value)}>
+                <option value="">Carry on where it stopped</option>
+                {quizzes.map((q) => <option key={q.id} value={q.id} disabled={!q.questions}>{q.name} — {q.questions} question{q.questions === 1 ? "" : "s"}</option>)}
+              </select>
+            )}
+            {quizzes && quizzes.length <= 1 && (
+              <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">This topic has {quizzes.length ? "only one quiz" : "no quizzes"} — add the next quiz to the topic for the schedule to make more videos.</p>
+            )}
+            <p className="mt-1 text-xs text-slate-400">The next video is the picked quiz from question 1, then the quizzes after it, one per time.</p>
+          </div>
+        )}
 
         <p className="mb-1 mt-3 text-sm font-medium">Post to</p>
         <div className="grid gap-2 sm:grid-cols-2">
@@ -4766,7 +4808,7 @@ export default function AdminFacebook() {
   const toggleEnabled = async (s) => {
     setBusyId(s._id);
     try { await facebookService.update(s._id, { ...s, enabled: !s.enabled }); load(); }
-    catch (e) { setError(e.message); } finally { setBusyId(null); }
+    catch (e) { setError(e.message); window.alert(e.message); } finally { setBusyId(null); }
   };
   const del = async (s) => {
     if (!window.confirm("Delete this schedule?")) return;
@@ -5413,7 +5455,7 @@ export default function AdminFacebook() {
                     <input type="checkbox" aria-label="Select this schedule" className="mt-1 h-4 w-4 flex-shrink-0 accent-brand-600" checked={isTicked(s._id)} onChange={() => toggleOne(s._id)} />
                     <div className="min-w-0">
                       <p className="flex flex-wrap items-center gap-2 font-semibold">
-                        <span className={`inline-block h-2 w-2 rounded-full ${s.completedAt ? "bg-emerald-500" : s.enabled ? "bg-emerald-500" : "bg-slate-300"}`} />
+                        <span title={s.enabled ? "On" : "Off"} className={`inline-block h-2 w-2 rounded-full ${s.enabled ? "bg-emerald-500" : "bg-slate-300"}`} />
                         {s.title || (s.kind === "custom" ? "Custom post" : s.source?.label) || "Untitled schedule"}
                         {s.kind === "custom" && <span className="rounded-full bg-brand-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">Custom</span>}
                         {s.kind === "flashcard" && <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">Flashcard</span>}
@@ -5452,7 +5494,7 @@ export default function AdminFacebook() {
                             <Camera className="h-3 w-3" /> Story
                           </span>
                         )}
-                        {s.completedAt && <span title={s.kind === "longvideo" ? "Every quiz / question in this source has been made into a video, so the schedule stopped. Edit it or pick a new source to continue." : "Every question in this source has been posted, so the schedule stopped."} className="cursor-help rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">Completed</span>}
+                        {s.completedAt && !s.enabled && <span title={s.kind === "longvideo" ? "Every quiz / question in this source has been made into a video, so the schedule switched itself off. Add more quizzes and tap ⏻, or Edit → Continue from quiz." : "Every question in this source has been posted, so the schedule stopped."} className="cursor-help rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">Completed</span>}
                         {!s.enabled && !s.completedAt && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">Paused</span>}
                       </p>
                       <div className="mt-0.5 flex items-center gap-2">
@@ -5503,7 +5545,7 @@ export default function AdminFacebook() {
                     </div>
                     <div className="flex flex-shrink-0 items-center gap-1">
                       <button onClick={() => postNow(s)} disabled={busyId === s._id} title="Post one now" className="rounded-lg p-2 text-[#1877F2] hover:bg-blue-50 disabled:opacity-50 dark:hover:bg-blue-900/30">{busyId === s._id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</button>
-                      <button onClick={() => toggleEnabled(s)} disabled={busyId === s._id} title={s.enabled ? "Pause" : "Enable"} className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-300 dark:hover:bg-slate-800"><Power className="h-4 w-4" /></button>
+                      <button onClick={() => toggleEnabled(s)} disabled={busyId === s._id} title={s.enabled ? "Pause" : "Switch on"} className={`rounded-lg p-2 ${s.enabled ? "text-emerald-600" : "text-slate-400"} hover:bg-slate-100 disabled:opacity-50 dark:hover:bg-slate-800`}><Power className="h-4 w-4" /></button>
                       <button onClick={() => (s.kind === "longvideo" ? setLvEdit(s) : openEdit(s))} title="Edit" className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30"><Pencil className="h-4 w-4" /></button>
                       <button onClick={() => del(s)} disabled={busyId === s._id} title="Delete" className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 disabled:opacity-50 dark:hover:bg-rose-900/20"><Trash2 className="h-4 w-4" /></button>
                     </div>

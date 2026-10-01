@@ -16,7 +16,7 @@ import PracticeSubject from "../models/PracticeSubject.js";
 import PracticeTopic from "../models/PracticeTopic.js";
 import { isSafePublicUrl } from "../utils/urlGuard.js";
 import { isYoutubeConfigured, cleanYtPlaylistId } from "../config/youtube.js";
-import { pickLongVideoScheduleFields, activeJobsForSchedules, cancelJobsForSchedules } from "../config/longVideo.js";
+import { pickLongVideoScheduleFields, activeJobsForSchedules, cancelJobsForSchedules, planByQuizNext } from "../config/longVideo.js";
 import { isQuestionComplete } from "../utils/questionComplete.js";
 import { composeImageAudioToVideo, isCloudinaryConfigured } from "../config/cloudinary.js";
 import { generateSlideshow, isSlideshowConfigured } from "../config/slideshow.js";
@@ -635,6 +635,26 @@ export async function updateSchedule(req, res) {
   const data = pickScheduleFields(req.body);
   const err = validateScheduleData(data);
   if (err) return res.status(400).json({ message: err });
+  const prev = await FbSchedule.findOne({ _id: req.params.id, ...scheduleProfileFilter() }).lean();
+  if (!prev) return res.status(404).json({ message: "Schedule not found." });
+  // Switching a COMPLETED schedule back on: it's no longer completed (the list
+  // showed "Completed" forever, so there was no way to see it was on again).
+  if (data.enabled && prev.completedAt) {
+    if (data.kind === "longvideo" && data.longVideo?.byQuiz) {
+      // Quiz by quiz: say NOW if there's nothing left to make, instead of the
+      // next run silently marking it Completed again.
+      const { list, next } = await planByQuizNext({ ...prev, ...data, stopWhenExhausted: data.stopWhenExhausted ?? prev.stopWhenExhausted }).catch(() => ({ list: [], next: { done: false } }));
+      if (next?.done) {
+        const names = list.map((q) => q.name).filter(Boolean);
+        return res.status(400).json({
+          message: list.length
+            ? `Nothing left to make: this topic has ${list.length} quiz${list.length === 1 ? "" : "zes"} (${names.slice(0, 5).join(", ")}${names.length > 5 ? ", …" : ""}) and every one after the start quiz is already made (or has no complete questions). Add the next quiz to this topic (with complete questions), or tap Edit → “Continue from quiz” to make a quiz again.`
+            : "This topic has no quizzes with complete questions.",
+        });
+      }
+    }
+    data.completedAt = null;
+  }
   const sch = await FbSchedule.findOneAndUpdate({ _id: req.params.id, ...scheduleProfileFilter() }, data, { new: true });
   if (!sch) return res.status(404).json({ message: "Schedule not found." });
   res.json(sch);
@@ -721,7 +741,8 @@ export async function bulkSchedules(req, res) {
       cancelJobsForSchedules(doomed.map((s) => String(s._id)));
       await rememberDeletedCopies(doomed);
     } else {
-      const r = await FbSchedule.updateMany(filter, { $set: { enabled: action === "resume" } });
+      // Resuming also clears "Completed" (the schedule is running again).
+      const r = await FbSchedule.updateMany(filter, { $set: action === "resume" ? { enabled: true, completedAt: null } : { enabled: false } });
       affected = r?.modifiedCount ?? r?.matchedCount ?? 0;
     }
   } catch (e) {
