@@ -35,13 +35,22 @@ export function cleanCardBox(v) {
   if (top + bottom > 0.7) { const k = 0.7 / (top + bottom); top *= k; bottom *= k; }
   const side = clamp(n(v.side), 0, 0.3);
   const op = (x, d, lo) => (x === undefined || x === null || x === "" || !Number.isFinite(n(x)) ? d : clamp(n(x), lo, 1));
-  const logo = cleanLogo(v.logo);
+  const logos = cleanLogos(v);
   return {
     top: r3(top), bottom: r3(bottom), side: r3(side),
     card: r3(op(v.card, DEFAULT_CARD_OPACITY, 0)),
     text: r3(op(v.text, DEFAULT_TEXT_OPACITY, 0.1)),
-    ...(logo ? { logo } : {}),
+    ...(logos.length ? { logos } : {}),
   };
+}
+
+// Several images can be placed on a template (logos, emoji, badges…).
+export const MAX_TEMPLATE_IMAGES = 5;
+// { logos:[…] } (or an older single { logo }) → clean list, in drawing order
+// (later ones on top).
+export function cleanLogos(v) {
+  const raw = Array.isArray(v?.logos) ? v.logos : v?.logo ? [v.logo] : [];
+  return raw.map(cleanLogo).filter(Boolean).slice(0, MAX_TEMPLATE_IMAGES);
 }
 
 // An extra image (logo / sticker / badge) placed ANYWHERE on the template:
@@ -63,10 +72,9 @@ export function cleanLogo(v) {
   };
 }
 
-// The logo for the screenshot URL: { url, pos: "x,y,w,opacity" } | null.
-export function cardBoxLogo(v) {
-  const l = cleanCardBox(v)?.logo;
-  return l ? { url: l.url, pos: `${l.x},${l.y},${l.w},${l.opacity}` } : null;
+// The images for the screenshot URL: [{ url, pos: "x,y,w,opacity" }, …].
+export function cardBoxLogos(v) {
+  return (cleanCardBox(v)?.logos || []).map((l) => ({ url: l.url, pos: `${l.x},${l.y},${l.w},${l.opacity}` }));
 }
 
 // The `cb` screenshot param ("top,bottom,side,card,text") or "" for the defaults.

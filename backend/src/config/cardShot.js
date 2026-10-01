@@ -203,7 +203,11 @@ async function shootSlide(browser, it, { siteUrl = "", readyTimeoutMs = 25000, l
     if (brand?.color && /^#[0-9a-f]{6}$/i.test(brand.color) && (brand.name || brand.logoUrl)) p.set("bc", brand.color.slice(1));
     if (landscape) p.set("o", "l");
     if (it.template && it.cardBox) p.set("cb", String(it.cardBox).slice(0, 40));
-    if (it.template && it.logo?.url) { p.set("lg", String(it.logo.url).slice(0, 1000)); p.set("lp", String(it.logo.pos || "").slice(0, 60)); }
+    // Each image = one lg (URL) + one lp ("x,y,w,opacity"), in drawing order.
+    if (it.template) for (const l of (it.logos || []).slice(0, 5)) {
+      if (!l?.url) continue;
+      p.append("lg", String(l.url).slice(0, 1000)); p.append("lp", String(l.pos || "").slice(0, 60));
+    }
     if (it.template && it.templateInset > 0) p.set("m", String(Math.round(it.templateInset * 1000) / 1000));
     // Don't wait for "network idle" — the page itself says when it's ready
     // (question loaded + web fonts + content fitted: data-card-ready="1"), or
