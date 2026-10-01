@@ -191,6 +191,19 @@ export function displayOptions(q) {
 
 // The stem shown for an assertion question drops an embedded "Assertion (A): …"
 // copy when A and R have their own fields (they're read separately).
+// The "(A)" / "(R)" markers in an Assertion–Reason QUESTION are for reading
+// on screen only — the narrator says "Assertion … Reason …", not "Assertion A
+// … Reason R". Used for the question text only; the options are read as
+// written ("Both A and R are true…"). Pure.
+export function dropAssertionReasonMarks(text) {
+  return String(text ?? "")
+    // "Assertion (A)", "Reason (R)", "assertion(a):" → "Assertion", "Reason"
+    .replace(/\b(Assertions?|Reasons?)\s*\(\s*[ARar]\s*\)/g, "$1")
+    // a lone "(A):" / "(R) -" starting a line or the text
+    .replace(/(^|\n)\s*\(\s*[AR]\s*\)\s*[:.\-–]?\s*/g, "$1");
+}
+const saidQ = (t) => said(dropAssertionReasonMarks(t)); // a QUESTION part, spoken
+
 function stemText(q) {
   const text = asText(q?.text);
   if (q?.type !== "assertion" || !(q?.assertion && q?.reason)) return text;
@@ -259,7 +272,7 @@ export function questionSpeechParts(q) {
   const type = asText(q?.type) || "mcq";
   const stem = stemText(q) || "Question";
   const lead = [{ text: stem, emphasis: true }];
-  const speech = [said(stem)];
+  const speech = [saidQ(stem)];
   let columns = null;
   const colA = normalizeColumn(q?.columnA);
   const colB = normalizeColumn(q?.columnB);
@@ -309,8 +322,8 @@ export function questionSpeechParts(q) {
   if (q?.image || q?.graph || q?.viz) speech.push(vizTitle ? `Look at the figure: ${said(vizTitle)}` : "Look at the figure shown.");
 
   if (type === "assertion" && (isFilled(q.assertion) || isFilled(q.reason))) {
-    if (isFilled(q.assertion)) { lead.push({ label: "Assertion (A)", text: asText(q.assertion) }); speech.push(`Assertion: ${said(q.assertion)}`); }
-    if (isFilled(q.reason)) { lead.push({ label: "Reason (R)", text: asText(q.reason) }); speech.push(`Reason: ${said(q.reason)}`); }
+    if (isFilled(q.assertion)) { lead.push({ label: "Assertion (A)", text: asText(q.assertion) }); speech.push(`Assertion: ${saidQ(q.assertion)}`); }
+    if (isFilled(q.reason)) { lead.push({ label: "Reason (R)", text: asText(q.reason) }); speech.push(`Reason: ${saidQ(q.reason)}`); }
   }
 
   if (type === "matching") speech.push("Choose the correct matching sequence.");
