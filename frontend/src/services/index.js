@@ -348,7 +348,9 @@ export const settingsService = {
 export const youtubeService = {
   status: () => api.get("/youtube/status"),
   save: (data) => api.put("/youtube/settings", data), // { enabled?, privacy?, clientId?, clientSecret? }
-  connect: () => api.post("/youtube/connect"), // → { url } — navigate there for Google login
+  // { remote? } → { url, expiresAt } — navigate there for Google login, or
+  // (remote:true) share the link with the channel owner to approve on their device.
+  connect: (data = {}) => api.post("/youtube/connect", data),
   disconnect: () => api.post("/youtube/disconnect"),
   test: () => api.post("/youtube/test"),
   // Long videos — full-topic quiz video made on the server (background job).

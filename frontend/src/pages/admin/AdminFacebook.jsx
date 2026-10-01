@@ -3092,6 +3092,19 @@ function YoutubeSection() {
     return r === "connected" ? { ok: true, text: "YouTube connected." } : { ok: false, text: qs.get("reason") || "Could not connect YouTube." };
   });
   const [showSteps, setShowSteps] = useState(false);
+  // How to connect: "here" = sign in to Google in THIS browser; "link" = send a
+  // link to the channel owner (e.g. a cross-posting user) to approve on their
+  // own phone. Remembered on this device.
+  const [connectMode, setConnectModeRaw] = useState(() => {
+    try { return localStorage.getItem("yt.connectMode") === "link" ? "link" : "here"; } catch { return "here"; }
+  });
+  const setConnectMode = (m) => {
+    setConnectModeRaw(m); setShareLink(null);
+    try { localStorage.setItem("yt.connectMode", m); } catch { /* private mode */ }
+  };
+  // The link waiting for the owner: { url, expiresAt (ms), since (connectedAt before) }.
+  const [shareLink, setShareLink] = useState(null);
+  const [now, setNow] = useState(() => Date.now());
   // Open the card when we've just come back from Google's login screen.
   const [openOnReturn] = useState(() => new URLSearchParams(window.location.search).has("youtube"));
 
@@ -3110,6 +3123,24 @@ function YoutubeSection() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // While a "Send link" is waiting: tick the countdown and check every 5 s
+  // whether the owner has approved (a new connectedAt = a fresh connection).
+  useEffect(() => {
+    if (!shareLink) return undefined;
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    const poll = setInterval(async () => {
+      if (Date.now() > shareLink.expiresAt) { clearInterval(poll); return; }
+      try {
+        const s = await youtubeService.status();
+        if (s?.connected && s.connectedAt && s.connectedAt !== shareLink.since) {
+          apply(s); setShareLink(null);
+          setMsg({ ok: true, text: `YouTube connected — “${s.channelTitle || "channel"}”.` });
+        }
+      } catch { /* keep waiting */ }
+    }, 5000);
+    return () => { clearInterval(tick); clearInterval(poll); };
+  }, [shareLink]);
+
   const run = async (kind, fn) => {
     setBusy(kind); setMsg(null);
     try { await fn(); } catch (e) { setMsg({ ok: false, text: e.message || "Something went wrong." }); } finally { setBusy(""); }
@@ -3123,9 +3154,23 @@ function YoutubeSection() {
     if (clientId.trim() !== (st?.clientId || "") || clientSecret.trim()) {
       apply(await youtubeService.save({ clientId: clientId.trim(), ...(clientSecret.trim() ? { clientSecret: clientSecret.trim() } : {}) }));
     }
+    if (connectMode === "link") {
+      // Owner approves on THEIR device — show the link instead of navigating.
+      const r = await youtubeService.connect({ remote: true });
+      if (r?.url) {
+        setShareLink({ url: r.url, expiresAt: new Date(r.expiresAt || Date.now() + 15 * 60000).getTime(), since: st?.connectedAt || null });
+      }
+      return;
+    }
     const r = await youtubeService.connect();
     if (r?.url) window.location.assign(r.url);
   });
+  const shareText = (url) => `Please open this link, sign in with the Google account that owns your YouTube channel and tap Allow, so I can cross-post videos to your channel (the link works for 15 minutes):\n${url}`;
+  const shareNative = async () => {
+    if (!shareLink) return;
+    try { await navigator.share({ title: "Connect your YouTube channel", text: shareText(shareLink.url) }); }
+    catch { /* cancelled */ }
+  };
   const disconnect = () => {
     if (!window.confirm("Disconnect YouTube? Schedules will stop uploading to YouTube until you connect again.")) return;
     run("disconnect", async () => { apply(await youtubeService.disconnect()); setMsg({ ok: true, text: "Disconnected." }); });
@@ -3199,10 +3244,34 @@ function YoutubeSection() {
 
           {st.connected && <YtDefaultPlaylists st={st} onSaved={apply} />}
 
+          {/* How to connect: here (this browser) or send a link to the channel owner */}
+          <div className="mt-4">
+            <label className="mb-1 block text-sm font-medium">How to connect</label>
+            <div role="radiogroup" className="inline-flex rounded-lg border border-slate-200 p-0.5 dark:border-slate-700">
+              {[
+                ["here", "Sign in on this device"],
+                ["link", "Send link to channel owner"],
+              ].map(([k, label]) => (
+                <button key={k} type="button" role="radio" aria-checked={connectMode === k} onClick={() => setConnectMode(k)} disabled={!!busy}
+                  className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${connectMode === k ? "bg-[#FF0000] text-white" : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              {connectMode === "here"
+                ? <>You sign in to Google here with the account that owns the channel (Google will let you pick the account / Brand channel).</>
+                : <>Get a link to send the channel owner (WhatsApp, Telegram…). They open it on their own phone, sign in and tap <b>Allow</b> — no password sharing. The link works for 15 minutes; this page updates by itself when they finish.</>}
+            </p>
+          </div>
+
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <button type="button" onClick={saveCreds} disabled={!!busy} className="btn-outline">{busy === "save" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save</button>
             <button type="button" onClick={connect} disabled={!!busy || (!st.credentialsReady && !(clientId.trim() && (clientSecret.trim() || st.clientSecretSet)))} className="btn-primary !bg-[#FF0000] hover:!bg-[#d90000]">
-              {busy === "connect" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />} {st.connected ? "Reconnect YouTube" : "Connect YouTube"}
+              {busy === "connect" ? <Loader2 className="h-4 w-4 animate-spin" /> : connectMode === "link" ? <Share2 className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}{" "}
+              {connectMode === "link"
+                ? (shareLink ? "Make a new link" : "Create link for owner")
+                : (st.connected ? "Reconnect YouTube" : "Connect YouTube")}
             </button>
             {st.connected && (
               <>
@@ -3212,6 +3281,46 @@ function YoutubeSection() {
             )}
           </div>
           {msg && <p className={`mt-2 inline-flex items-center gap-1 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {msg.text}</p>}
+
+          {/* "Send link" — waiting for the channel owner */}
+          {connectMode === "link" && shareLink && (() => {
+            const left = Math.max(0, Math.round((shareLink.expiresAt - now) / 1000));
+            const expired = left === 0;
+            return (
+              <div className={`mt-3 rounded-lg border p-3 ${expired ? "border-rose-200 bg-rose-50/60 dark:border-rose-900/50 dark:bg-rose-900/10" : "border-amber-200 bg-amber-50/60 dark:border-amber-900/50 dark:bg-amber-900/10"}`}>
+                <p className="text-sm font-medium">
+                  {expired
+                    ? <>This link has expired — click <b>Make a new link</b>.</>
+                    : <><Loader2 className="mr-1 inline h-4 w-4 animate-spin" /> Waiting for the channel owner… link works for <b>{Math.floor(left / 60)}:{String(left % 60).padStart(2, "0")}</b></>}
+                </p>
+                {!expired && (
+                  <>
+                    <div className="mt-2 flex gap-2">
+                      <input className="input font-mono text-xs" readOnly value={shareLink.url} onFocus={(e) => e.target.select()} />
+                      <button type="button" onClick={() => copy(shareLink.url)} className="btn-outline flex-shrink-0 !py-1.5 !text-xs">Copy</button>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <a className="btn-outline !py-1.5 !text-xs" target="_blank" rel="noopener noreferrer"
+                        href={`https://wa.me/?text=${encodeURIComponent(shareText(shareLink.url))}`}>
+                        <MessageCircle className="h-4 w-4" /> WhatsApp
+                      </a>
+                      <a className="btn-outline !py-1.5 !text-xs" target="_blank" rel="noopener noreferrer"
+                        href={`https://t.me/share/url?url=${encodeURIComponent(shareLink.url)}&text=${encodeURIComponent("Please open this link, sign in with the Google account that owns your YouTube channel and tap Allow (works for 15 minutes).")}`}>
+                        <Send className="h-4 w-4" /> Telegram
+                      </a>
+                      {typeof navigator !== "undefined" && navigator.share && (
+                        <button type="button" onClick={shareNative} className="btn-outline !py-1.5 !text-xs"><Share2 className="h-4 w-4" /> Share…</button>
+                      )}
+                      <button type="button" onClick={() => setShareLink(null)} className="btn-outline !py-1.5 !text-xs"><X className="h-4 w-4" /> Cancel</button>
+                    </div>
+                    <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                      Don't open this link yourself — whoever signs in with it connects <b>their</b> channel here. If your app is still in Google “Testing” mode, add the owner's Gmail under <b>Test users</b> first.
+                    </p>
+                  </>
+                )}
+              </div>
+            );
+          })()}
 
           {/* One-time setup guide */}
           <button type="button" onClick={() => setShowSteps((v) => !v)} className="mt-4 flex items-center gap-1 text-sm font-semibold text-brand-600">
