@@ -116,6 +116,9 @@ const settingsSchema = new mongoose.Schema(
     // utils/socialProfile.js. The main site doc has socialProfile=false.
     socialProfile: { type: Boolean, default: false },
     profileName: { type: String, default: "" },
+    // Cross-posting user: ids of YOUR schedules whose copy was deleted here, so
+    // "Copy everything (+ schedules)" never brings a deleted schedule back.
+    deletedCopiedSchedules: { type: [String], default: [] },
     // One-time migration flag: existing test series were made private-by-default.
     testsPrivatized: { type: Boolean, default: false },
     // One-time migration flag: existing client accounts were granted AI access

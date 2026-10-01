@@ -104,6 +104,7 @@ const NOT_COPIED = new Set([
   "fbPostSerial", "fbPostSerialFacebook", "fbPostSerialInstagram",
   // Video branding is the user's OWN (their channel name / logo, not ours).
   "videoBrandName", "videoBrandLogoUrl", "videoBrandWebsite", "videoBrandColor",
+  "deletedCopiedSchedules",
 ]);
 export const copyableSettings = (main) => Object.fromEntries(Object.entries(main || {}).filter(([k]) => !NOT_COPIED.has(k)));
 
@@ -152,7 +153,8 @@ export function cleanCopiedPersonal(doc, main, { postedCount = null } = {}) {
 // comments, templates, slide texts, thumbnail, watermarks, music, hashtags,
 // narration, links… — except their account connections (see NOT_COPIED).
 // With schedules=true your schedules are copied too (starting fresh, same
-// on/off state); a schedule copied before is not copied again.
+// on/off state); a schedule copied before is not copied again — including
+// one whose copy was deleted on this user (see rememberDeletedCopies).
 export async function copyFromMain(req, res) {
   const doc = await Settings.findOne({ _id: req.params.id, socialProfile: true });
   if (!doc) return res.status(404).json({ message: "User not found." });
@@ -169,6 +171,8 @@ export async function copyFromMain(req, res) {
   if (req.body?.schedules) {
     const mine = await runAsSocialProfile("", () => FbSchedule.find(scheduleProfileFilter("")).lean());
     const already = new Set((await FbSchedule.find({ profileId: String(doc._id) }).select("copiedFrom").lean()).map((s) => s.copiedFrom).filter(Boolean));
+    // …and the ones the admin deleted on this user — they stay deleted.
+    for (const id of doc.deletedCopiedSchedules || []) already.add(String(id));
     for (const s of mine) {
       if (already.has(String(s._id))) { skipped += 1; continue; }
       await FbSchedule.create(copyScheduleFor(s, doc._id));
@@ -176,4 +180,19 @@ export async function copyFromMain(req, res) {
     }
   }
   res.json({ ok: true, schedulesCopied: copied, schedulesSkipped: skipped, profile: await view(doc.toObject()) });
+}
+
+// Deleted schedules that were COPIES of the main account's → remember them on
+// their user, so copying from main again doesn't recreate them. Never throws.
+export async function rememberDeletedCopies(rows = []) {
+  const byProfile = new Map();
+  for (const r of rows || []) {
+    if (!r?.profileId || !r?.copiedFrom) continue;
+    const k = String(r.profileId);
+    if (!byProfile.has(k)) byProfile.set(k, []);
+    byProfile.get(k).push(String(r.copiedFrom));
+  }
+  for (const [pid, ids] of byProfile) {
+    await Settings.updateOne({ _id: pid, socialProfile: true }, { $addToSet: { deletedCopiedSchedules: { $each: ids } } }).catch(() => {});
+  }
 }

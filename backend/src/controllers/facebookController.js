@@ -5,6 +5,7 @@ import Settings from "../models/Settings.js";
 import { randomUUID } from "node:crypto";
 import { runScheduleOnce, getFacebookConfig, getFacebookSiteForConfig, hashtagsForQuestion, getFacebookPublishedCount, countFacebookPosts, pickQuestionForSchedule, pickQuestionsForSlideshow, pickAllQuestionsForSource } from "../config/facebook.js";
 import FbPost from "../models/FbPost.js";
+import { rememberDeletedCopies } from "./socialProfileController.js";
 import { slideshowBrandOpts } from "../utils/videoBrand.js";
 import { getCurrentTenantId } from "../utils/tenantContext.js";
 import { renderQuestionImage } from "../config/socialImage.js";
@@ -15,7 +16,7 @@ import PracticeSubject from "../models/PracticeSubject.js";
 import PracticeTopic from "../models/PracticeTopic.js";
 import { isSafePublicUrl } from "../utils/urlGuard.js";
 import { isYoutubeConfigured, cleanYtPlaylistId } from "../config/youtube.js";
-import { pickLongVideoScheduleFields, activeJobsForSchedules } from "../config/longVideo.js";
+import { pickLongVideoScheduleFields, activeJobsForSchedules, cancelJobsForSchedules } from "../config/longVideo.js";
 import { isQuestionComplete } from "../utils/questionComplete.js";
 import { composeImageAudioToVideo, isCloudinaryConfigured } from "../config/cloudinary.js";
 import { generateSlideshow, isSlideshowConfigured } from "../config/slideshow.js";
@@ -651,7 +652,12 @@ export async function liveScheduleProgress(req, res) {
 
 // DELETE /api/facebook/schedules/:id — delete (admin)
 export async function deleteSchedule(req, res) {
-  await FbSchedule.findOneAndDelete({ _id: req.params.id, ...scheduleProfileFilter() });
+  const gone = await FbSchedule.findOneAndDelete({ _id: req.params.id, ...scheduleProfileFilter() });
+  // Stop any video this schedule is still making / waiting to make.
+  if (gone) {
+    cancelJobsForSchedules([String(gone._id)]);
+    await rememberDeletedCopies([gone]);
+  }
   res.json({ ok: true });
 }
 
@@ -709,8 +715,11 @@ export async function bulkSchedules(req, res) {
   let affected = 0;
   try {
     if (action === "delete") {
+      const doomed = await FbSchedule.find(filter).select("_id profileId copiedFrom").lean();
       const r = await FbSchedule.deleteMany(filter);
       affected = r?.deletedCount ?? 0;
+      cancelJobsForSchedules(doomed.map((s) => String(s._id)));
+      await rememberDeletedCopies(doomed);
     } else {
       const r = await FbSchedule.updateMany(filter, { $set: { enabled: action === "resume" } });
       affected = r?.modifiedCount ?? r?.matchedCount ?? 0;
