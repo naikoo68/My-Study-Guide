@@ -13,10 +13,95 @@ const asText = (v) => String(v ?? "").trim();
 const isFilled = (v) => asText(v) !== "";
 const arr = (a) => (Array.isArray(a) ? a.filter((x) => isFilled(x)) : []);
 
+// ---- Words the narrator should NOT read as written ----
+
+// Hindi glosses in brackets are for the screen only: "cash book (रोकड़ बही)"
+// and the romanised ones written as math, "cash book ($Rokar-bahi$)" /
+// "$(Samayojanpravishti)$", are dropped from the narration. (Plain English
+// brackets like "(ITZ)" or "(25 marks)" are kept.)
+const DEVANAGARI = /[\u0900-\u097F]/;
+const ROMANISED_WORDS = (t) => /^[A-Za-z\s\-–'’.]+$/.test(t) && /[A-Za-z]{4,}/.test(t);
+export function dropBracketGlosses(input) {
+  let s = String(input ?? "");
+  // (… Hindi script …) or [… Hindi script …]
+  s = s.replace(/\s*[([]([^()[\]]*)[)\]]/g, (m, inner) => (DEVANAGARI.test(inner) ? "" : m));
+  // ($Rokar-bahi$)
+  s = s.replace(/\s*[([]\s*\$([^$]*)\$\s*[)\]]/g, (m, inner) => (ROMANISED_WORDS(inner.trim()) ? "" : m));
+  // $(Rokar-bahi)$
+  s = s.replace(/\s*\$\s*[([]([^$()[\]]*)[)\]]\s*\$/g, (m, inner) => (ROMANISED_WORDS(inner.trim()) ? "" : m));
+  return s;
+}
+
+// Roman numerals → numbers, so "Statements I and II" is read "1 and 2", not
+// the word "I". II, III, IV, VI… are always numbers; a lone I / V / X only
+// where it clearly is one (after "Statement", "Column", "List", "Part"…, next
+// to another numeral "I and II", after "only" / "both", "1-I" in a matching
+// option, "(I)", or "I." at the start) — so the pronoun "I" and the variables
+// "X" / "V" are left alone. "(ii)" / "(iv)" in lower case → "(2)" / "(4)".
+const ROMAN_VAL = { I: 1, V: 5, X: 10, L: 50 };
+function romanToInt(r) {
+  let n = 0;
+  for (let i = 0; i < r.length; i++) {
+    const v = ROMAN_VAL[r[i]], next = ROMAN_VAL[r[i + 1]] || 0;
+    n += v < next ? -v : v;
+  }
+  return n;
+}
+function intToRoman(n) {
+  const T = [[50, "L"], [40, "XL"], [10, "X"], [9, "IX"], [5, "V"], [4, "IV"], [1, "I"]];
+  let out = "";
+  for (const [v, r] of T) while (n >= v) { out += r; n -= v; }
+  return out;
+}
+const isRoman = (t) => /^[IVXL]+$/.test(t) && romanToInt(t) > 0 && romanToInt(t) <= 50 && intToRoman(romanToInt(t)) === t;
+const KEYWORDS = /(?:statements?|columns?|lists?|parts?|types?|class|classes|phases?|papers?|chapters?|schedules?|articles?|stages?|grades?|sections?|units?|categor(?:y|ies)|sentences?|pairs?|groups?|steps?|levels?|books?|volumes?|plans?|world war|options?|only|both|neither|either|and|or|nor)\s*$/i;
+const CONNECT = /^\s*(?:,|&|\/|-|–|—|\band\b|\bor\b|\bnor\b|\bto\b)\s*$/i;
+export function speakRomanNumerals(input) {
+  let s = String(input ?? "");
+  // Lower-case list markers: "(ii)" → "(2)".
+  s = s.replace(/\((i{1,3}|iv|vi{0,3}|ix|x)\)/g, (m, r) => `(${romanToInt(r.toUpperCase())})`);
+  const ms = [...s.matchAll(/\b[IVXL]+\b/g)].filter((m) => isRoman(m[0]));
+  if (!ms.length) return s;
+  const single = (t) => t === "I" || t === "V" || t === "X" || t === "L";
+  const yes = ms.map((m) => {
+    const t = m[0];
+    if (!single(t)) return true; // II, III, IV, VI, … always numbers
+    const before = s.slice(0, m.index), after = s.slice(m.index + t.length);
+    if (t === "L") return false;
+    if (/(?:\d\s*[-–]\s*)$/.test(before)) return true;                 // "1-I"
+    if (/\(\s*$/.test(before) && /^\s*\)/.test(after)) return true;     // "(I)"
+    if (/^\s*$/.test(before) && /^\s*[.:)]/.test(after)) return true;   // "I. …" at the start
+    if (/^\s*only\b/i.test(after)) return true;                          // "I only"
+    // "Statement I", "only I" — but "and"/"or" alone need a numeral next to them (below).
+    const kw = before.match(KEYWORDS);
+    return !!(kw && !/^(?:and|or|nor)$/i.test(kw[0].trim()));
+  });
+  // A lone I / V / X joined to a numeral ("I and II", "II, V") is one too.
+  for (let pass = 0; pass < 2; pass++) {
+    for (let i = 0; i < ms.length; i++) {
+      if (yes[i]) continue;
+      const near = (j) => {
+        if (j < 0 || j >= ms.length || !yes[j]) return false;
+        const [a, b] = j < i ? [ms[j], ms[i]] : [ms[i], ms[j]];
+        return CONNECT.test(s.slice(a.index + a[0].length, b.index));
+      };
+      if (near(i - 1) || near(i + 1)) yes[i] = true;
+    }
+  }
+  let out = "", last = 0;
+  ms.forEach((m, i) => {
+    if (!yes[i]) return;
+    out += s.slice(last, m.index) + String(romanToInt(m[0]));
+    last = m.index + m[0].length;
+  });
+  return out + s.slice(last);
+}
+
 // Strip LaTeX / markup so the TTS voice reads clean, natural language rather
 // than "$", backslashes and braces. Keeps the words; drops the notation.
 export function toSpeech(input) {
-  let s = String(input || "");
+  // Screen-only Hindi glosses go first (before the "$" math marks are removed).
+  let s = dropBracketGlosses(String(input || ""));
   // "statement(s) … is/are correct" → "statements … are correct" (a voice
   // would otherwise say "statement s" / "is slash are").
   s = s.replace(/(\w)\(s\)/g, "$1s").replace(/\bis\s*\/\s*are\b/gi, "are").replace(/\bhas\s*\/\s*have\b/gi, "have");
@@ -39,6 +124,7 @@ export function toSpeech(input) {
   s = s.replace(/\s*=\s*/g, " equals ");
   s = s.replace(/\\[a-zA-Z]+/g, " "); // any remaining commands
   s = s.replace(/[{}\\]/g, " ");
+  s = speakRomanNumerals(s);
   return s.replace(/\s+/g, " ").trim();
 }
 
@@ -184,7 +270,8 @@ export function questionSpeechParts(q) {
       b: colB.map((t, i) => ({ badge: ROMAN[i] || String(i + 1), text: t })),
     };
     if (colA.length) speech.push("Column A: " + colA.map((t, i) => `${i + 1}, ${said(t)}`).join(" "));
-    if (colB.length) speech.push("Column B: " + colB.map((t, i) => `${ROMAN[i] || i + 1}, ${said(t)}`).join(" "));
+    // Spoken as numbers ("1, …") — a voice reads "I" as the word "I".
+    if (colB.length) speech.push("Column B: " + colB.map((t, i) => `${i + 1}, ${said(t)}`).join(" "));
   }
 
   if ((type === "statement" || type === "rearrange") && colA.length) {
