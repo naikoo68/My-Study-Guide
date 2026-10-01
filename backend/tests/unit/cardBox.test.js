@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { cleanCardBox, cardBoxParam } from "../../src/utils/cardBox.js";
+import { cleanCardBox, cardBoxParam, cardBoxLogo } from "../../src/utils/cardBox.js";
 
 describe("cleanCardBox", () => {
   it("opacities: clamped, text never below 10%, card can be 0", () => {
@@ -23,5 +23,17 @@ describe("cleanCardBox", () => {
     expect(cardBoxParam({ top: 0.22, bottom: 0.19, side: 0.06 })).toBe("0.22,0.19,0.06,0.94,1");
     expect(cardBoxParam({ top: 0.22, bottom: 0.19, side: 0.06, card: 0.5, text: 0.8 })).toBe("0.22,0.19,0.06,0.5,0.8");
     expect(cardBoxParam(null)).toBe("");
+  });
+});
+
+describe("logo on the template", () => {
+  it("keeps a valid logo, clamps it on-frame", () => {
+    const b = cleanCardBox({ top: 0.2, bottom: 0.2, side: 0, logo: { url: "https://res.cloudinary.com/a/l.png", x: 0.95, y: -1, w: 0.2, opacity: 0 } });
+    expect(b.logo).toEqual({ url: "https://res.cloudinary.com/a/l.png", w: 0.2, x: 0.8, y: 0, opacity: 0.05 });
+    expect(cardBoxLogo({ top: 0.2, bottom: 0.2, side: 0, logo: { url: "https://x.com/l.png", x: 0.1, y: 0.1, w: 0.1, opacity: 0.5 } })).toEqual({ url: "https://x.com/l.png", pos: "0.1,0.1,0.1,0.5" });
+  });
+  it("drops unsafe / missing logos", () => {
+    expect(cleanCardBox({ top: 0.2, bottom: 0.2, side: 0, logo: { url: "javascript:alert(1)" } }).logo).toBeUndefined();
+    expect(cardBoxLogo({ top: 0.2, bottom: 0.2, side: 0 })).toBe(null);
   });
 });
