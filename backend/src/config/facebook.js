@@ -3,6 +3,7 @@ import { socialSettingsFilter, activeSocialProfileId, runAsSocialProfile, schedu
 // auto-posts to a connected Facebook page / Instagram account.
 
 import { formatSocialLinks } from "../utils/socialLinks.js";
+import { slideshowBrandOpts } from "../utils/videoBrand.js";
 import { DEFAULT_LINK_IN_BIO, toNoLinkText, forNoLinkComment, isNotifyAllOnly } from "../utils/noLinkText.js";
 import { telegramConfigured, sendTelegramMedia, sendTelegramMessage } from "./telegram.js";
 import { displayName } from "../utils/displayName.js";
@@ -2153,9 +2154,9 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
         questionTemplateUrl: site?.slideshowQuestionTemplateUrl || "",
         answerTemplateUrl: site?.slideshowAnswerTemplateUrl || "",
         site, // raw settings doc → resolves the TTS provider/key/model
-        brandColor: site?.brandColor || site?.primaryColor || "#2563eb",
-        siteName: site?.siteName || "My Study Guide",
-        siteUrl: (cfg.siteUrl || "https://www.mystudyguide.in").replace(/^https?:\/\//, "").replace(/\/+$/, ""),
+        // Header name / logo / footer website: THIS account's video branding
+        // (a cross-posting user's own channel name — never ours by default).
+        ...slideshowBrandOpts(site, { siteUrl: cfg.siteUrl || "https://www.mystudyguide.in" }),
         subjectName: breadcrumb || "",
         onStatus: setStatus,
       });

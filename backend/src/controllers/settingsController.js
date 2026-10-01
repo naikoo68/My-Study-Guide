@@ -1,4 +1,5 @@
 import { activeSocialProfileId, runAsSocialProfile } from "../utils/socialProfile.js";
+import { cleanBrandName, cleanBrandLogoUrl, cleanBrandWebsite } from "../utils/videoBrand.js";
 import Settings from "../models/Settings.js";
 import { cleanTgChat, verifyTelegram, sendTelegramMessage, findTelegramChats, isTgInviteLink, TG_INVITE_HELP } from "../config/telegram.js";
 import Tenant from "../models/Tenant.js";
@@ -265,6 +266,7 @@ export async function updateSettings(req, res) {
     "fbSelfieWatermarkUrl", "fbSelfieWatermarkEnabled", "fbSelfieWatermarkPosition", "fbSelfieWatermarkSize", "fbSelfieWatermarkOpacity", "fbSelfieWatermarkShape",
     "fbTextWatermarkEnabled", "fbTextWatermarkText", "fbTextWatermarkSize", "fbTextWatermarkOpacity",
     "fbFlashcardTemplateUrl", "fbFlashcardTemplateEnabled",
+    "videoBrandName", "videoBrandLogoUrl", "videoBrandWebsite", "videoBrandColor",
     "fbReelAudios",
     "fbAutoCommentEnabled", "fbAutoComment",
     "fbNotifyEmail", "fbNotifyOnPost", "fbNotifyOnError", "fbNotifyOnComplete",
@@ -285,6 +287,11 @@ export async function updateSettings(req, res) {
   ];
   const update = {};
   for (const k of allowed) if (k in req.body) update[k] = req.body[k];
+  // Video branding is drawn on slides and passed in a screenshot URL — keep it clean.
+  if ("videoBrandName" in update) update.videoBrandName = cleanBrandName(update.videoBrandName);
+  if ("videoBrandLogoUrl" in update) update.videoBrandLogoUrl = cleanBrandLogoUrl(update.videoBrandLogoUrl);
+  if ("videoBrandWebsite" in update) update.videoBrandWebsite = cleanBrandWebsite(update.videoBrandWebsite);
+  if ("videoBrandColor" in update) update.videoBrandColor = /^#[0-9a-f]{6}$/i.test(String(update.videoBrandColor || "")) ? String(update.videoBrandColor).toLowerCase() : "";
 
   // LOGO GUARD. The browser receives the logo as a cacheable /api/settings/logo
   // PROXY URL (see getSettings — the heavy base64 is stripped out of the JSON).

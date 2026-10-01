@@ -157,7 +157,7 @@ function columnsBlock(x, yTop, availW, columns, brand) {
 // Build the full slide SVG.
 function buildSlideSvg(slide, opts = {}) {
   const brandColor = opts.brandColor || "#2563eb";
-  const siteName = esc(uni(opts.siteName || "My Study Guide"));
+  const siteName = esc(uni(opts.siteName ?? "My Study Guide"));
   const pal = palette(slide.accent, brandColor);
   const els = [];
   // TEMPLATE mode: the admin's uploaded image is the background (composited
@@ -269,7 +269,7 @@ function buildSlideSvg(slide, opts = {}) {
   // Footer brand line (skip on the CTA slide, which is itself the brand slide).
   const footer = slide.brand || templateMode
     ? ""
-    : T(W / 2, H - 32, 28, "#94a3b8", `${siteName}  ·  ${esc(uni(opts.siteUrl || "www.mystudyguide.in"))}`, { weight: "700", anchor: "middle" });
+    : T(W / 2, H - 32, 28, "#94a3b8", [siteName, esc(uni(opts.siteUrl ?? "www.mystudyguide.in"))].filter(Boolean).join("  ·  "), { weight: "700", anchor: "middle" });
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
     <defs>

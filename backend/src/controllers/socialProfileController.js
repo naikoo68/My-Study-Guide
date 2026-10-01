@@ -102,6 +102,8 @@ const NOT_COPIED = new Set([
   // post numbering stay yours; the user starts counting from 1.
   "socialLinks", "fbAutoCommentMentions", "fbNotifyEmail", "contacts",
   "fbPostSerial", "fbPostSerialFacebook", "fbPostSerialInstagram",
+  // Video branding is the user's OWN (their channel name / logo, not ours).
+  "videoBrandName", "videoBrandLogoUrl", "videoBrandWebsite", "videoBrandColor",
 ]);
 export const copyableSettings = (main) => Object.fromEntries(Object.entries(main || {}).filter(([k]) => !NOT_COPIED.has(k)));
 

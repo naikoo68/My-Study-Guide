@@ -5,6 +5,7 @@ import Settings from "../models/Settings.js";
 import { randomUUID } from "node:crypto";
 import { runScheduleOnce, getFacebookConfig, getFacebookSiteForConfig, hashtagsForQuestion, getFacebookPublishedCount, countFacebookPosts, pickQuestionForSchedule, pickQuestionsForSlideshow, pickAllQuestionsForSource } from "../config/facebook.js";
 import FbPost from "../models/FbPost.js";
+import { slideshowBrandOpts } from "../utils/videoBrand.js";
 import { getCurrentTenantId } from "../utils/tenantContext.js";
 import { renderQuestionImage } from "../config/socialImage.js";
 import { renderQuestionCardShot, renderFlashcardCardShot } from "../config/cardShot.js";
@@ -183,9 +184,7 @@ export async function testSlideshow(req, res) {
     answerTemplateUrl: landscape ? (useLongTemplates ? site?.longVideoAnswerTemplateUrl || "" : "") : site?.slideshowAnswerTemplateUrl || "",
     ...(landscape ? { orientation: "landscape" } : {}),
     site,
-    brandColor: site?.brandColor || site?.primaryColor || "#2563eb",
-    siteName: site?.siteName || "My Study Guide",
-    siteUrl: String(cfg?.siteUrl || "https://www.mystudyguide.in").replace(/^https?:\/\//, "").replace(/\/+$/, ""),
+    ...slideshowBrandOpts(site, { siteUrl: cfg?.siteUrl || "https://www.mystudyguide.in" }),
     onStatus: (st) => { job.stage = st; job.progress = null; job.updatedAt = Date.now(); },
     // Per-slide progress within the current step, so the UI can show % + time left.
     onProgress: (st, done, total) => { job.stage = st; job.progress = { done, total }; job.updatedAt = Date.now(); },
