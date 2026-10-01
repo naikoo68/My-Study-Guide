@@ -515,6 +515,7 @@ export async function youtubeThumbnailPreview(req, res) {
   if (!thumb.templateUrl) return res.status(400).json({ message: "Upload a thumbnail template first." });
   // Sample text for the preview — each real video fills in its own names.
   const lines = thumbnailLines({
+    stream: String(b.stream ?? "Stream Name").slice(0, 100),
     subject: String(b.subject ?? "Subject Name").slice(0, 100),
     topic: String(b.topic ?? "Topic Name").slice(0, 100),
     quiz: String(b.quiz ?? "Quiz 1").slice(0, 100),

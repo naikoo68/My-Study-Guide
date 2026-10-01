@@ -1217,6 +1217,7 @@ export async function hashtagsForQuestion(q, site, extra = "") {
   // (PracticeSubject / PracticeTopic) both work, without the "A)" prefixes.
   if (site?.fbAutoHashtags !== false && q) {
     const names = await titlePartsForQuestion(q).catch(() => ({}));
+    push(toTagWords(names.stream));
     push(toTagWords(names.subject));
     push(toTagWords(names.topic));
     push(toTagWords(displayName(q.section)));
@@ -1277,13 +1278,10 @@ export async function breadcrumbForQuestion(q) {
     }
   }
   if (subjectId) {
-    const s = await Subject.findById(subjectId).select("name stream").lean().catch(() => null);
+    const s = await Subject.findById(subjectId).select("name stream streams").lean().catch(() => null);
     if (s) {
       subjectName = s.name || "";
-      if (s.stream) {
-        const st = await Stream.findById(s.stream).select("name").lean().catch(() => null);
-        streamName = st?.name || "";
-      }
+      streamName = await streamNameOf(s);
     }
   }
 
@@ -1305,7 +1303,7 @@ export async function breadcrumbForQuestion(q) {
 // ("Subject | Topic | Quiz N"). Covers BOTH the quiz bank (Subject → Topic via
 // the session) and "My Quiz" items (TestSeries → PracticeSubject/PracticeTopic).
 export async function titlePartsForQuestion(q) {
-  const out = { subject: "", topic: "", quiz: "" };
+  const out = { stream: "", subject: "", topic: "", quiz: "" };
   if (!q) return out;
   let subjectId = q.subject || null;
   let sessionId = q.session || null;
@@ -1326,8 +1324,9 @@ export async function titlePartsForQuestion(q) {
     }
   }
   if (subjectId) {
-    const s = await Subject.findById(subjectId).select("name").lean().catch(() => null);
+    const s = await Subject.findById(subjectId).select("name stream streams").lean().catch(() => null);
     out.subject = s?.name || "";
+    out.stream = await streamNameOf(s);
   }
   if (q.testSeries && (!out.subject || !out.topic || !out.quiz)) {
     const ts = await TestSeries.findById(q.testSeries).select("name practice practiceSubject practiceTopic").lean().catch(() => null);
@@ -1335,10 +1334,15 @@ export async function titlePartsForQuestion(q) {
       if (!out.quiz) out.quiz = ts.name || "";
       if (ts.practice) {
         const [ps, pt] = await Promise.all([
-          !out.subject && ts.practiceSubject ? PracticeSubject.findById(ts.practiceSubject).select("name").lean().catch(() => null) : null,
+          !out.subject && ts.practiceSubject ? PracticeSubject.findById(ts.practiceSubject).select("name stream").lean().catch(() => null) : null,
           !out.topic && ts.practiceTopic ? PracticeTopic.findById(ts.practiceTopic).select("name").lean().catch(() => null) : null,
         ]);
         if (ps?.name) out.subject = ps.name;
+        if (ps?.stream && !out.stream) {
+          const PracticeStream = (await import("../models/PracticeStream.js")).default;
+          const pst = await PracticeStream.findById(ps.stream).select("name").lean().catch(() => null);
+          out.stream = pst?.name || "";
+        }
         if (pt?.name) out.topic = pt.name;
       }
     }
@@ -1347,7 +1351,15 @@ export async function titlePartsForQuestion(q) {
   if (!out.topic && q.section) out.topic = String(q.section);
   // Order prefixes ("A) Basic Terminologies") are for sorting only — viewers
   // see / hear just the name in titles, thumbnails, slides and narration.
-  return { subject: displayName(out.subject), topic: displayName(out.topic), quiz: displayName(out.quiz) };
+  return { stream: displayName(out.stream), subject: displayName(out.subject), topic: displayName(out.topic), quiz: displayName(out.quiz) };
+}
+
+// A subject's stream name: its home `stream`, else the first linked one.
+async function streamNameOf(subject) {
+  const id = subject?.stream || (Array.isArray(subject?.streams) ? subject.streams[0] : null);
+  if (!id) return "";
+  const st = await Stream.findById(id).select("name").lean().catch(() => null);
+  return st?.name || "";
 }
 
 // Which "quiz" of the source this video is: with 5 questions per video, the
@@ -2327,6 +2339,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
       poolSize: poolSize || sch.poolSize || 0,
     });
     const titleVars = {
+      stream: names.stream,
       subject: names.subject || names.quiz || sch.title || "",
       topic: names.topic,
       quiz: names.quiz,

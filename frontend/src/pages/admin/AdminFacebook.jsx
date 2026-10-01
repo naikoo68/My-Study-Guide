@@ -2411,7 +2411,7 @@ function YtThumbnailTemplateEditor({ st, onSaved }) {
                   {!showExact && (
                     <div className="pointer-events-none flex h-full w-full flex-col gap-0.5 overflow-hidden p-1 text-[7px] font-black leading-tight" style={sampleStyle}>
                       <div style={panelBg}>
-                        <div style={{ color: draft.thumbKickerColor || draft.thumbTextColor, fontSize: `${(draft.thumbKickerSize / 44) * 6}px` }}>Subject Name</div>
+                        <div style={{ color: draft.thumbKickerColor || draft.thumbTextColor, fontSize: `${(draft.thumbKickerSize / 44) * 6}px` }}>Stream Name · Subject Name</div>
                         <div style={{ fontSize: `${(draft.thumbHeadlineSize / 104) * 13}px`, lineHeight: draft.thumbLineHeight }}>Topic Name</div>
                         <div style={{ display: "inline-block", background: draft.thumbAccentColor, color: draft.thumbBadgeTextColor, borderRadius: 3, padding: "0 4px", fontSize: `${(draft.thumbBadgeSize / 46) * 8}px`, marginTop: 2 }}>Quiz 1</div>
                       </div>
@@ -5239,7 +5239,7 @@ export default function AdminFacebook() {
                 <input className="input" maxLength={90} value={form.ytTitle || ""} onChange={(e) => setForm((f) => ({ ...f, ytTitle: e.target.value }))}
                   placeholder="Automatic: Subject | Topic | Quiz 1" />
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                  Leave blank for the automatic title <b>Subject | Topic | Quiz 1</b>, then Quiz 2, Quiz 3… — each video is the next set of questions from this source (e.g. 25 questions at 5 per video → Quiz 1 to Quiz 5). Or type your own: <code>{"{subject}"}</code> <code>{"{topic}"}</code> <code>{"{n}"}</code> <code>{"{total}"}</code> (a plain title like “Daily GK Quiz” becomes “Daily GK Quiz #1”). Use <b>Sequential</b> order so Quiz 1 is the first questions. The caption + hashtags become the description.
+                  Leave blank for the automatic title <b>Stream | Subject | Topic | Quiz 1</b>, then Quiz 2, Quiz 3… — each video is the next set of questions from this source (e.g. 25 questions at 5 per video → Quiz 1 to Quiz 5). Or type your own: <code>{"{stream}"}</code> <code>{"{subject}"}</code> <code>{"{topic}"}</code> <code>{"{n}"}</code> <code>{"{total}"}</code> (a plain title like “Daily GK Quiz” becomes “Daily GK Quiz #1”). Use <b>Sequential</b> order so Quiz 1 is the first questions. The caption + hashtags become the description.
                 </p>
                 <label className="mb-1 mt-3 block text-sm font-medium">Playlist (folder) for these Shorts</label>
                 <YtPlaylistPicker value={form.ytPlaylistId || ""} emptyLabel="Default Shorts playlist (YouTube settings)"
