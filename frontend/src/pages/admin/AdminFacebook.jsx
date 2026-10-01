@@ -3667,7 +3667,18 @@ function FullQuizVideoForm({ st, onStatus }) {
     if (!useByQuiz || !topicQuizzes) return null;
     const from = Math.max(0, topicQuizzes.findIndex((q) => q.id === quizStartId));
     const rest = topicQuizzes.slice(from).filter((q) => q.questions > 0);
-    return { from, skipped: from, quizzes: rest.length, videos: rest.reduce((n, q) => n + q.videos, 0), first: topicQuizzes[from], last: rest[rest.length - 1], empty: topicQuizzes.slice(from).length - rest.length };
+    return { from, skipped: from, quizzes: rest.length, videos: rest.reduce((n, q) => n + q.videos, 0), first: topicQuizzes[from], firstWithQs: rest[0] || null, last: rest[rest.length - 1], empty: topicQuizzes.slice(from).length - rest.length };
+  })();
+  // Quiz by quiz: the FIRST video the schedule will make = part 1 of the start
+  // quiz (not the whole topic). Same source shape as the server's quizSource().
+  const firstQuizVideo = (() => {
+    const q = quizPlan?.firstWithQs;
+    if (!q) return null;
+    return {
+      source: { [source.practiceTopic ? "testSeries" : "quiz"]: q.id, label: [source.label, q.name].filter(Boolean).join(" › ") },
+      count: Math.min(perVideo, q.questions),
+      name: q.name, questions: q.questions,
+    };
   })();
 
   // Poll while any job is still working.
@@ -3782,7 +3793,12 @@ function FullQuizVideoForm({ st, onStatus }) {
     setPubMsg(null);
     setClock(Date.now());
     try {
-      const startRes = await youtubeService.longVideoPreview({ source, title: title.trim(), useThumbnail: useThumb, options: buildOptions() });
+      // Quiz by quiz → preview exactly what the schedule's first run makes.
+      const fq = useByQuiz ? firstQuizVideo : null;
+      if (useByQuiz && !fq) throw new Error(topicQuizzes == null ? "Still loading the topic's quizzes — try again in a moment." : "This topic has no quizzes with questions from the chosen start quiz.");
+      const startRes = await youtubeService.longVideoPreview(fq
+        ? { source: fq.source, title: title.trim(), useThumbnail: useThumb, options: { ...buildOptions(), order: "sequential", start: 1, count: fq.count } }
+        : { source, title: title.trim(), useThumbnail: useThumb, options: buildOptions() });
       const id = startRes?.job?.id;
       if (!id) throw new Error(startRes?.message || "Could not start the preview.");
       setPv({ busy: true, job: startRes.job, error: "" });
@@ -4223,7 +4239,12 @@ function FullQuizVideoForm({ st, onStatus }) {
               <span>Stop when every question has been used <span className="text-slate-400">(else start again from question 1)</span></span>
             </label>
           </div>
-          {known && order === "sequential" && (() => {
+          {useByQuiz && firstQuizVideo && (
+            <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-400">
+              First video = <b>{firstQuizVideo.name}</b>, questions 1–{firstQuizVideo.count} of {firstQuizVideo.questions}. <b>Preview video</b> makes this one.
+            </p>
+          )}
+          {!useByQuiz && known && order === "sequential" && (() => {
             const per = qMode === "all" ? maxQ : nCount;
             const left = Math.max(0, total - nStart + 1);
             const parts = Math.ceil(left / per);
