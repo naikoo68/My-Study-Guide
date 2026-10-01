@@ -5,8 +5,9 @@
 // use the sliders and − / + buttons. Saved as { top, bottom, side } fractions
 // (backend utils/cardBox.js).
 import { useRef, useState } from "react";
-import { Loader2, Save, RotateCcw, CheckCircle2, AlertTriangle, Minus, Plus, Move, ImagePlus, Trash2 } from "lucide-react";
+import { Loader2, Save, RotateCcw, CheckCircle2, AlertTriangle, Minus, Plus, Move, ImagePlus, Trash2, Eraser, Undo2 } from "lucide-react";
 import { uploadService } from "../../services";
+import { removeBackgroundFromUrl } from "../../lib/removeBg.js";
 
 // Same defaults as the backend (the old fixed card boxes).
 // card / text = opacity of the card's white background and of the quiz text.
@@ -61,8 +62,13 @@ export default function CardBoxEditor({ templateUrl, boxKey, settings, saveSetti
   const [dirty, setDirty] = useState(false);
   const frameRef = useRef(null);
   const drag = useRef(null); // { mode, startX, startY, start: box, w, h }
+  const pointers = useRef(new Map()); // active touches (pinch zoom): id → { x, y }
   const logoFileRef = useRef(null);
   const [logoBusy, setLogoBusy] = useState(false);
+  const logoRatio = useRef(1); // the logo image's height / width
+  const [bgBusy, setBgBusy] = useState(false);
+  const [bgStrength, setBgStrength] = useState(40);
+  const [beforeBg, setBeforeBg] = useState(""); // the URL before, for Undo
   if (!templateUrl) return null;
 
   const update = (fn) => { setMsg(null); setDirty(true); setBox(fn); };
@@ -94,6 +100,44 @@ export default function CardBoxEditor({ templateUrl, boxKey, settings, saveSetti
   };
   const onUp = () => { drag.current = null; };
 
+  // ---- Two-finger pinch on the template → resize the logo ----
+  // Listened in the CAPTURE phase on the frame, so the second finger can land
+  // anywhere on the preview (not only on the small logo).
+  const fingerGap = () => { const [a, b] = [...pointers.current.values()]; return Math.hypot(a.x - b.x, a.y - b.y) || 1; };
+  const onPinchDown = (e) => {
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.current.size === 2 && box.logo) {
+      const r = frameRef.current?.getBoundingClientRect();
+      drag.current = { mode: "pinch", gap: fingerGap(), start: box, w: r?.width || 1, h: r?.height || 1 };
+      e.preventDefault(); e.stopPropagation(); // don't start an edge / card drag with the 2nd finger
+    }
+  };
+  const onPinchMove = (e) => {
+    if (!pointers.current.has(e.pointerId)) return;
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const d = drag.current;
+    if (d?.mode !== "pinch" || pointers.current.size < 2 || !d.start.logo) return;
+    e.preventDefault(); e.stopPropagation();
+    const l = d.start.logo;
+    const w = l.w * (fingerGap() / d.gap);
+    // Keep the logo's centre where it was while it grows / shrinks.
+    const hFrac = (l.w * d.w * (logoRatio.current || 1)) / d.h; // logo height as a fraction of the frame
+    const cx = l.x + l.w / 2, cy = l.y + hFrac / 2;
+    const k = w / l.w;
+    setMsg(null); setDirty(true);
+    setBox({ ...d.start, logo: placedLogo(l, { w, x: cx - w / 2, y: cy - (hFrac * k) / 2 }) });
+  };
+  const onPinchUp = (e) => {
+    pointers.current.delete(e.pointerId);
+    if (drag.current?.mode === "pinch" && pointers.current.size < 2) drag.current = null;
+  };
+  // Mouse wheel over the logo = zoom too (desktop).
+  const onLogoWheel = (e) => {
+    if (!box.logo) return;
+    e.preventDefault();
+    setLogo({ w: box.logo.w * (e.deltaY < 0 ? 1.05 : 1 / 1.05) });
+  };
+
   const save = async (value) => {
     setBusy(true); setMsg(null);
     try {
@@ -119,6 +163,22 @@ export default function CardBoxEditor({ templateUrl, boxKey, settings, saveSetti
     finally { setLogoBusy(false); if (logoFileRef.current) logoFileRef.current.value = ""; }
   };
   const removeLogo = () => update((b) => { const n = { ...b }; delete n.logo; return n; });
+
+  // ---- Remove the logo's plain background (white / one colour) ----
+  const removeBg = async () => {
+    if (!box.logo?.url) return;
+    setBgBusy(true); setMsg(null);
+    try {
+      const blob = await removeBackgroundFromUrl(box.logo.url, { tolerance: bgStrength });
+      const r = await uploadService.imageDirect(new File([blob], "logo-transparent.png", { type: "image/png" }));
+      if (!/^https:\/\//i.test(r?.url || "")) throw new Error("Upload failed.");
+      setBeforeBg(box.logo.url);
+      setLogo({ url: r.url });
+      setMsg({ ok: true, text: "Background removed — tap Save position to keep it." });
+    } catch (err) { setMsg({ ok: false, text: err.message || "Could not remove the background." }); }
+    finally { setBgBusy(false); }
+  };
+  const undoBg = () => { if (beforeBg) { setLogo({ url: beforeBg }); setBeforeBg(""); } };
   const logoRow = (k, label, step) => {
     const [lo, hi] = LOGO_LIMITS[k];
     const v = box.logo?.[k] ?? 0;
@@ -164,7 +224,10 @@ export default function CardBoxEditor({ templateUrl, boxKey, settings, saveSetti
         Drag the red handles on the dashed box (or drag the box to move it up / down), or use the − / + buttons, until the card no longer covers your logo at the top or the icons / text at the bottom.
       </p>
       <div className="mt-3 grid gap-4 sm:grid-cols-[minmax(0,1fr)_220px]">
-        <div ref={frameRef} className={`relative select-none overflow-hidden rounded-md border border-slate-200 dark:border-slate-700 ${landscape ? "" : "mx-auto max-w-[240px]"}`}>
+        <div ref={frameRef}
+          onPointerDownCapture={onPinchDown} onPointerMoveCapture={onPinchMove} onPointerUpCapture={onPinchUp} onPointerCancelCapture={onPinchUp}
+          style={box.logo ? { touchAction: "none" } : undefined}
+          className={`relative select-none overflow-hidden rounded-md border border-slate-200 dark:border-slate-700 ${landscape ? "" : "mx-auto max-w-[240px]"}`}>
           <img src={templateUrl} alt="" draggable={false} className="pointer-events-none block w-full" />
           <div className="absolute rounded-md border-2 border-dashed border-rose-500"
             style={{ top: `${box.top * 100}%`, bottom: `${box.bottom * 100}%`, left: `${box.side * 100}%`, right: `${box.side * 100}%`, backgroundColor: `rgba(255,255,255,${box.card})` }}>
@@ -182,7 +245,8 @@ export default function CardBoxEditor({ templateUrl, boxKey, settings, saveSetti
             {handle("right", { top: 0, bottom: 0, right: -12, width: 24 }, "ew-resize", "h-10 w-2.5")}
           </div>
           {box.logo && (
-            <img src={box.logo.url} alt="" draggable={false} data-drag="logo"
+            <img src={box.logo.url} alt="" draggable={false} data-drag="logo" onWheel={onLogoWheel}
+              onLoad={(e) => { const im = e.currentTarget; if (im.naturalWidth) logoRatio.current = im.naturalHeight / im.naturalWidth; }}
               onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
               title="Drag to move" className="absolute z-20 cursor-move outline-2 outline-offset-2 outline-dashed outline-sky-500"
               style={{ left: `${box.logo.x * 100}%`, top: `${box.logo.y * 100}%`, width: `${box.logo.w * 100}%`, opacity: box.logo.opacity, touchAction: "none" }} />
@@ -206,7 +270,20 @@ export default function CardBoxEditor({ templateUrl, boxKey, settings, saveSetti
           </div>
           {box.logo ? (
             <>
-              <p className="text-xs text-slate-400">Drag the image (blue outline) anywhere on the template.</p>
+              <p className="text-xs text-slate-400">Drag the image (blue outline) anywhere on the template. <b>Pinch with two fingers</b> (or scroll the mouse wheel over it) to make it bigger / smaller.</p>
+              <div className="rounded-md border border-slate-200 p-2 dark:border-slate-700">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button type="button" onClick={removeBg} disabled={bgBusy || busy} className="btn-outline !py-1.5 !text-xs">
+                    {bgBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eraser className="h-4 w-4" />} Remove background
+                  </button>
+                  {beforeBg && <button type="button" onClick={undoBg} disabled={bgBusy} className="btn-outline !py-1.5 !text-xs"><Undo2 className="h-4 w-4" /> Undo</button>}
+                </div>
+                <label className="mt-1.5 block text-xs">
+                  <span className="flex justify-between font-medium"><span>Strength</span><span className="text-slate-400">{bgStrength}</span></span>
+                  <input type="range" min={10} max={120} step={5} value={bgStrength} onChange={(e) => setBgStrength(Number(e.target.value))} className="w-full accent-brand-600" />
+                </label>
+                <p className="text-[11px] text-slate-400">For a plain white / single-colour background (like an emoji). Raise Strength if some background is left; lower it if parts of the image disappear.</p>
+              </div>
               {logoRow("w", "Logo size", 0.01)}
               {logoRow("opacity", "Logo opacity", 0.05)}
             </>
