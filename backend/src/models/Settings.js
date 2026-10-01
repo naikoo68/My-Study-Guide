@@ -262,6 +262,13 @@ const settingsSchema = new mongoose.Schema(
     // set & enabled, the flashcard render overlays the quiz question's content
     // onto this uploaded image instead of the built-in design. Cloudinary URL.
     fbFlashcardTemplateUrl: { type: String, default: "" },
+    // Video branding (header logo + name, footer website) on AI Slideshow /
+    // Reel / Short / long-video slides. Per account — never copied to a
+    // cross-posting user (see utils/videoBrand.js). Blank = automatic.
+    videoBrandName: { type: String, default: "" },
+    videoBrandLogoUrl: { type: String, default: "" }, // hosted https image
+    videoBrandWebsite: { type: String, default: "" },
+    videoBrandColor: { type: String, default: "" },
     fbFlashcardTemplateEnabled: { type: Boolean, default: true },
     // Auto first-comment (see the full auto-comment block lower down). Master
     // on/off toggle + the LEGACY single comment. `fbAutoComment` is kept for

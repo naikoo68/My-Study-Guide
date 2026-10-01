@@ -2985,6 +2985,113 @@ function SocialLinksSection({ settings, saveSettings }) {
   );
 }
 
+// Video branding: the logo + name at the top and the website at the bottom of
+// every AI Slideshow / Reel / Short / long-video slide. Saved per account, so a
+// cross-posting user's videos carry THEIR channel's name, not ours.
+function VideoBrandingSection({ settings, saveSettings }) {
+  const isProfile = !!getActiveSocialProfile();
+  const [name, setName] = useState(settings?.videoBrandName || "");
+  const [logo, setLogo] = useState(settings?.videoBrandLogoUrl || "");
+  const [website, setWebsite] = useState(settings?.videoBrandWebsite || "");
+  const [color, setColor] = useState(settings?.videoBrandColor || "");
+  const [busy, setBusy] = useState("");
+  const [msg, setMsg] = useState(null);
+  const fileRef = useRef(null);
+  // What is used when a box is left blank (mirrors backend utils/videoBrand.js).
+  const autoName = isProfile ? (settings?.ytChannelTitle || settings?.profileName || "") : "";
+  const shownName = name.trim() || autoName;
+  const shownSite = website.trim().replace(/^https?:\/\//i, "").replace(/\/+$/, "") || (isProfile ? "" : "www.mystudyguide.in");
+  const shownColor = /^#[0-9a-f]{6}$/i.test(color) ? color : (/^#[0-9a-f]{6}$/i.test(settings?.primaryColor || "") ? settings.primaryColor : "#2563eb");
+
+  const upload = async (e) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    if (!file.type.startsWith("image/")) { setMsg({ ok: false, text: "Please select an image file." }); return; }
+    setBusy("upload"); setMsg(null);
+    try {
+      const r = await uploadService.imageDirect(file);
+      const u = r?.url || "";
+      if (!/^https:\/\//i.test(u)) throw new Error("Upload did not return an https image URL.");
+      setLogo(u);
+      await saveSettings({ videoBrandLogoUrl: u });
+      setMsg({ ok: true, text: "Logo uploaded & saved." });
+    } catch (err) { setMsg({ ok: false, text: err.message || "Upload failed." }); }
+    finally { setBusy(""); if (fileRef.current) fileRef.current.value = ""; }
+  };
+  const save = async () => {
+    setBusy("save"); setMsg(null);
+    try {
+      await saveSettings({ videoBrandName: name.trim(), videoBrandLogoUrl: logo, videoBrandWebsite: website.trim(), videoBrandColor: /^#[0-9a-f]{6}$/i.test(color) ? color : "" });
+      setMsg({ ok: true, text: "Saved — new videos will use this branding." });
+    } catch (err) { setMsg({ ok: false, text: err.message || "Could not save." }); } finally { setBusy(""); }
+  };
+
+  return (
+    <CollapsibleCard title="Video branding (logo & name)" icon={Clapperboard} iconClass="h-4 w-4 text-brand-600">
+      <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
+        The logo and name at the <b>top</b> and the website at the <b>bottom</b> of every AI Slideshow, Reel, YouTube Short and long-video slide.
+        {isProfile
+          ? <> Saved only for <b>this user</b>. Left blank, their own YouTube channel name is used and no website is shown.</>
+          : <> Left blank, the built-in “MyStudyGuide” logo and your site address are used.</>}
+      </p>
+
+      {/* Live preview of the header + footer */}
+      <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700" style={{ background: "linear-gradient(180deg,#eef2ff 0%,#ffffff 60%,#ecfdf5 100%)" }}>
+        <div className="flex items-center justify-center gap-2 px-3 py-3">
+          {shownName || logo ? (
+            <>
+              {logo
+                ? <img src={logo} alt="" className="h-9 w-9 rounded-xl object-contain" />
+                : <span className="flex h-9 w-9 items-center justify-center rounded-xl text-lg font-black text-white" style={{ backgroundColor: shownColor }}>{shownName.charAt(0).toUpperCase() || "?"}</span>}
+              {shownName && <span className="truncate text-xl font-extrabold text-slate-900">{shownName}</span>}
+            </>
+          ) : (
+            <span className="text-xl font-extrabold"><span className="text-slate-900">My</span><span className="text-brand-600">Study</span><span className="text-slate-900">Guide</span></span>
+          )}
+        </div>
+        <div className="mx-6 h-16 rounded-lg bg-white shadow-sm" />
+        <p className="py-2 text-center text-xs font-semibold text-slate-500">{shownSite || <span className="italic text-slate-400">(no website)</span>}</p>
+      </div>
+
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-sm font-medium">Name on videos</label>
+          <input className="input" maxLength={40} value={name} onChange={(e) => setName(e.target.value)}
+            placeholder={autoName ? `Automatic: ${autoName}` : (isProfile ? "e.g. their channel name" : "Blank = MyStudyGuide")} />
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium">Website at the bottom <span className="font-normal text-slate-400">(optional)</span></label>
+          <input className="input" maxLength={80} value={website} onChange={(e) => setWebsite(e.target.value)}
+            placeholder={isProfile ? "Blank = no website" : "Blank = www.mystudyguide.in"} />
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium">Logo <span className="font-normal text-slate-400">(square PNG/JPG works best)</span></label>
+          <div className="flex flex-wrap items-center gap-2">
+            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={upload} />
+            <button type="button" onClick={() => fileRef.current?.click()} disabled={!!busy} className="btn-outline !py-1.5 !text-xs">
+              {busy === "upload" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />} {logo ? "Change logo" : "Upload logo"}
+            </button>
+            {logo && <button type="button" onClick={() => setLogo("")} disabled={!!busy} className="btn-outline !py-1.5 !text-xs text-rose-600"><Trash2 className="h-4 w-4" /> Remove</button>}
+          </div>
+          {!logo && <p className="mt-1 text-xs text-slate-400">No logo → a coloured badge with the first letter of the name.</p>}
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium">Badge colour</label>
+          <div className="flex items-center gap-2">
+            <input type="color" value={shownColor} onChange={(e) => setColor(e.target.value)} className="h-9 w-14 cursor-pointer rounded border border-slate-200 dark:border-slate-700" />
+            {color && <button type="button" onClick={() => setColor("")} className="text-xs text-slate-500 underline">Use default</button>}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button type="button" onClick={save} disabled={!!busy} className="btn-primary">{busy === "save" ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> Save branding</>}</button>
+        {msg && <span className={`inline-flex items-center gap-1 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {msg.text}</span>}
+      </div>
+      <p className="mt-2 text-xs text-slate-400">Applies to videos made from now on — already-posted videos don't change. Remove the logo and tap Save branding to apply the removal. Custom slide templates have their own header, so this isn't drawn on them.</p>
+    </CollapsibleCard>
+  );
+}
+
 // Telegram connection: the site's bot (token from @BotFather) posts to a
 // channel / group where it's an admin.
 function TelegramConnection({ settings, saveSettings }) {
@@ -4806,6 +4913,9 @@ export default function AdminFacebook() {
 
       {/* Social links → YouTube descriptions + a comment on Facebook / Instagram posts */}
       <SocialLinksSection settings={settings} saveSettings={saveSettings} />
+
+      {/* Header logo + name / footer website on every video slide (per account) */}
+      <VideoBrandingSection key={`vb-${getActiveSocialProfile() || "main"}`} settings={settings} saveSettings={saveSettings} />
 
       {/* Hashtags */}
       <CollapsibleCard title="Hashtags" icon={ListChecks} iconClass="h-4 w-4 text-[#1877F2]">

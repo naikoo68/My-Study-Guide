@@ -7,6 +7,7 @@
 // scheduler tick. Status lives in memory (lost on a server restart — the admin
 // is emailed on success/failure, and can simply start it again).
 import { formatSocialLinks } from "../utils/socialLinks.js";
+import { slideshowBrandOpts } from "../utils/videoBrand.js";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -505,9 +506,8 @@ async function planLongVideo(job, { source, cfg, site, titleTemplate, opts }) {
       return [r, opts.useTemplates ? c : { ...c, templateUrl: "" }];
     })),
     site: opts.engine ? { ...site, ttsProvider: opts.engine } : site,
-    brandColor: site?.brandColor || site?.primaryColor || "#2563eb",
-    siteName: site?.siteName || "My Study Guide",
-    siteUrl: siteUrl.replace(/^https?:\/\//, ""),
+    // This account's video branding (header + footer) — see utils/videoBrand.js.
+    ...slideshowBrandOpts(site, { siteUrl }),
     subjectName: breadcrumb || "",
   };
   const intro = { subject: names.subject || names.quiz || displayTrail(source?.label), topic: names.topic };

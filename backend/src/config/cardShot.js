@@ -160,7 +160,7 @@ export async function renderQuestionCardShot(question, { includeAnswer = false, 
 // Screenshot ONE slide in a fresh tab. → { ok: true } | { error, permanent? }
 // On failure the error says WHY (what the page showed, script errors, the
 // question API's HTTP status), so the admin / server log can see the cause.
-async function shootSlide(browser, it, { siteUrl = "", readyTimeoutMs = 25000, landscape = false } = {}) {
+async function shootSlide(browser, it, { siteUrl = "", readyTimeoutMs = 25000, landscape = false, brand = null } = {}) {
   let page;
   const pageErrors = [];
   let apiStatus = 0;
@@ -197,6 +197,10 @@ async function shootSlide(browser, it, { siteUrl = "", readyTimeoutMs = 25000, l
       p.set("th", String(it.templateSize.height));
     }
     if (siteUrl) p.set("site", siteUrl);
+    // Per-account header (a cross-posting user's own name / logo / colour).
+    if (brand?.name) p.set("bn", String(brand.name).slice(0, 40));
+    if (brand?.logoUrl) p.set("bl", String(brand.logoUrl).slice(0, 1000));
+    if (brand?.color && /^#[0-9a-f]{6}$/i.test(brand.color) && (brand.name || brand.logoUrl)) p.set("bc", brand.color.slice(1));
     if (landscape) p.set("o", "l");
     if (it.template && it.templateInset > 0) p.set("m", String(Math.round(it.templateInset * 1000) / 1000));
     // Don't wait for "network idle" — the page itself says when it's ready
@@ -240,13 +244,14 @@ const BLOCKED_HOSTS = /^https?:\/\/([^/]+\.)?(googlesyndication\.com|doubleclick
 // Screenshot the 9:16 AI Slideshow slides from /slide-card/:id (the SAME quiz
 // components + Inter font students see) straight to local PNG files for ffmpeg.
 //   items: [{ questionId, role, tag, caption, template, templateSize?: { width, height }, outPath }]
-//   opts:  { siteUrl, landscape } — landscape = 1920×1080 slides (long videos)
+//   opts:  { siteUrl, landscape, brand } — landscape = 1920×1080 slides (long videos);
+//          brand = { name, logoUrl, color } for the header ("" name = built-in wordmark)
 // Uses ONE browser for all slides. Returns an array (same order) of
 // { ok: true } or { error } per slide — callers fall back to the SVG slide for
 // any that failed. If the first slide fails (e.g. the frontend with the
 // /slide-card route isn't deployed yet), the rest are skipped immediately
 // instead of each waiting for a timeout.
-export async function renderSlideCardShots(items = [], { siteUrl = "", landscape = false } = {}) {
+export async function renderSlideCardShots(items = [], { siteUrl = "", landscape = false, brand = null } = {}) {
   const results = items.map(() => ({ error: "not rendered" }));
   if (!items.length) return results;
   let browser;
@@ -259,7 +264,7 @@ export async function renderSlideCardShots(items = [], { siteUrl = "", landscape
       // leave a tab slow / out of memory; a retry in a clean tab usually works).
       let last = null;
       for (let attempt = 1; attempt <= 2; attempt++) {
-        last = await shootSlide(browser, it, { siteUrl, landscape, readyTimeoutMs: attempt === 1 ? 25000 : 45000 });
+        last = await shootSlide(browser, it, { siteUrl, landscape, brand, readyTimeoutMs: attempt === 1 ? 25000 : 45000 });
         if (last.ok) break;
         // Final answers from the site (question not public / page crashed on
         // it) won't change on a retry.

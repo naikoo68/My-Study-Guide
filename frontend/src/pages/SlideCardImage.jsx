@@ -168,7 +168,36 @@ function AnswerSlide({ q, tag }) {
 
 // Opening / closing slide: a big centred heading + a couple of lines, on the
 // same branded card as the question slides. No question is fetched.
-function IntroOutroSlide({ heading, lines, tag, site, landscape, templateMode, tplW, tplH, ready, onReady }) {
+// Header brand: the account's own logo + name (a cross-posting user's channel),
+// or the built-in "MyStudyGuide" wordmark when none is given. `size` = "lg"
+// (portrait question slide) or "md" (intro / end / landscape).
+function Brand({ brand, size = "md" }) {
+  const box = size === "lg" ? "h-20 w-20 rounded-3xl" : "h-16 w-16 rounded-2xl";
+  const icon = size === "lg" ? "h-11 w-11" : "h-9 w-9";
+  const text = size === "lg" ? "text-6xl" : "text-5xl";
+  const custom = !!(brand?.name || brand?.logo);
+  const bg = brand?.color ? { backgroundColor: brand.color } : undefined;
+  if (!custom) {
+    return (
+      <>
+        <span className={`flex ${box} items-center justify-center bg-brand-600 text-white`}><GraduationCap className={icon} /></span>
+        <span className={`${text} font-extrabold leading-none`}><span className="text-slate-900">My</span><span className="text-brand-600">Study</span><span className="text-slate-900">Guide</span></span>
+      </>
+    );
+  }
+  return (
+    <>
+      {brand.logo
+        ? <img src={brand.logo} alt="" className={`${box} flex-shrink-0 object-contain`} />
+        : <span className={`flex ${box} flex-shrink-0 items-center justify-center text-white ${bg ? "" : "bg-brand-600"}`} style={bg}>
+            <span className={size === "lg" ? "text-5xl font-black" : "text-4xl font-black"}>{(brand.name || "?").trim().charAt(0).toUpperCase()}</span>
+          </span>}
+      {brand.name && <span className={`${text} truncate font-extrabold leading-none text-slate-900`} style={{ maxWidth: size === "lg" ? 820 : 1200 }}>{brand.name}</span>}
+    </>
+  );
+}
+
+function IntroOutroSlide({ heading, lines, tag, site, brand, landscape, templateMode, tplW, tplH, ready, onReady }) {
   useEffect(() => { onReady?.(); }, [onReady]);
   const W = landscape ? LAND_W : SLIDE_W;
   const H = landscape ? LAND_H : SLIDE_H;
@@ -182,8 +211,7 @@ function IntroOutroSlide({ heading, lines, tag, site, landscape, templateMode, t
         background: templateMode ? "transparent" : "linear-gradient(135deg,#eef2ff 0%,#ffffff 50%,#ecfdf5 100%)" }}>
       {!templateMode && (
         <div style={{ position: "absolute", left: card.left, right: card.left, top: 36, height: 80 }} className="flex items-center gap-3">
-          <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-600 text-white"><GraduationCap className="h-9 w-9" /></span>
-          <span className="text-5xl font-extrabold leading-none"><span className="text-slate-900">My</span><span className="text-brand-600">Study</span><span className="text-slate-900">Guide</span></span>
+          <Brand brand={brand} />
         </div>
       )}
       <div style={{ position: "absolute", left: card.left, top: card.top, width: card.width, height: card.height,
@@ -217,6 +245,15 @@ export default function SlideCardImage() {
   const tplH = parseInt(sp.get("th"), 10) || 0;
   const tplInset = parseFloat(sp.get("m")) || 0; // safe margin around the template (fraction/side)
   const landscape = sp.get("o") === "l";
+  // Per-account header (cross-posting users): name, hosted https logo, colour.
+  const bn = (sp.get("bn") || "").trim().slice(0, 40);
+  const blRaw = (sp.get("bl") || "").trim();
+  const bcRaw = (sp.get("bc") || "").trim();
+  const brand = {
+    name: bn,
+    logo: /^https:\/\//i.test(blRaw) ? blRaw : "",
+    color: /^[0-9a-f]{6}$/i.test(bcRaw) ? `#${bcRaw}` : "",
+  };
   const [q, setQ] = useState(null);
   const [error, setError] = useState("");
   const [fontsReady, setFontsReady] = useState(false);
@@ -269,14 +306,14 @@ export default function SlideCardImage() {
   }, [q, isIntroOutro]);
 
   if (isIntroOutro) {
-    return <IntroOutroSlide heading={heading} lines={subLines} tag={tag} site={site} landscape={landscape}
+    return <IntroOutroSlide heading={heading} lines={subLines} tag={tag} site={site} brand={brand} landscape={landscape}
       templateMode={templateMode} tplW={tplW} tplH={tplH} ready={fontsReady} onReady={() => setFitted(true)} />;
   }
 
   if (error) return <div data-card-error="1" style={{ padding: 24, fontFamily: "sans-serif" }}>{error}</div>;
   if (!q) return <div style={{ padding: 24, fontFamily: "sans-serif" }}>Loading…</div>;
 
-  if (landscape) return <LandscapeSlide q={q} role={role} tag={tag} caption={caption} site={site} ready={ready} onFit={setFitted} templateMode={templateMode} tplW={tplW} tplH={tplH} tplInset={tplInset} />;
+  if (landscape) return <LandscapeSlide q={q} role={role} tag={tag} caption={caption} site={site} brand={brand} ready={ready} onFit={setFitted} templateMode={templateMode} tplW={tplW} tplH={tplH} tplInset={tplInset} />;
 
   const card = templateMode ? templateCard(tplW, tplH) : BUILTIN_CARD;
   const innerW = card.width - CARD_PAD * 2;
@@ -293,8 +330,7 @@ export default function SlideCardImage() {
     >
       {!templateMode && (
         <div style={{ position: "absolute", left: 0, right: 0, top: 70 }} className="flex items-center justify-center gap-4">
-          <span className="flex h-20 w-20 items-center justify-center rounded-3xl bg-brand-600 text-white"><GraduationCap className="h-11 w-11" /></span>
-          <span className="text-6xl font-extrabold leading-none"><span className="text-slate-900">My</span><span className="text-brand-600">Study</span><span className="text-slate-900">Guide</span></span>
+          <Brand brand={brand} size="lg" />
         </div>
       )}
 
@@ -329,7 +365,7 @@ export default function SlideCardImage() {
 // with the question (or answer), and the caption strip at the bottom of it.
 // Template mode: transparent page (the uploaded 16:9 template is laid underneath
 // by ffmpeg), no built-in brand bar, and the card placed in the template's middle.
-function LandscapeSlide({ q, role, tag, caption, site, ready, onFit, templateMode = false, tplW = 0, tplH = 0, tplInset = 0 }) {
+function LandscapeSlide({ q, role, tag, caption, site, brand, ready, onFit, templateMode = false, tplW = 0, tplH = 0, tplInset = 0 }) {
   const card = templateMode ? landTemplateCard(tplW, tplH, tplInset) : LAND_CARD;
   const pad = templateMode ? 40 : 48;
   const innerW = card.width - pad * 2;
@@ -342,8 +378,7 @@ function LandscapeSlide({ q, role, tag, caption, site, ready, onFit, templateMod
     >
       {!templateMode && <div style={{ position: "absolute", left: card.left, right: card.left, top: 36, height: 80 }} className="flex items-center justify-between">
         <span className="flex items-center gap-3">
-          <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-600 text-white"><GraduationCap className="h-9 w-9" /></span>
-          <span className="text-5xl font-extrabold leading-none"><span className="text-slate-900">My</span><span className="text-brand-600">Study</span><span className="text-slate-900">Guide</span></span>
+          <Brand brand={brand} />
         </span>
         {site && <span className="text-3xl font-semibold text-slate-500">{site}</span>}
       </div>}

@@ -255,8 +255,13 @@ export async function generateSlideshow(question, opts = {}) {
     : "";
   const brandOpts = {
     brandColor: opts.brandColor || "#2563eb",
-    siteName: opts.siteName || "My Study Guide",
-    siteUrl: opts.siteUrl || "www.mystudyguide.in",
+    // `??` not `||`: a cross-posting user's brand may deliberately have NO
+    // website ("" hides the footer) — it must not fall back to ours.
+    siteName: opts.siteName ?? "My Study Guide",
+    siteUrl: opts.siteUrl ?? "www.mystudyguide.in",
+    // Header logo + name on the screenshotted slides ("" = built-in wordmark).
+    brandName: opts.brandName || "",
+    brandLogoUrl: opts.brandLogoUrl || "",
     subjectName: opts.subjectName || "",
     autoCaptions: opts.autoCaptions !== false, // default ON
   };
@@ -359,7 +364,7 @@ export async function generateSlideshow(question, opts = {}) {
         templateInset,
         outPath: shotPaths[i],
       })),
-      { siteUrl: brandOpts.siteUrl, landscape }
+      { siteUrl: brandOpts.siteUrl, landscape, brand: { name: brandOpts.brandName, logoUrl: brandOpts.brandLogoUrl, color: brandOpts.brandColor } }
     ).catch((e) => plan.map(() => ({ error: e?.message || String(e) })));
     // Slides that couldn't be screenshotted fall back to the basic SVG design —
     // report WHICH and WHY (returned to the admin with the video).
