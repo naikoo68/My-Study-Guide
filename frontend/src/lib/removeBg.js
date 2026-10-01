@@ -70,17 +70,27 @@ export function removeBackground(img, { tolerance = 40, feather = 24 } = {}) {
   return changed;
 }
 
-// Browser helper: an image URL → a transparent-background PNG Blob (max 1200
-// px on the long side, to stay fast on a phone). Needs a CORS-enabled image
-// (Cloudinary uploads are).
-export async function removeBackgroundFromUrl(url, opts = {}) {
+// Browser helper: an image (a File / Blob, or a URL) → a transparent-
+// background PNG Blob (max 1200 px on the long side, to stay fast on a phone).
+//
+// A URL is FETCHED as a fresh CORS request (no-store) and drawn from a local
+// blob: the page's preview <img> already loaded the same URL without CORS, and
+// reusing that cached copy "taints" the canvas — the browser then refuses to
+// read the pixels, which made Remove background fail.
+export async function removeBackgroundFromUrl(src, opts = {}) {
+  let blob = src instanceof Blob ? src : null;
+  if (!blob) {
+    const res = await fetch(String(src), { mode: "cors", cache: "no-store" }).catch(() => null);
+    if (!res?.ok) throw new Error("Could not download the image to edit it — upload it again and retry.");
+    blob = await res.blob();
+  }
+  const objUrl = URL.createObjectURL(blob);
   const img = await new Promise((resolve, reject) => {
     const im = new Image();
-    im.crossOrigin = "anonymous";
     im.onload = () => resolve(im);
-    im.onerror = () => reject(new Error("Could not load the image."));
-    im.src = url;
-  });
+    im.onerror = () => reject(new Error("Could not read the image."));
+    im.src = objUrl;
+  }).finally(() => setTimeout(() => URL.revokeObjectURL(objUrl), 0));
   const k = Math.min(1, 1200 / Math.max(img.naturalWidth, img.naturalHeight));
   const w = Math.max(1, Math.round(img.naturalWidth * k)), h = Math.max(1, Math.round(img.naturalHeight * k));
   const canvas = document.createElement("canvas");

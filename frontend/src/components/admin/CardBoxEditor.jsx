@@ -69,6 +69,8 @@ export default function CardBoxEditor({ templateUrl, boxKey, settings, saveSetti
   const [bgBusy, setBgBusy] = useState(false);
   const [bgStrength, setBgStrength] = useState(40);
   const [beforeBg, setBeforeBg] = useState(""); // the URL before, for Undo
+  const [bgMsg, setBgMsg] = useState(null); // its own result line (not cleared by dragging)
+  const logoFile = useRef(null); // the image file just uploaded (edited locally, no download)
   if (!templateUrl) return null;
 
   const update = (fn) => { setMsg(null); setDirty(true); setBox(fn); };
@@ -158,6 +160,8 @@ export default function CardBoxEditor({ templateUrl, boxKey, settings, saveSetti
     try {
       const r = await uploadService.imageDirect(file);
       if (!/^https:\/\//i.test(r?.url || "")) throw new Error("Upload failed.");
+      logoFile.current = { url: r.url, file };
+      setBgMsg(null); setBeforeBg("");
       update((b) => ({ ...b, logo: placedLogo({ ...LOGO_DEFAULT, ...(b.logo || {}), url: r.url }) }));
     } catch (err) { setMsg({ ok: false, text: err.message || "Upload failed." }); }
     finally { setLogoBusy(false); if (logoFileRef.current) logoFileRef.current.value = ""; }
@@ -167,18 +171,21 @@ export default function CardBoxEditor({ templateUrl, boxKey, settings, saveSetti
   // ---- Remove the logo's plain background (white / one colour) ----
   const removeBg = async () => {
     if (!box.logo?.url) return;
-    setBgBusy(true); setMsg(null);
+    setBgBusy(true); setBgMsg(null);
     try {
-      const blob = await removeBackgroundFromUrl(box.logo.url, { tolerance: bgStrength });
+      // Always start from the ORIGINAL image (so a new Strength re-does it, not stacks).
+      const original = beforeBg || box.logo.url;
+      const src = logoFile.current?.url === original ? logoFile.current.file : original;
+      const blob = await removeBackgroundFromUrl(src, { tolerance: bgStrength });
       const r = await uploadService.imageDirect(new File([blob], "logo-transparent.png", { type: "image/png" }));
       if (!/^https:\/\//i.test(r?.url || "")) throw new Error("Upload failed.");
-      setBeforeBg(box.logo.url);
+      setBeforeBg(original);
       setLogo({ url: r.url });
-      setMsg({ ok: true, text: "Background removed — tap Save position to keep it." });
-    } catch (err) { setMsg({ ok: false, text: err.message || "Could not remove the background." }); }
+      setBgMsg({ ok: true, text: "Background removed — tap Save position to keep it." });
+    } catch (err) { setBgMsg({ ok: false, text: err.message || "Could not remove the background." }); }
     finally { setBgBusy(false); }
   };
-  const undoBg = () => { if (beforeBg) { setLogo({ url: beforeBg }); setBeforeBg(""); } };
+  const undoBg = () => { if (beforeBg) { setLogo({ url: beforeBg }); setBeforeBg(""); setBgMsg(null); } };
   const logoRow = (k, label, step) => {
     const [lo, hi] = LOGO_LIMITS[k];
     const v = box.logo?.[k] ?? 0;
@@ -227,7 +234,7 @@ export default function CardBoxEditor({ templateUrl, boxKey, settings, saveSetti
         <div ref={frameRef}
           onPointerDownCapture={onPinchDown} onPointerMoveCapture={onPinchMove} onPointerUpCapture={onPinchUp} onPointerCancelCapture={onPinchUp}
           style={box.logo ? { touchAction: "none" } : undefined}
-          className={`relative select-none overflow-hidden rounded-md border border-slate-200 dark:border-slate-700 ${landscape ? "" : "mx-auto max-w-[240px]"}`}>
+          className={`relative self-start select-none overflow-hidden rounded-md border border-slate-200 dark:border-slate-700 ${landscape ? "" : "mx-auto max-w-[240px]"}`}>
           <img src={templateUrl} alt="" draggable={false} className="pointer-events-none block w-full" />
           <div className="absolute rounded-md border-2 border-dashed border-rose-500"
             style={{ top: `${box.top * 100}%`, bottom: `${box.bottom * 100}%`, left: `${box.side * 100}%`, right: `${box.side * 100}%`, backgroundColor: `rgba(255,255,255,${box.card})` }}>
@@ -282,6 +289,7 @@ export default function CardBoxEditor({ templateUrl, boxKey, settings, saveSetti
                   <span className="flex justify-between font-medium"><span>Strength</span><span className="text-slate-400">{bgStrength}</span></span>
                   <input type="range" min={10} max={120} step={5} value={bgStrength} onChange={(e) => setBgStrength(Number(e.target.value))} className="w-full accent-brand-600" />
                 </label>
+                {bgMsg && <p className={`mt-1 text-xs font-medium ${bgMsg.ok ? "text-emerald-600" : "text-rose-600"}`}>{bgMsg.text}</p>}
                 <p className="text-[11px] text-slate-400">For a plain white / single-colour background (like an emoji). Raise Strength if some background is left; lower it if parts of the image disappear.</p>
               </div>
               {logoRow("w", "Logo size", 0.01)}
