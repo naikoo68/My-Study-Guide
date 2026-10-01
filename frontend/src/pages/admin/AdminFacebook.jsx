@@ -2,6 +2,7 @@
 // social posts for new content.
 
 import LiveTextBox from "../../components/admin/LiveTextBox.jsx";
+import CardBoxEditor from "../../components/admin/CardBoxEditor.jsx";
 import useElementWidth from "../../components/admin/useElementWidth.js";
 import { useEffect, useState, useRef } from "react";
 import {
@@ -1608,6 +1609,9 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
             settingKey="slideshowAnswerTemplateUrl" settings={settings} saveSettings={saveSettings} />
         )}
       </div>
+      <CardBoxEditor key={`cb-p-${settings?.slideshowQuestionTemplateUrl || settings?.slideshowAnswerTemplateUrl || ""}`}
+        templateUrl={settings?.slideshowQuestionTemplateUrl || settings?.slideshowAnswerTemplateUrl || ""}
+        boxKey="slideshowCardBox" settings={settings} saveSettings={saveSettings} />
 
       {/* Narration engine */}
       <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -4014,6 +4018,9 @@ function FullQuizVideoForm({ st, onStatus }) {
             settingKey="longVideoAnswerTemplateUrl" settings={settings} saveSettings={saveSettings} />
         )}
       </div>
+      <CardBoxEditor landscape key={`cb-l-${settings?.longVideoQuestionTemplateUrl || settings?.longVideoAnswerTemplateUrl || ""}`}
+        templateUrl={settings?.longVideoQuestionTemplateUrl || settings?.longVideoAnswerTemplateUrl || ""}
+        boxKey="longVideoCardBox" settings={settings} saveSettings={saveSettings} />
       {st && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button type="button" onClick={hideAllSlideText} disabled={hidingText || allSlideTextHidden} className="btn-outline text-sm">

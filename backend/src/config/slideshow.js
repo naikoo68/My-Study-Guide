@@ -15,6 +15,7 @@
 // Every step throws a readable error on failure; the caller (the scheduler or
 // the test job) records it and, in the scheduler, falls back to a normal
 // image/text post so a run is never silently lost.
+import { cardBoxParam } from "../utils/cardBox.js";
 import os from "node:os";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -234,6 +235,9 @@ export async function generateSlideshow(question, opts = {}) {
   const keepFile = !!opts.keepFile;
   // Long-video templates get a small safe margin so edge logos aren't clipped.
   const templateInset = landscape ? 0.03 : 0;
+  // Card position on the question / answer TEMPLATES (this account's setting,
+  // or an explicit override e.g. from a preview). "" = built-in default.
+  const cardBox = cardBoxParam(opts.cardBox !== undefined ? opts.cardBox : (landscape ? opts.site?.longVideoCardBox : opts.site?.slideshowCardBox));
   if (!questions.length) throw new Error("A question is required for the slideshow.");
   if (!isCloudinaryConfigured()) throw new Error("Cloudinary is not configured (media processing unavailable).");
   if (!(await isFfmpegAvailable())) {
@@ -362,6 +366,9 @@ export async function generateSlideshow(question, opts = {}) {
         template: !!templatePaths[templateRole(s.role)],
         templateSize: templateSizes[templateRole(s.role)] || null,
         templateInset,
+        // Only the question / answer templates use the card box (intro / end
+        // slides have their own text-box editor).
+        cardBox: ["question", "answer"].includes(templateRole(s.role)) ? cardBox : "",
         outPath: shotPaths[i],
       })),
       { siteUrl: brandOpts.siteUrl, landscape, brand: { name: brandOpts.brandName, logoUrl: brandOpts.brandLogoUrl, color: brandOpts.brandColor } }

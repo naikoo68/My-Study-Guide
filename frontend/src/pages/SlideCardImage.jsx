@@ -34,18 +34,24 @@ const TEMPLATE_CARD = { left: 50, top: 300, width: 980, height: 1360 };
 // in the same relative spot inside THAT rectangle (header above, footer below,
 // same side margins), so it never covers the template's own header / footer /
 // buttons. `tw`×`th` = the template's pixel size (unknown → full 9:16 frame).
-function templateCard(tw, th) {
-  if (!(tw > 0 && th > 0)) return TEMPLATE_CARD;
+// `cb` = the admin's card position on the template ({ top, bottom, side }
+// fractions of the template, see backend utils/cardBox.js) or null (default box).
+function boxToCard(cb, W, H) {
+  return { left: Math.round(cb.side * W), top: Math.round(cb.top * H), width: Math.round(W * (1 - 2 * cb.side)), height: Math.round(H * (1 - cb.top - cb.bottom)) };
+}
+function templateCard(tw, th, cb = null) {
+  const base = cb ? boxToCard(cb, SLIDE_W, SLIDE_H) : TEMPLATE_CARD;
+  if (!(tw > 0 && th > 0)) return base;
   const s = Math.min(SLIDE_W / tw, SLIDE_H / th);
   const fw = tw * s, fh = th * s;
   const fx = (SLIDE_W - fw) / 2, fy = (SLIDE_H - fh) / 2;
   const rx = (v) => Math.round(fx + (v / SLIDE_W) * fw);
   const ry = (v) => Math.round(fy + (v / SLIDE_H) * fh);
-  const left = rx(TEMPLATE_CARD.left), top = ry(TEMPLATE_CARD.top);
+  const left = rx(base.left), top = ry(base.top);
   return {
     left, top,
-    width: rx(TEMPLATE_CARD.left + TEMPLATE_CARD.width) - left,
-    height: ry(TEMPLATE_CARD.top + TEMPLATE_CARD.height) - top,
+    width: rx(base.left + base.width) - left,
+    height: ry(base.top + base.height) - top,
   };
 }
 const BUILTIN_CARD = { left: 50, top: 230, width: 980, height: 1530 };
@@ -62,8 +68,9 @@ const LAND_TEMPLATE_CARD = { left: 110, top: 190, width: 1700, height: 740 };
 // inside the fitted template. `inset` is the SAFE MARGIN (fraction per side)
 // the video compositor leaves around the template, so the card lines up with
 // the template exactly as it appears in the finished video.
-function landTemplateCard(tw, th, inset = 0) {
-  if (!(tw > 0 && th > 0)) return LAND_TEMPLATE_CARD;
+function landTemplateCard(tw, th, inset = 0, cb = null) {
+  const base = cb ? boxToCard(cb, LAND_W, LAND_H) : LAND_TEMPLATE_CARD;
+  if (!(tw > 0 && th > 0)) return base;
   const m = Math.max(0, Math.min(0.2, Number(inset) || 0));
   const boxW = LAND_W * (1 - 2 * m), boxH = LAND_H * (1 - 2 * m);
   const s = Math.min(boxW / tw, boxH / th);
@@ -71,11 +78,11 @@ function landTemplateCard(tw, th, inset = 0) {
   const fx = (LAND_W - fw) / 2, fy = (LAND_H - fh) / 2;
   const rx = (v) => Math.round(fx + (v / LAND_W) * fw);
   const ry = (v) => Math.round(fy + (v / LAND_H) * fh);
-  const left = rx(LAND_TEMPLATE_CARD.left), top = ry(LAND_TEMPLATE_CARD.top);
+  const left = rx(base.left), top = ry(base.top);
   return {
     left, top,
-    width: rx(LAND_TEMPLATE_CARD.left + LAND_TEMPLATE_CARD.width) - left,
-    height: ry(LAND_TEMPLATE_CARD.top + LAND_TEMPLATE_CARD.height) - top,
+    width: rx(base.left + base.width) - left,
+    height: ry(base.top + base.height) - top,
   };
 }
 const CARD_PAD = 56;
@@ -245,6 +252,13 @@ export default function SlideCardImage() {
   const tplH = parseInt(sp.get("th"), 10) || 0;
   const tplInset = parseFloat(sp.get("m")) || 0; // safe margin around the template (fraction/side)
   const landscape = sp.get("o") === "l";
+  // Card position on the template: "top,bottom,side" fractions (else default).
+  const cardBox = (() => {
+    const v = (sp.get("cb") || "").split(",").map(Number);
+    if (v.length !== 3 || !v.every((x) => Number.isFinite(x) && x >= 0 && x <= 0.45)) return null;
+    const [top, bottom, side] = v;
+    return top + bottom <= 0.71 && side <= 0.3 ? { top, bottom, side } : null;
+  })();
   // Per-account header (cross-posting users): name, hosted https logo, colour.
   const bn = (sp.get("bn") || "").trim().slice(0, 40);
   const blRaw = (sp.get("bl") || "").trim();
@@ -313,9 +327,9 @@ export default function SlideCardImage() {
   if (error) return <div data-card-error="1" style={{ padding: 24, fontFamily: "sans-serif" }}>{error}</div>;
   if (!q) return <div style={{ padding: 24, fontFamily: "sans-serif" }}>Loading…</div>;
 
-  if (landscape) return <LandscapeSlide q={q} role={role} tag={tag} caption={caption} site={site} brand={brand} ready={ready} onFit={setFitted} templateMode={templateMode} tplW={tplW} tplH={tplH} tplInset={tplInset} />;
+  if (landscape) return <LandscapeSlide q={q} role={role} tag={tag} caption={caption} site={site} brand={brand} cardBox={cardBox} ready={ready} onFit={setFitted} templateMode={templateMode} tplW={tplW} tplH={tplH} tplInset={tplInset} />;
 
-  const card = templateMode ? templateCard(tplW, tplH) : BUILTIN_CARD;
+  const card = templateMode ? templateCard(tplW, tplH, cardBox) : BUILTIN_CARD;
   const innerW = card.width - CARD_PAD * 2;
   const innerH = card.height - CARD_PAD * 2 - (caption ? CAPTION_H : 0);
 
@@ -365,8 +379,8 @@ export default function SlideCardImage() {
 // with the question (or answer), and the caption strip at the bottom of it.
 // Template mode: transparent page (the uploaded 16:9 template is laid underneath
 // by ffmpeg), no built-in brand bar, and the card placed in the template's middle.
-function LandscapeSlide({ q, role, tag, caption, site, brand, ready, onFit, templateMode = false, tplW = 0, tplH = 0, tplInset = 0 }) {
-  const card = templateMode ? landTemplateCard(tplW, tplH, tplInset) : LAND_CARD;
+function LandscapeSlide({ q, role, tag, caption, site, brand, cardBox = null, ready, onFit, templateMode = false, tplW = 0, tplH = 0, tplInset = 0 }) {
+  const card = templateMode ? landTemplateCard(tplW, tplH, tplInset, cardBox) : LAND_CARD;
   const pad = templateMode ? 40 : 48;
   const innerW = card.width - pad * 2;
   const innerH = card.height - pad * 2 - (caption ? LAND_CAPTION_H : 0);
