@@ -137,7 +137,27 @@ export async function saveYoutubeSettings(req, res) {
   res.json(statusOf(site, req));
 }
 
-// POST /api/youtube/connect → { url } — the browser navigates there (Google login).
+// The page the channel OWNER sees after a "Send link" connection. They aren't
+// logged in to our admin panel, so redirecting them there would just show a
+// login screen — show a plain result page instead. All text is escaped.
+const escHtml = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+function remoteResultPage(res, { ok, text }) {
+  res.set("Cache-Control", "no-store");
+  res.set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'");
+  return res.status(ok ? 200 : 400).type("html").send(`<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>YouTube ${ok ? "connected" : "not connected"}</title>
+<style>body{font-family:system-ui,sans-serif;background:#f8fafc;margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:16px}
+.c{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:28px;max-width:420px;text-align:center;box-shadow:0 4px 20px #0001}
+h1{font-size:20px;margin:8px 0;color:${ok ? "#059669" : "#e11d48"}}p{color:#475569;line-height:1.5}</style></head>
+<body><div class="c"><div style="font-size:44px">${ok ? "✅" : "⚠️"}</div><h1>${ok ? "YouTube connected" : "Could not connect"}</h1>
+<p>${escHtml(text)}</p><p style="font-size:13px;color:#94a3b8">You can close this page now.</p></div></body></html>`);
+}
+
+// POST /api/youtube/connect { remote? } → { url, expiresAt, remote } — "here"
+// mode: this browser navigates to the URL. remote:true ("Send link" mode): the
+// admin shares the URL with the channel owner, who approves on their own device;
+// the signed state still pins THIS settings doc, so their channel lands on the
+// right (cross-posting) profile.
 export async function youtubeConnect(req, res) {
   const site = await getOrCreateOwn();
   const { clientId, clientSecret } = ytClientCreds(site);
@@ -147,13 +167,16 @@ export async function youtubeConnect(req, res) {
   const redirectUri = ytRedirectUri(req);
   // A cross-posting user's own YouTube → back to that user's page.
   const returnTo = `${clientBaseFromReq(req)}${req.socialProfileId ? `/admin/cross-posting/${req.socialProfileId}` : "/admin/facebook"}`;
+  const remote = req.body?.remote === true;
+  const ttlMs = 15 * 60 * 1000;
   let state;
   try {
-    state = signYtState({ sid: String(site._id), ru: redirectUri, rt: returnTo, uid: req.user?._id ? String(req.user._id) : "" });
+    state = signYtState({ sid: String(site._id), ru: redirectUri, rt: returnTo, uid: req.user?._id ? String(req.user._id) : "", ...(remote ? { rm: 1 } : {}) }, ttlMs);
   } catch (e) {
     return res.status(500).json({ message: e.message });
   }
-  res.json({ url: buildYtAuthUrl({ clientId, redirectUri, state }), redirectUri });
+  res.set("Cache-Control", "no-store");
+  res.json({ url: buildYtAuthUrl({ clientId, redirectUri, state }), redirectUri, remote, expiresAt: new Date(Date.now() + ttlMs).toISOString() });
 }
 
 // GET /api/youtube/oauth/callback?code&state — PUBLIC (Google redirects here).
@@ -162,6 +185,12 @@ export async function youtubeConnect(req, res) {
 export async function youtubeCallback(req, res) {
   const data = verifyYtState(req.query.state);
   const back = (params) => {
+    // "Send link" mode: the channel owner isn't an admin — show a result page.
+    if (data?.rm) {
+      return remoteResultPage(res, params.youtube === "connected"
+        ? { ok: true, text: `Your channel “${params.channel || "YouTube"}” is now connected. Thank you!` }
+        : { ok: false, text: params.reason || "Could not connect YouTube." });
+    }
     const fallback = `${String(process.env.CLIENT_URL || "http://localhost:5173").replace(/\/$/, "")}/admin/facebook`;
     let u;
     try { u = new URL(data?.rt || fallback); } catch { u = new URL("http://localhost:5173/admin/facebook"); }
@@ -196,7 +225,7 @@ export async function youtubeCallback(req, res) {
           : {}),
       },
     }));
-    return back({ youtube: "connected" });
+    return back({ youtube: "connected", ...(data.rm ? { channel: channel.title } : {}) });
   } catch (e) {
     return back({ youtube: "error", reason: String(e?.message || "Could not connect YouTube.").slice(0, 200) });
   }

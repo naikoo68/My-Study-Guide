@@ -238,7 +238,10 @@ export function buildYtAuthUrl({ clientId, redirectUri, state }) {
     response_type: "code",
     scope: YT_SCOPES.join(" "),
     access_type: "offline", // → refresh token
-    prompt: "consent",      // always return a refresh token, even on re-connect
+    // consent: always return a refresh token, even on re-connect.
+    // select_account: always show the account / Brand-channel chooser, so the
+    // browser's already-signed-in Gmail isn't silently used for the wrong channel.
+    prompt: "consent select_account",
     include_granted_scopes: "true",
     state,
   });
