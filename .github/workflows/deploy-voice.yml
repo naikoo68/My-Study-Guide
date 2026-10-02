@@ -1,0 +1,97 @@
+name: Deploy voice server to Oracle VM
+
+# Installs / updates the self-hosted voice server ("My own voice", voice-server/)
+# on the same Oracle VM as the backend, then redeploys the backend so it can
+# reach it. MANUAL ONLY (Actions → this workflow → Run workflow): the model
+# needs ~6–8 GB of RAM, so it refuses to install on a VM that is too small
+# instead of risking the backend.
+#
+# Uses the same secrets as deploy-backend.yml (SSH_HOST, SSH_USER, SSH_PRIVATE_KEY).
+# The shared VOICE_SERVER_TOKEN is generated once into backend/msg.env.
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "turbo = faster (recommended on a CPU) · standard = slower, adds emotion control"
+        type: choice
+        options: [turbo, standard]
+        default: turbo
+
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write # to start "Deploy backend" afterwards
+    steps:
+      - name: Install the voice server over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VOICE_MODEL: ${{ inputs.model }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 60m
+          script_stop: true
+          envs: GH_TOKEN,GH_REPO,VOICE_MODEL
+          script: |
+            set -e
+            TOTAL_MB=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
+            echo "VM: $(nproc) CPU cores, ${TOTAL_MB} MB RAM, $(uname -m)"
+            if [ "$TOTAL_MB" -lt 7500 ]; then
+              echo "❌ This VM has only ${TOTAL_MB} MB RAM — the voice model needs at least 8 GB."
+              echo "   Oracle Always Free: use an Ampere A1 VM (up to 4 cores / 24 GB free). Nothing was changed."
+              exit 1
+            fi
+
+            cd ~/My-Study-Guide
+            git fetch "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" main
+            git reset --hard FETCH_HEAD
+
+            # The shared secret + address, once, in the backend's env file.
+            ENV_FILE=~/My-Study-Guide/backend/msg.env
+            touch "$ENV_FILE"
+            if ! grep -q '^VOICE_SERVER_TOKEN=' "$ENV_FILE"; then
+              echo "VOICE_SERVER_TOKEN=$(openssl rand -hex 24)" >> "$ENV_FILE"
+            fi
+            grep -q '^VOICE_SERVER_URL=' "$ENV_FILE" || echo "VOICE_SERVER_URL=http://msg-voice:8000" >> "$ENV_FILE"
+            TOKEN=$(grep '^VOICE_SERVER_TOKEN=' "$ENV_FILE" | tail -1 | cut -d= -f2-)
+
+            sudo docker network create msg-net 2>/dev/null || true
+            cd voice-server
+            sudo docker build -t msg-voice .
+            sudo docker rm -f msg-voice || true
+            mkdir -p ~/msg-voice-data
+            # At most 70% of the RAM, so the backend always keeps room.
+            sudo docker run -d --name msg-voice --restart always --network msg-net \
+              --memory "$((TOTAL_MB * 70 / 100))m" \
+              -e VOICE_SERVER_TOKEN="$TOKEN" -e VOICE_MODEL="${VOICE_MODEL:-turbo}" \
+              -v ~/msg-voice-data:/data \
+              -p 127.0.0.1:8020:8000 msg-voice
+            sudo docker image prune -f
+            # Let the running backend reach it right away (the backend redeploy
+            # below then also passes the new env vars).
+            sudo docker network connect msg-net msg-backend 2>/dev/null || true
+
+            # First start downloads the model (~2 GB) — wait up to 20 minutes.
+            for i in $(seq 1 120); do
+              H=$(curl -fsS http://127.0.0.1:8020/health 2>/dev/null || true)
+              case "$H" in *'"ok":true'*) echo "✅ Voice server is ready: $H"; exit 0 ;; esac
+              case "$H" in *'"loading":false'*) echo "❌ The model failed to load: $H"; sudo docker logs --tail 60 msg-voice; exit 1 ;; esac
+              sleep 10
+            done
+            echo "⏳ Still loading after 20 minutes — check later with: curl http://127.0.0.1:8020/health"
+            sudo docker logs --tail 30 msg-voice
+
+      - name: Redeploy the backend (so it gets VOICE_SERVER_URL / TOKEN)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run deploy-backend.yml --repo "${{ github.repository }}" --ref main

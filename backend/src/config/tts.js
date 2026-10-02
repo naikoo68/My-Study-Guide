@@ -15,6 +15,7 @@
 import { uploadBufferToCloudinary } from "./cloudinary.js";
 import { synthesizeEdgeSpeech } from "./edgeTts.js";
 import { synthesizeGoogleSpeech } from "./googleTts.js";
+import { synthesizeMyVoice, isVoiceServerConfigured, voiceOwnerFor } from "./myVoice.js";
 import {
   normalizeProvider,
   normalizeVoiceForProvider,
@@ -62,13 +63,15 @@ export function resolveTtsConfig(site = null) {
     googlecloud: !!keys.googlecloud,
     azure: !!keys.azure && !!azureRegion,
     custom: !!customUrl, // some self-hosted APIs need no key
+    myvoice: isVoiceServerConfigured(),
   };
   let provider = requested;
   let missing = "";
   if (PAID_TTS_PROVIDERS.includes(provider) && !ready[provider]) {
     // Graceful free fallback — and say why (shown to the admin).
     missing = provider === "azure" ? "the Azure key and region are not both saved"
-      : provider === "custom" ? "no API URL is saved" : "no API key is saved";
+      : provider === "custom" ? "no API URL is saved"
+        : provider === "myvoice" ? "your voice server isn't set up (VOICE_SERVER_URL)" : "no API key is saved";
     provider = DEFAULT_TTS_PROVIDER;
   }
   const model = provider === "custom"
@@ -85,6 +88,7 @@ export function resolveTtsConfig(site = null) {
     model,
     baseUrl,
     azureRegion,
+    voiceOwner: voiceOwnerFor(site), // whose cloned voices ("myvoice")
     ...(missing ? { requestedProvider: requested, fallbackReason: missing } : {}),
   };
 }
@@ -211,6 +215,9 @@ export async function synthesizeSpeech({ text, voice, cfg } = {}) {
   }
   if (provider === "gtranslate") {
     return synthesizeGoogleSpeech({ text: input, lang: safeVoice });
+  }
+  if (provider === "myvoice") {
+    return synthesizeMyVoice({ text: input, voice: safeVoice, owner: conf.voiceOwner || "default" });
   }
   // FREE Microsoft Edge neural TTS.
   return synthesizeEdgeSpeech({ text: input, voice: safeVoice });

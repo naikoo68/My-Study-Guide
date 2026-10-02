@@ -5,6 +5,7 @@ import LiveTextBox from "../../components/admin/LiveTextBox.jsx";
 import CardBoxEditor from "../../components/admin/CardBoxEditor.jsx";
 import useElementWidth from "../../components/admin/useElementWidth.js";
 import { useEffect, useState, useRef } from "react";
+import { Link } from "react-router-dom";
 import {
   Send, Loader2, CheckCircle2, AlertTriangle, KeyRound, Plus, Trash2, Pencil, X,
   Clock, CalendarClock, ListChecks, Power, Save, Upload, UserCircle, Type, Search, Mail,
@@ -52,6 +53,12 @@ const PAID_ENGINES = {
 };
 const ENGINE_FIELDS = Object.values(PAID_ENGINES).flatMap((e) => e.fields.map((f) => f.name));
 const FREE_FORM_VOICE = new Set(["elevenlabs", "googlecloud", "azure", "custom"]);
+// "My own voice": your cloned voices come from Voice Studio (your own server).
+function MyVoiceHint({ count }) {
+  return count
+    ? <>Your own cloned voice, made on your own server. Record, test or tune it in <Link to="/admin/voice-studio" className="text-brand-600 hover:underline">Voice Studio</Link>.</>
+    : <span className="text-amber-600 dark:text-amber-400">No voice yet — create yours in <Link to="/admin/voice-studio" className="font-medium underline">Voice Studio</Link> first.</span>;
+}
 const engineFieldsFrom = (s) => Object.fromEntries(ENGINE_FIELDS.map((n) => [n, s?.[n] || ""]));
 
 // AI Slideshow "what to read aloud" toggles ↔ the saved site settings.
@@ -1135,7 +1142,7 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
     edge: [{ id: "en-IN-NeerjaExpressiveNeural", label: "Neerja Expressive (India, female) — most natural" }, { id: "en-IN-NeerjaNeural", label: "Neerja (India, female)" }],
     openai: [{ id: "coral", label: "Coral" }],
   });
-  const [providers, setProviders] = useState(["gtranslate", "edge", "openai", "elevenlabs", "googlecloud", "azure", "custom"]);
+  const [providers, setProviders] = useState(["gtranslate", "edge", "myvoice", "openai", "elevenlabs", "googlecloud", "azure", "custom"]);
   const [provider, setProvider] = useState(settings?.ttsProvider || "gtranslate");
   // Paid engines' non-secret settings (model, region, URL) and any NEW keys
   // typed on screen ({ ttsApiKey: "sk-…" }) — keys are never shown back.
@@ -1424,6 +1431,7 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
 
   const providerLabel = (p) => (p === "gtranslate" ? "Free — Google (no key, recommended)"
     : p === "edge" ? "Free — Microsoft Edge (no key)"
+    : p === "myvoice" ? "My own voice (your server)"
     : PAID_ENGINES[p] ? `Paid — ${PAID_ENGINES[p].label}${settings?.[`${PAID_ENGINES[p].keyField}Set`] ? " ✓ key saved" : ""}`
     : p);
 
@@ -1624,6 +1632,7 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
         {provider === "gtranslate" && "Free — no API key or account. Works from most servers. One voice per accent (India / US / UK / Australia)."}
         {provider === "edge" && "Free neural voices (male & female), no key. If Microsoft blocks your server, Google is used with the same accent — the test result says so."}
         {engine && `${engine.hint} The key is stored on the server and never shown again.`}
+        {provider === "myvoice" && <MyVoiceHint count={voices.length} />}
       </p>
       {engine && (() => {
         const keySaved = !!settings?.[`${engine.keyField}Set`];
@@ -3651,7 +3660,7 @@ function FullQuizVideoForm({ st, onStatus }) {
   const [schTitle, setSchTitle] = useState("");
   // 3) Narration & slides
   const [voicesByProvider, setVoicesByProvider] = useState({});
-  const [providers, setProviders] = useState(["gtranslate", "edge", "openai", "elevenlabs", "googlecloud", "azure", "custom"]);
+  const [providers, setProviders] = useState(["gtranslate", "edge", "myvoice", "openai", "elevenlabs", "googlecloud", "azure", "custom"]);
   const [provider, setProvider] = useState(d.engine || settings?.ttsProvider || "gtranslate");
   const voices = voicesByProvider[provider] || [];
   const [voice, setVoice] = useState(d.voice || settings?.slideshowVoice || "");
@@ -3958,7 +3967,7 @@ function FullQuizVideoForm({ st, onStatus }) {
               const keySet = paid ? !!settings?.[`${paid.keyField}Set`] : true;
               return (
                 <option key={p} value={p}>
-                  {p === "gtranslate" ? "Free — Google (no key)" : p === "edge" ? "Free — Microsoft Edge (no key)" : `Paid — ${paid?.label || p}${keySet ? " ✓ key saved" : " (add the key in AI Slideshow)"}`}
+                  {p === "gtranslate" ? "Free — Google (no key)" : p === "edge" ? "Free — Microsoft Edge (no key)" : p === "myvoice" ? "My own voice (your server)" : `Paid — ${paid?.label || p}${keySet ? " ✓ key saved" : " (add the key in AI Slideshow)"}`}
                 </option>
               );
             })}
@@ -3966,6 +3975,7 @@ function FullQuizVideoForm({ st, onStatus }) {
           {PAID_ENGINES[provider] && !settings?.[`${PAID_ENGINES[provider].keyField}Set`] && (
             <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">No key saved for this engine — add it in the <b>AI Slideshow</b> card, or the free Google voice is used.</p>
           )}
+          {provider === "myvoice" && <p className="mt-1 text-xs text-slate-400"><MyVoiceHint count={voices.length} /></p>}
         </div>
         <div>
           <label className="mb-1 flex items-center gap-1.5 text-sm font-medium"><Volume2 className="h-4 w-4 text-slate-400" /> Voice</label>

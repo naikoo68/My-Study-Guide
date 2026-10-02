@@ -462,6 +462,28 @@ export const socialProfileService = {
   copyFromMain: (id, { schedules = false } = {}) => api.post(`/social-profiles/${id}/copy-from-main`, { schedules }, { timeout: 120000 }),
 };
 
+// Voice Studio — your own cloned voice on your own voice server. Recordings go
+// up as multipart FormData; audio comes back as a playable data: URL.
+const voiceForm = (takes, fields = {}) => {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(fields)) fd.append(k, String(v));
+  for (const t of takes) fd.append("files", t.file, t.file.name);
+  return fd;
+};
+const SLOW = { timeout: 15 * 60 * 1000 }; // a CPU voice server is slow by design
+export const voiceStudioService = {
+  status: () => api.get("/voice-studio/status"),
+  voices: () => api.get("/voice-studio/voices"),
+  create: (name, takes) => api.post("/voice-studio/voices", voiceForm(takes, { name, consent: true }), SLOW),
+  update: (id, data) => api.patch(`/voice-studio/voices/${id}`, data),
+  remove: (id) => api.del(`/voice-studio/voices/${id}`),
+  addSamples: (id, takes) => api.post(`/voice-studio/voices/${id}/samples`, voiceForm(takes), SLOW),
+  sampleAudio: (id, sampleId) => api.get(`/voice-studio/voices/${id}/samples/${sampleId}`),
+  removeSample: (id, sampleId) => api.del(`/voice-studio/voices/${id}/samples/${sampleId}`),
+  speak: (voiceId, text, settings) => api.post("/voice-studio/speak", { voiceId, text, ...(settings ? { settings } : {}) }, SLOW),
+  useAsNarrator: (voiceId) => api.post("/voice-studio/narrator", { voiceId }),
+};
+
 export const facebookService = {
   schedules: (params = {}) => {
     const qs = new URLSearchParams();
