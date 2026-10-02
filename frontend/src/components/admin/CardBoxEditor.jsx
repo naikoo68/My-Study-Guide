@@ -22,6 +22,9 @@ const STEPS = { card: 0.05, text: 0.05 }; // opacity − / + step (5%)
 const MAX_TB = 0.7; // top + bottom — the card always keeps ≥ 30% of the height
 const STEP = 0.005; // − / + step (0.5%)
 
+// No iOS long-press callout, no text selection, no native image dragging.
+const NO_NATIVE_GESTURES = { WebkitTouchCallout: "none", WebkitUserSelect: "none", userSelect: "none", WebkitUserDrag: "none" };
+
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const r3 = (v) => Math.round(v * 1000) / 1000;
 const pctText = (v) => `${Math.round(v * 1000) / 10}%`;
@@ -278,7 +281,11 @@ export default function CardBoxEditor({ templateUrl, boxKey, settings, saveSetti
       <div className="mt-3 grid gap-4 sm:grid-cols-[minmax(0,1fr)_220px]">
         <div ref={frameRef}
           onPointerDownCapture={onPinchDown} onPointerMoveCapture={onPinchMove} onPointerUpCapture={onPinchUp} onPointerCancelCapture={onPinchUp}
-          style={logos.length ? { touchAction: "none" } : undefined}
+          // A long press on a touch screen would otherwise open the browser's
+          // menu (Back / Reload / Download…) or start a native image drag
+          // (a floating copy of the picture) instead of moving the card.
+          onContextMenu={(e) => e.preventDefault()} onDragStart={(e) => e.preventDefault()}
+          style={{ ...NO_NATIVE_GESTURES, ...(logos.length ? { touchAction: "none" } : null) }}
           className={`relative self-start select-none overflow-hidden rounded-md border border-slate-200 dark:border-slate-700 ${landscape ? "" : "mx-auto max-w-[240px]"}`}>
           <img src={templateUrl} alt="" draggable={false} className="pointer-events-none block w-full" />
           <div className="absolute rounded-md border-2 border-dashed border-rose-500"
@@ -302,7 +309,8 @@ export default function CardBoxEditor({ templateUrl, boxKey, settings, saveSetti
               onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
               title={`Image ${i + 1} — drag to move`}
               className={`absolute z-20 cursor-move outline-dashed outline-offset-2 ${i === curIdx ? "outline-2 outline-sky-500" : "outline-1 outline-slate-400/70"}`}
-              style={{ left: `${l.x * 100}%`, top: `${l.y * 100}%`, width: `${l.w * 100}%`, opacity: l.opacity, touchAction: "none" }} />
+              onContextMenu={(e) => e.preventDefault()}
+              style={{ ...NO_NATIVE_GESTURES, left: `${l.x * 100}%`, top: `${l.y * 100}%`, width: `${l.w * 100}%`, opacity: l.opacity, touchAction: "none" }} />
           ))}
         </div>
         <div className="space-y-3">
@@ -321,7 +329,7 @@ export default function CardBoxEditor({ templateUrl, boxKey, settings, saveSetti
               {logos.map((l, i) => (
                 <button key={i} type="button" onClick={() => { setSel(i); setBgMsg(null); }} title={`Image ${i + 1}`}
                   className={`flex h-11 w-11 items-center justify-center overflow-hidden rounded-md border-2 bg-[repeating-conic-gradient(#e2e8f0_0_25%,#fff_0_50%)] bg-[length:10px_10px] ${i === curIdx ? "border-sky-500" : "border-slate-200 dark:border-slate-700"}`}>
-                  <img src={l.url} alt="" className="max-h-full max-w-full object-contain" />
+                  <img src={l.url} alt="" draggable={false} style={NO_NATIVE_GESTURES} className="max-h-full max-w-full object-contain" />
                 </button>
               ))}
             </div>

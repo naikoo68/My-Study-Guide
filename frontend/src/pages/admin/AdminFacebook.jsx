@@ -2777,7 +2777,9 @@ function SlideTextEditor({ role, title, note, settingKey, templateKey, initial, 
         <div className="flex w-full flex-col items-center gap-2 sm:w-auto">
           {templateUrl ? (
             <div ref={frameRef} className={`relative ${vertical ? "aspect-[9/16] w-44 sm:w-48" : "aspect-video w-full max-w-[20rem]"} select-none overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700`}
-              onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerLeave={onPointerUp}>
+              onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerLeave={onPointerUp}
+              onContextMenu={(e) => e.preventDefault()} onDragStart={(e) => e.preventDefault()}
+              style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none", WebkitUserDrag: "none" }}>
               <img src={showExact ? preview : templateUrl} alt="" className="pointer-events-none absolute inset-0 h-full w-full object-cover" draggable={false} />
               {draft.showText && draft.useBox && !showExact && (
                 <LiveTextBox cfg={draft} lines={sampleLines} W={SLIDE_W} H={SLIDE_H} frameW={frameW}
