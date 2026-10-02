@@ -128,3 +128,16 @@ describe("isQuestionComplete — guards", () => {
     expect(r.reason).toMatch(/reason/);
   });
 });
+
+describe("only ONE pair / statement is incomplete (2 or more are fine)", () => {
+  const base = { text: "Consider the following:", options: ["a", "b", "c", "d"], correct: 1 };
+  it("pairs", () => {
+    expect(isQuestionComplete({ ...base, type: "pair", columnA: ["A"], columnB: ["B"] }).ok).toBe(false);
+    expect(isQuestionComplete({ ...base, type: "pair", columnA: ["A", "C"], columnB: ["B", "D"] }).ok).toBe(true);
+    expect(isQuestionComplete({ ...base, type: "matching", columnA: ["A", "C", "E"], columnB: ["B", "D", "F"] }).ok).toBe(true);
+  });
+  it("statements", () => {
+    expect(isQuestionComplete({ ...base, type: "statement", columnA: ["Only one"] }).ok).toBe(false);
+    expect(isQuestionComplete({ ...base, type: "statement", columnA: ["One", "Two"] }).ok).toBe(true);
+  });
+});

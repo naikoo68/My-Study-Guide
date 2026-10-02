@@ -1323,6 +1323,10 @@ function normalize(list) {
       (q) =>
         q.text &&
         (q.type !== "assertion" || (q.assertion && q.reason)) &&
+        // Pair / matching with only ONE row isn't a real question (2+ is fine).
+        (!["matching", "pair", "pairselect"].includes(q.type) ||
+          ((q.columnA || []).filter((s) => String(s).trim() !== "").length >= 2 &&
+            (q.columnB || []).filter((s) => String(s).trim() !== "").length >= 2)) &&
         (q.type !== "statement" ||
           (Array.isArray(q.columnA) &&
             q.columnA.filter((s) => String(s).trim() !== "").length >= 2))

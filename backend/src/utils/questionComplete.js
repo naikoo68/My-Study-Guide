@@ -53,9 +53,12 @@ export function isQuestionComplete(q) {
   // Type-specific content shown on the card.
   if (type === "statement") {
     if (!isArrFilled(q.columnA)) missing.push("statements");
+    else if (q.columnA.length < 2) missing.push("a second statement (only one)");
   } else if (COLUMN_TYPES.has(type)) {
     if (!isArrFilled(q.columnA)) missing.push("column A");
     if (!isArrFilled(q.columnB)) missing.push("column B");
+    // Only ONE pair / match can't be a real question (2 or more are fine).
+    if ((Array.isArray(q.columnA) && q.columnA.length === 1) || (Array.isArray(q.columnB) && q.columnB.length === 1)) missing.push("a second pair (only one)");
   } else if (type === "assertion") {
     if (!isFilled(q.assertion)) missing.push("assertion");
     if (!isFilled(q.reason)) missing.push("reason");
