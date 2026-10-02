@@ -42,12 +42,14 @@ export function questionIssues(q) {
         if (Array.isArray(q.columnA) && q.columnA.some(isBlank)) issues.push("Blank Column A item(s)");
         if (Array.isArray(q.columnB) && q.columnB.some(isBlank)) issues.push("Blank Column B item(s)");
         if (columnA.length && columnB.length && columnA.length !== columnB.length) issues.push("Pair columns have different lengths");
-        if (columnA.length === columnB.length && columnA.length > 0 && ![3, 4].includes(columnA.length)) issues.push("Pair needs 3 or 4 rows");
       }
+      // Only ONE pair / match can't be a real question (2 or more are fine).
+      if (columnA.length === 1 || columnB.length === 1) issues.push("Only one pair — needs at least 2");
       break;
     }
     case "statement":
       if (nonEmptyCount(q.columnA) === 0) issues.push("Missing statements");
+      else if (nonEmptyCount(q.columnA) === 1) issues.push("Only one statement — needs at least 2");
       break;
     case "rearrange":
       if (nonEmptyCount(q.columnA) < 2) issues.push("Missing sentences to rearrange");
