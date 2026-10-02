@@ -37,7 +37,7 @@ const TEMPLATE_CARD = { left: 50, top: 300, width: 980, height: 1360 };
 // `cb` = the admin's card position on the template ({ top, bottom, side }
 // fractions of the template, see backend utils/cardBox.js) or null (default box).
 function boxToCard(cb, W, H) {
-  return { left: Math.round(cb.side * W), top: Math.round(cb.top * H), width: Math.round(W * (1 - 2 * cb.side)), height: Math.round(H * (1 - cb.top - cb.bottom)) };
+  return { left: Math.round(cb.left * W), top: Math.round(cb.top * H), width: Math.round(W * (1 - cb.left - cb.right)), height: Math.round(H * (1 - cb.top - cb.bottom)) };
 }
 function templateCard(tw, th, cb = null) {
   const base = cb ? boxToCard(cb, SLIDE_W, SLIDE_H) : TEMPLATE_CARD;
@@ -293,10 +293,11 @@ export default function SlideCardImage() {
   // (fractions; see backend utils/cardBox.js) — else the defaults.
   const cardBox = (() => {
     const v = (sp.get("cb") || "").split(",").map(Number);
-    if (!(v.length === 3 || v.length === 5) || !v.every((x) => Number.isFinite(x) && x >= 0 && x <= 1)) return null;
-    const [top, bottom, side, card = 0.94, text = 1] = v;
-    if (top > 0.45 || bottom > 0.45 || top + bottom > 0.71 || side > 0.3) return null;
-    return { top, bottom, side, card, text: Math.max(0.1, text) };
+    if (![3, 5, 6].includes(v.length) || !v.every((x) => Number.isFinite(x) && x >= 0 && x <= 1)) return null;
+    // 6 values = top,bottom,left,right,card,text; older 3 / 5 = one side for both.
+    const [top, bottom, left, right, card = 0.94, text = 1] = v.length === 6 ? v : [v[0], v[1], v[2], v[2], v[3], v[4]];
+    if (top > 0.45 || bottom > 0.45 || top + bottom > 0.71 || left + right > 0.61) return null;
+    return { top, bottom, left, right, card: card ?? 0.94, text: Math.max(0.1, text ?? 1) };
   })();
   // Per-account header (cross-posting users): name, hosted https logo, colour.
   const bn = (sp.get("bn") || "").trim().slice(0, 40);
