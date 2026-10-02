@@ -2017,6 +2017,32 @@ function LongVideoScheduleEditModal({ schedule, onClose, onSaved }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const flip = (k) => setOpt((o) => ({ ...o, [k]: !o[k] }));
+  // Narration & slides — this schedule's own settings (same as when it was
+  // created). Engine "" = the saved site engine; voice "" = the saved voice.
+  const { settings } = useSettings();
+  const [providers, setProviders] = useState(["gtranslate", "edge", "myvoice", "openai", "elevenlabs", "googlecloud", "azure", "custom"]);
+  const [voicesByProvider, setVoicesByProvider] = useState({});
+  const [engine, setEngine] = useState(o0.engine || "");
+  const [voice, setVoice] = useState(o0.voice || "");
+  const [slidesMode, setSlidesMode] = useState(o0.slidesMode === "question" ? "question" : "both");
+  const [questionSec, setQuestionSec] = useState(o0.questionSec || 10);
+  const [answerSec, setAnswerSec] = useState(o0.answerSec || 8);
+  const [reveal, setReveal] = useState({ pauseSec: o0.reveal?.pauseSec ?? 3, showSec: o0.reveal?.showSec ?? 3, say: o0.reveal?.say !== false });
+  const [readOpts, setReadOpts] = useState(() => ({ ...readOptsFrom({}), ...(o0.read || {}) }));
+  const [captions, setCaptions] = useState(o0.autoCaptions !== false);
+  const [useTemplates, setUseTemplates] = useState(o0.useTemplates !== false);
+  const [order, setOrder] = useState(o0.order === "random" ? "random" : "sequential");
+  useEffect(() => {
+    facebookService.ttsVoices().then((r) => {
+      if (r?.voicesByProvider && typeof r.voicesByProvider === "object") setVoicesByProvider(r.voicesByProvider);
+      if (Array.isArray(r?.providers) && r.providers.length) setProviders(r.providers);
+    }).catch(() => {});
+  }, []);
+  const effEngine = engine || settings?.ttsProvider || "gtranslate";
+  const engineVoices = voicesByProvider[effEngine] || [];
+  const engineName = (p) => (p === "gtranslate" ? "Free — Google" : p === "edge" ? "Free — Microsoft Edge" : p === "myvoice" ? "My own voice (your server)"
+    : PAID_ENGINES[p] ? `Paid — ${PAID_ENGINES[p].label}${settings?.[`${PAID_ENGINES[p].keyField}Set`] ? "" : " (no key saved)"}` : p);
+  const num = (v, d, lo, hi) => { const n = parseInt(v, 10); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
   // On / off. A schedule that's off (e.g. Completed) is switched on by default
   // when edited — changing its time alone did nothing while it stayed off.
   const [turnOn, setTurnOn] = useState(true);
@@ -2051,6 +2077,10 @@ function LongVideoScheduleEditModal({ schedule, onClose, onSaved }) {
           playlist: playlist.id === "__none__" ? "__none__" : playlist.id ? { id: playlist.id, title: playlist.title } : "",
           options: {
             ...o0, ...opt,
+            engine, voice: voice.trim(), slidesMode, order,
+            questionSec: num(questionSec, 10, 3, 40), answerSec: num(answerSec, 8, 3, 40),
+            reveal: { pauseSec: num(reveal.pauseSec, 3, 0, 15), showSec: num(reveal.showSec, 3, 1, 15), say: reveal.say },
+            read: readOpts, autoCaptions: captions, useTemplates,
             // A Reel is made from the Short, so it needs the Short (and YouTube) on.
             asShort: opt.toYoutube && opt.asShort,
             shortToFacebook: opt.toYoutube && opt.asShort && opt.shortToFacebook,
@@ -2077,7 +2107,7 @@ function LongVideoScheduleEditModal({ schedule, onClose, onSaved }) {
           <h3 className="flex items-center gap-2 text-lg font-bold"><Pencil className="h-5 w-5 text-brand-600" /> Edit long-video schedule</h3>
           <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Close"><X className="h-5 w-5" /></button>
         </div>
-        <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">{schedule?.source?.label || ""} — the questions, voice, slides and progress (which video comes next) stay as they are.</p>
+        <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">{schedule?.source?.label || ""} — changes apply from the next video. Its progress (which video comes next) stays as it is.</p>
 
         <label className="mb-1 block text-sm font-medium">Schedule name</label>
         <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={schedule?.source?.label || "Long video schedule"} />
@@ -2135,6 +2165,84 @@ function LongVideoScheduleEditModal({ schedule, onClose, onSaved }) {
         </div>
         <div className="mt-2">{box("linkComment", "Comment the full video under the Short & Reels")}</div>
         {shortOff && <p className="mt-1 text-xs text-slate-400">Reels are made from the Short — turn on YouTube Short to post Reels.</p>}
+
+        <details className="mt-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700" open>
+          <summary className="cursor-pointer text-sm font-semibold"><Volume2 className="mr-1 inline h-4 w-4 text-slate-400" /> Narration &amp; slides</summary>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium">Narrator (engine)</label>
+              <select className="input" value={engine} onChange={(e) => { setEngine(e.target.value); setVoice(""); }}>
+                <option value="">Saved default ({engineName(settings?.ttsProvider || "gtranslate")})</option>
+                {providers.map((p) => <option key={p} value={p}>{engineName(p)}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium">Voice</label>
+              {FREE_FORM_VOICE.has(effEngine) && !engineVoices.length
+                ? <input className="input" value={voice} onChange={(e) => setVoice(e.target.value)} placeholder="Voice ID (blank = saved voice)" />
+                : (
+                  <select className="input" value={engineVoices.some((v) => v.id === voice) ? voice : ""} onChange={(e) => setVoice(e.target.value)}>
+                    <option value="">{engine ? "Engine's default voice" : "Saved voice"}</option>
+                    {engineVoices.map((v) => <option key={v.id} value={v.id}>{v.label || v.id}</option>)}
+                  </select>
+                )}
+              {effEngine === "myvoice" && !engineVoices.length && <p className="mt-1 text-[11px] text-amber-600">No voice yet — make one in <Link to="/admin/voice-studio" className="underline">Voice Studio</Link>.</p>}
+            </div>
+          </div>
+
+          <p className="mb-1 mt-3 text-xs font-medium">Slides per question</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {[["both", "Question, then answer + explanation"], ["question", "One slide — answer turns green"]].map(([v, l]) => (
+              <label key={v} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${slidesMode === v ? "border-brand-500 bg-brand-50 dark:bg-brand-900/20" : "border-slate-200 dark:border-slate-700"}`}>
+                <input type="radio" name="lvEditSlides" className="accent-brand-600" checked={slidesMode === v} onChange={() => setSlidesMode(v)} /> {l}
+              </label>
+            ))}
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <label className="text-xs font-medium">Question time (s)
+              <input type="number" min={3} max={40} className="input mt-1" value={questionSec} onChange={(e) => setQuestionSec(e.target.value)} />
+            </label>
+            {slidesMode === "both" ? (
+              <label className="text-xs font-medium">Answer time (s)
+                <input type="number" min={3} max={40} className="input mt-1" value={answerSec} onChange={(e) => setAnswerSec(e.target.value)} />
+              </label>
+            ) : (
+              <>
+                <label className="text-xs font-medium">Thinking pause (s)
+                  <input type="number" min={0} max={15} className="input mt-1" value={reveal.pauseSec} onChange={(e) => setReveal((r) => ({ ...r, pauseSec: e.target.value }))} />
+                </label>
+                <label className="text-xs font-medium">Show green answer (s)
+                  <input type="number" min={1} max={15} className="input mt-1" value={reveal.showSec} onChange={(e) => setReveal((r) => ({ ...r, showSec: e.target.value }))} />
+                </label>
+                <label className="flex items-center gap-2 text-xs"><input type="checkbox" className="h-4 w-4 accent-brand-600" checked={reveal.say} onChange={(e) => setReveal((r) => ({ ...r, say: e.target.checked }))} /> Say the answer</label>
+              </>
+            )}
+          </div>
+
+          <p className="mb-1 mt-3 text-xs font-medium">Read aloud</p>
+          <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+            {READ_TOGGLES.filter((t) => slidesMode === "both" || t.slide === 1).map((t) => (
+              <label key={t.key} className="flex items-center gap-1.5 text-xs">
+                <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={readOpts[t.key] !== false} onChange={(e) => setReadOpts((r) => ({ ...r, [t.key]: e.target.checked }))} /> {t.label}
+              </label>
+            ))}
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
+            <label className="flex items-center gap-1.5 text-xs"><input type="checkbox" className="h-4 w-4 accent-brand-600" checked={captions} onChange={(e) => setCaptions(e.target.checked)} /> Captions on the slides</label>
+            <label className="flex items-center gap-1.5 text-xs"><input type="checkbox" className="h-4 w-4 accent-brand-600" checked={useTemplates} onChange={(e) => setUseTemplates(e.target.checked)} /> Use my slide templates</label>
+          </div>
+          {!byQuiz && (
+            <div className="mt-3">
+              <label className="mb-1 block text-xs font-medium">Question order</label>
+              <select className="input" value={order} onChange={(e) => setOrder(e.target.value)}>
+                <option value="sequential">In order (Part 1, Part 2 …)</option>
+                <option value="random">Random each time</option>
+              </select>
+            </div>
+          )}
+        </details>
 
         <label className="mb-1 mt-3 block text-sm font-medium">Video title <span className="font-normal text-slate-400">(blank = the default)</span></label>
         <input className="input" value={videoTitle} maxLength={100} onChange={(e) => setVideoTitle(e.target.value)} />
