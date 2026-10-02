@@ -63,6 +63,9 @@ const OPENAI_VOICES = [
 // picks since the audience is Indian exam aspirants). The `id` is the exact
 // Edge voice name required by the service.
 const EDGE_VOICES = [
+  // The "Expressive" Neerja is livelier and more human than plain Neerja
+  // (checked against the free service's own voice list).
+  { id: "en-IN-NeerjaExpressiveNeural", label: "Neerja Expressive (India, female) — most natural" },
   { id: "en-IN-NeerjaNeural", label: "Neerja (India, female)" },
   { id: "en-IN-PrabhatNeural", label: "Prabhat (India, male)" },
   { id: "en-US-AriaNeural", label: "Aria (US, female)" },
@@ -97,6 +100,13 @@ const ELEVENLABS_VOICES = [
 
 // Google Cloud TTS voices (name = "<language>-<type>-<letter>").
 const GOOGLECLOUD_VOICES = [
+  // Chirp 3 HD — Google's newest, most human-sounding voices (Indian English).
+  { id: "en-IN-Chirp3-HD-Kore", label: "India, female — Kore (Chirp 3 HD, most natural)" },
+  { id: "en-IN-Chirp3-HD-Aoede", label: "India, female — Aoede (Chirp 3 HD)" },
+  { id: "en-IN-Chirp3-HD-Leda", label: "India, female — Leda (Chirp 3 HD)" },
+  { id: "en-IN-Chirp3-HD-Charon", label: "India, male — Charon (Chirp 3 HD, most natural)" },
+  { id: "en-IN-Chirp3-HD-Puck", label: "India, male — Puck (Chirp 3 HD)" },
+  { id: "en-IN-Chirp3-HD-Fenrir", label: "India, male — Fenrir (Chirp 3 HD)" },
   { id: "en-IN-Neural2-A", label: "India, female (Neural2-A)" },
   { id: "en-IN-Neural2-B", label: "India, male (Neural2-B)" },
   { id: "en-IN-Neural2-C", label: "India, male (Neural2-C)" },
@@ -107,8 +117,13 @@ const GOOGLECLOUD_VOICES = [
   { id: "en-GB-Neural2-B", label: "UK, male (Neural2-B)" },
 ];
 
-// Azure Speech uses the same neural voice names as Edge (plus hundreds more).
-const AZURE_VOICES = EDGE_VOICES;
+// Azure Speech uses the same neural voice names as Edge (plus hundreds more),
+// including the newer Indian English voices Aarti and Arjun.
+const AZURE_VOICES = [
+  { id: "en-IN-AartiNeural", label: "Aarti (India, female) — newer, more natural" },
+  { id: "en-IN-ArjunNeural", label: "Arjun (India, male) — newer, more natural" },
+  ...EDGE_VOICES,
+];
 
 export const PROVIDER_VOICES = {
   gtranslate: GTRANSLATE_VOICES,
@@ -121,13 +136,15 @@ export const PROVIDER_VOICES = {
 };
 
 // The default voice per provider.
+// Indian English wherever the provider has it (the audience is Indian exam
+// aspirants). A voice the admin picked on purpose is kept as it is.
 export const DEFAULT_VOICE = {
-  gtranslate: "en",
+  gtranslate: "en-IN",
   openai: "coral",
-  edge: "en-IN-NeerjaNeural",
+  edge: "en-IN-NeerjaExpressiveNeural",
   elevenlabs: "21m00Tcm4TlvDq8ikWAM",
-  googlecloud: "en-IN-Neural2-A",
-  azure: "en-IN-NeerjaNeural",
+  googlecloud: "en-IN-Chirp3-HD-Kore",
+  azure: "en-IN-AartiNeural",
   custom: "alloy",
 };
 
