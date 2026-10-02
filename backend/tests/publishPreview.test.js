@@ -72,6 +72,21 @@ describe("publish a finished preview", () => {
     expect(done.shortUrl).toBe("https://youtu.be/vid2");
   });
 
+  it("adds your 'text for every video' to the YouTube video and the Short", async () => {
+    const preview = fakePreview();
+    const site = { videoDescriptionText: "📲 Join our Telegram: t.me/msg", videoDescriptionYoutube: true };
+    const j = queuePublishPreview({ preview, cfg: {}, site, options: { toYoutube: true, asShort: true } });
+    await waitDone(j.id);
+    for (const u of uploads) {
+      expect(u.description).toContain("📲 Join our Telegram: t.me/msg");
+      expect(u.description.trim().endsWith("#Economics")).toBe(true); // hashtags stay last
+    }
+    uploads.length = 0;
+    const off = queuePublishPreview({ preview: fakePreview(), cfg: {}, site: { ...site, videoDescriptionYoutube: false }, options: { toYoutube: true } });
+    await waitDone(off.id);
+    expect(uploads[0].description).not.toContain("Join our Telegram");
+  });
+
   it("publishes a preview only once", async () => {
     const preview = fakePreview();
     const j = queuePublishPreview({ preview, cfg: {}, site: {}, options: { toYoutube: true } });

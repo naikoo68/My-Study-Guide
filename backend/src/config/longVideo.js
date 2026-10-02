@@ -21,6 +21,7 @@ import {
 } from "./youtube.js";
 import { postLongVideoToFacebookPage } from "./fbLongVideo.js";
 import { TTS_PROVIDERS } from "../utils/ttsVoices.js";
+import { customVideoText, withVideoText } from "../utils/videoDescription.js";
 import { displayTrail, displayName } from "../utils/displayName.js";
 import { normalizeReadOptions, readOptionsFromSettings } from "./slidePlan.js";
 import {
@@ -761,7 +762,8 @@ async function uploadRendered(job, { cfg, opts, filePath, description, tags, thu
     const up = await uploadVideoFileToYoutube({
       filePath,
       title: job.title,
-      description,
+      // + the admin's own "text for every video" (YouTube).
+      description: withVideoText(description, customVideoText(site, "youtube")),
       tags: buildYtTags(tags, { first: [job.tagNames?.stream, job.tagNames?.subject, job.tagNames?.topic] }), // subject & topic as readable tags first
       privacy: job.privacy,
       publishAt: job.publishAt,
@@ -802,10 +804,11 @@ async function uploadRendered(job, { cfg, opts, filePath, description, tags, thu
           shorts: true,
           followLinks: job.followLinks || "",
         });
+        const shortDescFull = withVideoText(shortDesc, customVideoText(site, "youtube"));
         const s = await uploadVideoFileToYoutube({
           filePath: shortPath,
           title: shortTitle(job.title),
-          description: shortDesc,
+          description: shortDescFull,
           tags: buildYtTags(tags, { first: [job.tagNames?.stream, job.tagNames?.subject, job.tagNames?.topic] }), // subject & topic as readable tags first
           privacy: job.privacy,
           publishAt: job.publishAt,
@@ -828,7 +831,7 @@ async function uploadRendered(job, { cfg, opts, filePath, description, tags, thu
   if (opts.toFacebook) {
     job.stage = "uploading_facebook";
     job.progress = null;
-    const fb = await postLongVideoToFacebookPage({ filePath, title: job.title, description, publishAt: job.publishAt, thumbnail }, cfg);
+    const fb = await postLongVideoToFacebookPage({ filePath, title: job.title, description: withVideoText(description, customVideoText(site, "facebook")), publishAt: job.publishAt, thumbnail }, cfg);
     if (fb.ok) {
       anyOk = true;
       job.fbUrl = fb.url;
@@ -935,7 +938,7 @@ async function postShortReelsAndLinks(job, { cfg, opts, tags, getShort, schedule
     job.notes.push(`Reels ✗ (${e?.message || e})`);
     return;
   }
-  const caption = [job.title, fullUrl ? `Watch the full video: ${fullUrl}` : "", tags].filter(Boolean).join("\n\n");
+  const caption = withVideoText([job.title, fullUrl ? `Watch the full video: ${fullUrl}` : "", tags].filter(Boolean).join("\n\n"), customVideoText(site, "facebook"));
   if (opts.shortToFacebook) {
     const r = await postReelToFacebookPage({ videoUrl: reelUrl, description: caption }, cfg);
     if (r.ok) {

@@ -1,6 +1,7 @@
 import { activeSocialProfileId, runAsSocialProfile } from "../utils/socialProfile.js";
 import { cleanBrandName, cleanBrandLogoUrl, cleanBrandWebsite } from "../utils/videoBrand.js";
 import { cleanCardBox } from "../utils/cardBox.js";
+import { cleanVideoText } from "../utils/videoDescription.js";
 import Settings from "../models/Settings.js";
 import { cleanTgChat, verifyTelegram, sendTelegramMessage, findTelegramChats, isTgInviteLink, TG_INVITE_HELP } from "../config/telegram.js";
 import Tenant from "../models/Tenant.js";
@@ -263,6 +264,7 @@ export async function updateSettings(req, res) {
     "aiMaxPerBatch", "clientPlans", "studentPlans", "tenantPlans",
     "fbEnabled", "fbPageId", "fbAutoOnNotice", "fbGraphVersion", "fbPageAccessToken",
     "tgEnabled", "tgBotToken", "tgChatId", "socialLinksOnYoutube", "socialLinksComment",
+    "videoDescriptionText", "videoDescriptionYoutube", "videoDescriptionFacebook",
     "fbDefaultHashtags", "fbAutoHashtags", "fbExtraTargets",
     "fbSelfieWatermarkUrl", "fbSelfieWatermarkEnabled", "fbSelfieWatermarkPosition", "fbSelfieWatermarkSize", "fbSelfieWatermarkOpacity", "fbSelfieWatermarkShape",
     "fbTextWatermarkEnabled", "fbTextWatermarkText", "fbTextWatermarkSize", "fbTextWatermarkOpacity",
@@ -346,6 +348,8 @@ export async function updateSettings(req, res) {
   const slideSec = (v, def) => { const n = Math.round(Number(v)); return Number.isFinite(n) && n > 0 ? Math.max(3, Math.min(40, n)) : def; };
   if ("slideshowQuestionSec" in update) update.slideshowQuestionSec = slideSec(update.slideshowQuestionSec, 10);
   if ("slideshowAnswerSec" in update) update.slideshowAnswerSec = slideSec(update.slideshowAnswerSec, 8);
+  if ("videoDescriptionText" in update) update.videoDescriptionText = cleanVideoText(update.videoDescriptionText);
+  for (const k of ["videoDescriptionYoutube", "videoDescriptionFacebook"]) if (k in update) update[k] = update[k] !== false;
   if ("slideshowVoice" in update) update.slideshowVoice = String(update.slideshowVoice || "").trim().slice(0, 60);
   if ("slideshowAutoCaptions" in update) update.slideshowAutoCaptions = !!update.slideshowAutoCaptions;
   if ("slideshowSlides" in update) update.slideshowSlides = update.slideshowSlides === "question" ? "question" : "both";
