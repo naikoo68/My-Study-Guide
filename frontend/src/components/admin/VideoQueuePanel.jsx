@@ -1,4 +1,5 @@
-// "Video queue" — long videos are made one at a time. Shows which one is being
+// "Video queue" — this account's long videos (made one at a time; other
+// accounts render in their own queue, side by side). Shows which one is being
 // made right now (and from which schedule), what is waiting behind it in
 // order, and lets the admin stop any of them (nothing is posted).
 import { useEffect, useState } from "react";
@@ -82,7 +83,7 @@ export default function VideoQueuePanel({ queue, scheduleTitle = {}, onChange, a
       <p className="flex flex-wrap items-center gap-2 text-sm font-bold text-slate-800 dark:text-slate-100">
         <Film className="h-4 w-4 text-amber-600" /> Video queue
         <span className="text-xs font-normal text-slate-500 dark:text-slate-400">
-          {queue.length ? `${running ? "1 being made" : "starting"}${waiting.length ? ` · ${waiting.length} waiting` : ""} — videos are made one at a time` : "nothing is being made"}
+          {queue.length ? `${running ? "1 being made" : "starting"}${waiting.length ? ` · ${waiting.length} waiting` : ""} — this account's videos are made one at a time; other accounts have their own queue` : "nothing is being made"}
         </span>
       </p>
       <ol className="mt-2 space-y-2">
