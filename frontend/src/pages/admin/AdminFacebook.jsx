@@ -5,6 +5,7 @@ import LiveTextBox from "../../components/admin/LiveTextBox.jsx";
 import CardBoxEditor from "../../components/admin/CardBoxEditor.jsx";
 import VideoQueuePanel, { StopVideoButton } from "../../components/admin/VideoQueuePanel.jsx";
 import useVideoQueue from "../../components/admin/useVideoQueue.js";
+import VoicePreviewButton from "../../components/admin/VoicePreviewButton.jsx";
 import useElementWidth from "../../components/admin/useElementWidth.js";
 import { useEffect, useState, useRef } from "react";
 import { Link } from "react-router-dom";
@@ -1675,6 +1676,7 @@ function AiSlideshowSection({ settings, saveSettings, onCreated }) {
           <input type="text" className="input h-9 w-60" placeholder={provider === "elevenlabs" ? "…or paste a voice ID" : "…or type a voice name"}
             value={voices.some((v) => v.id === voiceValue) ? "" : voiceValue} onChange={(e) => setVoice(e.target.value)} />
         )}
+        <VoicePreviewButton engine={provider} voice={voiceValue} />
       </div>
       <label className="mt-3 flex items-center gap-2 text-sm">
         <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={captions} onChange={(e) => setCaptions(e.target.checked)} />
@@ -2181,10 +2183,13 @@ function LongVideoScheduleEditModal({ schedule, onClose, onSaved }) {
               {FREE_FORM_VOICE.has(effEngine) && !engineVoices.length
                 ? <input className="input" value={voice} onChange={(e) => setVoice(e.target.value)} placeholder="Voice ID (blank = saved voice)" />
                 : (
-                  <select className="input" value={engineVoices.some((v) => v.id === voice) ? voice : ""} onChange={(e) => setVoice(e.target.value)}>
-                    <option value="">{engine ? "Engine's default voice" : "Saved voice"}</option>
-                    {engineVoices.map((v) => <option key={v.id} value={v.id}>{v.label || v.id}</option>)}
-                  </select>
+                  <div className="flex items-start gap-2">
+                    <select className="input min-w-0 flex-1" value={engineVoices.some((v) => v.id === voice) ? voice : ""} onChange={(e) => setVoice(e.target.value)}>
+                      <option value="">{engine ? "Engine's default voice" : "Saved voice"}</option>
+                      {engineVoices.map((v) => <option key={v.id} value={v.id}>{v.label || v.id}</option>)}
+                    </select>
+                    <VoicePreviewButton engine={effEngine} voice={voice || (engine ? "" : settings?.slideshowVoice || "")} />
+                  </div>
                 )}
               {effEngine === "myvoice" && !engineVoices.length && <p className="mt-1 text-[11px] text-amber-600">No voice yet — make one in <Link to="/admin/voice-studio" className="underline">Voice Studio</Link>.</p>}
             </div>
@@ -4094,11 +4099,14 @@ function FullQuizVideoForm({ st, onStatus }) {
           {FREE_FORM_VOICE.has(provider) && !voices.length
             ? <input className="input" value={voice} onChange={(e) => setVoice(e.target.value)} placeholder="Voice ID" />
             : (
-              <select className="input" value={voiceValue} onChange={(e) => setVoice(e.target.value)}>
-                {voices.map((v) => <option key={v.id} value={v.id}>{v.label || v.id}</option>)}
-              </select>
+              <div className="flex items-start gap-2">
+                <select className="input min-w-0 flex-1" value={voiceValue} onChange={(e) => setVoice(e.target.value)}>
+                  {voices.map((v) => <option key={v.id} value={v.id}>{v.label || v.id}</option>)}
+                </select>
+                <VoicePreviewButton engine={provider} voice={voiceValue} />
+              </div>
             )}
-          <p className="mt-1 text-xs text-slate-400">API keys and models are set once in the <b>AI Slideshow</b> card.</p>
+          <p className="mt-1 text-xs text-slate-400">Tap <b>Preview</b> to hear the voice. API keys and models are set once in the <b>AI Slideshow</b> card.</p>
         </div>
         <div>
           <label className="mb-1 block text-sm font-medium">Captions</label>
