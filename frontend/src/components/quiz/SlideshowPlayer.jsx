@@ -522,7 +522,7 @@ export default function SlideshowPlayer({ questions = [], quizTitle = "Quiz", cr
                             : "border-slate-300 dark:border-slate-600"
                         }`}
                       >
-                        {isMatching ? `(${String.fromCharCode(97 + idx)})` : optionLabels[idx]}
+                        {isMatching ? `(${String.fromCharCode(65 + idx)})` : optionLabels[idx]}
                       </span>
                       <span className="flex-1"><OptionContent>{opt}</OptionContent></span>
                       {reveal && idx === q.correct && <CheckCircle2 className="h-6 w-6 flex-shrink-0 text-emerald-500" />}

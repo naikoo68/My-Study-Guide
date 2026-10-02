@@ -170,7 +170,7 @@ export default function QuestionCardImage() {
             {isMatching && <p className="text-sm font-medium text-slate-500">Choose the correct matching sequence:</p>}
             {displayOptions(q).map((opt, idx) => (
               <div key={idx} className={optionCls(idx)}>
-                <span className={badgeCls(idx)}>{isMatching ? `(${String.fromCharCode(97 + idx)})` : optionLabels[idx]}</span>
+                <span className={badgeCls(idx)}>{isMatching ? `(${String.fromCharCode(65 + idx)})` : optionLabels[idx]}</span>
                 <span className="flex-1"><OptionContent>{opt}</OptionContent></span>
               </div>
             ))}

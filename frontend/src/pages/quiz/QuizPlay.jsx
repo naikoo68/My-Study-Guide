@@ -626,7 +626,7 @@ export default function QuizPlay() {
                           : "border-slate-300 dark:border-slate-600"
                       }`}
                     >
-                      {isMatching ? `(${String.fromCharCode(97 + idx)})` : optionLabels[idx]}
+                      {isMatching ? `(${String.fromCharCode(65 + idx)})` : optionLabels[idx]}
                     </span>
                     <span className="flex-1"><OptionContent>{opt}</OptionContent></span>
                     {locked && idx === q.correct && <CheckCircle2 className="h-5 w-5 text-emerald-500" />}

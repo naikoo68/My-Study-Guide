@@ -359,11 +359,11 @@ export function questionSpeechParts(q) {
 
   if (type === "matching") speech.push("Choose the correct matching sequence.");
 
-  // Options exactly as displayed: matching uses (a), (b)…; others A, B….
+  // Options exactly as displayed: matching uses (A), (B)…; others A, B….
   const options = displayOptions(q).map((t, i) => {
     const text = asText(t);
-    const badge = type === "matching" ? `(${String.fromCharCode(97 + i)})` : LETTERS[i] || String(i + 1);
-    const spokenBadge = type === "matching" ? String.fromCharCode(97 + i) : badge;
+    const badge = type === "matching" ? `(${String.fromCharCode(65 + i)})` : LETTERS[i] || String(i + 1);
+    const spokenBadge = type === "matching" ? String.fromCharCode(65 + i) : badge;
     return { badge, text, spokenBadge, spoken: speakOption(text) };
   }).filter((o) => o.text);
 
