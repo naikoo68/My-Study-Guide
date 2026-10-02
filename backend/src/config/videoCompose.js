@@ -125,7 +125,8 @@ export async function probeDuration(file) {
 //   slides:  [{ imagePath, audioPath?, minSec?, pauseSec?, bgPath? }]  (local files, in
 //            order; no audioPath = a silent slide; pauseSec = extra silence after
 //            the narration;
-//            order; minSec = how long this slide stays up at least; bgPath =
+//            order; minSec = how long this slide stays up at least; bgFill = the
+//            template FILLS the frame (no blurred border); bgPath =
 //            an optional template image drawn underneath the slide)
 //   outPath: where to write the final MP4
 // Returns { duration, segmentDurations } (seconds).
@@ -190,7 +191,13 @@ export async function composeSlideshowMp4({
     //    do. The slide (a PNG with a transparent surround) is laid on top.
     //    Without a template, the slide is fitted onto a white 9:16 canvas.
     const bg = list[i].bgPath;
-    const frameFilter = bg
+    const frameFilter = bg && list[i].bgFill
+      // Template (about) the frame's shape → stretched to fill it exactly: no
+      // blurred border (a ≤ 5% stretch isn't visible).
+      ? `[0:v]scale=${width}:${height},setsar=1[bg];` +
+        `[1:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,format=rgba[fg];` +
+        `[bg][fg]overlay=(W-w)/2:(H-h)/2`
+      : bg
       ? `[0:v]setsar=1,split[tf][tb];` +
         `[tb]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},boxblur=40:2,eq=brightness=-0.06,setsar=1[blur];` +
         `[tf]scale=${fitW}:${fitH}:force_original_aspect_ratio=decrease,setsar=1[fit];` +
