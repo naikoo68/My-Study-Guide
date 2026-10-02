@@ -1,4 +1,5 @@
 import { customVideoText, withVideoText } from "../utils/videoDescription.js";
+import { topMcqHashtags, topMcqTagNames } from "../utils/topMcqTags.js";
 import { socialSettingsFilter, activeSocialProfileId, runAsSocialProfile, scheduleProfileFilter, ensureProfileIdBackfill } from "../utils/socialProfile.js";
 // Facebook / Instagram Graph API helper — verifies page credentials and publishes
 // auto-posts to a connected Facebook page / Instagram account.
@@ -104,7 +105,7 @@ async function publishScheduleToYoutube({ sch, cfg, videoUrl, caption, notes, ti
     customVideoText(site, "youtube"),
   );
   const r = await uploadVideoToYoutube(
-    { videoUrl, title, description, tags: buildYtTags(caption), privacy: cfg.ytPrivacy },
+    { videoUrl, title, description, tags: buildYtTags(caption, { first: topMcqTagNames(titleVars || {}) }), privacy: cfg.ytPrivacy },
     cfg
   );
   if (r.ok) {
@@ -1210,10 +1211,15 @@ function normTag(s) {
 // Build the hashtag string for a question: per-post tags + the admin's global
 // default tags + auto tags from the question's subject / topic / section.
 // `site` is the Settings doc (fbDefaultHashtags, fbAutoHashtags).
-export async function hashtagsForQuestion(q, site, extra = "") {
+// { video: true } also adds "#TopMCQsOf<Subject>" + "#TopMCQsOf<Topic>" (videos only).
+export async function hashtagsForQuestion(q, site, extra = "", { video = false } = {}) {
   const out = [];
   const push = (t) => { if (t && !out.some((x) => x.toLowerCase() === t.toLowerCase())) out.push(t); };
   for (const w of String(extra || "").split(/[\s,]+/)) push(normTag(w));
+  if (video && q) {
+    const names = await titlePartsForQuestion(q).catch(() => ({}));
+    for (const t of topMcqHashtags(names).split(" ")) push(t);
+  }
   // Subject / topic tags come BEFORE the site's default tags: the list is capped
   // at MAX_HASHTAGS, and the admin's defaults alone can fill it — which used to
   // cut the subject & topic off every post ("Economics" never appeared).
@@ -1951,7 +1957,8 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
   const isFlashcard = sch.kind === "flashcard";
   // Global default + auto hashtags (from the question's subject/topic/section)
   // merged with any per-post tags — so every post is tagged consistently.
-  const finalTags = await hashtagsForQuestion(q, site, sch.hashtags);
+  // Video posts (slideshow / Reel / Short) also get the "Top MCQs of …" tags.
+  const finalTags = await hashtagsForQuestion(q, site, sch.hashtags, { video: isSlideshowRun || !!sch.asReel || !!sch.toYoutube });
   const breadcrumb = await breadcrumbForQuestion(q);
   // Reserve the next post number PER PLATFORM so each feed shows a continuous
   // 1, 2, 3, … sequence regardless of the other platform's failures. Previously
