@@ -12,16 +12,16 @@ describe("cleanCardBox", () => {
     expect(cleanCardBox({ top: 0.1 })).toBe(null);
   });
   it("keeps valid values (rounded)", () => {
-    expect(cleanCardBox({ top: 0.2234, bottom: "0.19", side: 0.05 })).toEqual({ top: 0.223, bottom: 0.19, side: 0.05, card: 0.94, text: 1 });
+    expect(cleanCardBox({ top: 0.2234, bottom: "0.19", side: 0.05 })).toEqual({ top: 0.223, bottom: 0.19, left: 0.05, right: 0.05, card: 0.94, text: 1 });
   });
   it("clamps so the card always keeps room", () => {
-    const b = cleanCardBox({ top: 0.45, bottom: 0.45, side: 0.9 });
+    const b = cleanCardBox({ top: 0.45, bottom: 0.45, left: 0.9, right: 0.9 });
     expect(b.top + b.bottom).toBeLessThanOrEqual(0.7001);
-    expect(b.side).toBe(0.3);
+    expect(b.left + b.right).toBeLessThanOrEqual(0.6001);
   });
   it("param string", () => {
-    expect(cardBoxParam({ top: 0.22, bottom: 0.19, side: 0.06 })).toBe("0.22,0.19,0.06,0.94,1");
-    expect(cardBoxParam({ top: 0.22, bottom: 0.19, side: 0.06, card: 0.5, text: 0.8 })).toBe("0.22,0.19,0.06,0.5,0.8");
+    expect(cardBoxParam({ top: 0.22, bottom: 0.19, side: 0.06 })).toBe("0.22,0.19,0.06,0.06,0.94,1");
+    expect(cardBoxParam({ top: 0.22, bottom: 0.19, left: 0.3, right: 0.02, card: 0.5, text: 0.8 })).toBe("0.22,0.19,0.3,0.02,0.5,0.8");
     expect(cardBoxParam(null)).toBe("");
   });
 });

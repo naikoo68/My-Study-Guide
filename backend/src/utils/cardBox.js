@@ -29,15 +29,19 @@ export const DEFAULT_TEXT_OPACITY = 1;
 export function cleanCardBox(v) {
   if (!v || typeof v !== "object") return null;
   const n = (x) => Number(x);
-  if (![v.top, v.bottom, v.side].every((x) => Number.isFinite(n(x)))) return null;
+  // left / right are set separately; older saves have ONE `side` for both.
+  const L0 = v.left ?? v.side, R0 = v.right ?? v.side;
+  if (![v.top, v.bottom, L0, R0].every((x) => Number.isFinite(n(x)))) return null;
   let top = clamp(n(v.top), 0, 0.45);
   let bottom = clamp(n(v.bottom), 0, 0.45);
   if (top + bottom > 0.7) { const k = 0.7 / (top + bottom); top *= k; bottom *= k; }
-  const side = clamp(n(v.side), 0, 0.3);
+  // Each side up to 60%, both together ≤ 60% → the card keeps ≥ 40% of the width.
+  let left = clamp(n(L0), 0, 0.6), right = clamp(n(R0), 0, 0.6);
+  if (left + right > 0.6) { const k = 0.6 / (left + right); left *= k; right *= k; }
   const op = (x, d, lo) => (x === undefined || x === null || x === "" || !Number.isFinite(n(x)) ? d : clamp(n(x), lo, 1));
   const logos = cleanLogos(v);
   return {
-    top: r3(top), bottom: r3(bottom), side: r3(side),
+    top: r3(top), bottom: r3(bottom), left: r3(left), right: r3(right),
     card: r3(op(v.card, DEFAULT_CARD_OPACITY, 0)),
     text: r3(op(v.text, DEFAULT_TEXT_OPACITY, 0.1)),
     ...(logos.length ? { logos } : {}),
@@ -77,8 +81,8 @@ export function cardBoxLogos(v) {
   return (cleanCardBox(v)?.logos || []).map((l) => ({ url: l.url, pos: `${l.x},${l.y},${l.w},${l.opacity}` }));
 }
 
-// The `cb` screenshot param ("top,bottom,side,card,text") or "" for the defaults.
+// The `cb` screenshot param ("top,bottom,left,right,card,text") or "" for the defaults.
 export function cardBoxParam(v) {
   const b = cleanCardBox(v);
-  return b ? `${b.top},${b.bottom},${b.side},${b.card},${b.text}` : "";
+  return b ? `${b.top},${b.bottom},${b.left},${b.right},${b.card},${b.text}` : "";
 }

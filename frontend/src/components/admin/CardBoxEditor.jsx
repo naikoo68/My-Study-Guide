@@ -2,7 +2,7 @@
 // kept FREE above (logo / title), below (website / icons) and at the sides —
 // the white question / answer card fills the rest. Live preview on the real
 // template: drag the box's edges (or the box itself to move it up / down), or
-// use the sliders and − / + buttons. Saved as { top, bottom, side } fractions
+// use the sliders and − / + buttons. Saved as { top, bottom, left, right } fractions
 // (backend utils/cardBox.js).
 import { useRef, useState } from "react";
 import { Loader2, Save, RotateCcw, CheckCircle2, AlertTriangle, Minus, Plus, Move, ImagePlus, Trash2, Eraser, Undo2 } from "lucide-react";
@@ -12,11 +12,12 @@ import { removeBackgroundFromUrl } from "../../lib/removeBg.js";
 // Same defaults as the backend (the old fixed card boxes).
 // card / text = opacity of the card's white background and of the quiz text.
 const DEFAULT_CARD_BOX = {
-  landscape: { top: 0.176, bottom: 0.139, side: 0.057, card: 0.94, text: 1 },
-  portrait: { top: 0.156, bottom: 0.135, side: 0.046, card: 0.94, text: 1 },
+  landscape: { top: 0.176, bottom: 0.139, left: 0.057, right: 0.057, card: 0.94, text: 1 },
+  portrait: { top: 0.156, bottom: 0.135, left: 0.046, right: 0.046, card: 0.94, text: 1 },
 };
-const MAX = { top: 0.45, bottom: 0.45, side: 0.3, card: 1, text: 1 };
-const MIN = { top: 0, bottom: 0, side: 0, card: 0, text: 0.1 }; // text never fully invisible
+const MAX = { top: 0.45, bottom: 0.45, left: 0.6, right: 0.6, card: 1, text: 1 };
+const MIN = { top: 0, bottom: 0, left: 0, right: 0, card: 0, text: 0.1 }; // text never fully invisible
+const MAX_LR = 0.6; // left + right — the card always keeps ≥ 40% of the width
 const STEPS = { card: 0.05, text: 0.05 }; // opacity − / + step (5%)
 const MAX_TB = 0.7; // top + bottom — the card always keeps ≥ 30% of the height
 const STEP = 0.005; // − / + step (0.5%)
@@ -25,20 +26,21 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const r3 = (v) => Math.round(v * 1000) / 1000;
 const pctText = (v) => `${Math.round(v * 1000) / 10}%`;
 
-// Set one side, keeping every limit (the OTHER of top / bottom gives way).
+// Set one side, keeping every limit.
 function withValue(b, k, v) {
   const n = { ...b, [k]: r3(clamp(v, MIN[k], MAX[k])) };
-  if ((k === "top" || k === "bottom") && n.top + n.bottom > MAX_TB) {
-    const other = k === "top" ? "bottom" : "top";
-    n[other] = r3(Math.max(0, MAX_TB - n[k]));
-  }
+  // The card keeps a minimum size: the side being set stops there (the other
+  // side is NOT moved — each side is independent).
+  if ((k === "top" || k === "bottom") && n.top + n.bottom > MAX_TB) n[k] = r3(Math.max(0, MAX_TB - n[k === "top" ? "bottom" : "top"]));
+  if ((k === "left" || k === "right") && n.left + n.right > MAX_LR) n[k] = r3(Math.max(0, MAX_LR - n[k === "left" ? "right" : "left"]));
   return n;
 }
-// Move the whole card up / down (same height).
-function moved(b, dy) {
-  // Stop at the template's edges and at the 45% limits (instead of jumping back).
-  const d = clamp(dy, Math.max(-b.top, b.bottom - MAX.bottom), Math.min(b.bottom, MAX.top - b.top));
-  return { ...b, top: r3(b.top + d), bottom: r3(b.bottom - d) };
+// Move the whole card (same size) — up / down and left / right.
+function moved(b, dx, dy) {
+  // Stop at the template's edges and the limits (instead of jumping back).
+  const y = clamp(dy, Math.max(-b.top, b.bottom - MAX.bottom), Math.min(b.bottom, MAX.top - b.top));
+  const x = clamp(dx, Math.max(-b.left, b.right - MAX.right), Math.min(b.right, MAX.left - b.left));
+  return { ...b, top: r3(b.top + y), bottom: r3(b.bottom - y), left: r3(b.left + x), right: r3(b.right - x) };
 }
 
 // Extra image (logo / badge) on the template: x / y / w fractions + opacity.
@@ -60,9 +62,11 @@ export default function CardBoxEditor({ templateUrl, boxKey, settings, saveSetti
   // Images live in box.logos (an older save had ONE box.logo).
   const [box, setBox] = useState(() => {
     if (!saved || typeof saved !== "object") return def;
-    const { logo, ...rest } = saved;
+    const { logo, side, ...rest } = saved;
     const logos = Array.isArray(saved.logos) ? saved.logos : logo ? [logo] : [];
-    return { ...def, ...rest, logos };
+    // Older saves had ONE `side` for both left and right.
+    const lr = side !== undefined ? { left: saved.left ?? side, right: saved.right ?? side } : {};
+    return { ...def, ...rest, ...lr, logos };
   });
   const [sel, setSel] = useState(0); // the image the controls apply to
   const [busy, setBusy] = useState(false);
@@ -109,9 +113,9 @@ export default function CardBoxEditor({ templateUrl, boxKey, settings, saveSetti
     let n = s;
     if (d.mode === "top") n = withValue(s, "top", s.top + dy);
     else if (d.mode === "bottom") n = withValue(s, "bottom", s.bottom - dy);
-    else if (d.mode === "left") n = withValue(s, "side", s.side + dx);
-    else if (d.mode === "right") n = withValue(s, "side", s.side - dx);
-    else if (d.mode === "move") n = moved(s, dy);
+    else if (d.mode === "left") n = withValue(s, "left", s.left + dx);
+    else if (d.mode === "right") n = withValue(s, "right", s.right - dx);
+    else if (d.mode === "move") n = moved(s, dx, dy);
     else if (d.mode === "logo" && s.logos?.[d.idx]) n = withLogo(s, d.idx, { x: s.logos[d.idx].x + dx, y: s.logos[d.idx].y + dy });
     setMsg(null); setDirty(true); setBox(n);
   };
@@ -269,7 +273,7 @@ export default function CardBoxEditor({ templateUrl, boxKey, settings, saveSetti
     <div className="mt-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
       <p className="text-sm font-medium">Card position on this template</p>
       <p className="mt-0.5 text-xs text-slate-400">
-        Drag the red handles on the dashed box (or drag the box to move it up / down), or use the − / + buttons, until the card no longer covers your logo at the top or the icons / text at the bottom.
+        Drag each red handle on its own (or drag the middle of the box to move the whole card anywhere), or use the − / + buttons, until the card no longer covers your logo at the top or the icons / text at the bottom.
       </p>
       <div className="mt-3 grid gap-4 sm:grid-cols-[minmax(0,1fr)_220px]">
         <div ref={frameRef}
@@ -278,7 +282,7 @@ export default function CardBoxEditor({ templateUrl, boxKey, settings, saveSetti
           className={`relative self-start select-none overflow-hidden rounded-md border border-slate-200 dark:border-slate-700 ${landscape ? "" : "mx-auto max-w-[240px]"}`}>
           <img src={templateUrl} alt="" draggable={false} className="pointer-events-none block w-full" />
           <div className="absolute rounded-md border-2 border-dashed border-rose-500"
-            style={{ top: `${box.top * 100}%`, bottom: `${box.bottom * 100}%`, left: `${box.side * 100}%`, right: `${box.side * 100}%`, backgroundColor: `rgba(255,255,255,${box.card})` }}>
+            style={{ top: `${box.top * 100}%`, bottom: `${box.bottom * 100}%`, left: `${box.left * 100}%`, right: `${box.right * 100}%`, backgroundColor: `rgba(255,255,255,${box.card})` }}>
             {/* Middle: move up / down */}
             <div data-drag="move" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
               className="absolute inset-3 flex cursor-move flex-col items-center justify-center gap-1 text-[10px] font-semibold text-slate-500 sm:text-xs" style={{ touchAction: "none" }}>
@@ -304,7 +308,8 @@ export default function CardBoxEditor({ templateUrl, boxKey, settings, saveSetti
         <div className="space-y-3">
           {row("top", "Space at the top")}
           {row("bottom", "Space at the bottom")}
-          {row("side", "Space at the sides")}
+          {row("left", "Space at the left")}
+          {row("right", "Space at the right")}
           <div className="border-t border-slate-200 pt-2 dark:border-slate-700" />
           {row("card", "Card opacity")}
           {row("text", "Text opacity")}
@@ -359,7 +364,7 @@ export default function CardBoxEditor({ templateUrl, boxKey, settings, saveSetti
           {msg && <p className={`inline-flex items-center gap-1 text-xs font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.ok ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />} {msg.text}</p>}
         </div>
       </div>
-      <p className="mt-2 text-xs text-slate-400">Used for the question and answer slides. <b>Card opacity</b> = the white card behind the text (0% = fully see-through, your template shows behind the text). <b>Text opacity</b> = the question, options and explanation (at least 10%). The left and right sides move together so the card stays centred. The text inside the card shrinks automatically to fit a smaller card.</p>
+      <p className="mt-2 text-xs text-slate-400">Used for the question and answer slides. <b>Card opacity</b> = the white card behind the text (0% = fully see-through, your template shows behind the text). <b>Text opacity</b> = the question, options and explanation (at least 10%). Each side moves on its own; drag the middle of the card to move the whole card. The text inside the card shrinks automatically to fit a smaller card.</p>
     </div>
   );
 }
