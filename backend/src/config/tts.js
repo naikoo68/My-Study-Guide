@@ -146,9 +146,17 @@ async function synthesizeOpenAi({ text, voice, apiKey, model, baseUrl, label = "
   if (!apiKey && !keyOptional) throw new Error(`${label} API key is missing.`);
   return fetchAudio(label, `${baseUrl || OPENAI_DEFAULT_BASE}/audio/speech`, {
     headers: { ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}), "Content-Type": "application/json" },
-    body: JSON.stringify({ model: model || OPENAI_DEFAULT_MODEL, voice, input: text, response_format: "mp3" }),
+    body: JSON.stringify({
+      model: model || OPENAI_DEFAULT_MODEL, voice, input: text, response_format: "mp3",
+      // gpt-4o TTS models can be told HOW to speak (older tts-1 models can't,
+      // and a custom API may reject unknown fields — so only for those).
+      ...(!keyOptional && /^gpt-4o/i.test(model || OPENAI_DEFAULT_MODEL) ? { instructions: OPENAI_SPEAKING_STYLE } : {}),
+    }),
   }, voice);
 }
+const OPENAI_SPEAKING_STYLE =
+  "Speak with a natural Indian English accent, like a warm, friendly teacher explaining a quiz to students. " +
+  "Clear and calm, at a moderate pace, with natural pauses between sentences. Sound human, not robotic.";
 
 // Synthesize narration to MP3 bytes using the resolved provider. `cfg` is the
 // output of resolveTtsConfig(); `voice` is normalised to the provider here.

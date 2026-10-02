@@ -1132,7 +1132,7 @@ function SlideTemplateUploader({ label, hint, settingKey, settings, saveSettings
 function AiSlideshowSection({ settings, saveSettings, onCreated }) {
   const [voicesByProvider, setVoicesByProvider] = useState({
     gtranslate: [{ id: "en-IN", label: "English (India)" }, { id: "en", label: "English (US)" }, { id: "en-GB", label: "English (UK)" }, { id: "en-AU", label: "English (Australia)" }],
-    edge: [{ id: "en-IN-NeerjaNeural", label: "Neerja (India, female)" }],
+    edge: [{ id: "en-IN-NeerjaExpressiveNeural", label: "Neerja Expressive (India, female) — most natural" }, { id: "en-IN-NeerjaNeural", label: "Neerja (India, female)" }],
     openai: [{ id: "coral", label: "Coral" }],
   });
   const [providers, setProviders] = useState(["gtranslate", "edge", "openai", "elevenlabs", "googlecloud", "azure", "custom"]);

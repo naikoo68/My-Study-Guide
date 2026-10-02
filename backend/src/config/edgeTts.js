@@ -67,8 +67,11 @@ const escapeXml = (s) =>
 // Build the SSML request. `rate`/`pitch` are left neutral for a clear,
 // educational, moderate pace.
 function buildSsml(text, voice) {
+  // The language tag follows the voice ("en-IN-…" → en-IN), so Indian voices
+  // read numbers, dates and abbreviations the Indian way.
+  const lang = /^[a-z]{2}-[A-Z]{2}-/.test(voice) ? voice.slice(0, 5) : "en-US";
   return (
-    `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'>` +
+    `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='${lang}'>` +
     `<voice name='${voice}'>` +
     `<prosody pitch='+0Hz' rate='+0%' volume='+0%'>${escapeXml(text)}</prosody>` +
     `</voice></speak>`
