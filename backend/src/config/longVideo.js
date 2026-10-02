@@ -33,10 +33,50 @@ export const MAX_LONG_VIDEO_QUESTIONS = 50;
 const escHtml = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const JOB_TTL_MS = 24 * 60 * 60 * 1000;
 const jobs = new Map(); // id → job
-let chain = Promise.resolve(); // one render at a time
+// ---- Render lanes: each account renders independently ----
+// Every account (your own Social Media Auto Posting, and each cross-posting
+// user) has its OWN lane: its videos are made one after another, but never
+// wait behind another account's video — two accounts scheduled for the same
+// time render side by side. A server-wide cap (LONG_VIDEO_PARALLEL, default 2)
+// limits how many videos render at once so a small VM doesn't run out of RAM;
+// only beyond that cap does an account wait (shown as "server busy").
+const lanes = new Map(); // laneKey → promise of the lane's last job
+export const laneKeyOf = (j) => `${j?.tenantKey || ""}|${j?.profileId || ""}`;
+export function maxParallelRenders() {
+  const n = parseInt(process.env.LONG_VIDEO_PARALLEL || "", 10);
+  return Number.isFinite(n) && n >= 1 ? Math.min(n, 8) : 2;
+}
+let rendering = 0;
+const slotWaiters = [];
+function acquireSlot(job) {
+  if (rendering < maxParallelRenders()) { rendering += 1; return Promise.resolve(); }
+  if (job && job.status === "queued") job.stage = "waiting_slot";
+  return new Promise((resolve) => slotWaiters.push(resolve));
+}
+function releaseSlot() {
+  const next = slotWaiters.shift();
+  if (next) next(); // hand the slot straight to the next waiting lane
+  else rendering = Math.max(0, rendering - 1);
+}
+// Add `run` to its account's lane. A stopped job is skipped without taking a slot.
+function enqueue(job, run) {
+  const key = laneKeyOf(job);
+  const prev = lanes.get(key) || Promise.resolve();
+  const turn = async () => {
+    if (job.status === "cancelled") return;
+    await acquireSlot(job);
+    try {
+      if (job.status !== "cancelled") await run();
+    } finally { releaseSlot(); }
+  };
+  const p = prev.then(turn, turn).catch(() => {});
+  lanes.set(key, p);
+  p.then(() => { if (lanes.get(key) === p) lanes.delete(key); });
+}
 
 const STAGE_LABEL = {
-  queued: "Waiting for another video to finish",
+  queued: "Waiting for this account's previous video to finish",
+  waiting_slot: "Waiting — the server is busy with other accounts' videos",
   picking: "Loading questions",
   pending: "Starting",
   generating_slides: "Drawing slides",
@@ -66,7 +106,7 @@ function cleanup() {
 // time-left estimate (like the AI Slideshow test). Each stage owns a slice of
 // the bar; within a stage we use its done/total. Pure.
 const STAGE_PCT = {
-  queued: [0, 2], picking: [2, 3], pending: [2, 3],
+  queued: [0, 2], waiting_slot: [0, 2], picking: [2, 3], pending: [2, 3],
   generating_slides: [5, 35], generating_audio: [40, 15],
   rendering_video: [55, 28], ready: [83, 2], finishing: [85, 3],
   uploading: [88, 7], short: [95, 2], uploading_facebook: [97, 1], reels: [98, 1.9],
@@ -201,9 +241,21 @@ const jobKind = (j) => (j.preview ? "preview" : j.fromPreview ? "publish" : "vid
 export function renderQueue() {
   cleanup();
   const live = [...jobs.values()].filter((j) => j.status === "queued" || j.status === "running");
-  // The chain runs jobs in the order they were added (= createdAt).
+  // Each lane runs its jobs in the order they were added (= createdAt).
   live.sort((a, b) => (a.status === "running" ? -1 : 0) - (b.status === "running" ? -1 : 0) || (a.createdAt || 0) - (b.createdAt || 0));
   return live;
+}
+// Position of each job within ITS OWN account's lane (0 = being made now).
+export function lanePositions(list) {
+  const seen = new Map();
+  const out = new Map();
+  for (const j of list) {
+    const k = laneKeyOf(j);
+    const n = seen.get(k) || 0;
+    out.set(j.id, n);
+    seen.set(k, n + 1);
+  }
+  return out;
 }
 // Why a job can't be stopped right now ("" = it can).
 export function stopBlockedReason(j) {
@@ -221,7 +273,7 @@ export function queueView(j, position = 0) {
     position, // 0 = being made now, 1 = next, …
     status: j.status,
     stage: j.stage,
-    stageLabel: j.status === "queued" ? STAGE_LABEL.queued : STAGE_LABEL[j.stage] || j.stage,
+    stageLabel: j.status === "queued" ? STAGE_LABEL[j.stage === "waiting_slot" ? "waiting_slot" : "queued"] : STAGE_LABEL[j.stage] || j.stage,
     percent: kind === "preview" ? previewPercent(j) : jobPercent(j),
     label: j.label || j.title || "",
     title: j.title || "",
@@ -247,7 +299,7 @@ export function stopLongVideoJob(id) {
   j.cancelRequested = true;
   j.cancelReason = "stopped";
   if (j.status === "queued") {
-    // Show it as stopped right away; its turn in the chain then just skips it.
+    // Show it as stopped right away; its turn in the lane then just skips it.
     markCancelled(j, new Error(stopMessage(j)));
     if (!j.preview) { saveRecord(j); rollBackStoppedSchedule(j); }
   }
@@ -517,7 +569,7 @@ export function queueFullQuizVideo({ source, cfg, site, titleTemplate = "", priv
   const store = tenantStore.getStore();
   const args = { source, cfg, site, titleTemplate, hashtags, opts };
   const run = () => withRecord(job, () => (store ? tenantStore.run(store, () => runJob(job, args)) : runJob(job, args)));
-  chain = chain.then(run, run).catch(() => {});
+  enqueue(job, run);
   return publicJob(job);
 }
 
@@ -1014,7 +1066,7 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
 // question, intro + end slides), the template thumbnail and — always — the
 // vertical Short teaser (intro + first 3 questions + Short end slide). The
 // files go to Cloudinary so the browser can play them. Runs on the same
-// one-at-a-time chain as real videos (it is just as heavy).
+// same per-account lane as real videos (it is just as heavy).
 
 // Overall % of a preview: the full render is the big part, then the Short.
 //   phase "full" 0–70 · "short" (rendered 9:16) 70–93 · "upload"/"thumb" 93–99
@@ -1041,7 +1093,7 @@ export function publicPreviewJob(j) {
     status: j.status,
     phase: j.phase,
     stage: j.stage,
-    stageLabel: j.status === "queued" ? STAGE_LABEL.queued : STAGE_LABEL[j.stage] || j.stage,
+    stageLabel: j.status === "queued" ? STAGE_LABEL[j.stage === "waiting_slot" ? "waiting_slot" : "queued"] : STAGE_LABEL[j.stage] || j.stage,
     progress: j.progress,
     percent: previewPercent(j),
     title: j.title,
@@ -1096,7 +1148,7 @@ export function queueLongVideoPreview({ source, cfg, site, titleTemplate = "", u
   const store = tenantStore.getStore();
   const args = { source, cfg, site, titleTemplate, opts };
   const run = () => (store ? tenantStore.run(store, () => runPreview(job, args)) : runPreview(job, args));
-  chain = chain.then(run, run).catch(() => {});
+  enqueue(job, run);
   return publicPreviewJob(job);
 }
 
@@ -1263,7 +1315,7 @@ export function queuePublishPreview({ preview, cfg, site, privacy, publishAt = n
   const store = tenantStore.getStore();
   const args = { preview, cfg, site, hashtags, opts };
   const run = () => withRecord(job, () => (store ? tenantStore.run(store, () => runPublish(job, args)) : runPublish(job, args)));
-  chain = chain.then(run, run).catch(() => {});
+  enqueue(job, run);
   return publicJob(job);
 }
 

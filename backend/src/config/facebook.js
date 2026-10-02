@@ -2519,9 +2519,15 @@ export async function runDueFbSchedules() {
       const sites = await runUnscoped(() => Settings.find({ key: "site", fbEnabled: true }).select("tenantId").lean());
       stats.configuredSiteTenants = sites.map((s) => (s.tenantId == null ? "null" : String(s.tenantId)));
     } catch { /* diagnostic only — never affects posting */ }
+    // Every ACCOUNT runs on its own, side by side: your Social Media Auto
+    // Posting and each cross-posting user. They used to run one after another,
+    // so a slow post (e.g. a slideshow Reel being rendered) at 4:30 on one
+    // account held up the other account's 4:30 post. Within one account the
+    // posts still go one at a time, in order.
+    const runs = [];
     for (const key of keys) {
       const tid = key === "" ? null : key;
-      await tenantStore.run({ tenantId: tid, bypass: !tid }, () => runAsSocialProfile("", () => runTenantSchedules(tid, stats).catch((e) => { stats.lastError = e?.message || String(e); })));
+      runs.push(tenantStore.run({ tenantId: tid, bypass: !tid }, () => runAsSocialProfile("", () => runTenantSchedules(tid, stats).catch((e) => { stats.lastError = e?.message || String(e); }))));
     }
     // Cross-posting users: each posts with its OWN credentials, inside its
     // tenant AND its profile context (so anything that reads settings without
@@ -2532,9 +2538,10 @@ export async function runDueFbSchedules() {
       for (const p of profiles || []) {
         if (!withSchedules.has(String(p._id))) continue;
         const tid = p.tenantId ? String(p.tenantId) : null;
-        await tenantStore.run({ tenantId: tid, bypass: !tid }, () => runAsSocialProfile(String(p._id), () => runTenantSchedules(tid, stats, p).catch((e) => { stats.lastError = e?.message || String(e); })));
+        runs.push(tenantStore.run({ tenantId: tid, bypass: !tid }, () => runAsSocialProfile(String(p._id), () => runTenantSchedules(tid, stats, p).catch((e) => { stats.lastError = e?.message || String(e); }))));
       }
     }
+    await Promise.all(runs);
   } catch (e) {
     stats.lastError = e?.message || String(e);
   } finally {

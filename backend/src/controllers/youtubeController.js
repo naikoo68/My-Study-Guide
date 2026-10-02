@@ -17,8 +17,9 @@ import { getFacebookConfig, getFacebookSiteForConfig, completeQuestionsForSource
 import {
   queueFullQuizVideo, normalizeLongVideoOptions, listLongVideoJobs, getLongVideoJob, publicJob, tenantKeyNow, MAX_LONG_VIDEO_QUESTIONS,
   queueLongVideoPreview, getLongVideoPreview, publicPreviewJob, queuePublishPreview, retryLongVideoJob,
-  renderQueue, queueView, stopLongVideoJob,
+  renderQueue, queueView, stopLongVideoJob, lanePositions,
 } from "../config/longVideo.js";
+import { activeSocialProfileId } from "../utils/socialProfile.js";
 import FbSchedule from "../models/FbSchedule.js";
 
 function statusOf(site, req) {
@@ -424,26 +425,28 @@ export async function retryLongVideo(req, res) {
 // FbSchedule query is tenant-scoped by the model plugin.
 async function ownJobsFilter(list) {
   const mine = tenantKeyNow();
+  // Your own Social Media Auto Posting and each cross-posting user are
+  // separate accounts: each sees and stops only its OWN videos.
+  const pid = activeSocialProfileId();
+  list = list.filter((j) => String(j.profileId || "") === pid);
   const schIds = [...new Set(list.filter((j) => j.scheduleId && j.tenantKey !== mine).map((j) => j.scheduleId))];
   const visible = new Set();
   if (schIds.length) {
     const rows = await FbSchedule.find({ _id: { $in: schIds } }).select("_id").lean().catch(() => []);
     for (const r of rows) visible.add(String(r._id));
   }
-  return (j) => j.tenantKey === mine || (!!j.scheduleId && visible.has(String(j.scheduleId)));
+  return (j) => String(j.profileId || "") === pid && (j.tenantKey === mine || (!!j.scheduleId && visible.has(String(j.scheduleId))));
 }
 
-// GET /api/youtube/long-video/queue → { queue: [...] } — the video being made
-// now (position 0) and the ones waiting behind it, in order. Another
-// institute's video only shows as "another account's video" (no name, no stop).
+// GET /api/youtube/long-video/queue → { queue: [...], parallel } — THIS
+// account's videos only: the one being made now and the ones waiting behind
+// it, in order. Other accounts (cross-posting users, other institutes) render
+// in their own lanes and never appear here.
 export async function longVideoQueue(_req, res) {
-  const list = renderQueue();
-  const isMine = await ownJobsFilter(list);
-  res.json({
-    queue: list.map((j, i) => (isMine(j)
-      ? { ...queueView(j, i), mine: true }
-      : { id: "", kind: "video", position: i, status: j.status, stageLabel: j.status === "running" ? "Being made" : "Waiting", percent: 0, label: "Another account's video", mine: false, canStop: false, stopBlocked: "" })),
-  });
+  const isMine = await ownJobsFilter(renderQueue());
+  const list = renderQueue().filter(isMine);
+  const pos = lanePositions(list);
+  res.json({ queue: list.map((j) => ({ ...queueView(j, pos.get(j.id) || 0), mine: true })) });
 }
 
 // POST /api/youtube/long-video/:id/stop { pauseSchedule? } — stop a queued or
