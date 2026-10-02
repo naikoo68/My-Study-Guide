@@ -233,8 +233,9 @@ export async function generateSlideshow(question, opts = {}) {
   // instead of being hosted on Cloudinary (long videos are big).
   const landscape = opts.orientation === "landscape";
   const keepFile = !!opts.keepFile;
-  // Long-video templates get a small safe margin so edge logos aren't clipped.
-  const templateInset = landscape ? 0.03 : 0;
+  // No safe margin around templates: the margin was filled with a blurred copy
+  // of the template, which looked like a blurred frame round every slide.
+  const templateInset = 0;
   // Card position on the question / answer TEMPLATES (this account's setting,
   // or an explicit override e.g. from a preview). "" = built-in default.
   const cardBoxRaw = opts.cardBox !== undefined ? opts.cardBox : (landscape ? opts.site?.longVideoCardBox : opts.site?.slideshowCardBox);
@@ -352,7 +353,17 @@ export async function generateSlideshow(question, opts = {}) {
     // Template sizes, so the slide can place its card inside the template as
     // it's actually shown (fitted, never cropped — see composeSlideshowMp4).
     const templateSizes = {};
-    for (const role of Object.keys(templatePaths)) templateSizes[role] = await probeImageSize(templatePaths[role]).catch(() => null);
+    // A template within 5% of the frame's shape (e.g. 1536×1024 or 1920×1080 for
+    // 16:9) FILLS the frame — no blurred bars. Its size is then not sent to the
+    // slide page, so the card is placed on the full frame, exactly as it's drawn.
+    const templateFill = {};
+    const frameRatio = landscape ? 16 / 9 : 9 / 16;
+    for (const role of Object.keys(templatePaths)) {
+      const size = await probeImageSize(templatePaths[role]).catch(() => null);
+      const fill = !!(size?.width > 0 && size?.height > 0 && Math.abs(size.width / size.height / frameRatio - 1) <= 0.05);
+      templateFill[role] = fill;
+      templateSizes[role] = fill ? null : size;
+    }
     // First choice: screenshot the real student-view components (Inter font,
     // KaTeX math, same option / answer cards as posts and Reels) — one browser
     // for every slide, PNGs written straight into workDir.
@@ -501,6 +512,7 @@ export async function generateSlideshow(question, opts = {}) {
           : questionSec,
         pauseSec: s.pauseSec || 0,
         bgPath: templatePaths[templateRole(s.role)] || null,
+        bgFill: !!templateFill[templateRole(s.role)],
       })),
       outPath,
       workDir,
