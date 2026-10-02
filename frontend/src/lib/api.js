@@ -21,7 +21,7 @@ export const clearToken = () => localStorage.removeItem(TOKEN_KEY);
 let activeSocialProfile = "";
 export const setActiveSocialProfile = (id) => { activeSocialProfile = id ? String(id) : ""; };
 export const getActiveSocialProfile = () => activeSocialProfile;
-const SOCIAL_PATH = /^\/(settings|facebook|youtube)(\/|\?|$)/;
+const SOCIAL_PATH = /^\/(settings|facebook|youtube|voice-studio)(\/|\?|$)/;
 const socialHeader = (path) => (activeSocialProfile && SOCIAL_PATH.test(String(path || "")) ? activeSocialProfile : "");
 
 // One-time cross-subdomain session handoff.

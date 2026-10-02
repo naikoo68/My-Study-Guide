@@ -1,0 +1,8 @@
+# torch / torchaudio (CPU builds) are installed first in the Dockerfile.
+chatterbox-tts==0.1.7
+fastapi==0.142.2
+uvicorn==0.54.0
+python-multipart==0.0.32
+soundfile==0.14.0
+librosa==0.11.0
+numpy==1.26.4

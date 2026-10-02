@@ -100,6 +100,7 @@ const AdminCustomization = lazy(() => import("./pages/admin/AdminCustomization")
 const AdminUserManual = lazy(() => import("./pages/admin/AdminUserManual"));
 const AdminNotices = lazy(() => import("./pages/admin/AdminNotices"));
 const AdminFacebook = lazy(() => import("./pages/admin/AdminFacebook"));
+const AdminVoiceStudio = lazy(() => import("./pages/admin/AdminVoiceStudio"));
 const AdminCrossPosting = lazy(() => import("./pages/admin/AdminCrossPosting"));
 const AdminPerformance = lazy(() => import("./pages/admin/AdminPerformance"));
 const AdminPractice = lazy(() => import("./pages/admin/AdminPractice"));
@@ -389,6 +390,7 @@ const router = createBrowserRouter([
       { path: "messages", element: S(AdminMessages) },
       { path: "notices", element: S(AdminNotices) },
       { path: "facebook", element: S(AdminFacebook) },
+      { path: "voice-studio", element: S(AdminVoiceStudio) },
       { path: "cross-posting", element: S(AdminCrossPosting) },
       { path: "cross-posting/:profileId", element: S(AdminCrossPosting) },
       { path: "ai-generator", element: S(AdminAiStudio) },

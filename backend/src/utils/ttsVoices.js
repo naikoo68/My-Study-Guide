@@ -23,7 +23,9 @@
 //   • "azure"       — Microsoft Azure Speech (needs the key AND its region).
 //   • "custom"      — ANY OpenAI-compatible speech API (your base URL + key +
 //                     model + voice), e.g. a self-hosted or third-party service.
-export const TTS_PROVIDERS = ["gtranslate", "edge", "openai", "elevenlabs", "googlecloud", "azure", "custom"];
+//   • "myvoice"     — YOUR OWN cloned voice from the self-hosted voice server
+//                     (voice-server/, Admin → Voice Studio). No outside company.
+export const TTS_PROVIDERS = ["gtranslate", "edge", "myvoice", "openai", "elevenlabs", "googlecloud", "azure", "custom"];
 export const DEFAULT_TTS_PROVIDER = "gtranslate";
 // The FREE providers (no API key). Used for automatic fallback: if the chosen
 // free provider is blocked on the host, the other free one is tried.
@@ -43,7 +45,7 @@ export const TTS_KEY_FIELDS = {
 // Providers whose voice is free text as well as the listed suggestions
 // (ElevenLabs voice IDs from your own account, any Azure / Google Cloud voice
 // name, whatever voice a custom API offers).
-export const FREE_FORM_VOICE_PROVIDERS = new Set(["elevenlabs", "googlecloud", "azure", "custom"]);
+export const FREE_FORM_VOICE_PROVIDERS = new Set(["elevenlabs", "googlecloud", "azure", "custom", "myvoice"]);
 const SAFE_VOICE_ID = /^[A-Za-z0-9._:-]{1,80}$/;
 
 // OpenAI standard TTS voices.
@@ -133,6 +135,7 @@ export const PROVIDER_VOICES = {
   googlecloud: GOOGLECLOUD_VOICES,
   azure: AZURE_VOICES,
   custom: OPENAI_VOICES, // suggestions — most OpenAI-compatible APIs accept these
+  myvoice: [], // your cloned voices — listed live from the voice server
 };
 
 // The default voice per provider.
@@ -146,6 +149,7 @@ export const DEFAULT_VOICE = {
   googlecloud: "en-IN-Chirp3-HD-Kore",
   azure: "en-IN-AartiNeural",
   custom: "alloy",
+  myvoice: "", // no default — you pick one of your own voices
 };
 
 // Back-compat: a flat list of OpenAI voice ids (the feature originally shipped

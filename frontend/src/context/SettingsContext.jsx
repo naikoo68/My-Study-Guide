@@ -120,9 +120,12 @@ export function SettingsProvider({ children }) {
     apply(withDefaults(updated));
     return updated;
   };
+  // Re-read after another screen changed settings on the server (e.g. Voice
+  // Studio → "Use as narrator"), so later saves don't write old values back.
+  const reload = () => settingsService.get().then((s) => apply(withDefaults(s))).catch(() => {});
 
   return (
-    <SettingsContext.Provider value={{ settings, save, loaded }}>
+    <SettingsContext.Provider value={{ settings, save, loaded, reload }}>
       {children}
     </SettingsContext.Provider>
   );
@@ -143,8 +146,9 @@ export function ScopedSettingsProvider({ children }) {
     setSettings(withDefaults(updated));
     return updated;
   };
+  const reload = () => settingsService.get().then((s) => setSettings(withDefaults(s))).catch(() => {});
   return (
-    <SettingsContext.Provider value={{ settings, save, loaded }}>
+    <SettingsContext.Provider value={{ settings, save, loaded, reload }}>
       {children}
     </SettingsContext.Provider>
   );

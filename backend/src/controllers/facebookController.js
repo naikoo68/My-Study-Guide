@@ -2,6 +2,8 @@ import { socialSettingsFilter, scheduleProfileFilter, activeSocialProfileId, ens
 import FbSchedule from "../models/FbSchedule.js";
 import Question from "../models/Question.js";
 import Settings from "../models/Settings.js";
+import { myVoiceOptions, voiceOwnerFor } from "../config/myVoice.js";
+import { getOrCreateOwn } from "./settingsController.js";
 import { randomUUID } from "node:crypto";
 import { runScheduleOnce, getFacebookConfig, getFacebookSiteForConfig, hashtagsForQuestion, getFacebookPublishedCount, countFacebookPosts, pickQuestionForSchedule, pickQuestionsForSlideshow, pickAllQuestionsForSource } from "../config/facebook.js";
 import FbPost from "../models/FbPost.js";
@@ -262,11 +264,14 @@ export function testSlideshowStatus(req, res) {
 // GET /api/facebook/tts-voices  (admin) — the TTS providers and their voices, so
 // the UI never hard-codes lists that can drift from the server. The current
 // provider + "key saved" flag come from the site settings (safeSettings).
-export function ttsVoices(_req, res) {
+export async function ttsVoices(_req, res) {
+  // Your own cloned voices (Voice Studio), listed live from your voice server.
+  const site = await getOrCreateOwn().catch(() => null);
+  const myvoice = await myVoiceOptions(voiceOwnerFor(site));
   res.json({
     providers: TTS_PROVIDERS,
     defaultProvider: DEFAULT_TTS_PROVIDER,
-    voicesByProvider: PROVIDER_VOICES,
+    voicesByProvider: { ...PROVIDER_VOICES, myvoice },
     // Back-compat: a flat default list (the edge/free provider's voices).
     voices: PROVIDER_VOICES[DEFAULT_TTS_PROVIDER],
   });

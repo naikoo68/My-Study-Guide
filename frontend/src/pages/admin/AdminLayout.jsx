@@ -38,6 +38,7 @@ import {
   Trash2,
   SlidersHorizontal,
   FolderOpen,
+  AudioLines,
 } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
@@ -80,6 +81,7 @@ const nav = [
   { to: "/admin/notices", label: "Notice Board", icon: Megaphone, feature: "notices" },
   { to: "/admin/facebook", label: "Social Media Auto Posting", icon: Send, feature: "facebook" },
   { to: "/admin/cross-posting", label: "Cross-posting", icon: UsersRound, feature: "facebook" },
+  { to: "/admin/voice-studio", label: "Voice Studio", icon: AudioLines, feature: "facebook" },
   { to: "/admin/ai-generator", label: "AI Generator", icon: Sparkles, feature: "aiGenerator" },
   { to: "/admin/visualize", label: "Visualization Studio", icon: LayoutGrid, feature: "visualize" },
   { to: "/admin/ai-keys", label: "AI Keys (APIs)", icon: KeyRound, feature: "aiKeys" }, // institute admins manage their OWN keys (tenant-scoped); super-admin manages platform keys
