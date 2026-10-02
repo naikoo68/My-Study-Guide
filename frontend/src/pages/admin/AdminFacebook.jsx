@@ -3,6 +3,8 @@
 
 import LiveTextBox from "../../components/admin/LiveTextBox.jsx";
 import CardBoxEditor from "../../components/admin/CardBoxEditor.jsx";
+import VideoQueuePanel, { StopVideoButton } from "../../components/admin/VideoQueuePanel.jsx";
+import useVideoQueue from "../../components/admin/useVideoQueue.js";
 import useElementWidth from "../../components/admin/useElementWidth.js";
 import { useEffect, useState, useRef } from "react";
 import { Link } from "react-router-dom";
@@ -3692,6 +3694,8 @@ function FullQuizVideoForm({ st, onStatus }) {
     if (r && "facebookReady" in r) setReady({ youtube: !!r.youtubeReady, facebook: !!r.facebookReady });
   }).catch(() => {});
   useEffect(() => { load(); }, []);
+  // Which video is being made now / waiting, with Stop (one render at a time).
+  const { queue: videoQueue, refresh: refreshQueue } = useVideoQueue({ onFinished: () => load() });
   useEffect(() => {
     facebookService.ttsVoices().then((r) => {
       if (r?.voicesByProvider && typeof r.voicesByProvider === "object") setVoicesByProvider(r.voicesByProvider);
@@ -4398,6 +4402,7 @@ function FullQuizVideoForm({ st, onStatus }) {
       {jobs.length > 0 && (
         <div className="mt-4 space-y-2">
           <p className="text-sm font-semibold">Recent long videos</p>
+          <VideoQueuePanel queue={videoQueue} onChange={() => { refreshQueue(); load(); }} />
           {jobs.map((j) => (
             <div key={j.id} className="rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-700">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -4812,6 +4817,13 @@ export default function AdminFacebook() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasLongVideoRows, lvIdsKey]);
   const lvBusy = Object.keys(lvJobs).length > 0;
+  // The render queue: which video is being made right now (from which
+  // schedule), what waits behind it, and Stop. Reloads the list when a video
+  // leaves the queue so its result shows on its row.
+  const { queue: videoQueue, refresh: refreshQueue } = useVideoQueue({ onFinished: () => load() });
+  const scheduleTitles = Object.fromEntries(schedules.map((x) => [String(x._id), x.source?.label || x.title || ""]));
+  const queueRunning = videoQueue.find((q) => q.status === "running");
+  const afterStop = () => { refreshQueue(); load(); };
   useEffect(() => {
     if (!lvBusy) return undefined;
     const i = setInterval(() => setLvClock(Date.now()), 1000);
@@ -5087,6 +5099,7 @@ export default function AdminFacebook() {
           </div>
         </div>
         {fixMsg && <p className="mt-2 text-xs font-medium text-emerald-600 dark:text-emerald-400">{fixMsg}</p>}
+        {!form && <VideoQueuePanel queue={videoQueue} scheduleTitle={scheduleTitles} onChange={afterStop} />}
 
         {/* Search (shown once there are schedules or an active search) */}
         {!form && (total > 0 || search) && (
@@ -5535,6 +5548,8 @@ export default function AdminFacebook() {
                       {s.kind === "longvideo" && lvJobs[s._id] && (() => {
                         const j = lvJobs[s._id];
                         const pct = Number.isFinite(j.percent) ? Math.max(0, Math.min(100, j.percent)) : 0;
+                        const waitingInLine = j.status === "queued";
+                        const qItem = videoQueue.find((q) => q.id === j.id);
                         const elapsed = Math.max(0, Math.floor((lvClock - (j.createdAt || lvClock)) / 1000));
                         const remain = pct > 3 ? Math.round((elapsed * (100 - pct)) / pct) : null;
                         const mmss = (x) => `${Math.floor(x / 60)}:${String(Math.max(0, x) % 60).padStart(2, "0")}`;
@@ -5547,9 +5562,17 @@ export default function AdminFacebook() {
                             <div className="mt-1 h-2 overflow-hidden rounded-full bg-amber-100 dark:bg-amber-900/40">
                               <div className="h-full rounded-full bg-amber-500 transition-all" style={{ width: `${Math.max(2, pct)}%` }} />
                             </div>
-                            <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                              {mmss(elapsed)} elapsed{remain != null ? ` · about ${mmss(remain)} left` : " · working out the time left…"}
-                            </p>
+                            {waitingInLine ? (
+                              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                                {qItem ? <>#{qItem.position + 1} in line · </> : null}waiting {mmss(elapsed)}
+                                {queueRunning && queueRunning.id !== j.id && <> · behind <b className="text-slate-700 dark:text-slate-200">{queueRunning.title || queueRunning.label || "another video"}</b>{queueRunning.mine !== false ? ` (${Math.round(queueRunning.percent || 0)}%)` : ""}</>}
+                              </p>
+                            ) : (
+                              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                                {mmss(elapsed)} elapsed{remain != null ? ` · about ${mmss(remain)} left` : " · working out the time left…"}
+                              </p>
+                            )}
+                            {qItem && <div className="mt-1.5 flex justify-end"><StopVideoButton job={qItem} onStopped={afterStop} compact /></div>}
                           </div>
                         );
                       })()}
