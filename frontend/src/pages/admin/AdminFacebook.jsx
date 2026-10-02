@@ -56,6 +56,23 @@ const PAID_ENGINES = {
 };
 const ENGINE_FIELDS = Object.values(PAID_ENGINES).flatMap((e) => e.fields.map((f) => f.name));
 const FREE_FORM_VOICE = new Set(["elevenlabs", "googlecloud", "azure", "custom"]);
+// The narrator a schedule's videos use, for its card: "Edge · Neerja (India,
+// female)". Long videos keep their own engine / voice (blank = the saved
+// default); slideshow schedules always use the saved AI Slideshow narrator.
+const ENGINE_SHORT = { gtranslate: "Google", edge: "Edge", myvoice: "My voice", openai: "OpenAI", elevenlabs: "ElevenLabs", googlecloud: "Google Cloud", azure: "Azure", custom: "Custom" };
+function scheduleNarrator(s, settings, voicesByProvider = {}) {
+  const narrates = s?.kind === "longvideo" || s?.kind === "slideshow" || !!s?.asSlideshow;
+  if (!narrates) return null;
+  const o = s.kind === "longvideo" ? s.longVideo?.options || {} : {};
+  const engine = o.engine || settings?.ttsProvider || "gtranslate";
+  // A voice chosen for another engine doesn't apply; the engine's default is used.
+  const list = voicesByProvider[engine] || [];
+  const want = o.engine ? o.voice || "" : o.voice || settings?.slideshowVoice || "";
+  const hit = list.find((v) => v.id === want);
+  const voice = hit ? hit.label : want && !list.length ? want : list[0]?.label || "default voice";
+  return { engine, text: `${ENGINE_SHORT[engine] || engine} · ${String(voice).replace(/\s+—.*$/, "")}`, isDefault: !o.engine && !o.voice };
+}
+
 // "My own voice": your cloned voices come from Voice Studio (your own server).
 function MyVoiceHint({ count }) {
   return count
@@ -4983,6 +5000,9 @@ export default function AdminFacebook() {
   // schedule), what waits behind it, and Stop. Reloads the list when a video
   // leaves the queue so its result shows on its row.
   const { queue: videoQueue, refresh: refreshQueue } = useVideoQueue({ onFinished: () => load() });
+  // Voice names for the "Narrator" line on each card.
+  const [cardVoices, setCardVoices] = useState({});
+  useEffect(() => { facebookService.ttsVoices().then((r) => setCardVoices(r?.voicesByProvider || {})).catch(() => {}); }, []);
   const scheduleTitles = Object.fromEntries(schedules.map((x) => [String(x._id), x.source?.label || x.title || ""]));
   const queueRunning = videoQueue.find((q) => q.status === "running");
   const afterStop = () => { refreshQueue(); load(); };
@@ -5706,6 +5726,15 @@ export default function AdminFacebook() {
                           ? <span className="inline-flex items-center gap-1"><ListChecks className="h-3 w-3" /> {s.longVideo?.postedCount || 0} video{(s.longVideo?.postedCount || 0) === 1 ? "" : "s"} posted</span>
                           : <span className="inline-flex items-center gap-1"><ListChecks className="h-3 w-3" /> {s.postCount || 0}{s.poolSize ? ` / ${s.poolSize}` : ""} posted</span>}
                         {s.mode !== "once" && <span className="text-slate-400">{s.timezone}</span>}
+                        {(() => {
+                          const n = scheduleNarrator(s, settings, cardVoices);
+                          return n && (
+                            <span title={n.isDefault ? "Uses the saved narrator (AI Slideshow). Edit the schedule to pick another." : "This schedule's own narrator — Edit to change it."}
+                              className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 font-medium text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
+                              <Volume2 className="h-3 w-3" /> {n.text}{n.isDefault ? <span className="font-normal text-violet-500"> (default)</span> : null}
+                            </span>
+                          );
+                        })()}
                       </div>
                       {(rowMsg[s._id] || s.lastResult) && <p className="mt-1 text-xs text-slate-400">{compactScheduleResult(rowMsg[s._id] || s.lastResult)}</p>}
                       {s.kind === "longvideo" && lvJobs[s._id] && (() => {
