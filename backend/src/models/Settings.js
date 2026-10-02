@@ -237,6 +237,12 @@ const settingsSchema = new mongoose.Schema(
     // Social links (the `socialLinks` list) added automatically: a "Follow us"
     // block in YouTube descriptions, and a comment on Facebook / Instagram posts.
     socialLinksOnYoutube: { type: Boolean, default: true },
+    // Your own text added to the description of EVERY video (YouTube long
+    // videos + Shorts, Facebook videos + Reels), e.g. a Telegram invite or a
+    // disclaimer. Can be switched off per platform. See utils/videoDescription.js.
+    videoDescriptionText: { type: String, default: "" },
+    videoDescriptionYoutube: { type: Boolean, default: true },
+    videoDescriptionFacebook: { type: Boolean, default: true },
     socialLinksComment: { type: Boolean, default: true },
     tgEnabled: { type: Boolean, default: false },
     tgBotToken: { type: String, default: "" }, // SENSITIVE — never sent to the browser (tgBotTokenSet)

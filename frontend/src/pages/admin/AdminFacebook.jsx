@@ -3157,6 +3157,52 @@ function SocialLinksSection({ settings, saveSettings }) {
   );
 }
 
+// "Text for every video description": your own lines (a Telegram invite, a
+// disclaimer, "Download our app…") added to the description of every YouTube
+// long video + Short and every Facebook video + Reel. Per account.
+const VIDEO_TEXT_MAX = 1500;
+function VideoDescriptionTextSection({ settings, saveSettings }) {
+  const [text, setText] = useState(settings?.videoDescriptionText || "");
+  const [onYt, setOnYt] = useState(settings?.videoDescriptionYoutube !== false);
+  const [onFb, setOnFb] = useState(settings?.videoDescriptionFacebook !== false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const save = async () => {
+    setBusy(true); setMsg(null);
+    try {
+      await saveSettings({ videoDescriptionText: text.trim(), videoDescriptionYoutube: onYt, videoDescriptionFacebook: onFb });
+      setMsg({ ok: true, text: text.trim() ? "Saved — every new video gets this text." : "Saved — no extra text will be added." });
+    } catch (e) { setMsg({ ok: false, text: e.message }); } finally { setBusy(false); }
+  };
+  const check = (on, set, label, hint) => (
+    <label className="flex items-start gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700">
+      <input type="checkbox" className="mt-0.5 h-4 w-4 accent-brand-600" checked={on} onChange={(e) => set(e.target.checked)} />
+      <span><span className="font-medium">{label}</span><span className="block text-xs text-slate-400">{hint}</span></span>
+    </label>
+  );
+  const sample = ["JKSSB | Indian History | Advent of Europe | Quiz 1 (25 Questions)", "25 questions with answers — Indian History › Advent of Europe.", "Chapters: …", text.trim() || "‹your text appears here›", "#JKSSB #Quiz"].join("\n\n");
+  return (
+    <CollapsibleCard title="Text for every video description" icon={FileText} iconClass="h-4 w-4 text-brand-600">
+      <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
+        Type it once — it's added <b>automatically</b> to the description of every video: YouTube long videos &amp; Shorts, and Facebook videos &amp; Reels. It goes just above the hashtags. Good for a Telegram / WhatsApp invite, your app link, or a disclaimer.
+      </p>
+      <textarea className="input mt-3 min-h-[120px] w-full" maxLength={VIDEO_TEXT_MAX} value={text} onChange={(e) => setText(e.target.value)}
+        placeholder={"e.g.\n📲 Join our Telegram for daily quizzes: https://t.me/yourchannel\n📝 Practise more at www.mystudyguide.in"} />
+      <p className="text-right text-[11px] text-slate-400">{text.length}/{VIDEO_TEXT_MAX}</p>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+        {check(onYt, setOnYt, "YouTube", "Long videos, their Shorts and schedule Shorts")}
+        {check(onFb, setOnFb, "Facebook", "Long videos and Reels")}
+      </div>
+      <p className="mb-1 mt-3 text-xs font-medium text-slate-500">How a description will look</p>
+      <pre className="whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-xs text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">{sample}</pre>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button type="button" onClick={save} disabled={busy} className="btn-primary">{busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Save className="h-4 w-4" /> Save text</>}</button>
+        {msg && <span className={`inline-flex items-center gap-1 text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-rose-600"}`}>{msg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {msg.text}</span>}
+      </div>
+    </CollapsibleCard>
+  );
+}
+
 // Video branding: the logo + name at the top and the website at the bottom of
 // every AI Slideshow / Reel / Short / long-video slide. Saved per account, so a
 // cross-posting user's videos carry THEIR channel's name, not ours.
@@ -5123,6 +5169,7 @@ export default function AdminFacebook() {
 
       {/* Social links → YouTube descriptions + a comment on Facebook / Instagram posts */}
       <SocialLinksSection settings={settings} saveSettings={saveSettings} />
+      <VideoDescriptionTextSection key={`vdt-${getActiveSocialProfile() || "main"}-${settings?._id || "loading"}`} settings={settings} saveSettings={saveSettings} />
 
       {/* Header logo + name / footer website on every video slide (per account) */}
       <VideoBrandingSection key={`vb-${getActiveSocialProfile() || "main"}`} settings={settings} saveSettings={saveSettings} />

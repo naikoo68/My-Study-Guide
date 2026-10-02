@@ -1,3 +1,4 @@
+import { customVideoText, withVideoText } from "../utils/videoDescription.js";
 import { socialSettingsFilter, activeSocialProfileId, runAsSocialProfile, scheduleProfileFilter, ensureProfileIdBackfill } from "../utils/socialProfile.js";
 // Facebook / Instagram Graph API helper — verifies page credentials and publishes
 // auto-posts to a connected Facebook page / Instagram account.
@@ -98,7 +99,10 @@ async function publishScheduleToYoutube({ sch, cfg, videoUrl, caption, notes, ti
   const vars = titleVars ? { ...titleVars, n: titleVars.n || n } : { n, subject: sch.title || "" };
   const title = buildYtTitle(sch.ytTitle, vars, sch.title || "Daily Quiz");
   const site = await getFacebookSiteForConfig(cfg).catch(() => null);
-  const description = buildYtDescription(caption, site?.socialLinksOnYoutube !== false ? formatSocialLinks(site?.socialLinks, { exclude: ["youtube"], siteUrl: cfg.siteUrl }) : "");
+  const description = withVideoText(
+    buildYtDescription(caption, site?.socialLinksOnYoutube !== false ? formatSocialLinks(site?.socialLinks, { exclude: ["youtube"], siteUrl: cfg.siteUrl }) : ""),
+    customVideoText(site, "youtube"),
+  );
   const r = await uploadVideoToYoutube(
     { videoUrl, title, description, tags: buildYtTags(caption), privacy: cfg.ytPrivacy },
     cfg
@@ -1765,7 +1769,7 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
     // Pad an ultra-wide image to Facebook's limit so it isn't side-cropped.
     const fbImageUrl = rawImageUrl ? toFacebookSafeUrl(rawImageUrl) : undefined;
     const r = isReel
-      ? await postReelToFacebookPage({ videoUrl, description: message }, cfg)
+      ? await postReelToFacebookPage({ videoUrl, description: withVideoText(message, customVideoText(site, "facebook")) }, cfg)
       : await postToFacebookPage({ message, imageUrl: fbImageUrl }, cfg);
     fbAttempts.push({ ok: r.ok, id: r.id, pageId: cfg.pageId, pageLabel: "" });
     if (r.ok) { fbOk = true; notes.push("Facebook ✓"); } else notes.push(`Facebook ✗ (${r.error})`);
@@ -1775,7 +1779,7 @@ async function runCustomScheduleOnce(sch, cfg, site, schTitle, { notify = false 
       const token = String(t?.token || "").trim();
       if (!pageId || !token) continue;
       const rr = isReel
-        ? await postReelToFacebookPage({ videoUrl, description: message }, { ...cfg, pageId, token })
+        ? await postReelToFacebookPage({ videoUrl, description: withVideoText(message, customVideoText(site, "facebook")) }, { ...cfg, pageId, token })
         : await postToFacebookPage({ message, imageUrl: fbImageUrl }, { ...cfg, pageId, token });
       const name = t.label || pageId;
       fbAttempts.push({ ok: rr.ok, id: rr.id, pageId, pageLabel: name });
@@ -2260,7 +2264,7 @@ export async function runScheduleOnce(sch, cfgOverride, { notify = false } = {})
       if (!reelVideoUrl) {
         return postToFacebookPage({ message: fbMessage, link, imageUrl: fbImageUrl }, pageCfg);
       }
-      const rr = await postReelToFacebookPage({ videoUrl: reelVideoUrl, description: fbMessage }, pageCfg);
+      const rr = await postReelToFacebookPage({ videoUrl: reelVideoUrl, description: withVideoText(fbMessage, customVideoText(site, "facebook")) }, pageCfg);
       if (rr.ok || !fbReelFallbackImg) return rr;
       const img = await postToFacebookPage({ message: fbMessage, link, imageUrl: fbReelFallbackImg }, pageCfg);
       return img.ok ? { ...img, reelFellBackToImage: true } : rr;
