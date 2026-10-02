@@ -480,7 +480,7 @@ export default function QuestionFormModal({ question, saving, onClose, onSave, s
                   <div key={i} className="rounded-xl border border-slate-200 p-2 dark:border-slate-700">
                     <div className="flex items-center gap-2">
                       <input type="radio" name="correct" checked={isCorrect} onChange={() => setForm({ ...form, correct: i })} className="h-4 w-4 text-brand-600" />
-                      <input required className="input" value={opt} onChange={(e) => { const o = [...form.options]; o[i] = e.target.value; setForm({ ...form, options: o }); }} placeholder={form.type === "matching" ? `Option ${String.fromCharCode(97 + i)}  (e.g. 1-III, 2-I, 3-IV, 4-II)` : `Option ${String.fromCharCode(65 + i)}`} />
+                      <input required className="input" value={opt} onChange={(e) => { const o = [...form.options]; o[i] = e.target.value; setForm({ ...form, options: o }); }} placeholder={form.type === "matching" ? `Option ${String.fromCharCode(65 + i)}  (e.g. 1-III, 2-I, 3-IV, 4-II)` : `Option ${String.fromCharCode(65 + i)}`} />
                     </div>
                     {isCorrect ? (
                       <p className="mt-1.5 rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300">✓ Correct answer — write its detailed explanation in the "Explanation" box below.</p>

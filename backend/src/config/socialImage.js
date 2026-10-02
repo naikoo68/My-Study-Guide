@@ -346,7 +346,7 @@ async function buildPreviewSvg(q, opts = {}) {
 
   if (listOptions) {
     for (let i = 0; i < q.options.length && y < footerY - 46; i++) {
-      const line = truncToWidth(`(${String.fromCharCode(97 + i)})  ${uni(q.options[i])}`, 30, W - 2 * PAD);
+      const line = truncToWidth(`(${String.fromCharCode(65 + i)})  ${uni(q.options[i])}`, 30, W - 2 * PAD);
       els.push(T(PAD, y + 28, 30, "#334155", esc(line)));
       y += 46;
     }

@@ -195,7 +195,7 @@ export default function AdminFeedback() {
                       return (
                         <div key={idx} className={cls}>
                           {isCorrect ? <CheckCircle2 className="h-4 w-4 flex-shrink-0" /> : isChosen ? <XCircle className="h-4 w-4 flex-shrink-0" /> : <span className="h-4 w-4" />}
-                          <span className="font-bold">({String.fromCharCode(97 + idx)})</span>
+                          <span className="font-bold">({String.fromCharCode(65 + idx)})</span>
                           <OptionContent>{opt}</OptionContent>
                         </div>
                       );

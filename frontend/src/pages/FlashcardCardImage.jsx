@@ -71,7 +71,7 @@ export function FrontContent({ q, revealCorrect = false }) {
           <div key={idx} data-correct={isCorrect(idx) ? "1" : undefined}
             className={`flex w-full items-center gap-2.5 rounded-lg border-2 px-3 py-2 text-left text-sm ${isCorrect(idx) ? "border-emerald-500 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white"}`}>
             {/* Colours only — same size/weight, so the reveal never re-wraps the text. */}
-            <span className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md border text-xs font-bold ${isCorrect(idx) ? "border-emerald-500 bg-emerald-500 text-white" : "border-slate-300"}`}>{isMatching ? `(${String.fromCharCode(97 + idx)})` : optionLabels[idx]}</span>
+            <span className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md border text-xs font-bold ${isCorrect(idx) ? "border-emerald-500 bg-emerald-500 text-white" : "border-slate-300"}`}>{isMatching ? `(${String.fromCharCode(65 + idx)})` : optionLabels[idx]}</span>
             <span className="flex-1"><OptionContent>{opt}</OptionContent></span>
           </div>
         ))}

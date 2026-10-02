@@ -297,7 +297,7 @@ export default function QuizResult() {
                             ) : (
                               <span className="h-4 w-4" />
                             )}
-                            {r.type === "matching" && <span className="font-bold">({String.fromCharCode(97 + idx)})</span>}
+                            {r.type === "matching" && <span className="font-bold">({String.fromCharCode(65 + idx)})</span>}
                             <OptionContent>{opt}</OptionContent>
                           </div>
                           {!isCorrect && optExp && optExp.trim() && (
