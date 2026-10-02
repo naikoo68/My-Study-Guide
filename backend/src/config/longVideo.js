@@ -22,6 +22,7 @@ import {
 import { postLongVideoToFacebookPage } from "./fbLongVideo.js";
 import { TTS_PROVIDERS } from "../utils/ttsVoices.js";
 import { customVideoText, withVideoText } from "../utils/videoDescription.js";
+import { topMcqTagNames } from "../utils/topMcqTags.js";
 import { displayTrail, displayName } from "../utils/displayName.js";
 import { normalizeReadOptions, readOptionsFromSettings } from "./slidePlan.js";
 import {
@@ -764,7 +765,7 @@ async function uploadRendered(job, { cfg, opts, filePath, description, tags, thu
       title: job.title,
       // + the admin's own "text for every video" (YouTube).
       description: withVideoText(description, customVideoText(site, "youtube")),
-      tags: buildYtTags(tags, { first: [job.tagNames?.stream, job.tagNames?.subject, job.tagNames?.topic] }), // subject & topic as readable tags first
+      tags: buildYtTags(tags, { first: [job.tagNames?.stream, job.tagNames?.subject, job.tagNames?.topic, ...topMcqTagNames(job.tagNames)] }), // subject & topic as readable tags first
       privacy: job.privacy,
       publishAt: job.publishAt,
       onProgress: (sent, size) => { job.progress = { done: Math.round((sent / size) * 100), total: 100 }; },
@@ -809,7 +810,7 @@ async function uploadRendered(job, { cfg, opts, filePath, description, tags, thu
           filePath: shortPath,
           title: shortTitle(job.title),
           description: shortDescFull,
-          tags: buildYtTags(tags, { first: [job.tagNames?.stream, job.tagNames?.subject, job.tagNames?.topic] }), // subject & topic as readable tags first
+          tags: buildYtTags(tags, { first: [job.tagNames?.stream, job.tagNames?.subject, job.tagNames?.topic, ...topMcqTagNames(job.tagNames)] }), // subject & topic as readable tags first
           privacy: job.privacy,
           publishAt: job.publishAt,
         }, cfg);
@@ -992,7 +993,7 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
     if (!filePath) throw new Error("The video file was not produced.");
     if (result.ttsNote) job.notes.push(result.ttsNote);
 
-    const tags = await hashtagsForQuestion(questions[0], site, hashtags);
+    const tags = await hashtagsForQuestion(questions[0], site, hashtags, { video: true });
     const offset = opts.order === "random" ? 0 : first - 1;
     const description = buildYtLongDescription({
       title: job.title, // the description starts with the title
@@ -1335,7 +1336,7 @@ async function runPublish(job, { preview, cfg, site, hashtags, opts }) {
     job.stage = "downloading_preview";
     const filePath = await downloadToFile(preview.videoUrl, "mp4");
     temp.push(filePath);
-    const tags = await hashtagsForQuestion(d.firstQuestion, site, hashtags);
+    const tags = await hashtagsForQuestion(d.firstQuestion, site, hashtags, { video: true });
     const description = buildYtLongDescription({
       title: job.title,
       followLinks: site?.socialLinksOnYoutube !== false ? formatSocialLinks(site?.socialLinks, { exclude: ["youtube"], siteUrl: d.siteUrl }) : "",
