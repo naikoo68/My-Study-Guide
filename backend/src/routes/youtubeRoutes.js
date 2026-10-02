@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { youtubeStatus, saveYoutubeSettings, youtubeConnect, youtubeCallback, youtubeDisconnect, youtubeTest, startLongVideo, listLongVideos, longVideoStatus, youtubeUploadToken, youtubePlaylists, youtubeCreatePlaylist, youtubeThumbnailPreview, youtubeFinishUpload, longVideoQuestionCount, saveLongVideoDefaults, youtubeSlideTextPreview, startLongVideoPreview, longVideoPreviewStatus, youtubeNarrationPreview, youtubeFontFile, publishLongVideoPreview, retryLongVideo, longVideoTopicQuizzes } from "../controllers/youtubeController.js";
+import { youtubeStatus, saveYoutubeSettings, youtubeConnect, youtubeCallback, youtubeDisconnect, youtubeTest, startLongVideo, listLongVideos, longVideoStatus, youtubeUploadToken, youtubePlaylists, youtubeCreatePlaylist, youtubeThumbnailPreview, youtubeFinishUpload, longVideoQuestionCount, saveLongVideoDefaults, youtubeSlideTextPreview, startLongVideoPreview, longVideoPreviewStatus, youtubeNarrationPreview, youtubeFontFile, publishLongVideoPreview, retryLongVideo, longVideoTopicQuizzes, longVideoQueue, stopLongVideo } from "../controllers/youtubeController.js";
 import { protect, authorize } from "../middleware/auth.js";
 
 // YouTube auto-post connection (admin). Posting itself happens through the
@@ -21,6 +21,10 @@ router.get("/long-video/preview/:id", ...admin, longVideoPreviewStatus);
 router.post("/long-video/preview/:id/publish", ...admin, publishLongVideoPreview);
 router.post("/long-video", ...admin, startLongVideo);
 router.get("/long-video", ...admin, listLongVideos);
+// The render queue (what's being made now + what's waiting) and Stop.
+// Declared before "/long-video/:id" so "queue" isn't read as a job id.
+router.get("/long-video/queue", ...admin, longVideoQueue);
+router.post("/long-video/:id/stop", ...admin, stopLongVideo);
 router.get("/long-video/:id", ...admin, longVideoStatus);
 router.post("/long-video/:id/retry", ...admin, retryLongVideo);
 // … and your own video files, uploaded from the browser straight to YouTube.

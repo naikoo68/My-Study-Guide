@@ -53,6 +53,7 @@ const STAGE_LABEL = {
   done: "Done",
   failed: "Failed",
   cancelled: "Cancelled — its schedule was deleted",
+  stopped: "Stopped by you",
 };
 
 function cleanup() {
@@ -92,7 +93,7 @@ export function publicJob(j) {
     id: j.id,
     status: j.status, // queued | running | done | failed
     stage: j.stage,
-    stageLabel: STAGE_LABEL[j.stage] || j.stage,
+    stageLabel: j.stage === "cancelled" && j.cancelReason === "stopped" ? STAGE_LABEL.stopped : STAGE_LABEL[j.stage] || j.stage,
     progress: j.progress,
     percent: jobPercent(j),
     label: j.label,
@@ -166,8 +167,17 @@ async function scheduleGone(job) {
     return false; // a database hiccup never cancels a video
   }
 }
+const stopMessage = (job) => (job.cancelReason === "stopped"
+  ? "Stopped by you — nothing was posted."
+  : "Its schedule was deleted, so this video was not posted.");
 async function stopIfScheduleGone(job) {
-  if (await scheduleGone(job)) throw Object.assign(new Error("Its schedule was deleted, so this video was not posted."), { code: CANCELLED });
+  if (await scheduleGone(job)) throw Object.assign(new Error(stopMessage(job)), { code: CANCELLED });
+}
+// Checked on every progress tick while a video renders, so "Stop" takes effect
+// within seconds (between slides / narration parts / video segments) instead of
+// after a 20-minute render.
+function throwIfStopped(job) {
+  if (job.cancelRequested) throw Object.assign(new Error(stopMessage(job)), { code: CANCELLED });
 }
 function markCancelled(job, e) {
   job.status = "cancelled";
@@ -180,6 +190,75 @@ export function getLongVideoJob(id, tenantKey) {
   const j = jobs.get(String(id));
   if (!j || j.tenantKey !== tenantKey) return null;
   return j;
+}
+
+// ---- The render queue (one video at a time, for every account) ----
+// What is being made right now and what is waiting behind it, in order — so a
+// "Waiting for another video to finish" row can say WHICH video, and the admin
+// can stop it. Raw jobs; the controller decides what each admin may see.
+const UPLOAD_STAGES = new Set(["uploading", "uploading_facebook", "short", "reels"]);
+const jobKind = (j) => (j.preview ? "preview" : j.fromPreview ? "publish" : "video");
+export function renderQueue() {
+  cleanup();
+  const live = [...jobs.values()].filter((j) => j.status === "queued" || j.status === "running");
+  // The chain runs jobs in the order they were added (= createdAt).
+  live.sort((a, b) => (a.status === "running" ? -1 : 0) - (b.status === "running" ? -1 : 0) || (a.createdAt || 0) - (b.createdAt || 0));
+  return live;
+}
+// Why a job can't be stopped right now ("" = it can).
+export function stopBlockedReason(j) {
+  if (!j || (j.status !== "queued" && j.status !== "running")) return "It has already finished.";
+  if (j.status === "running" && (j.uploadStarted || UPLOAD_STAGES.has(j.stage))) {
+    return "It is already uploading — stopping now could leave it half-posted, so it will finish (about a minute).";
+  }
+  return "";
+}
+export function queueView(j, position = 0) {
+  const kind = jobKind(j);
+  return {
+    id: j.id,
+    kind, // video | preview | publish
+    position, // 0 = being made now, 1 = next, …
+    status: j.status,
+    stage: j.stage,
+    stageLabel: j.status === "queued" ? STAGE_LABEL.queued : STAGE_LABEL[j.stage] || j.stage,
+    percent: kind === "preview" ? previewPercent(j) : jobPercent(j),
+    label: j.label || j.title || "",
+    title: j.title || "",
+    questions: j.questions || 0,
+    range: j.range || "",
+    auto: !!j.auto,
+    scheduleId: j.scheduleId || "",
+    profileId: j.profileId || "",
+    createdAt: j.createdAt,
+    startedAt: j.startedAt || null,
+    canStop: !stopBlockedReason(j),
+    stopBlocked: stopBlockedReason(j),
+  };
+}
+// Stop a queued or rendering video. A queued one is dropped at once; a running
+// one stops at its next progress tick (seconds). Nothing is posted. Returns the
+// job (or throws with a reason the admin can read).
+export function stopLongVideoJob(id) {
+  const j = jobs.get(String(id || ""));
+  if (!j) throw Object.assign(new Error("That video is no longer in the queue."), { status: 404 });
+  const why = stopBlockedReason(j);
+  if (why) throw Object.assign(new Error(why), { status: 409 });
+  j.cancelRequested = true;
+  j.cancelReason = "stopped";
+  if (j.status === "queued") {
+    // Show it as stopped right away; its turn in the chain then just skips it.
+    markCancelled(j, new Error(stopMessage(j)));
+    if (!j.preview) { saveRecord(j); rollBackStoppedSchedule(j); }
+  }
+  return j;
+}
+// A stopped schedule video: put the schedule back on THIS part, so its next
+// run makes it again (nothing was posted). Never throws.
+function rollBackStoppedSchedule(job) {
+  if (!job.scheduleId || job._rolledBack) return;
+  job._rolledBack = true;
+  reportToSchedule(job, false, { stopped: true }).catch(() => {});
 }
 
 // ---- Saved job records (survive a server restart / deploy) ----
@@ -446,7 +525,7 @@ export function queueFullQuizVideo({ source, cfg, site, titleTemplate = "", priv
 // schedule row so the list shows "posted ✓" (not a forever "being made") and
 // counts videos posted. On failure, roll the position back so the next run
 // retries this same part. Never throws.
-async function reportToSchedule(job, ok) {
+async function reportToSchedule(job, ok, { stopped = false } = {}) {
   if (!job.scheduleId) return;
   const FbSchedule = (await import("../models/FbSchedule.js")).default;
   const sch = await FbSchedule.findById(job.scheduleId).catch(() => null);
@@ -460,7 +539,9 @@ async function reportToSchedule(job, ok) {
     sch.lastResult = `${label} posted ✓${links ? ` — ${links}` : ""}${extra.length ? ` · ${extra.join(" · ")}` : ""}`;
     sch.longVideo = { ...lv, postedCount: (Number(lv.postedCount) || 0) + 1 };
   } else {
-    sch.lastResult = `${label} failed: ${job.error}`;
+    sch.lastResult = stopped
+      ? `${label} was stopped by you — nothing was posted; it will be made again at the next run.`
+      : `${label} failed: ${job.error}`;
     const src = job.request?.source || {};
     if (lv.byQuiz && (src.quiz || src.testSeries)) {
       // Quiz by quiz: make THIS quiz / part again next run (and keep the
@@ -833,15 +914,17 @@ async function postShortReelsAndLinks(job, { cfg, opts, tags, getShort, schedule
 }
 
 async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts }) {
+  if (job.status === "cancelled") return; // stopped while it waited in the queue
   job.status = "running";
+  job.startedAt = Date.now();
   job.stage = "picking";
   let filePath = "";
   let shortPath = ""; // the vertical Short copy (deleted at the end)
   try {
     await stopIfScheduleGone(job); // deleted while it waited in the queue
     const { questions, names, breadcrumb, first, siteUrl, slideBase, intro, shortBase } = await planLongVideo(job, { source, cfg, site, titleTemplate, opts });
-    const onStatus = (st) => { job.stage = String(st || "").toLowerCase(); };
-    const onProgress = (stage, done, total) => { job.stage = String(stage || "").toLowerCase(); job.progress = { done, total }; };
+    const onStatus = (st) => { throwIfStopped(job); job.stage = String(st || "").toLowerCase(); };
+    const onProgress = (stage, done, total) => { throwIfStopped(job); job.stage = String(stage || "").toLowerCase(); job.progress = { done, total }; };
     const result = await generateSlideshow(questions, {
       ...slideBase,
       intro,
@@ -872,7 +955,8 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
       thumbnail = await drawLongVideoThumbnail(job, { source, cfg, site, names, questions });
     }
 
-    await stopIfScheduleGone(job); // deleted while the video was being made
+    await stopIfScheduleGone(job); // deleted / stopped while the video was being made
+    job.uploadStarted = true; // from here on "Stop" is refused (no half-posted videos)
     await uploadRendered(job, {
       cfg, site, opts, filePath, description, tags, thumbnail, breadcrumb,
       // The Short is rendered only when it will be posted (deleted in finally).
@@ -899,7 +983,11 @@ async function runJob(job, { source, cfg, site, titleTemplate, hashtags, opts })
     }
   } catch (e) {
     // Cancelled because its schedule was deleted: no error email, no retry.
-    if (e?.code === CANCELLED) { markCancelled(job, e); return; }
+    if (e?.code === CANCELLED) {
+      markCancelled(job, e);
+      if (job.cancelReason === "stopped") rollBackStoppedSchedule(job);
+      return;
+    }
     job.status = "failed";
     job.stage = "failed";
     job.error = String(e?.message || e).slice(0, 500);
@@ -1020,6 +1108,7 @@ export function getLongVideoPreview(id, tenantKey, ownerId) {
 }
 
 async function runPreview(job, { source, cfg, site, titleTemplate, opts }) {
+  if (job.status === "cancelled") return; // stopped while it waited in the queue
   job.status = "running";
   job.startedAt = Date.now();
   job.stage = "picking";
@@ -1029,8 +1118,8 @@ async function runPreview(job, { source, cfg, site, titleTemplate, opts }) {
     if (!isCloudinaryConfigured()) throw new Error("Media storage isn't set up (Cloudinary keys missing), so the preview can't be played.");
     const { questions, names, breadcrumb, first, siteUrl, slideBase, intro, shortBase } = await planLongVideo(job, { source, cfg, site, titleTemplate, opts });
     const track = (phase) => ({
-      onStatus: (st) => { job.phase = phase; job.stage = String(st || "").toLowerCase(); job.progress = null; },
-      onProgress: (st, done, total) => { job.phase = phase; job.stage = String(st || "").toLowerCase(); job.progress = { done, total }; },
+      onStatus: (st) => { throwIfStopped(job); job.phase = phase; job.stage = String(st || "").toLowerCase(); job.progress = null; },
+      onProgress: (st, done, total) => { throwIfStopped(job); job.phase = phase; job.stage = String(st || "").toLowerCase(); job.progress = { done, total }; },
     });
 
     // 1) The FULL video — every chosen question, intro + end slide.
@@ -1060,7 +1149,9 @@ async function runPreview(job, { source, cfg, site, titleTemplate, opts }) {
     job.shortDuration = shortRender.duration;
 
     // 3) Upload both so the browser can play them.
+    throwIfStopped(job);
     job.phase = "upload";
+    job.uploadStarted = true;
     job.stage = "uploading_preview";
     job.progress = null;
     const folder = "mystudyguide/longvideo/preview";
@@ -1093,6 +1184,7 @@ async function runPreview(job, { source, cfg, site, titleTemplate, opts }) {
     job.stage = "done";
     job.finishedAt = Date.now();
   } catch (e) {
+    if (e?.code === CANCELLED) { markCancelled(job, e); return; }
     job.status = "failed";
     job.stage = "failed";
     job.error = String(e?.message || e).slice(0, 500);
@@ -1176,7 +1268,10 @@ export function queuePublishPreview({ preview, cfg, site, privacy, publishAt = n
 }
 
 async function runPublish(job, { preview, cfg, site, hashtags, opts }) {
+  if (job.status === "cancelled") { preview.publishedJobId = ""; return; } // stopped while queued
   job.status = "running";
+  job.startedAt = Date.now();
+  job.uploadStarted = true; // publishing is all uploads — it can't be stopped half-way
   job.stage = "picking";
   const temp = [];
   try {

@@ -17,7 +17,9 @@ import { getFacebookConfig, getFacebookSiteForConfig, completeQuestionsForSource
 import {
   queueFullQuizVideo, normalizeLongVideoOptions, listLongVideoJobs, getLongVideoJob, publicJob, tenantKeyNow, MAX_LONG_VIDEO_QUESTIONS,
   queueLongVideoPreview, getLongVideoPreview, publicPreviewJob, queuePublishPreview, retryLongVideoJob,
+  renderQueue, queueView, stopLongVideoJob,
 } from "../config/longVideo.js";
+import FbSchedule from "../models/FbSchedule.js";
 
 function statusOf(site, req) {
   const { clientId, clientSecret } = ytClientCreds(site);
@@ -413,6 +415,55 @@ export async function retryLongVideo(req, res) {
   } catch (e) {
     res.status(400).json({ message: e.message });
   }
+}
+
+// Which queued / rendering videos this admin may see in full and stop: their
+// own institute's (same tenant key), or one made by a schedule they can see.
+// The scheduler stamps its jobs with the schedule's tenant id, which can differ
+// from the admin request's, so a schedule-visibility check covers those. The
+// FbSchedule query is tenant-scoped by the model plugin.
+async function ownJobsFilter(list) {
+  const mine = tenantKeyNow();
+  const schIds = [...new Set(list.filter((j) => j.scheduleId && j.tenantKey !== mine).map((j) => j.scheduleId))];
+  const visible = new Set();
+  if (schIds.length) {
+    const rows = await FbSchedule.find({ _id: { $in: schIds } }).select("_id").lean().catch(() => []);
+    for (const r of rows) visible.add(String(r._id));
+  }
+  return (j) => j.tenantKey === mine || (!!j.scheduleId && visible.has(String(j.scheduleId)));
+}
+
+// GET /api/youtube/long-video/queue → { queue: [...] } — the video being made
+// now (position 0) and the ones waiting behind it, in order. Another
+// institute's video only shows as "another account's video" (no name, no stop).
+export async function longVideoQueue(_req, res) {
+  const list = renderQueue();
+  const isMine = await ownJobsFilter(list);
+  res.json({
+    queue: list.map((j, i) => (isMine(j)
+      ? { ...queueView(j, i), mine: true }
+      : { id: "", kind: "video", position: i, status: j.status, stageLabel: j.status === "running" ? "Being made" : "Waiting", percent: 0, label: "Another account's video", mine: false, canStop: false, stopBlocked: "" })),
+  });
+}
+
+// POST /api/youtube/long-video/:id/stop { pauseSchedule? } — stop a queued or
+// rendering video (nothing is posted). Optionally also pause its schedule so
+// it doesn't simply make the video again at the next time.
+export async function stopLongVideo(req, res) {
+  const id = String(req.params.id || "");
+  const j = renderQueue().find((x) => x.id === id);
+  if (!j || !(await ownJobsFilter([j]))(j)) return res.status(404).json({ message: "That video is no longer in the queue." });
+  try {
+    stopLongVideoJob(id);
+  } catch (e) {
+    return res.status(e.status || 400).json({ message: e.message });
+  }
+  let paused = false;
+  if (req.body?.pauseSchedule && j.scheduleId) {
+    const r = await FbSchedule.updateOne({ _id: j.scheduleId }, { $set: { enabled: false } }).catch(() => null);
+    paused = !!(r?.modifiedCount || r?.matchedCount);
+  }
+  res.json({ ok: true, job: queueView(j), paused });
 }
 
 // GET /api/youtube/long-video/:id
